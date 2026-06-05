@@ -37,6 +37,7 @@ class KernelWidget : GlanceAppWidget() {
     }
 }
 
+@Suppress("RestrictedApi")
 @Composable
 private fun KernelWidgetContent(packageName: String) {
     GlanceTheme {

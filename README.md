@@ -112,7 +112,7 @@ consciously parked.
 
 | Issue | Size | Summary |
 |-------|------|---------|
-| [#915](https://github.com/NickMonrad/kernel-ai-assistant/issues/915) · [#916](https://github.com/NickMonrad/kernel-ai-assistant/issues/916) | L · S | Toolchain upgrade — AGP 9 / Gradle 9 / Kotlin 2.3.x / Hilt (touches every module) |
+| ~~[#915](https://github.com/NickMonrad/kernel-ai-assistant/issues/915)~~ · ~~[#916](https://github.com/NickMonrad/kernel-ai-assistant/issues/916)~~ | L · S | ✓ Toolchain upgrade — AGP 9.0.1 / Gradle 9.1.0 / Kotlin 2.3.21 / Hilt 2.59.2 (PR #1082) |
 | [#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428) | M | Memory profiling — peak RAM & concurrent model usage (feeds #430/#432) |
 | [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | M | Fix inference stalls in Boring AI Mode |
 | [#937](https://github.com/NickMonrad/kernel-ai-assistant/issues/937) · [#957](https://github.com/NickMonrad/kernel-ai-assistant/issues/957) | M · S | Memory + intent-routing correctness bugs |

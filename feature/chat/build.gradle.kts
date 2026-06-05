@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
@@ -23,14 +22,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    kotlinOptions {
-        jvmTarget = "17"
-        // LiteRT-LM (via core:inference) is compiled with Kotlin metadata 2.3.0.
-        // Skip the strict metadata version check to allow compilation.
-        freeCompilerArgs += "-Xskip-metadata-version-check"
-    }
-
     testOptions {
         unitTests.all { it.useJUnitPlatform() }
     }
@@ -53,6 +44,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
     implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.process)
@@ -72,6 +64,7 @@ dependencies {
     androidTestImplementation(libs.compose.material.icons)
 
     testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation("org.json:json:20240303")
