@@ -1633,7 +1633,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
-                            if (matchedIntent.intentName == "save_memory") {
+                            if (matchedIntent.intentName == "save_memory" || matchedIntent.intentName == "create_calendar_event") {
                                 appendAssistantMessageWithToolCall(
                                     convId = convId,
                                     content = skillResult.content,
