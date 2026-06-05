@@ -1,5 +1,6 @@
 package com.kernel.ai.core.inference
 
+import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import android.util.Log
@@ -48,7 +49,6 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
-import android.app.ActivityManager
 private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
@@ -1282,25 +1282,28 @@ class LiteRtInferenceEngine @Inject constructor(
                     },
                 )
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
-                // Wrap Engine.initialize() with a timeout to catch GPU driver hangs
-                // (observed on Mali-G78 / Exynos 2100 and NPU CDSP #684, #609).
-                // NOTE: withTimeout cannot interrupt native JNI blocking calls.
-                // If Engine.initialize() hangs indefinitely in native code, this
-                // timeout will NOT fire — the allowlist/blacklist in
-                // HardwareProfileDetector is the primary guard against known-bad SoCs.
-                val eng = withTimeout(GPU_INIT_TIMEOUT_MS) {
-                    withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                        Engine(engineConfig).also { it.initialize() }
+                // Construct Engine in a try-finally so we close it on failure — the timeout
+                // is advisory only (native JNI blocking calls may not be interrupted).
+                var engine: Engine? = null
+                try {
+                    engine = withTimeout(GPU_INIT_TIMEOUT_MS) {
+                        withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                            val e = Engine(engineConfig)
+                            e.initialize()
+                            e
+                        }
                     }
+                    Log.i(TAG, "Backend $backendType initialized successfully")
+                    return Pair(engine, backendType)
+                } catch (e: TimeoutCancellationException) {
+                    Log.w(TAG, "Backend $backendType timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
+                    engine?.close()
+                    lastException = e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Backend $backendType failed: ${e.message}")
+                    engine?.close()
+                    lastException = e
                 }
-                Log.i(TAG, "Backend $backendType initialized successfully")
-                return Pair(eng, backendType)
-            } catch (e: TimeoutCancellationException) {
-                Log.w(TAG, "Backend $backendType timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
-                lastException = e
-            } catch (e: Exception) {
-                Log.w(TAG, "Backend $backendType failed: ${e.message}")
-                lastException = e
             }
         }
 
@@ -1327,8 +1330,9 @@ class LiteRtInferenceEngine @Inject constructor(
     private fun getAvailableMemoryBytes(): Long {
         return try {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return Long.MAX_VALUE
             val memInfo = ActivityManager.MemoryInfo()
-            am?.getMemoryInfo(memInfo)
+            am.getMemoryInfo(memInfo)
             memInfo.availMem
         } catch (e: Exception) {
             Log.w(TAG, "Failed to query available memory: ${e.message}")
