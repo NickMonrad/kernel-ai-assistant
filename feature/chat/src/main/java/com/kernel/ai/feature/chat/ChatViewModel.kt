@@ -739,7 +739,8 @@ class ChatViewModel @Inject constructor(
             append("1. Choose the most relevant native tool for the user's request.\n")
             append("2. Call that tool directly when its name and parameters are clear from the request.\n")
             append("3. If you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
-            append("4. Output ONLY the final user-facing result when successful.\n\n")
+            append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
+            append("5. Output ONLY the final user-facing result when successful.\n\n")
             append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
@@ -1349,6 +1350,9 @@ class ChatViewModel @Inject constructor(
             // Actions-tab fallthroughs temporarily swap the system prompt to MINIMAL; mark the
             // next turn for a history replay so normal chat can restore the full prompt safely.
             var restoreFullPromptAfterTurn = false
+            // Suppressed system-only tool leaks also require a replay so the next turn does not
+            // inherit hidden retry/correction state that was never persisted to Room.
+            var forceHistoryReplayAfterTurn = false
             // Hoisted so the Complete handler can index the user message after knowing whether
             // any device-action tools were called during LLM inference.
             var savedUserMsgId = ""
@@ -1599,19 +1603,36 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
-                // Calendar intent matched by classifier but params not extractable via regex —
-                // skip immediate execution and fall through to E4B with a structured hint.
+                // Calendar intent matched by classifier or regex but params not fully extractable —
+                // skip immediate execution. Only inject the structured hint when there is actionable
+                // date/time info (extractable or already in params). Pure capability queries
+                // ("do you know how to create calendar events") fall through naturally to E4B.
                 if (matchedIntent.intentName == "create_calendar_event" &&
                     matchedIntent.params["title"].isNullOrBlank()
                 ) {
                     val rawQuery = matchedIntent.params["raw_query"] ?: text
-                    val titleHint = matchedIntent.params["extracted_title"]
-                    val titleClause = if (titleHint != null) "The event title is likely \"$titleHint\". " else ""
-                    systemContext = "[System: User wants to create a calendar event. " +
-                        "Their request: \"$rawQuery\". " +
-                        "${titleClause}Extract the event title, date, and time, then call " +
-                        "runIntent(intentName=\"create_calendar_event\", ...). " +
-                        "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
+                    // Use extractCalendarHints on the raw query to detect actionable
+                    // date/time info — classifier matches carry empty params, so we
+                    // must inspect the query text itself, not matchedIntent.params.
+                    // Note: gating on extractability means requests like "schedule
+                    // something for next week" (where the regex doesn't match "next
+                    // week") won't get the steer. That's intentional — the steer is
+                    // a convenience for the model, not a necessity, and removing it
+                    // for edge cases is the safer failure mode compared to injecting
+                    // it into unrelated conversations.
+                    val hints = QuickIntentRouter.extractCalendarHints(rawQuery)
+                    val hasDateHint = hints["date"]?.isNotBlank() == true
+                    val hasTimeHint = hints["time"]?.isNotBlank() == true
+                    if (hasDateHint || hasTimeHint) {
+                        systemContext = "[System: User wants to create a calendar event. " +
+                            "Their request: \"$rawQuery\". " +
+                            "Extract the event title, date, and time, then call " +
+                            "runIntent(intentName=\"create_calendar_event\", parameters={...}). " +
+                            "Pass the date in the 'date' field using a relative term (e.g. 'tomorrow', " +
+                            "'next friday') or a plain date ('9 June'), and the clock time separately " +
+                            "in the 'time' field as HH:MM. If you have YYYY-MM-DDTHH:MM, send " +
+                            "date=YYYY-MM-DD and time=HH:MM.]"
+                    }
                     // fall through to E4B — do NOT execute now
                 } else {
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
@@ -1935,6 +1956,7 @@ class ChatViewModel @Inject constructor(
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
+                var systemOnlyToolRetryAttempted = false
                 var blankResponseRetryAttempted = false
                 var preservedThinkingText: String? = null
                 var currentPrompt = prompt
@@ -2051,15 +2073,48 @@ class ChatViewModel @Inject constructor(
                             } else null
 
                             if (nativeToolCall != null || toolCallResult != null) {
-                                val toolCall = nativeToolCall ?: toolCallResult!!.first
+                                val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
                                     nativeToolCall != null && kernelAIToolSet.lastToolWasDirectReply()
+                                val isSystemOnlyTool = rawToolCall.isSuccess && isSystemOnlyToolCall(rawToolCall.skillName)
+                                val leakedSystemToolContent = isSystemOnlyTool && looksLikeRawToolCall(fullContent)
+                                if (leakedSystemToolContent) {
+                                    forceHistoryReplayAfterTurn = true
+                                    val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
+                                    if (!systemOnlyToolRetryAttempted && budgetOk) {
+                                        systemOnlyToolRetryAttempted = true
+                                        Log.w("KernelAI", "system_only_tool_retry_attempted")
+                                        needsHallucinationRetry = true
+                                        currentPrompt = SYSTEM_ONLY_TOOL_RETRY_CORRECTION + "\n\n" + prompt
+                                        accumulatedContent = StringBuilder()
+                                        accumulatedThinking = StringBuilder()
+                                        activeStreamingContent = accumulatedContent
+                                        activeStreamingThinking = accumulatedThinking
+                                        _messages.update { msgs ->
+                                            msgs.map {
+                                                if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it
+                                            }
+                                        }
+                                        return@collect
+                                    }
+                                    Log.w("KernelAI", "system_only_tool_leak_suppressed")
+                                }
+                                val toolCall = rawToolCall.toVisibleToolCallInfo()
+                                if (systemOnlyToolRetryAttempted && !leakedSystemToolContent) {
+                                    Log.d("KernelAI", "system_only_tool_retry_succeeded")
+                                }
                                 val resultContent = when {
+                                    leakedSystemToolContent ->
+                                        fallbackSystemOnlyToolReply(text)
                                     nativeToolWasDirectReply ->
-                                        toolCall.resultText
-                                    nativeToolCall != null && toolCall.presentation != null && toolCall.isSuccess ->
-                                        toolCall.resultText
+                                        rawToolCall.resultText
+                                    nativeToolCall != null &&
+                                        !isSystemOnlyTool &&
+                                        rawToolCall.presentation != null &&
+                                        rawToolCall.isSuccess ->
+                                        rawToolCall.resultText
                                     nativeToolCall != null -> fullContent
+                                    isSystemOnlyTool -> fallbackSystemOnlyToolReply(text)
                                     else -> toolCallResult!!.second
                                 }
 
@@ -2245,7 +2300,7 @@ class ChatViewModel @Inject constructor(
                 activeStreamingContent = StringBuilder()
                 activeStreamingThinking = StringBuilder()
             } finally {
-                if (restoreFullPromptAfterTurn) {
+                if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
                 }
             }
@@ -2788,6 +2843,11 @@ private const val RAW_TOOL_CALL_RETRY_CORRECTION =
         "function text. Silently call the appropriate native tool function and then answer with " +
         "the final user-facing result only.]"
 
+private const val SYSTEM_ONLY_TOOL_RETRY_CORRECTION =
+    "[System: You already loaded internal tool instructions. Do NOT quote, summarise, or paste " +
+        "those instructions into chat. Use them silently and answer the user's original request " +
+        "in natural language only.]"
+
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.
  *
@@ -2805,6 +2865,43 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillN
     -> false
     else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
 }
+
+
+private fun isSystemOnlyToolCall(skillName: String): Boolean = skillName == "load_skill"
+
+private fun ToolCallInfo.toVisibleToolCallInfo(): ToolCallInfo {
+    if (!isSystemOnlyToolCall(skillName)) return this
+    val loadedSkillName = runCatching {
+        org.json.JSONObject(requestJson).optString("skill_name").takeIf { it.isNotBlank() }
+    }.getOrNull()
+    val displayName = loadedSkillName?.replace('_', ' ')
+    val summary = if (displayName != null) {
+        "Loaded internal instructions for $displayName."
+    } else {
+        "Loaded internal instructions."
+    }
+    val title = if (displayName != null) {
+        "Loaded $displayName instructions"
+    } else {
+        "Loaded skill instructions"
+    }
+    return copy(
+        resultText = summary,
+        presentation = ToolPresentation.Status(
+            icon = "🧠",
+            title = title,
+            subtitle = "Internal step used to answer this question.",
+        ),
+        spokenSummary = null,
+    )
+}
+
+private fun fallbackSystemOnlyToolReply(userText: String): String =
+    if (userText.trim().endsWith("?")) {
+        "Yes — I can help with that. Tell me what you'd like to do."
+    } else {
+        "I can help with that. Tell me what you'd like to do."
+    }
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
