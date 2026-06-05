@@ -115,7 +115,7 @@ internal fun isGpuAllowlisted(
     socModel: String,
 ): Boolean {
     val mfr = socManufacturer.uppercase()
-    val model = socModel.uppercase()
+    val model = socModel.uppercase().replace(" ", "")
 
     // Exynos 2100 (S21) — confirmed working with GPU, see #684 on-device test results.
     if (mfr.contains("SAMSUNG") && (model.contains("EXYNOS2100") || model.contains("S5E9845"))) {
