@@ -860,7 +860,8 @@ class ChatViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = "Failed to load model: ${e.message}"
+                Log.e(TAG, "initEngineWhenReady failed", e)
+                _error.value = "Failed to load AI model: ${e.message}"
             }
         }
     }
@@ -917,7 +918,8 @@ class ChatViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = "Failed to load model: ${e.message}"
+                Log.e(TAG, "initGemma4 failed", e)
+                _error.value = "Failed to load AI model: ${e.message}"
             }
         }
     }
@@ -2181,6 +2183,9 @@ class ChatViewModel @Inject constructor(
                             activeStreamingThinking = StringBuilder()
                         }
                     }
+                }
+                if (needsHallucinationRetry) {
+                    inferenceEngine.resetConversation()
                 }
             } while (needsHallucinationRetry)
 
