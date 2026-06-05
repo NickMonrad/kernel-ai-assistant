@@ -143,14 +143,20 @@ class HardwareDetectionTest {
     fun `empty SoC strings on MID_RANGE does NOT skip GPU`() {
         assertFalse(isMaliGpuSoc("", "", HardwareTier.MID_RANGE))
     }
-    // -----------------------------------------------------------------------
+
     // isGpuAllowlisted — verified-working SoCs bypass the Mali blacklist
-    // -----------------------------------------------------------------------
 
     @Test
     fun `Exynos 2100 is GPU-allowlisted`() {
         assertTrue(isGpuAllowlisted("Samsung", "exynos2100"))
     }
+
+    @Test
+    fun `Exynos 2100 with space in model string is GPU-allowlisted`() {
+        // ro.soc.model returns "Exynos 2100" (with space) — regression test for #684
+        assertTrue(isGpuAllowlisted("Samsung", "Exynos 2100"))
+    }
+
 
     @Test
     fun `Exynos 2100 S5E9845 variant is GPU-allowlisted`() {
