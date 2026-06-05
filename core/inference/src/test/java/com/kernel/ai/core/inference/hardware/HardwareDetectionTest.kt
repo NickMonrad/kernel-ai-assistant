@@ -66,10 +66,6 @@ class HardwareDetectionTest {
         assertTrue(isMaliGpuSoc("Samsung", "exynos2100", HardwareTier.MID_RANGE))
     }
 
-    @Test
-    fun `Samsung Exynos 2200 on MID_RANGE skips GPU`() {
-        assertTrue(isMaliGpuSoc("SAMSUNG", "EXYNOS2200", HardwareTier.MID_RANGE))
-    }
 
     @Test
     fun `Samsung S5E model on MID_RANGE skips GPU`() {
@@ -79,6 +75,24 @@ class HardwareDetectionTest {
     @Test
     fun `Samsung Exynos on LOW_POWER skips GPU`() {
         assertTrue(isMaliGpuSoc("samsung", "Exynos 850", HardwareTier.LOW_POWER))
+    }
+
+    // --- Samsung Exynos 2200+ (Xclipse GPU) — do NOT skip ---
+
+    @Test
+    fun `Exynos 2200 on MID_RANGE does NOT skip GPU — Xclipse not Mali`() {
+        // Exynos 2200 has AMD Xclipse 920 (RDNA 2), not Mali — must not be blacklisted
+        assertFalse(isMaliGpuSoc("Samsung", "exynos2200", HardwareTier.MID_RANGE))
+    }
+
+    @Test
+    fun `Exynos 2200 S5E9925 on MID_RANGE does NOT skip GPU — Xclipse not Mali`() {
+        assertFalse(isMaliGpuSoc("Samsung", "S5E9925", HardwareTier.MID_RANGE))
+    }
+
+    @Test
+    fun `Exynos 2400 on MID_RANGE does NOT skip GPU — Xclipse not Mali`() {
+        assertFalse(isMaliGpuSoc("Samsung", "exynos2400", HardwareTier.MID_RANGE))
     }
 
     // --- Samsung Exynos (FLAGSHIP) — do NOT skip ---
@@ -195,8 +209,8 @@ class HardwareDetectionTest {
     }
 
     @Test
-    fun `Exynos 2200 on MID_RANGE is Mali AND NOT allowlisted — skip GPU`() {
-        assertTrue(isMaliGpuSoc("Samsung", "exynos2200", HardwareTier.MID_RANGE))
+    fun `Exynos 2200 on MID_RANGE is NOT Mali (Xclipse) AND NOT allowlisted — do NOT skip GPU`() {
+        assertFalse(isMaliGpuSoc("Samsung", "exynos2200", HardwareTier.MID_RANGE))
         assertFalse(isGpuAllowlisted("Samsung", "exynos2200"))
     }
 

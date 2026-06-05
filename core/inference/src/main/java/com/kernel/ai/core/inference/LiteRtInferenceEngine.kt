@@ -1239,7 +1239,7 @@ class LiteRtInferenceEngine @Inject constructor(
         val availMem = getAvailableMemoryBytes()
         val modelFile = File(config.modelPath)
         val modelSize = if (modelFile.exists()) modelFile.length() else 0L
-        val skipGpuForMemory = availMem in 1..<MIN_AVAIL_MEM_FOR_GPU_BYTES
+        val skipGpuForMemory = availMem < MIN_AVAIL_MEM_FOR_GPU_BYTES
         if (skipGpuForMemory) {
             Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) below GPU minimum " +
                 "(${MIN_AVAIL_MEM_FOR_GPU_BYTES / (1024*1024)} MB) — skipping GPU backend")
@@ -1276,6 +1276,10 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
                 // Wrap Engine.initialize() with a timeout to catch GPU driver hangs
                 // (observed on Mali-G78 / Exynos 2100 and NPU CDSP #684, #609).
+                // NOTE: withTimeout cannot interrupt native JNI blocking calls.
+                // If Engine.initialize() hangs indefinitely in native code, this
+                // timeout will NOT fire — the allowlist/blacklist in
+                // HardwareProfileDetector is the primary guard against known-bad SoCs.
                 val eng = withTimeout(GPU_INIT_TIMEOUT_MS) {
                     withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
                         Engine(engineConfig).also { it.initialize() }

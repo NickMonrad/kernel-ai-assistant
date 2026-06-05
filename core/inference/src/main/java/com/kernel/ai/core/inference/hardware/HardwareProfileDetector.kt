@@ -147,9 +147,15 @@ internal fun isMaliGpuSoc(
     val mfr = socManufacturer.uppercase()
     val model = socModel.uppercase()
 
-    // Samsung Exynos SoCs use Mali GPUs (Exynos 2100, 2200, etc.)
+    // Samsung Exynos SoCs mostly use Mali GPUs, but Exynos 2200+ use AMD Xclipse
+    // (RDNA 2/3) which has a stable OpenCL driver — do NOT blacklist these.
     // Model strings: "exynos2100", "S5E9845", "Exynos 2100"
     if (mfr.contains("SAMSUNG") && (model.contains("EXYNOS") || model.contains("S5E"))) {
+        // Exynos 2200 (S5E9925) and Exynos 2400 (S5E9945) = Xclipse, not Mali
+        if (model.contains("2200") || model.contains("2400") ||
+            model.contains("S5E9925") || model.contains("S5E9945")) {
+            return false
+        }
         return true
     }
 
