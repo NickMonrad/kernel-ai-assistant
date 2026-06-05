@@ -9,6 +9,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.BORING_AI_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.BORING_MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -1828,6 +1829,14 @@ class ChatViewModel @Inject constructor(
                     }
                 }.trimEnd()
             } else ""
+
+            // GPU backends (e.g. Mali Exynos 2100) can corrupt tensor buffers between
+            // turns, causing Status Code 13 on subsequent generations (#684, #1089).
+            // Force a fresh conversation per turn so history is injected via the
+            // system prompt rather than relying on KV cache across turns.
+            if (inferenceEngine.activeBackend.value == BackendType.GPU) {
+                needsHistoryReplay = true
+            }
 
             if (needsHistoryReplay || proactiveReset || turnCountReset) {
                 needsHistoryReplay = false
