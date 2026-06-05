@@ -497,11 +497,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
     }
 
     private fun extractBestTranscript(results: Bundle?): String =
-        results
-            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            ?.firstOrNull()
-            ?.trim()
-            .orEmpty()
+        TranscriptNormaliser.normalise(
+            results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+        )
 
     private fun mapError(
         error: Int,

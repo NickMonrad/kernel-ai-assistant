@@ -36,6 +36,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 | `:core:voice` | STT, TTS, voice mode, push-to-talk |
 | `:core:memory` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
 | `:core:wasm` | Chicory Wasm host, bridge functions, resource limits |
+| `:core:model-availability` | ModelAvailabilityState, StateBadge, ModelCard, GatedModelStatusRepo |
 | `:core:ui` | Shared Compose components, Material 3 theme |
 | `:core:skills` | SkillInterface, SkillRegistry, JSON schema gen |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
@@ -68,6 +69,29 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 | **wasm-skill-author** | Rust → Wasm skills, Chicory bridge, Skill Store |
 
 **Workflow:** Analyse → dispatch (android-developer / llm-engineer) → parallel test-writer + spec-writer → PR with `Closes #N` → parallel code-reviewer + CI → push fixes → owner tests via ADB → owner merges.
+
+### Subagent code changes — recovery pattern
+
+Task agents run in **ephemeral, isolated worktrees** that are cleaned up on completion.
+Their file writes never reach your worktree. To extract their changes, use one of:
+
+**Option A — diff output (preferred):** Add this to the end of every code-changing assignment:
+```
+LAST STEP — output your changes as a patch:
+1. Run `git diff` (do NOT omit this step).
+2. Copy the ENTIRE diff output into your final message verbatim,
+   wrapped in a ```diff code block.
+Do NOT summarise your changes — I need the raw diff to `git apply`.
+```
+Then apply in your worktree: pipe the diff block into `git apply`.
+
+**Option B — raw file content:** Instruct the agent to `cat` each modified file.
+The artifact output will contain the full content; copy it with `write`.
+
+**Option C — GitHub push:** For larger changes, tell the agent to `git push` its branch,
+then `git fetch` + `git merge` from your worktree.
+
+**Never** assume a `task` agent's file modifications are visible in your worktree.
 
 ## Branch isolation
 
@@ -164,9 +188,8 @@ Write to memory (`memory://root/skills/<name>/SKILL.md`) after discovering:
 - Build/debug quirks (tool flags, adb incantations, test setup)
 - Architectural invariants that caused a bug (e.g. "gemma4InitMutex required")
 - Tool invocation patterns that save tokens (rtk, context-mode)
-
 Consult memory via `memory://root` before starting work in an unfamiliar module.
-Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync.
+Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync, model_availability_state.
 
 ## On-demand reference docs
 

@@ -17,6 +17,7 @@ class ClockSurfaceTabsTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @Suppress("UnrememberedMutableState")
     @Test
     fun clockTabsShowAllFourSurfacesWithoutScrolling() {
         composeTestRule.setContent {

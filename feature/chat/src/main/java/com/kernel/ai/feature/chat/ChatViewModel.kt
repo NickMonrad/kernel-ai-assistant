@@ -25,8 +25,10 @@ import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
@@ -136,6 +138,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val authRepository: HuggingFaceAuthRepository,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
 ) : ViewModel() {
@@ -283,6 +286,7 @@ class ChatViewModel @Inject constructor(
 
     private val _showThinkingProcess = MutableStateFlow(true)
     /** Combined visual customisation prefs, updated from ChatPreferences. */
+    @Suppress("UNCHECKED_CAST")
     private val visualPrefs: StateFlow<VisualPrefs> = combine(
         chatPreferences.fontSize,
         chatPreferences.bubbleTheme,
@@ -291,8 +295,8 @@ class ChatViewModel @Inject constructor(
         chatPreferences.wallpaperType,
         chatPreferences.wallpaperColor,
         chatPreferences.wallpaperImageUri,
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
+    ) { values: kotlin.Array<Any?>
+        ->
         VisualPrefs(
             fontSize = values[0] as Int,
             bubbleTheme = values[1] as String,
@@ -361,15 +365,27 @@ class ChatViewModel @Inject constructor(
     ) { messages, inputText, error, title, isSpeakingResponse ->
         InputState(messages, inputText, error, title, isSpeakingResponse)
     }
-
-    /** Base uiState without visual prefs (5-input combine). */
+    /** Base uiState without visual prefs (7-input combine). */
     private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
+        downloadManager.downloadSources,
         inputState,
         _showThinkingProcess,
         isArchived,
-    ) { engine, downloadStates, input, showThinking, archived ->
+        authRepository.isAuthenticated,
+    ) { array ->
+        @Suppress("UNCHECKED_CAST")
+        val engine = array[0] as EngineState
+        @Suppress("UNCHECKED_CAST")
+        val downloadStates = array[1] as Map<KernelModel, DownloadState>
+        @Suppress("UNCHECKED_CAST")
+        val downloadSources = array[2] as Map<KernelModel, DownloadSource>
+        @Suppress("UNCHECKED_CAST")
+        val input = array[3] as InputState
+        val showThinking = array[4] as Boolean
+        val archived = array[5] as Boolean
+        val hfAuth = array[6] as Boolean
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -390,7 +406,12 @@ class ChatViewModel @Inject constructor(
                         state = downloadStates[model] ?: DownloadState.NotDownloaded,
                     )
                 }
-                ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
+                ChatUiState.ModelsNotReady(
+                    isDownloading = anyDownloading,
+                    modelProgress = progress,
+                    hfAuthenticated = hfAuth,
+                    downloadSources = downloadSources,
+                )
             }
             // Archived conversations are read-only — no engine needed. Skip the isReady gate.
             !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
@@ -1032,6 +1053,8 @@ class ChatViewModel @Inject constructor(
             MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
             MealPlannerSuggestionComposeMode.APPEND_COMMA ->
                 onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+            MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
+                onInputChanged(appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command))
         }
     }
 
@@ -1048,6 +1071,14 @@ class ChatViewModel @Inject constructor(
         } else {
             "$trimmedCurrent, $command"
         }
+    }
+
+    private fun stripNegationPrefixes(current: String): String {
+        return current
+            .replace(Regex("no dietary requirements\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no protein preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no cuisine preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .trimEnd(',', ' ')
     }
     /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
     fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
@@ -1448,14 +1479,26 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
-            // Confirmation shortcut (#621): if the user is affirming a classifier match that
-            // needed confirmation, dispatch the pending intent directly — skip LLM entirely.
+            // Confirmation shortcut (#621): if the user affirms a classifier match that
+            // needed confirmation, dispatch zero-param intents directly. Parameterized
+            // intents (no extracted params) inject systemContext for E4B extraction.
             val pendingConfirmation = pendingConfirmationIntent
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
-                val skill = skillRegistry.get("run_intent")
-                if (skill != null) {
+                // Classifier-confirmed intents carry empty params (classifier never extracts them).
+                // Zero-param FAST_PATH intents dispatch directly — safe. Parameterized intents
+                // (calendar, SMS, email, alarm, etc.) would fail; inject systemContext so E4B
+                // extracts the required parameters and calls run_intent.
+                if (pendingConfirmation.intentName !in QuickIntentRouter.FAST_PATH_INTENTS) {
+                    val priorUserMsg = _messages.value.dropLast(1).lastOrNull { it.role == ChatMessage.Role.USER }?.content ?: text
+                    systemContext = "[System: The user confirmed they want to run " +
+                        "'${pendingConfirmation.intentName}'. Their request was: " +
+                        "\"$priorUserMsg\". Extract the required parameters and call " +
+                        "run_intent.]"
+                } else {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
                     val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
                     Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
@@ -1497,6 +1540,7 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
                         }
                         else -> { /* fall through to E4B unchanged */ }
+                    }
                     }
                 }
                 // Fall through to E4B for a natural conversational wrapper
@@ -1605,7 +1649,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
-                            if (matchedIntent.intentName == "save_memory") {
+                            if (matchedIntent.intentName == "save_memory" || matchedIntent.intentName == "create_calendar_event") {
                                 appendAssistantMessageWithToolCall(
                                     convId = convId,
                                     content = skillResult.content,

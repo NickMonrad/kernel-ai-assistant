@@ -148,7 +148,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ModelCardCompact
+import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
@@ -194,6 +197,7 @@ internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Bool
 private enum class AttachmentType { Image, Audio, File }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("StateFlowValueCalledInComposition")
 fun ChatScreen(
     conversationId: String? = null,
     initialQuery: String? = null,
@@ -202,6 +206,7 @@ fun ChatScreen(
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToModelManagement: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -251,7 +256,9 @@ fun ChatScreen(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
             onRetry = viewModel::retryDownload,
-            onNavigateToSettings = onNavigateToSettings,
+            onNavigateToModelManagement = onNavigateToModelManagement,
+            hfAuthenticated = state.hfAuthenticated,
+            downloadSources = state.downloadSources,
         )
         is ChatUiState.Ready -> {
             val context = LocalContext.current
@@ -1675,9 +1682,11 @@ private fun LoadingContent() {
 @Composable
 private fun OnboardingContent(
     isDownloading: Boolean,
-    modelProgress: List<ModelDownloadProgress>,
+    modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
-    onNavigateToSettings: () -> Unit,
+    onNavigateToModelManagement: () -> Unit,
+    hfAuthenticated: Boolean = false,
+    downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -1710,8 +1719,24 @@ private fun OnboardingContent(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     modelProgress.forEach { item ->
-                        ModelProgressRow(item, onRetry = onRetry, onNavigateToSettings = onNavigateToSettings)
+                        val source = downloadSources[item.model]
+                        ModelCardCompact(
+                            title = item.displayName,
+                            description = item.sizeLabel,
+                            state = item.state.toAvailability(
+                                model = item.model,
+                                hfAuth = hfAuthenticated,
+                                source = source ?: DownloadSource.USER_INITIATED,
+                            ),
+                            showLock = item.model.isGated,
+                        )
                     }
+                }
+                TextButton(
+                    onClick = onNavigateToModelManagement,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("Manage models")
                 }
             } else if (isDownloading) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
@@ -1720,128 +1745,7 @@ private fun OnboardingContent(
     }
 }
 
-@Composable
-private fun ModelProgressRow(
-    item: ModelDownloadProgress,
-    onRetry: (KernelModel) -> Unit,
-    onNavigateToSettings: () -> Unit,
-) {
-    val state = item.state
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = item.displayName,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                text = when (state) {
-                    is DownloadState.Downloaded -> "✓ Ready"
-                    is DownloadState.Downloading -> {
-                        val pct = (state.progress * 100).toInt()
-                        if (state.bytesPerSecond > 0) {
-                            val mbps = state.bytesPerSecond / 1_048_576.0
-                            "$pct% · ${"%.1f".format(mbps)} MB/s"
-                        } else "$pct%"
-                    }
-                    is DownloadState.Error -> "Error"
-                    is DownloadState.NotDownloaded -> item.sizeLabel
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = when (state) {
-                    is DownloadState.Downloaded -> MaterialTheme.colorScheme.primary
-                    is DownloadState.Error -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        when (state) {
-            is DownloadState.Downloading -> {
-                LinearProgressIndicator(
-                    progress = { state.progress },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                )
-                if (state.remainingMs > 0) {
-                    val etaText = formatEta(state.remainingMs)
-                    Text(
-                        text = etaText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-            }
-            is DownloadState.Downloaded -> {
-                LinearProgressIndicator(
-                    progress = { 1f },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                )
-            }
-            is DownloadState.Error -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "Download failed",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        onClick = { onRetry(item.model) },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        Text("Retry", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-            is DownloadState.NotDownloaded -> {
-                if (item.model.isGated) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = "Sign in to HuggingFace to download",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Button(
-                            onClick = onNavigateToSettings,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        ) {
-                            Text("Sign in", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                } else {
-                    Text(
-                        text = "Queued",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun formatEta(remainingMs: Long): String {
-    val totalSecs = remainingMs / 1000
-    return when {
-        totalSecs < 60 -> "~${totalSecs}s remaining"
-        totalSecs < 3600 -> "~${totalSecs / 60}m ${totalSecs % 60}s remaining"
-        else -> "~${totalSecs / 3600}h ${(totalSecs % 3600) / 60}m remaining"
-    }
-}
 
 @Composable
 private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) {

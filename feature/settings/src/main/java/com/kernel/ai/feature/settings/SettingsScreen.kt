@@ -149,19 +149,17 @@ fun SettingsScreen(
             )
             HorizontalDivider()
 
-            // HuggingFace account grouped with models — needed to unlock gated HF models
-            Text(
-                text = "HuggingFace Account",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            HuggingFaceAccountRow(
-                isAuthenticated = uiState.hfAuthenticated,
-                username = uiState.hfUsername,
-                onSignIn = { viewModel.startAuth() },
-                onSignOut = { viewModel.signOutHuggingFace() },
-                onViewLicence = { openInAppBrowser(context, "https://huggingface.co/litert-community/embeddinggemma-300m") },
+            // ── Model availability (tappable) ────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToModelManagement(false) },
+                headlineContent = { Text("Model availability") },
+                supportingContent = {
+                    Text(uiState.modelAvailabilitySummary.displaySummary)
+                },
+                leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
 

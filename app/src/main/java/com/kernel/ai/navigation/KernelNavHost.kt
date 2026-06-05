@@ -479,6 +479,9 @@ fun KernelNavHost(
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
+                        onNavigateToModelManagement = {
+                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                        },
                     )
                 }
 
@@ -498,6 +501,9 @@ fun KernelNavHost(
                         },
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
+                        },
+                        onNavigateToModelManagement = {
+                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
                     )
                 }
@@ -599,6 +605,9 @@ fun KernelNavHost(
                 composable(ROUTE_VOICE) {
                     VoiceScreen(
                         onBack = { navController.popBackStack() },
+                        onNavigateToModelManagement = {
+                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                        },
                     )
                 }
 

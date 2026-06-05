@@ -83,10 +83,11 @@ fun ModelSettingsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             uiState.e2bSettings?.let { settings ->
-                ModelCard(
+                ModelSettingsCard(
                     modelName = "Gemma 4 E-2B",
                     settings = settings,
                     capabilities = KernelModel.GEMMA_4_E2B.capabilities,
+                    state = uiState.e2bAvailability,
                     onSettingsChanged = viewModel::updateE2bSettings,
                     onReset = viewModel::resetE2bToDefaults,
                 )
@@ -95,10 +96,11 @@ fun ModelSettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             uiState.e4bSettings?.let { settings ->
-                ModelCard(
+                ModelSettingsCard(
                     modelName = "Gemma 4 E-4B",
                     settings = settings,
                     capabilities = KernelModel.GEMMA_4_E4B.capabilities,
+                    state = uiState.e4bAvailability,
                     onSettingsChanged = viewModel::updateE4bSettings,
                     onReset = viewModel::resetE4bToDefaults,
                 )
@@ -138,10 +140,11 @@ fun ModelSettingsScreen(
 }
 
 @Composable
-private fun ModelCard(
+private fun ModelSettingsCard(
     modelName: String,
     settings: ModelSettingsEntity,
     capabilities: ModelCapabilities,
+    state: com.kernel.ai.core.model.availability.ModelAvailabilityState? = null,
     onSettingsChanged: (ModelSettingsEntity) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -155,8 +158,11 @@ private fun ModelCard(
             Text(
                 text = modelName,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
+            if (state != null) {
+                com.kernel.ai.core.model.availability.StateBadge(state = state)
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -384,7 +390,7 @@ private fun ModelSettingsScreenPreview() {
             topP = 0.95f,
             speculativeDecodingEnabled = false,
         )
-        ModelCard(
+        ModelSettingsCard(
             modelName = "Gemma 4 E-2B",
             settings = sampleSettings,
             capabilities = KernelModel.GEMMA_4_E2B.capabilities,
