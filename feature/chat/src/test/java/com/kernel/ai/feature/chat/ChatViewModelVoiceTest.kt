@@ -142,6 +142,7 @@ class ChatViewModelVoiceTest {
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
+        every { downloadManager.downloadSources } returns MutableStateFlow(emptyMap())
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         every { downloadManager.deviceTier } returns HardwareTier.FLAGSHIP
 
@@ -152,7 +153,21 @@ class ChatViewModelVoiceTest {
         coEvery { conversationRepository.getMessagesOnce(any()) } returns emptyList()
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg", "assistant-msg")
+        every { conversationRepository.observeConversationById(any()) } answers {
+            val id = firstArg<String>()
+            flowOf(ConversationEntity(id = id, title = null, createdAt = 1L, updatedAt = 1L))
+        }
 
+        every { authRepository.isAuthenticated } returns MutableStateFlow(false)
+        every { chatPreferences.fontSize } returns flowOf(1)
+        every { chatPreferences.bubbleTheme } returns flowOf("system")
+        every { chatPreferences.userFontColor } returns flowOf(null)
+        every { chatPreferences.assistantFontColor } returns flowOf(null)
+        every { chatPreferences.wallpaperType } returns flowOf("none")
+        every { chatPreferences.wallpaperColor } returns flowOf(null)
+        every { chatPreferences.wallpaperImageUri } returns flowOf(null)
+        every { chatPreferences.copyToolCalls } returns flowOf(false)
+        every { chatPreferences.copyThinking } returns flowOf(false)
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceInputController.events } returns voiceInputEvents
@@ -927,9 +942,13 @@ class ChatViewModelVoiceTest {
 
         viewModel.onSmartReplySelected(MealPlannerSuggestion("Generate recipes", "generate recipes"))
 
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals("generate recipes", state.inputText)
-        coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("generate recipes", state.inputText)
+            coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -944,8 +963,12 @@ class ChatViewModelVoiceTest {
             MealPlannerSuggestion("Nut free", "nut free", MealPlannerSuggestionComposeMode.APPEND_COMMA),
         )
 
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals("gluten free, nut free", state.inputText)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("gluten free, nut free", state.inputText)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -958,8 +981,12 @@ class ChatViewModelVoiceTest {
             MealPlannerSuggestion("Chicken", "chicken", MealPlannerSuggestionComposeMode.APPEND_COMMA),
         )
 
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals("beef, chicken", state.inputText)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("beef, chicken", state.inputText)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -1026,11 +1053,21 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { conversationRepository.renameConversation("conv-existing", snapshot.displayName) }
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals(snapshot.displayName, state.conversationTitle)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals(snapshot.displayName, state.conversationTitle)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
 
+    private fun clearViewModel(viewModel: ChatViewModel) {
+        val method = androidx.lifecycle.ViewModel::class.java
+            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
+        method.isAccessible = true
+        method.invoke(viewModel)
+    }
     private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences, authRepository = authRepository,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
