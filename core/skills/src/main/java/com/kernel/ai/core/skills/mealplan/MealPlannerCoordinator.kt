@@ -3,7 +3,6 @@ package com.kernel.ai.core.skills.mealplan
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
-import com.kernel.ai.core.inference.StructuredOutputSpec
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
@@ -18,6 +17,7 @@ import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
@@ -396,41 +396,66 @@ class MealPlannerCoordinator @Inject constructor(
             onPlannerActivityChanged(generatingPlanActivity(snapshot))
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
-            val rawPlan = inferenceEngine.generateStructuredOnce(
-                prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.MealPlan,
-                systemPrompt = buildPlanSystemPrompt(),
-                thinkingEnabled = false,
-            )
-            if (rawPlan.isBlank()) {
-                sessionRepository.markGenerationFailure(
-                    snapshot.sessionId,
-                    null,
-                    "PLAN_NO_OUTPUT",
-                    "The model did not return a plan.",
-                )
-                return@withSessionGeneration MealPlannerReply(
-                    "I couldn't finish building the plan because the model didn't return one. Try replying with the same requirements again.",
-                )
+            var lastErrorCode: String? = null
+            var lastErrorMessage: String? = null
+            for (attempt in 1..MAX_PLAN_GENERATION_ATTEMPTS) {
+                Log.d(TAG, "Plan generation attempt $attempt/$MAX_PLAN_GENERATION_ATTEMPTS: sessionId=${snapshot.sessionId}")
+                val preAttempt = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
+                if (preAttempt.status == MealPlanSessionStatus.CANCELLED) {
+                    return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
+                }
+                val rawPlan = try {
+                    inferenceEngine.generateOnce(
+                        prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
+                        systemPrompt = buildPlanSystemPrompt(),
+                        thinkingEnabled = false,
+                        stopOnFirstJsonObject = true,
+                    )
+                } catch (ce: CancellationException) {
+                    Log.w(TAG, "Plan generation cancelled: sessionId=${snapshot.sessionId}, attempt=$attempt")
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_CANCELLED", "Generation job was cancelled")
+                    return@withSessionGeneration MealPlannerReply("Meal planning was interrupted. Say 'generate recipes' to try again.")
+                }
+                if (rawPlan.isBlank()) {
+                    lastErrorCode = "PLAN_NO_OUTPUT"
+                    lastErrorMessage = "The model did not return a plan."
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode, responseWasBlank=true")
+                    if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
+                    return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
+                }
+                val parsedPlan = try {
+                    jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
+                } catch (e: MealPlanValidationException) {
+                    lastErrorCode = "PLAN_JSON_INVALID"
+                    lastErrorMessage = e.message ?: "Invalid plan JSON"
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode, responsePreview=${rawPlan.take(200)}")
+                    if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
+                    return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
+                }
+                val planDraft = try {
+                    repairPlanVariety(
+                        snapshot = snapshot,
+                        draft = parsedPlan,
+                        recentHistory = recentHistory,
+                    )
+                } catch (e: MealPlanValidationException) {
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_VARIETY_REPAIR_FAILED", e.message ?: "Plan was too repetitive")
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=PLAN_VARIETY_REPAIR_FAILED, conflictCount=${e.message?.take(100)}")
+                    return@withSessionGeneration MealPlannerReply(
+                        "I couldn't generate a varied enough high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.",
+                    )
+                }
+                val preSave = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
+                if (preSave.status == MealPlanSessionStatus.CANCELLED) {
+                    return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
+                }
+                val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
+                return@withSessionGeneration MealPlannerReply(planReviewPrompt(planned))
             }
-            val parsedPlan = try {
-                jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
-            } catch (e: MealPlanValidationException) {
-                sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_JSON_INVALID", e.message ?: "Invalid plan JSON")
-                return@withSessionGeneration MealPlannerReply("I couldn't generate a valid high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
-            }
-            val planDraft = try {
-                repairPlanVariety(
-                    snapshot = snapshot,
-                    draft = parsedPlan,
-                    recentHistory = recentHistory,
-                )
-            } catch (e: MealPlanValidationException) {
-                sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_VARIETY_REPAIR_FAILED", e.message ?: "Plan was too repetitive")
-                return@withSessionGeneration MealPlannerReply("I couldn't generate a varied enough high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
-            }
-            val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
-            MealPlannerReply(planReviewPrompt(planned))
+            sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_GENERATION_FAILED", "Exhausted all attempts")
+            return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
         }
 
     private suspend fun repairPlanVariety(
@@ -490,12 +515,13 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlanDraftDay {
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
+        Log.d(TAG, "Variety repair started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, attemptLimit=$MAX_DAY_VARIETY_REPAIR_ATTEMPTS")
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
-            val raw = inferenceEngine.generateStructuredOnce(
+            val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 return@repeat
@@ -933,11 +959,12 @@ class MealPlannerCoordinator @Inject constructor(
         if (markPendingGeneration) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         }
-        val rawRecipe = inferenceEngine.generateStructuredOnce(
+        Log.d(TAG, "Recipe generation started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, dayTitle=${day.title ?: "unnamed"}")
+        val rawRecipe = inferenceEngine.generateOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
-            spec = StructuredOutputSpec.Recipe,
             systemPrompt = buildRecipeSystemPrompt(),
             thinkingEnabled = false,
+            stopOnFirstJsonObject = true,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -967,6 +994,7 @@ class MealPlannerCoordinator @Inject constructor(
             rawModelJson = rawRecipe,
             groceries = groceries,
         )
+        Log.d(TAG, "Recipe generation success: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, title=${recipe.title}")
         return GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
     }
     private suspend fun replaceDaysAndGenerateRecipes(
@@ -1217,11 +1245,12 @@ class MealPlannerCoordinator @Inject constructor(
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
-            val raw = inferenceEngine.generateStructuredOnce(
+        Log.d(TAG, "Replacement day generation started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex")
+            val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")
@@ -1246,7 +1275,7 @@ class MealPlannerCoordinator @Inject constructor(
             ) {
                 throw MealPlanValidationException("Replacement day still duplicated another planned meal too closely.")
             }
-            return sessionRepository.replaceDayDraft(
+            val updated = sessionRepository.replaceDayDraft(
                 sessionId = snapshot.sessionId,
                 dayIndex = dayIndex,
                 title = replacement.title,
@@ -1254,6 +1283,8 @@ class MealPlannerCoordinator @Inject constructor(
                 proteinTags = replacement.proteinTags,
                 recipeGenerationPending = !markPendingGeneration,
             )
+            Log.d(TAG, "Replacement day generated: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, title=${replacement.title}")
+            return updated
         } catch (e: MealPlanValidationException) {
             sessionRepository.clearPendingGeneration(snapshot.sessionId)
             throw e
@@ -1316,7 +1347,14 @@ class MealPlannerCoordinator @Inject constructor(
         generationActive: Boolean = false,
     ): MealPlannerActivity? = when (snapshot.status) {
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> collectingActivity(snapshot)
-        MealPlanSessionStatus.PLAN_REVIEW -> if (generationActive && snapshot.pendingGenerationKind == PendingGenerationKind.PLAN) {
+        MealPlanSessionStatus.PLAN_REVIEW -> if (snapshot.days.isEmpty()) {
+            MealPlannerActivity(
+                title = "Meal Plan",
+                subtitle = "The plan couldn't be built. Say 'generate recipes' to try again, or 'change preferences'.",
+                state = MealPlannerActivityState.WAITING,
+                suggestions = planReviewSuggestions(snapshot),
+            )
+        } else if (generationActive && snapshot.pendingGenerationKind == PendingGenerationKind.PLAN) {
             generatingPlanActivity(snapshot)
         } else {
             MealPlannerActivity(
@@ -1469,7 +1507,7 @@ class MealPlannerCoordinator @Inject constructor(
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> collectingHelpPrompt(snapshot)
         MealPlanSessionStatus.PLAN_REVIEW ->
             if (snapshot.days.isEmpty()) {
-                "I still need to rebuild your meal plan draft. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, 'show current plan' to inspect what I have, or 'cancel' to stop."
+                "I couldn't build the meal plan yet. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, or 'cancel' to stop."
             } else {
                 "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'change preferences' to edit people, days, dietary needs, proteins, or cuisines, or 'cancel' to stop."
             }
@@ -1576,6 +1614,20 @@ class MealPlannerCoordinator @Inject constructor(
         if (snapshot.cuisinePreferences.isEmpty()) add("cuisine")
     }
 
+    private fun planGenerationFailedMessage(snapshot: MealPlanSnapshot): String {
+        if (snapshot.days.isNotEmpty()) {
+            return "I couldn't rebuild the meal plan with your updated preferences. Your previous draft is still shown — say 'generate recipes' to try again with the updated preferences, 'change preferences' to adjust your requirements, or 'help' for more options."
+        }
+        return "I couldn't build the meal plan. Say 'generate recipes' to try again, 'change preferences' to adjust your requirements, or 'help' for more options."
+    }
+
+    private fun planReviewPrompt(snapshot: MealPlanSnapshot): String =
+        if (snapshot.days.isEmpty()) {
+            planGenerationFailedMessage(snapshot)
+        } else {
+            buildPlanSummary(snapshot) + "\n\n" + planReviewActionsPrompt()
+        }
+
     private fun missingSlotPrompt(slot: String): String = when (slot) {
         "people" -> "- How many people are you cooking for?"
         "days" -> "- How many days do you want to plan for?"
@@ -1585,12 +1637,6 @@ class MealPlannerCoordinator @Inject constructor(
         else -> "- $slot"
     }
 
-    private fun planReviewPrompt(snapshot: MealPlanSnapshot): String =
-        if (snapshot.days.isEmpty()) {
-            "I still need to rebuild your meal plan draft. Say 'generate recipes' to try again, 'change preferences', 'help' for more options, or 'cancel'."
-        } else {
-            buildPlanSummary(snapshot) + "\n\n" + planReviewActionsPrompt()
-        }
 
     private fun currentPlanReply(snapshot: MealPlanSnapshot): String =
         if (snapshot.days.isEmpty()) {
@@ -1722,8 +1768,8 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun buildPlanSystemPrompt(): String = """
 You generate a high-level meal plan for a local-first Android assistant.
-You MUST call the tool `emit_meal_plan` with your plan as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "days": [
     {
@@ -1774,8 +1820,8 @@ Rules:
 
     private fun buildRecipeSystemPrompt(): String = """
 You generate one recipe day for a local-first Android assistant.
-You MUST call the tool `emit_recipe` with your recipe as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "title": "...",
   "servings": 4,
@@ -1818,8 +1864,8 @@ Provide a practical Australia/New Zealand dinner recipe with a concise ingredien
 
     private fun buildReplacementDaySystemPrompt(dayIndex: Int): String = """
 You generate a replacement high-level meal-plan day for a local-first Android assistant.
-You MUST call the tool `emit_replacement_day` with your replacement day as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "days": [
     {
@@ -2039,6 +2085,13 @@ Rules:
         else -> slot
     }
     private fun planReviewSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
+        if (snapshot.days.isEmpty()) {
+            add(suggestion("Generate recipes", "generate recipes"))
+            add(suggestion("Change preferences", "change preferences"))
+            add(suggestion("Help", "help"))
+            add(suggestion("Cancel plan", "cancel plan"))
+            return@buildList
+        }
         add(suggestion("Generate recipes", "generate recipes"))
         add(suggestion("Show current plan", "show current plan"))
         primaryEditableDay(snapshot)?.let { dayIndex ->
@@ -2062,40 +2115,40 @@ Rules:
     }
 
     private fun MutableList<MealPlannerSuggestion>.addPeopleSuggestions(isTop: Boolean) {
-        add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("3 people", "3 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("6 people", "6 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("8 people", "8 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("3 people", "3 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("6 people", "6 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("8 people", "8 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         } else {
-            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         }
     }
 
     private fun MutableList<MealPlannerSuggestion>.addDaysSuggestions(isTop: Boolean) {
-        add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("3 days", "3 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("5 days", "5 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("14 days", "14 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("3 days", "3 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("5 days", "5 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("14 days", "14 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         } else {
-            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         }
     }
 
     private fun MutableList<MealPlannerSuggestion>.addDietarySuggestions(isTop: Boolean) {
-        add(suggestion("no dietary requirements", "no dietary requirements", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("no dietary requirements", "no dietary requirements", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("nut free", "nut free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("vegetarian", "vegetarian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("vegan", "vegan", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("nut free", "nut free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("vegetarian", "vegetarian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("vegan", "vegan", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         } else {
-            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         }
     }
 
@@ -2113,34 +2166,33 @@ Rules:
             "tofu",
             "eggs",
             "chickpeas",
-            "no protein preference",
         )
         val compatible = allOptions.filter { protein ->
-            protein == "no protein preference" ||
-                detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
+            detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
         }
+        add(suggestion("no protein preference", "no protein preference", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            compatible.take(6).forEach { protein ->
-                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            compatible.take(5).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
             }
         } else {
-            compatible.take(3).forEach { protein ->
-                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            compatible.take(2).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
             }
         }
     }
 
     private fun MutableList<MealPlannerSuggestion>.addCuisineSuggestions(isTop: Boolean) {
-        add(suggestion("no cuisine preference", "no cuisine preference", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("no cuisine preference", "no cuisine preference", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("indian", "indian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("thai", "thai", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("japanese", "japanese", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("indian", "indian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("thai", "thai", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("japanese", "japanese", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         } else {
-            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         }
     }
 
@@ -2265,6 +2317,7 @@ Rules:
         private const val PENDING_COMPLETED_SUMMARY_LIMIT = 3
         private const val MAX_PLAN_VARIETY_REPAIR_PASSES = 2
         private const val MAX_DAY_VARIETY_REPAIR_ATTEMPTS = 2
+        private const val MAX_PLAN_GENERATION_ATTEMPTS = 5
         private const val MAX_PROMPT_HISTORY_TITLES = 6
         private const val MAX_PROMPT_HISTORY_PATTERNS = 4
         private val COMMON_PROTEINS = listOf(
@@ -2307,6 +2360,7 @@ data class MealPlannerSuggestion(
 enum class MealPlannerSuggestionComposeMode {
     REPLACE,
     APPEND_COMMA,
+    STRIP_NEGATION_IF_APPENDING,
 }
 
 data class MealPlannerActivity(
