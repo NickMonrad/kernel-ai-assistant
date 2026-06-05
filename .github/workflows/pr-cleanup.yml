@@ -4,9 +4,6 @@ on:
   pull_request:
     types: [closed]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   delete-preview-release:
     name: Delete PR preview release
@@ -15,7 +12,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Delete pr-N release and tag
         env:
