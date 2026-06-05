@@ -41,19 +41,9 @@ class HardwareProfileDetector @Inject constructor(
 
         val tier = HardwareTier.fromRamBytes(totalRam)
 
-        // E4B is documented to run on GPU (OpenCL / Adreno 740). NPU (Hexagon via FastRPC)
-        // is not used as the recommended backend — it requires /dev/cdsp* device nodes that
-        // are absent on the SM8550 target and Engine.initialize() hangs with no timeout when
-        // CDSP is unreachable. Explicit BackendType.NPU is still honoured via
-        // createEngineWithFallback's standard fallback chain (GPU → CPU on failure).
         // Determine backend based on tier, but skip GPU on known-bad SoC/GPU combos.
-        // Exynos chips (Mali GPU) have unstable OpenCL drivers that hang during
-        // Engine.initialize() — observed on Exynos 2100 (S21) #684, NPU CDSP #609.
-        val skipGpuForSoc = false // GPU works on Exynos 2100 with timeout guard — see #684 testing
-        if (skipGpuForSoc) {
-            Log.w(TAG, "SoC $socManufacturer $socModel with Mali GPU on tier=${tier.name} " +
-                "— forcing CPU backend to avoid GPU driver hangs (#684)")
-        }
+        // Exynos 2100 (S21) is allowlisted — GPU init completes ~24s with 60s timeout guard (#684).
+        val skipGpuForSoc = shouldSkipGpuForSoc(socManufacturer, socModel, tier)
 
         val recommendedBackend = when {
             tier == HardwareTier.FLAGSHIP && !skipGpuForSoc -> BackendType.GPU
@@ -97,7 +87,42 @@ class HardwareProfileDetector @Inject constructor(
         socManufacturer: String,
         socModel: String,
         tier: HardwareTier,
-    ): Boolean = isMaliGpuSoc(socManufacturer, socModel, tier)
+    ): Boolean {
+        // Allowlist: specific SoCs verified to work with GPU via on-device testing.
+        if (isGpuAllowlisted(socManufacturer, socModel)) {
+            Log.d(TAG, "SoC $socManufacturer $socModel is GPU-allowlisted — using GPU backend")
+            return false
+        }
+        // Otherwise, skip GPU on Mali GPU SoCs at MID_RANGE and below.
+        val skip = isMaliGpuSoc(socManufacturer, socModel, tier)
+        if (skip) {
+            Log.w(TAG, "SoC $socManufacturer $socModel with Mali GPU on tier=${tier.name} " +
+                "— forcing CPU backend to avoid GPU driver hangs (#684)")
+        }
+        return skip
+    }
+}
+
+/**
+ * Returns true when the SoC is verified to work with GPU via on-device testing.
+ * These devices bypass the Mali GPU blacklist in [HardwareProfileDetector].
+ *
+ * Current allowlist:
+ * - Exynos 2100 / S5E9845 (Samsung S21, SM-G991B): GPU init ~24s, stable with 60s timeout (#684)
+ */
+internal fun isGpuAllowlisted(
+    socManufacturer: String,
+    socModel: String,
+): Boolean {
+    val mfr = socManufacturer.uppercase()
+    val model = socModel.uppercase()
+
+    // Exynos 2100 (S21) — confirmed working with GPU, see #684 on-device test results.
+    if (mfr.contains("SAMSUNG") && (model.contains("EXYNOS2100") || model.contains("S5E9845"))) {
+        return true
+    }
+
+    return false
 }
 
 /**

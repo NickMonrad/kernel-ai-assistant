@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Tests for hardware tier classification and Mali GPU detection.
+ * Tests for hardware tier classification, Mali GPU detection, and GPU allowlist.
  *
  * Pure-logic unit tests — no Android dependencies required.
  *
@@ -142,5 +142,67 @@ class HardwareDetectionTest {
     @Test
     fun `empty SoC strings on MID_RANGE does NOT skip GPU`() {
         assertFalse(isMaliGpuSoc("", "", HardwareTier.MID_RANGE))
+    }
+    // -----------------------------------------------------------------------
+    // isGpuAllowlisted — verified-working SoCs bypass the Mali blacklist
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `Exynos 2100 is GPU-allowlisted`() {
+        assertTrue(isGpuAllowlisted("Samsung", "exynos2100"))
+    }
+
+    @Test
+    fun `Exynos 2100 S5E9845 variant is GPU-allowlisted`() {
+        assertTrue(isGpuAllowlisted("Samsung", "S5E9845"))
+    }
+
+    @Test
+    fun `case-insensitive matching for allowlist`() {
+        assertTrue(isGpuAllowlisted("SAMSUNG", "EXYNOS2100"))
+    }
+
+    @Test
+    fun `Exynos 2200 is NOT GPU-allowlisted`() {
+        // Only Exynos 2100 is verified; 2200 remains blacklisted until tested
+        assertFalse(isGpuAllowlisted("Samsung", "exynos2200"))
+    }
+
+    @Test
+    fun `Qualcomm is NOT GPU-allowlisted`() {
+        assertFalse(isGpuAllowlisted("Qualcomm", "SM8550"))
+    }
+
+    @Test
+    fun `empty SoC is NOT GPU-allowlisted`() {
+        assertFalse(isGpuAllowlisted("", ""))
+    }
+
+    // -----------------------------------------------------------------------
+    // Combined: isMaliGpuSoc + isGpuAllowlisted = effective skip
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `Exynos 2100 on MID_RANGE is Mali BUT allowlisted — do NOT skip GPU`() {
+        assertTrue(isMaliGpuSoc("Samsung", "exynos2100", HardwareTier.MID_RANGE))
+        assertTrue(isGpuAllowlisted("Samsung", "exynos2100"))
+    }
+
+    @Test
+    fun `Exynos 2200 on MID_RANGE is Mali AND NOT allowlisted — skip GPU`() {
+        assertTrue(isMaliGpuSoc("Samsung", "exynos2200", HardwareTier.MID_RANGE))
+        assertFalse(isGpuAllowlisted("Samsung", "exynos2200"))
+    }
+
+    @Test
+    fun `MediaTek on MID_RANGE is Mali AND NOT allowlisted — skip GPU`() {
+        assertTrue(isMaliGpuSoc("MediaTek", "MT6893", HardwareTier.MID_RANGE))
+        assertFalse(isGpuAllowlisted("MediaTek", "MT6893"))
+    }
+
+    @Test
+    fun `Qualcomm on MID_RANGE is NOT Mali AND NOT allowlisted — do NOT skip GPU`() {
+        assertFalse(isMaliGpuSoc("Qualcomm", "SM8350", HardwareTier.MID_RANGE))
+        assertFalse(isGpuAllowlisted("Qualcomm", "SM8350"))
     }
 }
