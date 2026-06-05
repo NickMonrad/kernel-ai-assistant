@@ -145,7 +145,7 @@ internal fun isMaliGpuSoc(
     if (tier == HardwareTier.FLAGSHIP) return false
 
     val mfr = socManufacturer.uppercase()
-    val model = socModel.uppercase()
+    val model = socModel.uppercase().replace(" ", "")
 
     // Samsung Exynos SoCs mostly use Mali GPUs, but Exynos 2200+ use AMD Xclipse
     // (RDNA 2/3) which has a stable OpenCL driver — do NOT blacklist these.
