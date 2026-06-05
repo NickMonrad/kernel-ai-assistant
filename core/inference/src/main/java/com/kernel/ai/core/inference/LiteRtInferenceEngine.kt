@@ -53,7 +53,7 @@ private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
-private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB — safety floor; GPU+timeout is self-recovering
+private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -1232,14 +1232,20 @@ class LiteRtInferenceEngine @Inject constructor(
             BackendType.AUTO -> listOf(BackendType.GPU, BackendType.CPU)
         }
 
-        // Check available memory before attempting GPU — on 8 GB devices Android OS
-        // may leave <3 GB free, which is too little for E-2B GPU init and can cause
-        // OOM hangs instead of clean exceptions (#684).
+        // Check available memory before attempting GPU.
+        // 2 GB absolute floor catches genuinely low-memory devices (4-6 GB).
+        // On 8 GB devices ~2.5 GB is typically free; GPU init has its own 60s
+        // timeout guard so we don't need an overly conservative threshold (#684).
         val availMem = getAvailableMemoryBytes()
+        val modelFile = File(config.modelPath)
+        val modelSize = if (modelFile.exists()) modelFile.length() else 0L
         val skipGpuForMemory = availMem in 1..<MIN_AVAIL_MEM_FOR_GPU_BYTES
         if (skipGpuForMemory) {
             Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) below GPU minimum " +
                 "(${MIN_AVAIL_MEM_FOR_GPU_BYTES / (1024*1024)} MB) — skipping GPU backend")
+        } else if (modelSize > 0 && availMem < modelSize) {
+            Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) is less than model file " +
+                "size (${modelSize / (1024*1024)} MB) — GPU init may trigger OOM kill")
         }
 
         var lastException: Exception? = null

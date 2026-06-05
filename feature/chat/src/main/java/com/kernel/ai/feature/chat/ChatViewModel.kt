@@ -2184,8 +2184,12 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
-                if (needsHallucinationRetry) {
+                if (needsHallucinationRetry && blankResponseRetryAttempted) {
+                    // KV cache was corrupted (model emitted EOS immediately).
+                    // Reset conversation so the retry gets a clean cache.
+                    // Flag needsHistoryReplay so the next user turn re-injects full context.
                     inferenceEngine.resetConversation()
+                    needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)
 
