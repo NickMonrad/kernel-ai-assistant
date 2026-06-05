@@ -54,3 +54,6 @@ third_party/sherpa-onnx/
 
 # Legacy local Sherpa voice assets (kept ignored if they still exist from old setup flows).
 core/voice/src/main/assets/sherpa-tts/
+
+# Agent plans (local-only)
+.omp/plans/

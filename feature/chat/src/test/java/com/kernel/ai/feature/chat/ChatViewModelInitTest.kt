@@ -43,6 +43,8 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.memory.prefs.ChatPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -96,7 +98,8 @@ class ChatViewModelInitTest {
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
-    private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
+    private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
+    private val chatPreferences: ChatPreferences = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -115,6 +118,7 @@ class ChatViewModelInitTest {
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
+        every { downloadManager.downloadSources } returns MutableStateFlow(emptyMap())
         every { downloadManager.areRequiredModelsDownloaded() } returns false
         every { downloadManager.deviceTier } returns HardwareTier.FLAGSHIP
 
@@ -124,7 +128,21 @@ class ChatViewModelInitTest {
             ConversationEntity(id = id, title = null, createdAt = 1L, updatedAt = 1L)
         }
         coEvery { conversationRepository.getMessagesOnce(any()) } returns emptyList()
+        every { conversationRepository.observeConversationById(any()) } answers {
+            val id = firstArg<String>()
+            flowOf(ConversationEntity(id = id, title = null, createdAt = 1L, updatedAt = 1L))
+        }
 
+        every { authRepository.isAuthenticated } returns MutableStateFlow(false)
+        every { chatPreferences.fontSize } returns flowOf(1)
+        every { chatPreferences.bubbleTheme } returns flowOf("system")
+        every { chatPreferences.userFontColor } returns flowOf(null)
+        every { chatPreferences.assistantFontColor } returns flowOf(null)
+        every { chatPreferences.wallpaperType } returns flowOf("none")
+        every { chatPreferences.wallpaperColor } returns flowOf(null)
+        every { chatPreferences.wallpaperImageUri } returns flowOf(null)
+        every { chatPreferences.copyToolCalls } returns flowOf(false)
+        every { chatPreferences.copyThinking } returns flowOf(false)
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(false)
@@ -156,6 +174,7 @@ class ChatViewModelInitTest {
     @Test
     fun `fresh chat initialization resets inherited inference session`() = runTest(dispatcher) {
         ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -191,6 +210,7 @@ class ChatViewModelInitTest {
     @Test
     fun `restored chat initialization does not reset current inference session`() = runTest(dispatcher) {
         ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -226,6 +246,7 @@ class ChatViewModelInitTest {
     @Test
     fun `closing chat never shuts down process scoped inference engine`() = runTest(dispatcher) {
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -253,7 +274,7 @@ class ChatViewModelInitTest {
         )
 
         advanceUntilIdle()
-        invokeOnCleared(viewModel)
+        clearViewModel(viewModel)
 
         coVerify(exactly = 0) { inferenceEngine.shutdown() }
     }
@@ -268,6 +289,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlannerCoordinator.activeSessionReply("conv-existing") } returns MealPlannerReply(prompt)
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -299,8 +321,12 @@ class ChatViewModelInitTest {
         coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
         coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
         coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals(prompt, state.messages.last().content)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals(prompt, state.messages.last().content)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -315,6 +341,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlannerCoordinator.activeSessionActivity("conv-existing") } returns activity
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -393,6 +420,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlanSessionRepository.getActiveSession("conv-existing") } returns snapshot
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -422,8 +450,12 @@ class ChatViewModelInitTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { conversationRepository.renameConversation("conv-existing", snapshot.displayName) }
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals(snapshot.displayName, state.conversationTitle)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals(snapshot.displayName, state.conversationTitle)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -445,6 +477,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -475,9 +508,13 @@ class ChatViewModelInitTest {
 
         coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
         coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals(1, state.messages.size)
-        assertEquals(prompt, state.messages.last().content)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals(1, state.messages.size)
+            assertEquals(prompt, state.messages.last().content)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -514,6 +551,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -544,9 +582,13 @@ class ChatViewModelInitTest {
 
         coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
         coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
-        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
-        assertEquals(4, state.messages.size)
-        assertEquals(prompt, state.messages.last().content)
+        try {
+            val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals(4, state.messages.size)
+            assertEquals(prompt, state.messages.last().content)
+        } finally {
+            clearViewModel(viewModel)
+        }
     }
 
     @Test
@@ -571,6 +613,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -630,6 +673,7 @@ class ChatViewModelInitTest {
             QuickIntentRouter.RouteResult.FallThrough(input = "and bred to my last")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -679,6 +723,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -744,6 +789,7 @@ class ChatViewModelInitTest {
             ),
         )
         val viewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -800,6 +846,7 @@ class ChatViewModelInitTest {
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -852,6 +899,7 @@ class ChatViewModelInitTest {
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -895,8 +943,9 @@ class ChatViewModelInitTest {
         coVerify(exactly = 0) { ragRepository.indexMessage("assistant-fallback-id", any(), any()) }
     }
 
-    private fun invokeOnCleared(viewModel: ChatViewModel) {
-        val method = ChatViewModel::class.java.getDeclaredMethod("onCleared")
+    private fun clearViewModel(viewModel: ChatViewModel) {
+        val method = androidx.lifecycle.ViewModel::class.java
+            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
         method.isAccessible = true
         method.invoke(viewModel)
     }
