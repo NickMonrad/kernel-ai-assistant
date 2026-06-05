@@ -515,6 +515,7 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlanDraftDay {
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
+        Log.d(TAG, "Variety repair started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, attemptLimit=$MAX_DAY_VARIETY_REPAIR_ATTEMPTS")
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
             val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
@@ -958,6 +959,7 @@ class MealPlannerCoordinator @Inject constructor(
         if (markPendingGeneration) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         }
+        Log.d(TAG, "Recipe generation started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, dayTitle=${day.title ?: "unnamed"}")
         val rawRecipe = inferenceEngine.generateOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
             systemPrompt = buildRecipeSystemPrompt(),
@@ -992,6 +994,7 @@ class MealPlannerCoordinator @Inject constructor(
             rawModelJson = rawRecipe,
             groceries = groceries,
         )
+        Log.d(TAG, "Recipe generation success: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, title=${recipe.title}")
         return GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
     }
     private suspend fun replaceDaysAndGenerateRecipes(
@@ -1242,6 +1245,7 @@ class MealPlannerCoordinator @Inject constructor(
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
+        Log.d(TAG, "Replacement day generation started: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex")
             val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
@@ -1271,7 +1275,7 @@ class MealPlannerCoordinator @Inject constructor(
             ) {
                 throw MealPlanValidationException("Replacement day still duplicated another planned meal too closely.")
             }
-            return sessionRepository.replaceDayDraft(
+            val updated = sessionRepository.replaceDayDraft(
                 sessionId = snapshot.sessionId,
                 dayIndex = dayIndex,
                 title = replacement.title,
@@ -1279,6 +1283,8 @@ class MealPlannerCoordinator @Inject constructor(
                 proteinTags = replacement.proteinTags,
                 recipeGenerationPending = !markPendingGeneration,
             )
+            Log.d(TAG, "Replacement day generated: sessionId=${snapshot.sessionId}, dayIndex=$dayIndex, title=${replacement.title}")
+            return updated
         } catch (e: MealPlanValidationException) {
             sessionRepository.clearPendingGeneration(snapshot.sessionId)
             throw e
