@@ -285,6 +285,7 @@ class ChatViewModel @Inject constructor(
 
     private val _showThinkingProcess = MutableStateFlow(true)
     /** Combined visual customisation prefs, updated from ChatPreferences. */
+    @Suppress("UNCHECKED_CAST")
     private val visualPrefs: StateFlow<VisualPrefs> = combine(
         chatPreferences.fontSize,
         chatPreferences.bubbleTheme,
@@ -293,8 +294,8 @@ class ChatViewModel @Inject constructor(
         chatPreferences.wallpaperType,
         chatPreferences.wallpaperColor,
         chatPreferences.wallpaperImageUri,
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
+    ) { values: kotlin.Array<Any?>
+        ->
         VisualPrefs(
             fontSize = values[0] as Int,
             bubbleTheme = values[1] as String,
@@ -1475,14 +1476,26 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
-            // Confirmation shortcut (#621): if the user is affirming a classifier match that
-            // needed confirmation, dispatch the pending intent directly — skip LLM entirely.
+            // Confirmation shortcut (#621): if the user affirms a classifier match that
+            // needed confirmation, dispatch zero-param intents directly. Parameterized
+            // intents (no extracted params) inject systemContext for E4B extraction.
             val pendingConfirmation = pendingConfirmationIntent
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
-                val skill = skillRegistry.get("run_intent")
-                if (skill != null) {
+                // Classifier-confirmed intents carry empty params (classifier never extracts them).
+                // Zero-param FAST_PATH intents dispatch directly — safe. Parameterized intents
+                // (calendar, SMS, email, alarm, etc.) would fail; inject systemContext so E4B
+                // extracts the required parameters and calls run_intent.
+                if (pendingConfirmation.intentName !in QuickIntentRouter.FAST_PATH_INTENTS) {
+                    val priorUserMsg = _messages.value.dropLast(1).lastOrNull { it.role == ChatMessage.Role.USER }?.content ?: text
+                    systemContext = "[System: The user confirmed they want to run " +
+                        "'${pendingConfirmation.intentName}'. Their request was: " +
+                        "\"$priorUserMsg\". Extract the required parameters and call " +
+                        "run_intent.]"
+                } else {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
                     val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
                     Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
@@ -1524,6 +1537,7 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
                         }
                         else -> { /* fall through to E4B unchanged */ }
+                    }
                     }
                 }
                 // Fall through to E4B for a natural conversational wrapper
@@ -1632,7 +1646,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
-                            if (matchedIntent.intentName == "save_memory") {
+                            if (matchedIntent.intentName == "save_memory" || matchedIntent.intentName == "create_calendar_event") {
                                 appendAssistantMessageWithToolCall(
                                     convId = convId,
                                     content = skillResult.content,

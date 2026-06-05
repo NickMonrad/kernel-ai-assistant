@@ -20,7 +20,7 @@ The launch-blocking work clusters into five themes:
 | Theme | Issues |
 |-------|--------|
 | Device stability / memory safety (the heavy hitters) | #430, #432, #428, #692 |
-| Toolchain modernisation | #915, #916 |
+| ~~Toolchain modernisation~~ | ~~#915, #916~~ ✓ |
 | Navigation & visual polish | #747, #751, #226, #961 |
 | Correctness bugs (memory + intent routing) | #937, #957, #996 |
 | Finish in-flight capabilities | #885, #886, #261, #928, #713, #756, #824 |
@@ -39,7 +39,7 @@ that make the app feel broken, then finish half-built features, then run the rel
 > re-migrating that work. The memory-profiling data feeds the two biggest architecture tasks.
 > The correctness/stability bugs poison every test run until fixed.
 
-- **#915 + #916 — AGP 9 / Gradle 9 / Kotlin 2.3.x / Hilt upgrade** (L + S). Land early.
+- ~~**#915 + #916 — AGP 9.0.1 / Gradle 9.1.0 / Kotlin 2.3.21 / Hilt 2.59.2 upgrade** (L + S). ✓ Landed (PR #1082).~~
 - **#428 — Memory profiling: peak RAM & concurrent model usage** (M). Produces the numbers
   that #430 and #432 are designed against.
 - **#692 — Inference stalls in Boring AI Mode** (M). Core generation reliability.
@@ -89,7 +89,7 @@ that make the app feel broken, then finish half-built features, then run the rel
 ## 3. Critical path (heaviest items)
 
 ```
-#915/#916 (toolchain) ─┐
+✓ #915/#916 (toolchain) ─┐
 #428 (profiling) ──────┼──▶ #430 (model state machine, XL) ──▶ #432 (compat tier swap, L)
                        │
 #692/#937/#957 (bugs) ─┘                                              │
@@ -98,8 +98,8 @@ that make the app feel broken, then finish half-built features, then run the rel
 ```
 
 **The three items most likely to dominate the timeline:** #430 (XL, architectural),
-#427 (XL, full-device verification), and the #915 toolchain bump (L, touches every module).
-Start #915 and #428 in parallel immediately.
+#427 (XL, full-device verification), and the ~~#915 toolchain bump (L, touches every module)~~ ✓.
+Start #428 immediately; #915/#916 are now complete.
 
 ---
 
