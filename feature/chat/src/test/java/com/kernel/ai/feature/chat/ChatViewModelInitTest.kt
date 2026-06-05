@@ -33,6 +33,7 @@ import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
@@ -100,6 +101,7 @@ class ChatViewModelInitTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -186,6 +188,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -222,6 +225,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -258,6 +262,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -301,6 +306,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -353,6 +359,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -432,6 +439,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -489,6 +497,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -563,6 +572,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -625,6 +635,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -685,6 +696,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -735,6 +747,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -801,6 +814,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -858,6 +872,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -911,6 +926,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
@@ -1019,6 +1035,7 @@ class ChatViewModelInitTest {
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,

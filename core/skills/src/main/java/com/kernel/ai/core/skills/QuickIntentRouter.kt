@@ -24,6 +24,7 @@ import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
 class QuickIntentRouter(
     private val classifier: IntentClassifier? = null,
     private val similarityThreshold: Float = 0.85f,
+    private val intentContractRegistry: com.kernel.ai.core.skills.intent.IntentContractRegistry? = null,
 ) {
 
     // ── Result types ──────────────────────────────────────────────────────────
@@ -227,9 +228,9 @@ class QuickIntentRouter(
             ),
         ),
     )
-
     private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
-        slotContracts[intentName] ?: emptyMap()
+        intentContractRegistry?.requiredSlots(intentName)
+            ?: slotContracts[intentName] ?: emptyMap()
 
     private val placeholderContacts = setOf(
         "someone",

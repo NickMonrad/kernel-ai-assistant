@@ -54,6 +54,7 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -115,6 +116,7 @@ class ChatViewModelVoiceTest {
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
@@ -1080,6 +1082,7 @@ class ChatViewModelVoiceTest {
     skillRegistry = skillRegistry,
     skillExecutor = skillExecutor,
     quickIntentRouter = quickIntentRouter,
+    intentRecoveryOrchestrator = intentRecoveryOrchestrator,
     slotFillerManager = slotFillerManager,
     kernelAIToolSet = kernelAIToolSet,
     toolProvider = toolProvider,

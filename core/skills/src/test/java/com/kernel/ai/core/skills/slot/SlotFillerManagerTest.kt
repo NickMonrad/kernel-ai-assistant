@@ -1,6 +1,6 @@
 package com.kernel.ai.core.skills.slot
 
-import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -17,7 +17,7 @@ class SlotFillerManagerTest {
 
     @BeforeEach
     fun setUp() {
-        manager = SlotFillerManager(QuickIntentRouter())
+        manager = SlotFillerManager(IntentContractRegistry())
     }
 
     @Test

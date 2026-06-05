@@ -48,6 +48,10 @@ import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.intent.IntentCandidate
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
@@ -127,6 +131,7 @@ class ChatViewModel @Inject constructor(
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
     private val quickIntentRouter: QuickIntentRouter,
+    private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator,
     private val slotFillerManager: SlotFillerManager,
     private val kernelAIToolSet: KernelAIToolSet,
     private val toolProvider: ToolProvider,
@@ -1431,6 +1436,22 @@ class ChatViewModel @Inject constructor(
             if (slotFillerManager.hasPendingFor(convId)) {
                 when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
+                        // P0 gate: recovered slot-fill for medium/high risk intents requires confirmation
+                        // before execution, even after all slots are filled.
+                        val recoveredRisk = if (slotFillerManager.isRecovery(convId)) {
+                            IntentContractRegistry().riskLevel(fillResult.intentName)
+                        } else null
+                        if (recoveredRisk != null && recoveredRisk != com.kernel.ai.core.skills.intent.IntentRiskLevel.LOW) {
+                            pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
+                                intentName = fillResult.intentName,
+                                params = fillResult.params,
+                                source = "recovery",
+                            )
+                            slotFillerManager.clearRecovery(convId)
+                            val message = "All set. Shall I go ahead?"
+                            appendAssistantMessage(convId, message, shouldIndex = false)
+                            return@launch
+                        }
                         val directSkill = skillRegistry.get(fillResult.intentName)
                         val (skill, callParams) = when {
                             directSkill != null -> directSkill to fillResult.params
@@ -1487,6 +1508,50 @@ class ChatViewModel @Inject constructor(
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
+
+                // P1 fix: recovery-origin confirmations carry pre-extracted params — execute
+                // directly via run_intent instead of asking Gemma to re-extract.
+                if (pendingConfirmation.source == "recovery" && pendingConfirmation.params.isNotEmpty()) {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
+                        val callParams = mapOf("intent_name" to pendingConfirmation.intentName) +
+                            pendingConfirmation.params
+                        Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
+                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        when (skillResult) {
+                            is SkillResult.DirectReply -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = "Recovered: ${pendingConfirmation.intentName}",
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                return@launch
+                            }
+                            is SkillResult.Success -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = "Recovered: ${pendingConfirmation.intentName}",
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                return@launch
+                            }
+                            is SkillResult.Failure -> {
+                                appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                return@launch
+                            }
+                            else -> { /* fall through to E4B */ }
+                        }
+                    }
+                }
+
                 // Classifier-confirmed intents carry empty params (classifier never extracts them).
                 // Zero-param FAST_PATH intents dispatch directly — safe. Parameterized intents
                 // (calendar, SMS, email, alarm, etc.) would fail; inject systemContext so E4B
@@ -1500,48 +1565,48 @@ class ChatViewModel @Inject constructor(
                 } else {
                     val skill = skillRegistry.get("run_intent")
                     if (skill != null) {
-                    val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
-                    Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
-                    when (skillResult) {
-                        is SkillResult.DirectReply -> {
-                            appendAssistantMessageWithToolCall(
-                                convId = convId,
-                                content = skillResult.content,
-                                skillName = pendingConfirmation.intentName,
-                                requestJson = callParams.toString(),
-                                isSuccess = true,
-                                presentation = skillResult.presentation,
-                                spokenSummary = spokenSummaryFrom(skillResult),
-                            )
-                            return@launch
-                        }
-                        is SkillResult.Success -> {
-                            systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
-                            if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(
-                                    convId,
-                                    skillResult.content,
-                                    shouldIndex = false,
+                        val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
+                        Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
+                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        when (skillResult) {
+                            is SkillResult.DirectReply -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = pendingConfirmation.intentName,
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
                                 return@launch
                             }
-                        }
-                        is SkillResult.Failure -> {
-                            if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(
-                                    convId,
-                                    skillResult.error,
-                                    shouldIndex = false,
-                                    spokenSummary = skillResult.error,
-                                )
-                                return@launch
+                            is SkillResult.Success -> {
+                                systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
+                                if (!inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.content,
+                                        shouldIndex = false,
+                                        spokenSummary = spokenSummaryFrom(skillResult),
+                                    )
+                                    return@launch
+                                }
                             }
-                            systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
+                            is SkillResult.Failure -> {
+                                if (!inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.error,
+                                        shouldIndex = false,
+                                        spokenSummary = skillResult.error,
+                                    )
+                                    return@launch
+                                }
+                                systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
+                            }
+                            else -> { /* fall through to E4B unchanged */ }
                         }
-                        else -> { /* fall through to E4B unchanged */ }
-                    }
                     }
                 }
                 // Fall through to E4B for a natural conversational wrapper
@@ -1549,7 +1614,6 @@ class ChatViewModel @Inject constructor(
                 // Non-affirmation — user moved on; clear the pending confirmation
                 pendingConfirmationIntent = null
             }
-
             val weatherFollowUpLocation = WeatherConversationReferenceResolver.resolveLocation(
                 query = text,
                 messages = _messages.value.dropLast(1),
@@ -1602,6 +1666,104 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+
+            // ── Intent Recovery Orchestrator ───────────────────────────────────
+            // When FallThrough has a bestGuess above the soft threshold, try to
+            // recover deterministically before falling back to Gemma.
+            if (matchedIntent == null && routeResult is QuickIntentRouter.RouteResult.FallThrough) {
+                val bestGuess = routeResult.bestGuess
+                if (bestGuess != null && routeResult.bestConfidence >= IntentContractRegistry.SOFT_FALLBACK_THRESHOLD) {
+                    val recovery = intentRecoveryOrchestrator.recover(
+                        conversationId = convId,
+                        input = text,
+                        candidate = IntentCandidate(
+                            intentName = bestGuess.intentName,
+                            confidence = routeResult.bestConfidence,
+                            source = bestGuess.source,
+                        ),
+                    )
+                    when (recovery) {
+                        is RecoveryResult.Execute -> {
+                            isDeviceActionExchange = true
+                            val directSkill = skillRegistry.get(recovery.intentName)
+                            val (skill, callParams) = when {
+                                directSkill != null -> directSkill to recovery.params
+                                else -> {
+                                    val runIntent = skillRegistry.get("run_intent")
+                                    runIntent to (mapOf("intent_name" to recovery.intentName) + recovery.params)
+                                }
+                            }
+                            if (skill != null) {
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
+                                val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                                when (skillResult) {
+                                    is SkillResult.DirectReply -> {
+                                        appendAssistantMessageWithToolCall(
+                                            convId = convId,
+                                            content = skillResult.content,
+                                            skillName = "Recovered: ${recovery.intentName}",
+                                            requestJson = callParams.toString(),
+                                            isSuccess = true,
+                                            presentation = skillResult.presentation,
+                                            spokenSummary = spokenSummaryFrom(skillResult),
+                                        )
+                                        return@launch
+                                    }
+                                    is SkillResult.Success -> {
+                                        appendAssistantMessageWithToolCall(
+                                            convId = convId,
+                                            content = skillResult.content,
+                                            skillName = "Recovered: ${recovery.intentName}",
+                                            requestJson = callParams.toString(),
+                                            isSuccess = true,
+                                            presentation = skillResult.presentation,
+                                            spokenSummary = spokenSummaryFrom(skillResult),
+                                        )
+                                        return@launch
+                                    }
+                                    is SkillResult.Failure -> {
+                                        appendAssistantMessage(
+                                            convId,
+                                            skillResult.error,
+                                            shouldIndex = false,
+                                            spokenSummary = skillResult.error,
+                                        )
+                                        return@launch
+                                    }
+                                    else -> { /* fall through to E4B unchanged */ }
+                                }
+                            }
+                        }
+                        is RecoveryResult.AskSlot -> {
+                            slotFillerManager.markRecovery(convId)
+                            slotFillerManager.startSlotFill(convId, PendingSlotRequest(
+                                intentName = recovery.intentName,
+                                existingParams = recovery.existingParams,
+                                missingSlot = recovery.missingSlot,
+                                isRecovery = true,
+                            ))
+                            val prompt = recovery.missingSlot.buildPrompt(recovery.existingParams)
+                            appendAssistantMessage(convId, prompt, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.AskConfirmation -> {
+                            pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
+                                intentName = recovery.intentName,
+                                params = recovery.params,
+                                source = "recovery",
+                            )
+                            appendAssistantMessage(convId, recovery.message, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.AskClarification -> {
+                            appendAssistantMessage(convId, recovery.message, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.NotActionable -> { /* fall through to Gemma */ }
+                    }
+                }
+            }
+            // ── End Intent Recovery Orchestrator ───────────────────────────────
             if (matchedIntent != null) {
                 // Calendar intent matched by classifier or regex but params not fully extractable —
                 // skip immediate execution. Only inject the structured hint when there is actionable
