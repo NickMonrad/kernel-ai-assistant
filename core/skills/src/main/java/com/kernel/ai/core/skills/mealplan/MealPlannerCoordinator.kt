@@ -3,7 +3,6 @@ package com.kernel.ai.core.skills.mealplan
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
-import com.kernel.ai.core.inference.StructuredOutputSpec
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
@@ -406,11 +405,11 @@ class MealPlannerCoordinator @Inject constructor(
                     return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
                 }
                 val rawPlan = try {
-                    inferenceEngine.generateStructuredOnce(
+                    inferenceEngine.generateOnce(
                         prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
-                        spec = StructuredOutputSpec.MealPlan,
                         systemPrompt = buildPlanSystemPrompt(),
                         thinkingEnabled = false,
+                        stopOnFirstJsonObject = true,
                     )
                 } catch (ce: CancellationException) {
                     Log.w(TAG, "Plan generation cancelled: sessionId=${snapshot.sessionId}, attempt=$attempt")
@@ -517,11 +516,11 @@ class MealPlannerCoordinator @Inject constructor(
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
-            val raw = inferenceEngine.generateStructuredOnce(
+            val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 return@repeat
@@ -959,11 +958,11 @@ class MealPlannerCoordinator @Inject constructor(
         if (markPendingGeneration) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         }
-        val rawRecipe = inferenceEngine.generateStructuredOnce(
+        val rawRecipe = inferenceEngine.generateOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
-            spec = StructuredOutputSpec.Recipe,
             systemPrompt = buildRecipeSystemPrompt(),
             thinkingEnabled = false,
+            stopOnFirstJsonObject = true,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -1243,11 +1242,11 @@ class MealPlannerCoordinator @Inject constructor(
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
-            val raw = inferenceEngine.generateStructuredOnce(
+            val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")
@@ -1763,8 +1762,8 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun buildPlanSystemPrompt(): String = """
 You generate a high-level meal plan for a local-first Android assistant.
-You MUST call the tool `emit_meal_plan` with your plan as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "days": [
     {
@@ -1815,8 +1814,8 @@ Rules:
 
     private fun buildRecipeSystemPrompt(): String = """
 You generate one recipe day for a local-first Android assistant.
-You MUST call the tool `emit_recipe` with your recipe as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "title": "...",
   "servings": 4,
@@ -1859,8 +1858,8 @@ Provide a practical Australia/New Zealand dinner recipe with a concise ingredien
 
     private fun buildReplacementDaySystemPrompt(dayIndex: Int): String = """
 You generate a replacement high-level meal-plan day for a local-first Android assistant.
-You MUST call the tool `emit_replacement_day` with your replacement day as the single argument.
-The argument must be a JSON object with this exact shape:
+Output ONLY the JSON object — no other text, markdown, or code fences.
+The output must have this exact shape:
 {
   "days": [
     {
