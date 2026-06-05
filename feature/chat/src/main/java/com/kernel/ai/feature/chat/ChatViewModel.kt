@@ -1610,20 +1610,24 @@ class ChatViewModel @Inject constructor(
                     // Use extractCalendarHints on the raw query to detect actionable
                     // date/time info — classifier matches carry empty params, so we
                     // must inspect the query text itself, not matchedIntent.params.
+                    // Note: gating on extractability means requests like "schedule
+                    // something for next week" (where the regex doesn't match "next
+                    // week") won't get the steer. That's intentional — the steer is
+                    // a convenience for the model, not a necessity, and removing it
+                    // for edge cases is the safer failure mode compared to injecting
+                    // it into unrelated conversations.
                     val hints = QuickIntentRouter.extractCalendarHints(rawQuery)
                     val hasDateHint = hints["date"]?.isNotBlank() == true
                     val hasTimeHint = hints["time"]?.isNotBlank() == true
                     if (hasDateHint || hasTimeHint) {
-                        val titleHint = matchedIntent.params["extracted_title"]
-                        val titleClause = if (titleHint != null) "The event title is likely \"$titleHint\". " else ""
                         systemContext = "[System: User wants to create a calendar event. " +
                             "Their request: \"$rawQuery\". " +
-                            "${titleClause}Extract the event title, date, and time, then call " +
+                            "Extract the event title, date, and time, then call " +
                             "runIntent(intentName=\"create_calendar_event\", parameters={...}). " +
                             "Pass the date in the 'date' field using a relative term (e.g. 'tomorrow', " +
                             "'next friday') or a plain date ('9 June'), and the clock time separately " +
-                            "in the 'time' field as HH:MM. Never send an ISO datetime string in the " +
-                            "date field.]"
+                            "in the 'time' field as HH:MM. If you have YYYY-MM-DDTHH:MM, send " +
+                            "date=YYYY-MM-DD and time=HH:MM.]"
                     }
                     // fall through to E4B — do NOT execute now
                 } else {
