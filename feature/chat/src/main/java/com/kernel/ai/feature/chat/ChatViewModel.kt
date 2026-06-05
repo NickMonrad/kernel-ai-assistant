@@ -1482,8 +1482,19 @@ class ChatViewModel @Inject constructor(
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
-                val skill = skillRegistry.get("run_intent")
-                if (skill != null) {
+                // Calendar events confirmed via classifier have no extracted params —
+                // dispatching run_intent now would fail with "title is required".
+                // Instead inject a structured hint so E4B extracts title/date/time.
+                if (pendingConfirmation.intentName == "create_calendar_event" && pendingConfirmation.params["title"].isNullOrBlank()) {
+                    val priorUserMsg = _messages.value.dropLast(1).lastOrNull { it.role == ChatMessage.Role.USER }?.content ?: text
+                    systemContext = "[System: User wants to create a calendar event. " +
+                        "Their request: \"$priorUserMsg\". " +
+                        "Extract the event title, date, and time, then call " +
+                        "runIntent(intentName=\"create_calendar_event\", ...). " +
+                        "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
+                } else {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
                     val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
                     Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
@@ -1525,6 +1536,7 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
                         }
                         else -> { /* fall through to E4B unchanged */ }
+                    }
                     }
                 }
                 // Fall through to E4B for a natural conversational wrapper
