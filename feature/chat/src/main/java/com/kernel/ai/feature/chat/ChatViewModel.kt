@@ -1599,19 +1599,32 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
-                // Calendar intent matched by classifier but params not extractable via regex —
-                // skip immediate execution and fall through to E4B with a structured hint.
+                // Calendar intent matched by classifier or regex but params not fully extractable —
+                // skip immediate execution. Only inject the structured hint when there is actionable
+                // date/time info (extractable or already in params). Pure capability queries
+                // ("do you know how to create calendar events") fall through naturally to E4B.
                 if (matchedIntent.intentName == "create_calendar_event" &&
                     matchedIntent.params["title"].isNullOrBlank()
                 ) {
                     val rawQuery = matchedIntent.params["raw_query"] ?: text
-                    val titleHint = matchedIntent.params["extracted_title"]
-                    val titleClause = if (titleHint != null) "The event title is likely \"$titleHint\". " else ""
-                    systemContext = "[System: User wants to create a calendar event. " +
-                        "Their request: \"$rawQuery\". " +
-                        "${titleClause}Extract the event title, date, and time, then call " +
-                        "runIntent(intentName=\"create_calendar_event\", ...). " +
-                        "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
+                    // Use extractCalendarHints on the raw query to detect actionable
+                    // date/time info — classifier matches carry empty params, so we
+                    // must inspect the query text itself, not matchedIntent.params.
+                    val hints = QuickIntentRouter.extractCalendarHints(rawQuery)
+                    val hasDateHint = hints["date"]?.isNotBlank() == true
+                    val hasTimeHint = hints["time"]?.isNotBlank() == true
+                    if (hasDateHint || hasTimeHint) {
+                        val titleHint = matchedIntent.params["extracted_title"]
+                        val titleClause = if (titleHint != null) "The event title is likely \"$titleHint\". " else ""
+                        systemContext = "[System: User wants to create a calendar event. " +
+                            "Their request: \"$rawQuery\". " +
+                            "${titleClause}Extract the event title, date, and time, then call " +
+                            "runIntent(intentName=\"create_calendar_event\", parameters={...}). " +
+                            "Pass the date in the 'date' field using a relative term (e.g. 'tomorrow', " +
+                            "'next friday') or a plain date ('9 June'), and the clock time separately " +
+                            "in the 'time' field as HH:MM. Never send an ISO datetime string in the " +
+                            "date field.]"
+                    }
                     // fall through to E4B — do NOT execute now
                 } else {
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
