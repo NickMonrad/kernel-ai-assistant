@@ -966,7 +966,10 @@ class LiteRtInferenceEngine @Inject constructor(
         systemPrompt: String?,
         thinkingEnabled: Boolean?,
     ): String = withContext(LlmDispatcher) {
-        val config = currentConfig ?: return@withContext ""
+        val config = currentConfig ?: run {
+            Log.w(TAG, "generateStructuredOnce: currentConfig is null — engine not initialized?")
+            return@withContext ""
+        }
         Log.d(
             TAG,
             "generateStructuredOnce: spec='${spec.toolName}', schemaLen=${spec.jsonSchema.length}, thinking=$thinkingEnabled",
@@ -1024,7 +1027,10 @@ class LiteRtInferenceEngine @Inject constructor(
                     safeClose(conversation, "conversation")
                 }
 
-                val eng = engine ?: return@withContext ""
+                val eng = engine ?: run {
+                    Log.w(TAG, "generateStructuredOnce: engine is null — was it evicted?")
+                    return@withContext ""
+                }
                 val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
 
                 // Isolate to synthetic tool only — no other tools interfere with constrained decoding.

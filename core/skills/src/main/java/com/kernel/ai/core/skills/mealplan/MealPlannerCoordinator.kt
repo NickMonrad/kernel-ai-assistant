@@ -400,6 +400,7 @@ class MealPlannerCoordinator @Inject constructor(
             var lastErrorCode: String? = null
             var lastErrorMessage: String? = null
             for (attempt in 1..MAX_PLAN_GENERATION_ATTEMPTS) {
+                Log.d(TAG, "Plan generation attempt $attempt/$MAX_PLAN_GENERATION_ATTEMPTS: sessionId=${snapshot.sessionId}")
                 val preAttempt = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
                 if (preAttempt.status == MealPlanSessionStatus.CANCELLED) {
                     return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
