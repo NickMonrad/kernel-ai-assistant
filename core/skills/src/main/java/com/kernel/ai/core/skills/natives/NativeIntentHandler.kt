@@ -662,10 +662,22 @@ class NativeIntentHandler @Inject constructor(
     // ── Calendar ──────────────────────────────────────────────────────────────
 
     private fun resolveCalendarSchedule(dateStr: String, explicitTimeStr: String?): Pair<LocalDate, String?>? {
-        val extractedDateTime = QuickIntentRouter.extractCalendarHints(dateStr)
-        val normalizedDateStr = extractedDateTime["date"]?.takeIf { it.isNotBlank() } ?: dateStr
+        // If the model passed a combined ISO datetime as the date param
+        // (e.g. "2026-06-06T09:00:00"), split it into date and time so
+        // the time component isn't silently discarded.
+        // Anchored on ISO date prefix to avoid false matches on natural
+        // language like "Sunday at 3:00 p.m."
+        val isoTimeMatch = Regex("""^\d{4}-\d{1,2}-\d{1,2}[T ](\d{1,2}:\d{2})""").find(dateStr)
+        val cleanedDateStr = if (isoTimeMatch != null) {
+            dateStr.replace(Regex("""[T ].*$"""), "")
+        } else {
+            dateStr
+        }
+        val extractedDateTime = QuickIntentRouter.extractCalendarHints(cleanedDateStr)
+        val normalizedDateStr = extractedDateTime["date"]?.takeIf { it.isNotBlank() } ?: cleanedDateStr
         val date = resolveDate(normalizedDateStr) ?: return null
         val timeStr = explicitTimeStr?.takeIf { it.isNotBlank() }
+            ?: isoTimeMatch?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
             ?: extractedDateTime["time"]?.takeIf { it.isNotBlank() }
         return date to timeStr
     }
@@ -2791,7 +2803,7 @@ class NativeIntentHandler @Inject constructor(
      * Returns null if the string cannot be resolved to a valid date.
      */
     private fun resolveDate(dateStr: String): LocalDate? {
-        val input = dateStr.trim()
+        val input = dateStr.trim().replace(Regex("""\b(\d{1,2})(?:st|nd|rd|th)\b"""), "$1")
         val normalized = input.lowercase()
         val today = LocalDate.now()
 
