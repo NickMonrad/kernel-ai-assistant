@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import android.util.Log
+import kotlinx.coroutines.delay
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.DayOfWeek
@@ -24,6 +26,7 @@ import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
 class QuickIntentRouter(
     private val classifier: IntentClassifier? = null,
     private val similarityThreshold: Float = 0.85f,
+    private val intentContractRegistry: com.kernel.ai.core.skills.intent.IntentContractRegistry? = null,
 ) {
 
     // ── Result types ──────────────────────────────────────────────────────────
@@ -64,11 +67,21 @@ class QuickIntentRouter(
         val source: String = "regex",
     )
 
-    // ── Classifier interface (for BERT-tiny or mock) ──────────────────────────
 
     interface IntentClassifier {
         data class Classification(val intentName: String, val confidence: Float)
         fun classify(input: String): Classification?
+        /**
+         * Returns true when the classifier is fully initialised and ready to classify.
+         * Defaults to true for classifiers without async init requirements.
+         */
+        fun isReady(): Boolean = true
+        /**
+         * Returns true when the classifier has failed to initialise and will never become ready.
+         * Guards against burning the full `awaitClassifierReady` timeout on permanently
+         * unavailable classifiers (e.g. missing model assets).
+         */
+        fun isFailed(): Boolean = false
     }
 
     // ── Intent prefix normalisation ───────────────────────────────────────────
@@ -227,9 +240,9 @@ class QuickIntentRouter(
             ),
         ),
     )
-
     private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
-        slotContracts[intentName] ?: emptyMap()
+        intentContractRegistry?.requiredSlots(intentName)
+            ?: slotContracts[intentName] ?: emptyMap()
 
     private val placeholderContacts = setOf(
         "someone",
@@ -4188,6 +4201,38 @@ class QuickIntentRouter(
             }
         }
         return null
+    }
+
+    /**
+     * Suspends until the classifier is ready, or until [timeoutMs] elapses, or until
+     * the classifier permanently fails. Classifier-not-ready is a transient race on
+     * first message after app start (MiniLMIntentClassifier async init).
+     *
+     * This is a **suspend-friendly** replacement for an older blocking `runBlocking`
+     * inside `MiniLMIntentClassifier.classify()`. Callers inside `viewModelScope`
+     * (or any coroutine context) should invoke this before `route()` to prevent
+     * the classifier from returning null on the first user message.
+     *
+     * If the classifier is null, already ready, or has permanently failed, this
+     * returns immediately. Otherwise it polls [isReady] until the timeout.
+     */
+    suspend fun awaitClassifierReady(timeoutMs: Long = 2000L) {
+        val cls = classifier ?: return
+        if (cls.isReady() || cls.isFailed()) return
+        Log.d("QuickIntentRouter", "awaitClassifierReady: classifier not ready, waiting up to ${timeoutMs}ms")
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            if (cls.isFailed()) {
+                Log.i("QuickIntentRouter", "awaitClassifierReady: classifier failed to initialise")
+                return
+            }
+            if (cls.isReady()) {
+                Log.d("QuickIntentRouter", "awaitClassifierReady: classifier became ready")
+                return
+            }
+            delay(50)
+        }
+        Log.i("QuickIntentRouter", "awaitClassifierReady: timed out after ${timeoutMs}ms, classifier not ready")
     }
 
 

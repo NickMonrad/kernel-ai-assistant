@@ -8,6 +8,12 @@ import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
+import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.intent.IntentSlotExtractor
+import com.kernel.ai.core.skills.slot.SlotFillerManager
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -69,13 +75,41 @@ abstract class SkillsModule {
     @Singleton
     abstract fun bindIntentClassifier(impl: MiniLMIntentClassifier): QuickIntentRouter.IntentClassifier
 
+    @Binds
+    @IntoSet
+    abstract fun bindCalendarSlotExtractor(impl: CalendarSlotExtractor): IntentSlotExtractor
+
     companion object {
-        /** Provide a QuickIntentRouter wired with the MiniLM-backed classifier. */
+        /** Provide a QuickIntentRouter wired with the MiniLM-backed classifier and contract registry. */
         @Provides
         @Singleton
         fun provideQuickIntentRouter(
             classifier: QuickIntentRouter.IntentClassifier,
-        ): QuickIntentRouter = QuickIntentRouter(classifier = classifier)
+            registry: IntentContractRegistry,
+        ): QuickIntentRouter = QuickIntentRouter(
+            classifier = classifier,
+            intentContractRegistry = registry,
+        )
+
+        /** Provide the singleton IntentContractRegistry. */
+        @Provides
+        @Singleton
+        fun provideIntentContractRegistry(): IntentContractRegistry = IntentContractRegistry()
+
+        /** Provide the IntentRecoveryOrchestrator with all dependencies. */
+        @Provides
+        @Singleton
+        fun provideIntentRecoveryOrchestrator(
+            registry: IntentContractRegistry,
+            slotFillerManager: SlotFillerManager,
+            skillRegistry: SkillRegistry,
+            extractors: Set<@JvmSuppressWildcards IntentSlotExtractor>,
+        ): IntentRecoveryOrchestrator = IntentRecoveryOrchestrator(
+            registry = registry,
+            slotFillerManager = slotFillerManager,
+            skillRegistry = skillRegistry,
+            extractors = extractors,
+        )
 
         /** Wrap [KernelAIToolSet] into a [ToolProvider] for the LiteRT-LM SDK. */
         @Provides

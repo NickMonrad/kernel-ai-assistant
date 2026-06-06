@@ -8,6 +8,7 @@ data class PendingSlotRequest(
     val intentName: String,
     val existingParams: Map<String, String>,
     val missingSlot: SlotSpec,
+    val isRecovery: Boolean = false,
 ) {
     val promptMessage: String get() = missingSlot.buildPrompt(existingParams)
 }
