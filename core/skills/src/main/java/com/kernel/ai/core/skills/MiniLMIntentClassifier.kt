@@ -7,8 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
 import java.nio.channels.FileChannel
@@ -76,16 +74,11 @@ class MiniLMIntentClassifier @Inject constructor(
         }
     }
 
+    override fun isReady(): Boolean = intentPhraseVectors != null
+    override fun isFailed(): Boolean = initFailed
+
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
         if (input.isBlank()) return null
-
-        // If init hasn't finished yet, wait up to 500ms before giving up — prevents the race
-        // condition where the first user message arrives before phrase vector pre-computation is done.
-        if (intentPhraseVectors == null && !initFailed) {
-            Log.i(TAG, "classify('$input') — init still in progress, waiting up to 500ms")
-            runBlocking { withTimeoutOrNull(500) { initJob.join() } }
-        }
-
         val v = vocab ?: run {
             Log.i(TAG, "classify('$input') — not ready (vocab null, initFailed=$initFailed), skipping")
             return null

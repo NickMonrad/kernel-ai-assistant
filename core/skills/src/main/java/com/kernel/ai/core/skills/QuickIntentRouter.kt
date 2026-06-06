@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import android.util.Log
+import kotlinx.coroutines.delay
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.DayOfWeek
@@ -65,11 +67,21 @@ class QuickIntentRouter(
         val source: String = "regex",
     )
 
-    // ── Classifier interface (for BERT-tiny or mock) ──────────────────────────
 
     interface IntentClassifier {
         data class Classification(val intentName: String, val confidence: Float)
         fun classify(input: String): Classification?
+        /**
+         * Returns true when the classifier is fully initialised and ready to classify.
+         * Defaults to true for classifiers without async init requirements.
+         */
+        fun isReady(): Boolean = true
+        /**
+         * Returns true when the classifier has failed to initialise and will never become ready.
+         * Guards against burning the full `awaitClassifierReady` timeout on permanently
+         * unavailable classifiers (e.g. missing model assets).
+         */
+        fun isFailed(): Boolean = false
     }
 
     // ── Intent prefix normalisation ───────────────────────────────────────────
@@ -4189,6 +4201,38 @@ class QuickIntentRouter(
             }
         }
         return null
+    }
+
+    /**
+     * Suspends until the classifier is ready, or until [timeoutMs] elapses, or until
+     * the classifier permanently fails. Classifier-not-ready is a transient race on
+     * first message after app start (MiniLMIntentClassifier async init).
+     *
+     * This is a **suspend-friendly** replacement for an older blocking `runBlocking`
+     * inside `MiniLMIntentClassifier.classify()`. Callers inside `viewModelScope`
+     * (or any coroutine context) should invoke this before `route()` to prevent
+     * the classifier from returning null on the first user message.
+     *
+     * If the classifier is null, not-ready, or failed at the start, this returns
+     * immediately — there is nothing to wait for.
+     */
+    suspend fun awaitClassifierReady(timeoutMs: Long = 5000L) {
+        val cls = classifier ?: return
+        if (cls.isReady() || cls.isFailed()) return
+        Log.d("QuickIntentRouter", "awaitClassifierReady: classifier not ready, waiting up to ${timeoutMs}ms")
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (cls.isFailed()) {
+                Log.i("QuickIntentRouter", "awaitClassifierReady: classifier failed to initialise")
+                return
+            }
+            if (cls.isReady()) {
+                Log.d("QuickIntentRouter", "awaitClassifierReady: classifier became ready")
+                return
+            }
+            delay(50)
+        }
+        Log.i("QuickIntentRouter", "awaitClassifierReady: timed out after ${timeoutMs}ms, classifier not ready")
     }
 
 

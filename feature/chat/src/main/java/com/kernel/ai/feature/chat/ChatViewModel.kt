@@ -1388,6 +1388,12 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
+            // Ensure the BERT-tiny classifier (MiniLM) is ready before routing — prevents
+            // a race where the very first user message (e.g. from quick-actions handoff)
+            // arrives before async init has finished, producing FallThrough with no bestGuess
+            // and causing the Intent Recovery Orchestrator to be skipped.
+            quickIntentRouter.awaitClassifierReady()
+
             val mealPlannerRoute = quickIntentRouter.route(text)
             val explicitMealPlannerStart = when (mealPlannerRoute) {
                 is QuickIntentRouter.RouteResult.RegexMatch ->
