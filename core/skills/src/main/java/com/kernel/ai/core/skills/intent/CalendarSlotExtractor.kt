@@ -6,9 +6,16 @@ import javax.inject.Singleton
 /**
  * Deterministic slot extractor for the `create_calendar_event` intent.
  *
- * Mirrors the extraction logic from [QuickIntentRouter.extractCalendarHints] but as a
- * standalone, injectable extractor. The original [QuickIntentRouter.extractCalendarHints]
- * is kept for backward compatibility and delegates here during migration.
+ * This is the canonical implementation of calendar slot extraction.
+ * [QuickIntentRouter.extractCalendarHints] delegates here, and the
+ * [IntentRecoveryOrchestrator] uses this via the [IntentSlotExtractor]
+ * interface for recovery from FallThrough.
+ *
+ * Title extraction (#1100): when both a verb-title (e.g. "set up a meeting")
+ * and a for-title (e.g. "for marketing") match, the verb-title wins because
+ * "for X" may be metadata (attendee/context/category), not the event title.
+ * When only one matches, it is used; generic verb titles (meeting, appointment)
+ * are filtered out unless they conflict with a for-title.
  */
 @Singleton
 class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
@@ -17,6 +24,8 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         intentName == "create_calendar_event" || intentName == "create_event"
 
     // Phrases that are always capability questions, never calendar requests.
+    // Expanded per #1103 false-positive sweep: weather queries, search requests,
+    // and general knowledge questions commonly trigger false extractions.
     private val PURE_QUESTION_PHRASES = listOf(
         "do you know how to",
         "how do i",
@@ -24,7 +33,29 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         "what is",
         "what's",
         "whats",
+        "what will",
+        "what would",
+        "what does",
+        "will it",
+        "is it going",
+        "tell me the",
+        "tell me about",
         "explain",
+    )
+
+    // Phrases at the start of input that indicate a non-calendar intent
+    // even though they aren't explicitly question phrases.
+    private val NON_CALENDAR_STARTS_WITH = listOf(
+        "weather",
+        "search",
+        "find",
+        "look up",
+        "navigate",
+        "call ",
+        "phone ",
+        "text ",
+        "email ",
+        "message ",
     )
 
     // Phrases that can be either capability questions or polite requests.
@@ -41,16 +72,24 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         // ── Title ─────────────────────────────────────────────────────────────
         val titleFromFor = REGEX_TITLE_FOR.find(input)
         val titleFromVerb = REGEX_TITLE_VERB.find(input)
+        val hasCalendarEvidence = titleFromFor != null || titleFromVerb != null
 
         val rawTitle = run {
             val fromFor = titleFromFor?.groupValues?.get(1)?.trim()
                 ?.takeIf { it.isNotBlank() && it.length >= 2 && !DATE_WORDS.contains(it.lowercase()) }
-            fromFor ?: titleFromVerb?.groupValues?.get(1)?.trim()
-                ?.takeIf {
-                    it.isNotBlank() &&
-                        it.length >= 2 &&
-                        !GENERIC_CALENDAR_TITLES.contains(it.lowercase())
-                }
+            val fromVerb = titleFromVerb?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.isNotBlank() && it.length >= 2 }
+
+            if (titleFromVerb != null && fromFor != null) {
+                // Both match with meaningful captures — verb-title is the more precise
+                // action indicator (#1100). The user explicitly named the action they're
+                // taking (e.g. "set up a meeting"); "for X" is metadata (context/attendee/
+                // category), not the event title. Keep verb-title even when it's a generic
+                // calendar word since the action verb confirms user intent.
+                fromVerb ?: fromFor
+            } else {
+                fromVerb?.takeIf { !GENERIC_CALENDAR_TITLES.contains(it.lowercase()) } ?: fromFor
+            }
         }
         val normalizedTitle = rawTitle?.let { candidate ->
             val trimmed = candidate.trim()
@@ -102,12 +141,18 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         val isPureQuestion = PURE_QUESTION_PHRASES.any { phrase -> lower.startsWith(phrase) }
         if (isPureQuestion) return ExtractionResult.NotActionable
 
+        // #1103 guard: non-calendar starting phrases (weather, search, find, etc.)
+        // without calendar verb evidence are not calendar events.
+        val isNonCalendar = NON_CALENDAR_STARTS_WITH.any { phrase -> lower.startsWith(phrase) }
+        if (isNonCalendar && !hasCalendarEvidence) {
+            return ExtractionResult.NotActionable
+        }
+
         // Ambiguous phrases (can you, are you able to) may be polite requests.
         // Require calendar evidence (title match or calendar verb match) — a bare
         // date/time without a title/verb is not sufficient (e.g. "can you tell me
         // the weather tomorrow?" has date but no calendar event evidence).
         val isAmbiguousQuery = AMBIGUOUS_CAPABILITY_PHRASES.any { phrase -> lower.startsWith(phrase) }
-        val hasCalendarEvidence = titleFromFor != null || titleFromVerb != null
         if (isAmbiguousQuery && !hasCalendarEvidence) {
             return ExtractionResult.NotActionable
         }
@@ -137,10 +182,11 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
             """\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b""",
             RegexOption.IGNORE_CASE,
         )
-        // P2: only `at` or `@`, not `for`, to avoid "for 9th" → time=09:00
+        // Supports `at/for/@ <time>` (e.g. "for 3pm", "at 10:30am").
+        // The bare-digit alternative guards against ordinals ("for 9th" → time=09:00)
+        // by rejecting numbers followed by st/nd/rd/th or additional digits.
         private val REGEX_TIME = Regex(
-            """(?:at|@)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
-            RegexOption.IGNORE_CASE,
+            """(?:at|@|for)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?(?!\s*(?:st|nd|rd|th|\d)))(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
         )
         private val REGEX_BARE_HOUR = Regex("""\d{1,2}""")
 

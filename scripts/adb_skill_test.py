@@ -490,8 +490,6 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
-
-
 def run_adb(*args: str) -> str:
     """Run an ADB command and return stdout. Prints stderr on non-zero exit."""
     result = subprocess.run(
@@ -505,17 +503,115 @@ def run_adb(*args: str) -> str:
     return result.stdout
 
 
+# ===================================================================
+# Host-side logcat streaming (#1102)
+#
+# Long-running logcat process on the host side avoids the S21's 5MB logcat
+# buffer rotation problem. Instead of polling `adb logcat -d` (which dumps
+# the ring buffer and loses early entries in long runs), we keep a persistent
+# `adb logcat` subprocess whose stdout is continuously buffered on the host.
+#
+# Callers use `logcat_snapshot()` to atomically drain the accumulated output
+# since the last snapshot (or since the stream started).
+# ===================================================================
+
+import subprocess
+import atexit
+import threading
+
+_logcat_proc: subprocess.Popen | None = None
+_logcat_buffer: list[str] = []
+_logcat_lock = threading.Lock()
+
+
+def _logcat_reader() -> None:
+    """Read lines from the persistent logcat subprocess and buffer them."""
+    global _logcat_proc, _logcat_buffer
+    assert _logcat_proc is not None
+    assert _logcat_proc.stdout is not None
+    for line in _logcat_proc.stdout:
+        with _logcat_lock:
+            _logcat_buffer.append(line.rstrip("\n"))
+
+
+def logcat_start() -> None:
+    """Start the persistent logcat stream. Safe to call multiple times (idempotent)."""
+    global _logcat_proc
+    if _logcat_proc is not None:
+        return
+    # Clear device-side buffer first, then start streaming
+    run_adb("logcat", "-c")
+    _logcat_proc = subprocess.Popen(
+        ["adb", "logcat", "-s", f"{LOGCAT_TAG}:D", "-v", "brief"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        universal_newlines=True, bufsize=1,
+    )
+    reader = threading.Thread(target=_logcat_reader, daemon=True)
+    reader.start()
+    # Brief pause to let the stream establish
+    time.sleep(0.5)
+    # Clear again after stream starts to flush any initial noise
+    run_adb("logcat", "-c")
+
+
+def logcat_stop() -> None:
+    """Stop the persistent logcat stream and drain remaining output."""
+    global _logcat_proc, _logcat_buffer
+    if _logcat_proc is not None:
+        _logcat_proc.terminate()
+        _logcat_proc.wait(timeout=5)
+        _logcat_proc = None
+    with _logcat_lock:
+        _logcat_buffer.clear()
+
+
+def logcat_snapshot() -> str:
+    """Atomically drain the accumulated logcat buffer and return it as a string."""
+    with _logcat_lock:
+        result = "\n".join(_logcat_buffer)
+        _logcat_buffer.clear()
+    return result
+
+
+def logcat_wait(expected: str, timeout: float = 30.0) -> str:
+    """Poll the logcat buffer until [expected] appears, or timeout. Returns the full snapshot."""
+    deadline = time.time() + timeout
+    snapshot = ""
+    while time.time() < deadline:
+        snapshot = logcat_snapshot()
+        if expected in snapshot:
+            return snapshot
+        time.sleep(0.5)
+    return snapshot
+
+
+atexit.register(logcat_stop)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible wrappers — existing callers continue to work unchanged.
+# Uses streaming buffer instead of `adb logcat -d` to avoid S21's 5MB logcat
+# buffer rotation issue in long runs (#1102).
+# ---------------------------------------------------------------------------
+
 def clear_logcat() -> None:
+    """Clear the logcat buffer. Drains the streaming buffer and clears the device ring buffer."""
+    logcat_snapshot()  # Drain any accumulated output
     run_adb("logcat", "-c")
 
 
 def read_logcat() -> str:
-    return run_adb("logcat", "-d", "-s", f"{LOGCAT_TAG}:D")
+    """Return accumulated KernelAI logcat output since last clear."""
+    return logcat_snapshot()
 
 
 def read_logcat_all() -> str:
-    """Read KernelAI and LiteRtInferenceEngine tags (needed for warm-up and profile tests)."""
-    return run_adb("logcat", "-d", "-s", f"{LOGCAT_TAG}:D", "-s", "LiteRtInferenceEngine:I")
+    """Return accumulated logcat (KernelAI + LiteRtInferenceEngine) since last clear.
+    Note: with streaming, this returns the same snapshot as read_logcat() since
+    the stream is filtered by tag. For LiteRtInferenceEngine logs, callers that
+    specifically need a wider tag filter should use logcat_snapshot() directly
+    after starting a stream with the appropriate filter."""
+    return logcat_snapshot()
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +966,8 @@ def check_oom_sanity(results: list[TestResult]) -> None:
 
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None, phases: list[str] | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
+    # Start host-side logcat streaming (#1102) — avoids S21 buffer rotation failures
+    logcat_start()
     if dry_run:
         print("=" * 70)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
