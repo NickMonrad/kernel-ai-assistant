@@ -4213,15 +4213,15 @@ class QuickIntentRouter(
      * (or any coroutine context) should invoke this before `route()` to prevent
      * the classifier from returning null on the first user message.
      *
-     * If the classifier is null, not-ready, or failed at the start, this returns
-     * immediately — there is nothing to wait for.
+     * If the classifier is null, already ready, or has permanently failed, this
+     * returns immediately. Otherwise it polls [isReady] until the timeout.
      */
-    suspend fun awaitClassifierReady(timeoutMs: Long = 5000L) {
+    suspend fun awaitClassifierReady(timeoutMs: Long = 8000L) {
         val cls = classifier ?: return
         if (cls.isReady() || cls.isFailed()) return
         Log.d("QuickIntentRouter", "awaitClassifierReady: classifier not ready, waiting up to ${timeoutMs}ms")
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (System.nanoTime() < deadline) {
             if (cls.isFailed()) {
                 Log.i("QuickIntentRouter", "awaitClassifierReady: classifier failed to initialise")
                 return
