@@ -84,7 +84,6 @@ class SlotFillerManager @Inject constructor(
             SlotFillResult.NeedsMore(nextRequest)
         } else {
             pendingRequests.remove(conversationId)
-            recoveryConversations.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
                 params = mergedParams,

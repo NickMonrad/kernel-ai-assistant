@@ -69,6 +69,13 @@ class CalendarSlotExtractorTest {
     }
 
     @Test
+    fun `politeActionRequestWithDateExtracts`() {
+        // "can you" is a capability phrase but "next Friday" provides actionable date evidence
+        val params = extractParams("Can you chuck dinner with Sam in for next Friday night?")
+        assertEquals("next friday", params["date"])
+    }
+
+    @Test
     fun `extractsWeekdayDate`() {
         val params = extractParams("add gym session for Thursday")
         assertEquals("thursday", params["date"])

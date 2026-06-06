@@ -27,20 +27,9 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
 
     override fun extract(input: String, contract: IntentContract): ExtractionResult {
         val lower = input.lowercase().trim()
-
-        // P1 guard: suppress extraction when input looks like a capability question
-        // rather than an actionable request. Prevents false recovery of queries like
-        // "do you know how to create calendar events" into calendar creation flow.
-        if (CAPABILITY_PHRASES.any { phrase -> lower.startsWith(phrase) }) {
-            return ExtractionResult.NotActionable
-        }
-
         val params = mutableMapOf<String, String>()
 
         // ── Title ─────────────────────────────────────────────────────────────
-        // Try "for a/an X" first (e.g. "create a meeting for tomorrow" → "Meeting").
-        // Fall back to the noun phrase immediately after the verb+article, stopping
-        // before any temporal keyword.
         val titleFromFor = REGEX_TITLE_FOR.find(input)
         val titleFromVerb = REGEX_TITLE_VERB.find(input)
 
@@ -70,7 +59,6 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         // ── Date: relative terms and day names ────────────────────────────────
         REGEX_DATE_RELATIVE.find(lower)?.value?.trim()?.let { params["date"] = it }
 
-        // ── Date: ordinal and explicit dates ("9th of june", "June 9th") ──
         if (!params.containsKey("date")) {
             REGEX_DATE_ORDINAL.find(input)?.let { match ->
                 val day = match.groupValues[1]
@@ -88,9 +76,7 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
             }
         }
 
-        // ── Time: "at 2pm", "at 10:30am", "at noon/midnight" ──
-        // P2: Only match after "at"/"@" — not after "for" — to avoid
-        // misreading ordinal dates like "9th of June" as time "09:00".
+        // ── Time ──
         REGEX_TIME.find(lower)?.groupValues?.get(1)?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.let { t ->
@@ -101,6 +87,13 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
                     else -> t
                 }
             }
+
+        // P1 guard: suppress extraction when input looks like a pure capability
+        // question with no actionable evidence (no date, time, or non-generic title).
+        val isCapabilityQuery = CAPABILITY_PHRASES.any { phrase -> lower.startsWith(phrase) }
+        if (isCapabilityQuery && params.isEmpty()) {
+            return ExtractionResult.NotActionable
+        }
 
         return ExtractionResult.Extracted(params)
     }
@@ -142,6 +135,7 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
         private val GENERIC_CALENDAR_TITLES = setOf(
             "appointment", "meeting", "event", "session",
             "booking", "invite", "entry", "something",
+            "calendar event", "calendar events",
         )
     }
 }

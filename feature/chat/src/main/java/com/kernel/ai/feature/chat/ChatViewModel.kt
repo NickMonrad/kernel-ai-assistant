@@ -1452,6 +1452,9 @@ class ChatViewModel @Inject constructor(
                             appendAssistantMessage(convId, message, shouldIndex = false)
                             return@launch
                         }
+                        // Low-risk or non-recovery → clear recovery tracking and execute directly
+                        slotFillerManager.clearRecovery(convId)
+                        val isRecoveryFill = recoveredRisk != null
                         val directSkill = skillRegistry.get(fillResult.intentName)
                         val (skill, callParams) = when {
                             directSkill != null -> directSkill to fillResult.params
@@ -1467,8 +1470,8 @@ class ChatViewModel @Inject constructor(
                                     appendAssistantMessageWithToolCall(
                                         convId = convId,
                                         content = skillResult.content,
-                                        skillName = fillResult.intentName,
-                                        requestJson = callParams.toString(),
+                                        skillName = if (isRecoveryFill) "Recovered: ${fillResult.intentName}" else fillResult.intentName,
+                                        requestJson = if (isRecoveryFill) "" else callParams.toString(),
                                         isSuccess = true,
                                         presentation = skillResult.presentation,
                                         spokenSummary = spokenSummaryFrom(skillResult),
@@ -1524,7 +1527,7 @@ class ChatViewModel @Inject constructor(
                                     convId = convId,
                                     content = skillResult.content,
                                     skillName = "Recovered: ${pendingConfirmation.intentName}",
-                                    requestJson = callParams.toString(),
+                                    requestJson = "",
                                     isSuccess = true,
                                     presentation = skillResult.presentation,
                                     spokenSummary = spokenSummaryFrom(skillResult),
@@ -1536,7 +1539,7 @@ class ChatViewModel @Inject constructor(
                                     convId = convId,
                                     content = skillResult.content,
                                     skillName = "Recovered: ${pendingConfirmation.intentName}",
-                                    requestJson = callParams.toString(),
+                                    requestJson = "",
                                     isSuccess = true,
                                     presentation = skillResult.presentation,
                                     spokenSummary = spokenSummaryFrom(skillResult),
@@ -1702,7 +1705,7 @@ class ChatViewModel @Inject constructor(
                                             convId = convId,
                                             content = skillResult.content,
                                             skillName = "Recovered: ${recovery.intentName}",
-                                            requestJson = callParams.toString(),
+                                            requestJson = "",
                                             isSuccess = true,
                                             presentation = skillResult.presentation,
                                             spokenSummary = spokenSummaryFrom(skillResult),
@@ -1714,7 +1717,7 @@ class ChatViewModel @Inject constructor(
                                             convId = convId,
                                             content = skillResult.content,
                                             skillName = "Recovered: ${recovery.intentName}",
-                                            requestJson = callParams.toString(),
+                                            requestJson = "",
                                             isSuccess = true,
                                             presentation = skillResult.presentation,
                                             spokenSummary = spokenSummaryFrom(skillResult),
