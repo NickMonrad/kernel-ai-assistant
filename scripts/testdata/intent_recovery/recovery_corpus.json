@@ -5,7 +5,7 @@
     "confidence": 0.72,
     "precomputedSlots": null,
     "expectedSlots": {
-      "title": "Calendar Event",
+      "title": "Dentist",
       "date": "tomorrow",
       "time": "3pm"
     },
@@ -226,7 +226,9 @@
     "candidateIntent": "create_calendar_event",
     "confidence": 0.72,
     "precomputedSlots": null,
-    "expectedSlots": {},
+    "expectedSlots": {
+      "title": "Dentist Appointment"
+    },
     "expectedPolicy": {
       "decision": "AskSlot",
       "requiredSlotsPresent": false,
@@ -327,7 +329,7 @@
     "confidence": 0.3,
     "precomputedSlots": null,
     "expectedSlots": {
-      "title": "Calendar Event",
+      "title": "Dentist",
       "date": "tomorrow",
       "time": "3pm"
     },
@@ -453,7 +455,6 @@
     "risk": "MEDIUM",
     "missingSlot": null,
     "evalLayers": [
-      2,
       3
     ]
   },

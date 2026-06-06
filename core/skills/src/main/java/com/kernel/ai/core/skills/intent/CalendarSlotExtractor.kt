@@ -81,12 +81,13 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
                 ?.takeIf { it.isNotBlank() && it.length >= 2 }
 
             if (titleFromVerb != null && fromFor != null) {
-                // Both match with meaningful captures — verb-title is the more precise
-                // action indicator (#1100). The user explicitly named the action they're
-                // taking (e.g. "set up a meeting"); "for X" is metadata (context/attendee/
-                // category), not the event title. Keep verb-title even when it's a generic
-                // calendar word since the action verb confirms user intent.
-                fromVerb ?: fromFor
+                // Both match (#1100). Verb-title wins — the user explicitly named an
+                // action (e.g. "set up a meeting"), so "for X" is metadata (context/
+                // attendee/category), not the event title.
+                // Exceptions: titles in BLOCKED_ALWAYS_TITLES (calendar event, session,
+                // booking, etc.) are so generic they add no value even in context.
+                val blockedAlways = BLOCKED_ALWAYS_TITLES.contains(fromVerb?.lowercase() ?: "")
+                if (!blockedAlways) fromVerb else fromFor
             } else {
                 fromVerb?.takeIf { !GENERIC_CALENDAR_TITLES.contains(it.lowercase()) } ?: fromFor
             }
@@ -199,6 +200,12 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
             "appointment", "meeting", "event", "session",
             "booking", "invite", "entry", "something",
             "calendar event", "calendar events",
+        )
+        // Titles so generic that even paired with a for-title they add no value.
+        // Subset of GENERIC_CALENDAR_TITLES that are rejected even in both-match mode.
+        private val BLOCKED_ALWAYS_TITLES = setOf(
+            "calendar event", "calendar events", "event", "session",
+            "booking", "entry", "something",
         )
     }
 }

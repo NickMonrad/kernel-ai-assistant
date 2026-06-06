@@ -20,19 +20,31 @@ class SlotExtractionEval : RecoveryEvalBase() {
         for (fixture in fixtures) {
             val result = extractor.extract(fixture.input, contract)
 
+            // ── NotActionable assertion ──
+            // Only pass NotActionable when the fixture actually expects it
+            val expectsNotActionable = fixture.expectedPolicy.decision == "NotActionable"
             if (result is ExtractionResult.NotActionable) {
-                // Extractor signaled NotActionable (capability question guard)
-                naFromExtractor++
-                exactPassed++
-                partialPassed++
+                if (expectsNotActionable) {
+                    naFromExtractor++; exactPassed++; partialPassed++
+                } else {
+                    failures.add("'${fixture.input}': unexpected NotActionable")
+                }
+                continue
+            }
+            if (expectsNotActionable) {
+                failures.add("'${fixture.input}': expected NotActionable but got Extracted")
                 continue
             }
 
+            // ── Empty slots assertion ──
+            // Assert that the extractor returned Extracted with empty params
             if (fixture.expectedSlots.isEmpty()) {
-                // NotActionable isn't expected here — the extractor returned Extracted
-                // with empty params, which is correct for non-calendar input.
-                exactPassed++
-                partialPassed++
+                val emptyParams = (result as ExtractionResult.Extracted).params
+                if (emptyParams.isEmpty()) {
+                    exactPassed++; partialPassed++
+                } else {
+                    failures.add("'${fixture.input}': expected empty slots but got $emptyParams")
+                }
                 continue
             }
 

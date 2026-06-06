@@ -21,7 +21,7 @@ class IntentRecoveryOrchestratorTest {
         val orchestrator = IntentRecoveryOrchestrator(registry, slotFillerManager, skillRegistry, extractors)
 
         // "create a calendar event for dentist tomorrow at 3pm"
-        // → title=Calendar Event (verb-title wins over for-title, #1100), date=tomorrow, time=3pm
+        // → title=Dentist (calendar event is blocked-always, for-title wins, #1100)
         val result = orchestrator.recover(
             conversationId = "conv-1",
             input = "create a calendar event for dentist tomorrow at 3pm",
@@ -30,7 +30,7 @@ class IntentRecoveryOrchestratorTest {
 
         val askConfirmation = assertInstanceOf(RecoveryResult.AskConfirmation::class.java, result)
         assertEquals("create_calendar_event", askConfirmation.intentName)
-        assertEquals("Calendar Event", askConfirmation.params["title"])
+        assertEquals("Dentist", askConfirmation.params["title"])
         assertEquals("tomorrow", askConfirmation.params["date"])
     }
 
