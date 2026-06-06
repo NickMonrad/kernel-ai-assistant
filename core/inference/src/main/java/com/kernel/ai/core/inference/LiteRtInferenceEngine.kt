@@ -1,5 +1,6 @@
 package com.kernel.ai.core.inference
 
+import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import android.util.Log
@@ -51,6 +52,8 @@ import javax.inject.Singleton
 private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
+private const val GPU_INIT_TIMEOUT_MS = 60_000L
+private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -1229,9 +1232,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
     // -------------------------------------------------------------------------
     // Private helpers
-    // -------------------------------------------------------------------------
-
-    private fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
+    private suspend fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
         val orderedBackends: List<BackendType> = when (config.backendType) {
             BackendType.CPU -> listOf(BackendType.CPU)
             BackendType.GPU -> listOf(BackendType.GPU, BackendType.CPU)
@@ -1239,8 +1240,29 @@ class LiteRtInferenceEngine @Inject constructor(
             BackendType.AUTO -> listOf(BackendType.GPU, BackendType.CPU)
         }
 
+        // Check available memory before attempting GPU.
+        // 2 GB absolute floor catches genuinely low-memory devices (4-6 GB).
+        // On 8 GB devices ~2.5 GB is typically free; GPU init has its own 60s
+        // timeout guard so we don't need an overly conservative threshold (#684).
+        val availMem = getAvailableMemoryBytes()
+        val modelFile = File(config.modelPath)
+        val modelSize = if (modelFile.exists()) modelFile.length() else 0L
+        val skipGpuForMemory = availMem < MIN_AVAIL_MEM_FOR_GPU_BYTES
+        if (skipGpuForMemory) {
+            Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) below GPU minimum " +
+                "(${MIN_AVAIL_MEM_FOR_GPU_BYTES / (1024*1024)} MB) — skipping GPU backend")
+        } else if (modelSize > 0 && availMem < modelSize) {
+            Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) is less than model file " +
+                "size (${modelSize / (1024*1024)} MB) — GPU init may trigger OOM kill")
+        }
+
         var lastException: Exception? = null
         for (backendType in orderedBackends) {
+            // Honour the memory check: if GPU was skipped, don't try GPU or NPU.
+            if (skipGpuForMemory && backendType != BackendType.CPU) {
+                Log.d(TAG, "Skipping backend $backendType due to memory pressure")
+                continue
+            }
             try {
                 Log.d(TAG, "Trying backend: $backendType")
                 val engineConfig = EngineConfig(
@@ -1260,21 +1282,65 @@ class LiteRtInferenceEngine @Inject constructor(
                     },
                 )
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
-                val eng = withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                    Engine(engineConfig).also { it.initialize() }
+                // Construct Engine in a try-finally so we close it on failure — the timeout
+                // is advisory only (native JNI blocking calls may not be interrupted).
+                var engine: Engine? = null
+                try {
+                    engine = withTimeout(GPU_INIT_TIMEOUT_MS) {
+                        withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                            val e = Engine(engineConfig)
+                            e.initialize()
+                            e
+                        }
+                    }
+                    Log.i(TAG, "Backend $backendType initialized successfully")
+                    return Pair(engine, backendType)
+                } catch (e: TimeoutCancellationException) {
+                    Log.w(TAG, "Backend $backendType timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
+                    engine?.close()
+                    lastException = e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Backend $backendType failed: ${e.message}")
+                    engine?.close()
+                    lastException = e
                 }
-                Log.i(TAG, "Backend $backendType initialized successfully")
-                return Pair(eng, backendType)
             } catch (e: Exception) {
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
             }
         }
 
+        val profile = hardwareProfileDetector.profile
+        val memInfo = "${availMem / (1024 * 1024)} MB available / ${profile.totalRamBytes / (1024 * 1024 * 1024)} GB total"
+        val summary = when {
+            skipGpuForMemory -> "GPU skipped (low memory — $memInfo)"
+            lastException is TimeoutCancellationException -> "GPU init timed out (${GPU_INIT_TIMEOUT_MS / 1000}s) — $memInfo"
+            lastException != null -> "GPU init failed: ${lastException.message} — $memInfo"
+            else -> "unknown error — $memInfo"
+        }
         throw InferenceException(
-            "All backends failed for ${config.modelPath}. Last error: ${lastException?.message}",
+            "Model loading failed ($summary). " +
+                "Tier: ${profile.tier.name}, SoC: ${profile.socManufacturer} ${profile.socModel}. " +
+                "Last backend error: ${lastException?.message ?: "none"}",
             lastException,
         )
+    }
+
+    /**
+     * Returns available system memory in bytes, or [Long.MAX_VALUE] if [ActivityManager]
+     * is unavailable so the memory check is effectively skipped in that case.
+     */
+    private fun getAvailableMemoryBytes(): Long {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return Long.MAX_VALUE
+            val memInfo = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(memInfo)
+            memInfo.availMem
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to query available memory: ${e.message}")
+            Long.MAX_VALUE
+        }
     }
 
     @OptIn(ExperimentalApi::class)
