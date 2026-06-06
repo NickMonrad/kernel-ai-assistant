@@ -50,6 +50,7 @@ class IntentRecoveryOrchestrator @Inject constructor(
         // we cannot safely fill slots — return NotActionable so Gemma handles it.
         val extractor = extractors.firstOrNull { it.supports(candidate.intentName) }
             ?: return RecoveryResult.NotActionable
+        val canonicalIntentName = contract.intentName
 
         // Step 2: Run the matching deterministic extractor.
         // If the extractor signals NotActionable (e.g. capability query), return it.
@@ -60,10 +61,10 @@ class IntentRecoveryOrchestrator @Inject constructor(
         }
 
         // Step 2: Check for missing required slots
-        val firstMissingSlot = registry.nextMissingSlot(candidate.intentName, extractedParams)
+        val firstMissingSlot = registry.nextMissingSlot(canonicalIntentName, extractedParams)
         if (firstMissingSlot != null) {
             return RecoveryResult.AskSlot(
-                intentName = candidate.intentName,
+                intentName = canonicalIntentName,
                 existingParams = extractedParams,
                 missingSlot = firstMissingSlot,
             )
@@ -73,14 +74,14 @@ class IntentRecoveryOrchestrator @Inject constructor(
         return when (contract.riskLevel) {
             IntentRiskLevel.HIGH, IntentRiskLevel.MEDIUM -> {
                 RecoveryResult.AskConfirmation(
-                    intentName = candidate.intentName,
+                    intentName = canonicalIntentName,
                     params = extractedParams,
-                    message = buildConfirmationMessage(candidate.intentName, extractedParams),
+                    message = buildConfirmationMessage(canonicalIntentName, extractedParams),
                 )
             }
             IntentRiskLevel.LOW -> {
                 RecoveryResult.Execute(
-                    intentName = candidate.intentName,
+                    intentName = canonicalIntentName,
                     params = extractedParams,
                 )
             }

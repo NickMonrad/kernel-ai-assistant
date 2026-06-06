@@ -13,7 +13,8 @@ import javax.inject.Singleton
 @Singleton
 class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
 
-    override fun supports(intentName: String): Boolean = intentName == "create_calendar_event"
+    override fun supports(intentName: String): Boolean =
+        intentName == "create_calendar_event" || intentName == "create_event"
 
     private val CAPABILITY_PHRASES = listOf(
         "do you know how to",

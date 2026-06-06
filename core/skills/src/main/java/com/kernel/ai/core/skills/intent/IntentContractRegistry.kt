@@ -109,6 +109,7 @@ class IntentContractRegistry {
             // ── MEDIUM RISK ────────────────────────────────────────────────────
             IntentContract(
                 intentName = "create_calendar_event",
+                aliases = listOf("create_event"),
                 capability = "Create Calendar Event",
                 requiredSlots = mapOf(
                     "title" to SlotSpec(
