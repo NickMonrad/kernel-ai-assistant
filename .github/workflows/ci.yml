@@ -104,7 +104,6 @@ jobs:
           # Upsert the pr-N pre-release (delete first so we can re-attach the APK)
           gh release delete "$TAG" --yes 2>/dev/null || true
           git tag -f "$TAG"
-          git push -f origin "$TAG"
           gh release create "$TAG" "$APK" \
             --title "PR #${PR_NUMBER} debug build — ${SHORT_SHA}" \
             --notes "Debug APK for PR #${PR_NUMBER}. Commit: ${GITHUB_SHA}. Build #${BUILD_NUMBER}." \
@@ -172,7 +171,6 @@ jobs:
           # Delete existing debug-latest tag/release if present
           gh release delete debug-latest --repo $GITHUB_REPOSITORY --yes 2>/dev/null || true
           git tag -f debug-latest
-          git push -f origin debug-latest
           gh release create debug-latest "$APK" \
             --repo $GITHUB_REPOSITORY \
             --title "$RELEASE_TITLE" \
