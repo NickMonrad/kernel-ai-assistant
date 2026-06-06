@@ -1630,7 +1630,25 @@ class ChatViewModel @Inject constructor(
                 query = text,
                 messages = _messages.value.dropLast(1),
             )
-            val routeResult = mealPlannerRoute
+            var routeResult = mealPlannerRoute
+            // Debug override: __orchtest:<intent>:<real_input> bypasses QIR
+            // and forces a FallThrough so the orchestrator handles the recovery.
+            val effectiveText: String
+            if (text.startsWith("__orchtest:")) {
+                val clean = text.removePrefix("__orchtest:")
+                val colon = clean.indexOf(':')
+                val forcedIntent = if (colon > 0) clean.substring(0, colon) else "create_calendar_event"
+                val realInput = if (colon > 0) clean.substring(colon + 1) else clean
+                routeResult = QuickIntentRouter.RouteResult.FallThrough(
+                    input = realInput,
+                    bestGuess = QuickIntentRouter.MatchedIntent(forcedIntent, emptyMap(), "debug_test_override"),
+                    bestConfidence = 0.65f,
+                )
+                effectiveText = realInput
+                Log.d("KernelAI", "OrchTest: forced recovery for intent=$forcedIntent input=$realInput")
+            } else {
+                effectiveText = text
+            }
             val explicitWikipediaQuery = extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
                 QuickIntentRouter.MatchedIntent(
@@ -1687,7 +1705,7 @@ class ChatViewModel @Inject constructor(
                 if (bestGuess != null && routeResult.bestConfidence >= IntentContractRegistry.SOFT_FALLBACK_THRESHOLD) {
                     val recovery = intentRecoveryOrchestrator.recover(
                         conversationId = convId,
-                        input = text,
+                        input = effectiveText,
                         candidate = IntentCandidate(
                             intentName = bestGuess.intentName,
                             confidence = routeResult.bestConfidence,
@@ -1747,6 +1765,7 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is RecoveryResult.AskSlot -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskSlot: intent=${recovery.intentName} missing=${recovery.missingSlot.name}")
                             slotFillerManager.markRecovery(convId)
                             slotFillerManager.startSlotFill(convId, PendingSlotRequest(
                                 intentName = recovery.intentName,
@@ -1759,6 +1778,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is RecoveryResult.AskConfirmation -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} params=${recovery.params}")
                             pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
                                 intentName = recovery.intentName,
                                 params = recovery.params,
@@ -1768,10 +1788,14 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is RecoveryResult.AskClarification -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskClarification")
                             appendAssistantMessage(convId, recovery.message, shouldIndex = false)
                             return@launch
                         }
-                        is RecoveryResult.NotActionable -> { /* fall through to Gemma */ }
+                        is RecoveryResult.NotActionable -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.NotActionable")
+                            /* fall through to Gemma */
+                        }
                     }
                 }
             }

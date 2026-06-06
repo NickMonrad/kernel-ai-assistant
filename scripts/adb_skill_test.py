@@ -83,7 +83,7 @@ class ProfileTestCase:
 @dataclass
 class TestCase:
     message: str
-    expect_intent: str
+    expect_intent: str = ""  # empty = expect no intent dispatch
     xfail: bool = False  # True = intent not yet implemented; failure is expected
     expect_reply_contains: str | None = None  # if set, verify DirectReply logcat contains this (best-effort)
     expect_params: dict[str, str] | None = None  # if set, assert these key=value pairs appear in extracted params
@@ -92,6 +92,13 @@ class TestCase:
     # intent is verified after. (Pre-#589: slot_reply was delivered via chat_input — now uses
     # the dedicated slot_reply_input extra so it stays in the Actions tab.)
     slot_reply: str | None = None
+    # New: orchestrator-aware fields
+    # If set, verify logcat contains this substring (best-effort). Use for orchestrator
+    # AskConfirmation/AskSlot/AskClarification paths that don't dispatch a NativeIntentHandler.
+    expect_log_contains: str | None = None
+    # If set, after the initial message is sent (and an AskConfirmation is expected),
+    # send this reply as a chat_input to confirm and trigger execution.
+    confirm_reply: str | None = None
 
 
 @dataclass
@@ -108,6 +115,7 @@ class TestResult:
     param_failures: list[str]  # human-readable descriptions of param mismatches
     xfail: bool
     reply_warn: str | None
+    log_check_warn: str | None
     phase: str = ""
 
 
@@ -413,8 +421,72 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             expect_params={"item": "eggs"},
         ),
     ]),
+    ("orchestrator_recovery", [
+        # ── Scenario 1: FallThrough → AskConfirmation (medium risk, date extracted) ──
+        # __orchtest:<intent>:<real_input> forces orchestrator in debug builds
+        TestCase(
+            "__orchtest:create_calendar_event:schedule a dentist visit next Thursday at 2pm",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.AskConfirmation: intent=create_calendar_event",
+        ),
+        # ── Scenario 4: Missing slots → AskSlot ──
+        TestCase(
+            "__orchtest:create_calendar_event:schedule a meeting",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.AskSlot: intent=create_calendar_event",
+        ),
+        # ── Scenario 5: No extractor → NotActionable ──
+        TestCase(
+            "__orchtest:get_weather:what is the weather like",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+        ),
+        # ── Scenario 6: High-risk intent → AskConfirmation ──
+        TestCase(
+            "__orchtest:send_sms:tell Sarah I am running late",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+            xfail=True,  # No send_sms extractor yet
+        ),
+        # ── Scenario 7: Unknown intent → NotActionable ──
+        TestCase(
+            "__orchtest:xyzzy_unknown:some nonsense input",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+        ),
+        # ── Scenario 10: Intent with no contract → NotActionable ──
+        TestCase(
+            "__orchtest:play_youtube:play some music",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+        ),
+        # ── Scenario 12: AskConfirmation for detailed calendar input ──
+        TestCase(
+            "__orchtest:create_calendar_event:book a meetup at noon tomorrow",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.AskConfirmation: intent=create_calendar_event",
+        ),
+        # ── Scenario 9: AskConfirmation with set up verb ──
+        TestCase(
+            "__orchtest:create_calendar_event:set up a morning huddle for 9am Monday",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.AskConfirmation: intent=create_calendar_event",
+        ),
+        # ── Scenario 3 (xfail): High-risk sms (no extractor) ──
+        TestCase(
+            "__orchtest:send_sms:ping mum that I am on my way",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+            xfail=True,
+        ),
+        TestCase(
+            "__orchtest:save_memory:remember that I parked on level 3",
+            expect_intent="",
+            expect_log_contains="RecoveryOrchestrator.NotActionable",
+            xfail=True,
+        ),
+    ]),
 ]
-
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
@@ -540,18 +612,21 @@ def send_slot_reply(text: str) -> None:
 ALIAS_TEST_NAME = "zippy"       # test alias → resolves to Voicemail contact
 ALIAS_DISPLAY_NAME = "Voicemail"  # must match a real contact on the device
 
+DB_PATH = f"/data/data/{PACKAGE}/databases/kernel_ai.db"
+
 
 VOICEMAIL_NUMBER = "121"         # provider voicemail shortcode
-
-
 def setup_contact_alias_fixture() -> bool:
     """Insert test alias 'zippy' → Voicemail into Room contact_aliases table."""
-    run_adb(
-        "shell", "sqlite3", DB_PATH,
-        f"INSERT OR REPLACE INTO contact_aliases (alias, displayName, contactId, phoneNumber) "
-        f"VALUES ('{ALIAS_TEST_NAME}', '{ALIAS_DISPLAY_NAME}', '0', '{VOICEMAIL_NUMBER}');",
-    )
-    return True
+    try:
+        run_adb(
+            "shell", "sqlite3", DB_PATH,
+            f"INSERT OR REPLACE INTO contact_aliases (alias, displayName, contactId, phoneNumber) "
+            f"VALUES ('{ALIAS_TEST_NAME}', '{ALIAS_DISPLAY_NAME}', '0', '{VOICEMAIL_NUMBER}');",
+        )
+        return True
+    except Exception:
+        return False
 
 
 def teardown_contact_alias_fixture() -> None:
@@ -651,7 +726,7 @@ def save_report(
             partial_file.unlink(missing_ok=True)
 
     total = len(results)
-    passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail)
+    passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail and not r.log_check_warn)
     xfails = sum(1 for r in results if r.xfail and not r.intent_passed)
     failures = total - passed - xfails
 
@@ -679,10 +754,11 @@ def save_report(
                 "param_failures": r.param_failures,
                 "xfail": r.xfail,
                 "reply_warn": r.reply_warn,
+                "log_check_warn": r.log_check_warn,
                 "phase": r.phase,
                 "status": (
                     "xfail" if r.xfail and not r.intent_passed
-                    else "pass" if r.intent_passed and r.params_passed
+                    else "pass" if r.intent_passed and r.params_passed and not r.log_check_warn
                     else "fail"
                 ),
             }
@@ -827,8 +903,19 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         ]
         for i, tc in enumerate(dry_cases, 1):
             print(f"  [{i:2d}] \"{tc.message}\"")
-            suffix = f" | reply_contains={tc.expect_reply_contains!r}" if tc.expect_reply_contains else ""
-            print(f"       expect → {tc.expect_intent}{suffix}")
+            suffix_parts: list[str] = []
+            if tc.expect_intent:
+                suffix_parts.append(f"expect → {tc.expect_intent}")
+            if tc.expect_reply_contains:
+                suffix_parts.append(f"reply_contains={tc.expect_reply_contains!r}")
+            if tc.expect_log_contains:
+                suffix_parts.append(f"log_contains={tc.expect_log_contains!r}")
+            if tc.slot_reply:
+                suffix_parts.append(f"slot_reply={tc.slot_reply!r}")
+            if tc.confirm_reply:
+                suffix_parts.append(f"confirm_reply={tc.confirm_reply!r}")
+            if suffix_parts:
+                print(f"       {' | '.join(suffix_parts)}")
         print()
         print(f"  Total: {len(dry_cases)} test cases")
         print("=" * 70)
@@ -900,6 +987,20 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     setup_contact_alias_fixture()
     print("done")
 
+    # ── Orchestrator warmup: wait for MiniLM phrase vectors to be fully built ──
+    # Clear logcat first so we don't match a stale "Ready:" from a previous app run.
+    clear_logcat()
+    print("  [init] Warming up MiniLM classifier (up to 120s) ...", end=" ", flush=True)
+    deadline = time.time() + 120
+    warmed_ml = False
+    while time.time() < deadline:
+        time.sleep(3)
+        log = run_adb("logcat", "-d", "-s", "MiniLMIntentClassifier:*")
+        if "Ready:" in log:
+            warmed_ml = True
+            break
+    print("ready" if warmed_ml else "timeout (proceeding anyway)")
+
     # Flush any logcat residue from the cleanup intents before starting tests.
     time.sleep(WAIT_SECONDS)
     clear_logcat()
@@ -965,6 +1066,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
               f" ({PHASES[start_phase_idx][0]}) — skipping first {skipped} tests ──")
         print()
 
+
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
@@ -986,8 +1088,6 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         phase_start = time.time()
         phase_results: list[TestResult] = []
 
-        print(f"  ── [phase {phase_num}/{len(PHASES)}] {phase_name} — {len(phase_cases)} tests ──")
-
         for tc in phase_cases:
             print(f"  [{global_index:3d}/{total_tests}] \"{tc.message}\" ...", end=" ", flush=True)
 
@@ -1003,15 +1103,55 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 clear_logcat()
                 time.sleep(0.5)
                 send_slot_reply(tc.slot_reply)
+            elif tc.confirm_reply is not None:
+                # Confirmation test: two-turn flow (orchestrator AskConfirmation → user confirms)
+                # Turn 1: query via chat_input → ChatViewModel → OrchTest override → orchestrator AskConfirmation
+                clear_logcat()
+                time.sleep(0.5)
+                send_text(tc.message)
+                time.sleep(WAIT_SECONDS)
+                if tc.expect_log_contains is not None:
+                    logcat1 = read_logcat()
+                    log1_found = tc.expect_log_contains in logcat1
+                    if not log1_found:
+                        result = TestResult(
+                            index=global_index,
+                            message=tc.message,
+                            expect_intent=tc.expect_intent,
+                            actual_intent=None,
+                            expect_params=tc.expect_params,
+                            actual_params={},
+                            intent_passed=True,
+                            params_passed=True,
+                            param_failures=[],
+                            xfail=tc.xfail,
+                            reply_warn=None,
+                            log_check_warn=f"AskConfirmation not found (expected {tc.expect_log_contains!r})",
+                            phase=phase_name,
+                        )
+                        phase_results.append(result)
+                        results.append(result)
+                        global_index += 1
+                        print(f"✗ (no AskConfirmation log)")
+                        continue
+                # Turn 2: confirmation reply via chat_input → pending confirmation → skill executes
+                clear_logcat()
+                time.sleep(0.5)
+                send_text(tc.confirm_reply)
             else:
                 send_text(tc.message)
 
             time.sleep(WAIT_SECONDS)
             logcat = read_logcat()
             actual_intent, actual_params = extract_intent(logcat)
-            intent_passed = actual_intent == tc.expect_intent
+            intent_passed = (actual_intent or "") == tc.expect_intent
             params_ok, param_failures = check_params(tc.expect_params, actual_params)
-            overall_passed = intent_passed and params_ok
+
+            # Logcat content check (for orchestrator paths that don't fire NativeIntentHandler)
+            log_check_warn: str | None = None
+            if tc.expect_log_contains is not None:
+                if tc.expect_log_contains not in logcat:
+                    log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
 
             # DirectReply verification — best-effort, warn but don't fail the test
             reply_warn: str | None = None
@@ -1034,18 +1174,25 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 param_failures=param_failures,
                 xfail=tc.xfail,
                 reply_warn=reply_warn,
+                log_check_warn=log_check_warn,
                 phase=phase_name,
             )
             phase_results.append(result)
             results.append(result)
             global_index += 1
 
-            if overall_passed:
-                print("✓" + (f" [reply warn: {reply_warn}]" if reply_warn else ""))
+            # Determine pass/fail display
+            warnings = []
+            if reply_warn: warnings.append(f"reply warn: {reply_warn}")
+            if log_check_warn: warnings.append(log_check_warn)
+            warn_suffix = f" [{'; '.join(warnings)}]" if warnings else ""
+
+            if intent_passed and not log_check_warn:
+                print("✓" + warn_suffix)
             elif tc.xfail:
                 print("✗ (xfail — not yet implemented)")
             elif not intent_passed:
-                print(f"✗ (got {actual_intent or 'NO_MATCH'})")
+                print(f"✗ (got {actual_intent or 'NO_MATCH'})" + warn_suffix)
             else:
                 print(f"✗ (params: {'; '.join(param_failures)})")
 
@@ -1056,9 +1203,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
         # ── Phase summary ──────────────────────────────────────────────────
         phase_elapsed = time.time() - phase_start
-        n_pass  = sum(1 for r in phase_results if r.intent_passed and r.params_passed and not r.xfail)
+        n_pass  = sum(1 for r in phase_results if r.intent_passed and r.params_passed and not r.xfail and not r.log_check_warn)
         n_xfail = sum(1 for r in phase_results if r.xfail and not r.intent_passed)
-        n_fail  = sum(1 for r in phase_results if not r.xfail and (not r.intent_passed or not r.params_passed))
+        n_fail  = sum(1 for r in phase_results if not r.xfail and (not r.intent_passed or not r.params_passed or r.log_check_warn is not None))
         print(
             f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail"
             f"  ({phase_elapsed:.1f}s)"

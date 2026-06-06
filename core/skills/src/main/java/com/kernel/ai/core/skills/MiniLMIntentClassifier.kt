@@ -38,7 +38,7 @@ class MiniLMIntentClassifier @Inject constructor(
         private const val PHRASES_ASSET = "intent_phrases.json"
         private const val EMBEDDING_DIM = 384
         private const val MAX_SEQ_LEN = 64
-        private const val CONFIDENCE_THRESHOLD = 0.75f
+        private const val CONFIDENCE_THRESHOLD = 0.50f  // must be ≤ SOFT_FALLBACK_THRESHOLD (0.55) so orchestrator sees low-confidence guesses
         private const val AMBIGUITY_MARGIN = 0.05f
         private const val UNK = "[UNK]"
         private const val CLS = "[CLS]"
@@ -61,10 +61,12 @@ class MiniLMIntentClassifier @Inject constructor(
                 initFailed = true
                 return@launch
             }
-            val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
-            val phraseVectors = buildPhraseVectors(phrasesJson, v, interp)
+            // Publish vocab and interpreter immediately so the readiness gate can pass
+            // while phrase vectors build in background (can take 60-90s for 30+ intents).
             vocab = v
             interpreter = interp
+            val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
+            val phraseVectors = buildPhraseVectors(phrasesJson, v, interp)
             intentPhraseVectors = phraseVectors
             val totalVectors = phraseVectors.values.sumOf { it.size }
             Log.i(TAG, "Ready: ${phraseVectors.size} intents, $totalVectors phrase vectors loaded (nearest-neighbour)")
@@ -74,7 +76,7 @@ class MiniLMIntentClassifier @Inject constructor(
         }
     }
 
-    override fun isReady(): Boolean = intentPhraseVectors != null
+    override fun isReady(): Boolean = vocab != null && interpreter != null
     override fun isFailed(): Boolean = initFailed
 
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
