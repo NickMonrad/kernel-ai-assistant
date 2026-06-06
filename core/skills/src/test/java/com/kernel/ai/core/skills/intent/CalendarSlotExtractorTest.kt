@@ -55,10 +55,10 @@ class CalendarSlotExtractorTest {
     }
 
     @Test
-    fun `returnsEmptyMapForNonCalendarInput`() {
-        val params = extractParams("what's the weather today")
-        // Pattern-based extractor may match "today" as a date keyword
-        assertTrue(params.isNotEmpty() || params.isEmpty())
+    fun `returnsNotActionableForNonCalendarWeatherQuery`() {
+        // "what's the weather today" is a capability question, not a calendar event
+        val result = extractor.extract("what's the weather today", contract)
+        assertInstanceOf(ExtractionResult.NotActionable::class.java, result)
     }
 
     @Test
@@ -69,8 +69,15 @@ class CalendarSlotExtractorTest {
     }
 
     @Test
+    fun `ambiguousQueryWithDateOnlyReturnsNotActionable`() {
+        // "can you" + temporal token but no calendar verb/title evidence → NotActionable
+        val result = extractor.extract("can you tell me what's the weather today", contract)
+        assertInstanceOf(ExtractionResult.NotActionable::class.java, result)
+    }
+
+    @Test
     fun `politeActionRequestWithDateExtracts`() {
-        // "can you" is a capability phrase but "next Friday" provides actionable date evidence
+        // "can you" + date with title/verb evidence → Extracted (polite calendar request)
         val params = extractParams("Can you chuck dinner with Sam in for next Friday night?")
         assertEquals("next friday", params["date"])
     }

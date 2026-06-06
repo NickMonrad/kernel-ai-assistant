@@ -26,6 +26,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.slot.SlotSpec
@@ -156,6 +157,7 @@ class ChatViewModelRecoveryTest {
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
         intentRecoveryOrchestrator = intentRecoveryOrchestrator,
+        intentContractRegistry = IntentContractRegistry(),
         slotFillerManager = slotFillerManager,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,

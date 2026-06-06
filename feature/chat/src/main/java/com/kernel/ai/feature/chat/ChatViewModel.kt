@@ -133,6 +133,7 @@ class ChatViewModel @Inject constructor(
     private val skillExecutor: SkillExecutor,
     private val quickIntentRouter: QuickIntentRouter,
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator,
+    private val intentContractRegistry: IntentContractRegistry,
     private val slotFillerManager: SlotFillerManager,
     private val kernelAIToolSet: KernelAIToolSet,
     private val toolProvider: ToolProvider,
@@ -1388,11 +1389,10 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // Ensure the BERT-tiny classifier (MiniLM) is ready before routing — prevents
-            // a race where the very first user message (e.g. from quick-actions handoff)
-            // arrives before async init has finished, producing FallThrough with no bestGuess
-            // and causing the Intent Recovery Orchestrator to be skipped.
-            quickIntentRouter.awaitClassifierReady()
+            // MiniLM classifier loads async (up to 90s for phrase vectors). On cold boot,
+            // the first message(s) will get FallThrough with null bestGuess — the orchestrator
+            // gracefully handles this (returns NotActionable → E4B fallback). Classifier picks
+            // up subsequent messages once phrase vectors finish building.
 
             val mealPlannerRoute = quickIntentRouter.route(text)
             val explicitMealPlannerStart = when (mealPlannerRoute) {
@@ -1446,9 +1446,8 @@ class ChatViewModel @Inject constructor(
                 when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
                         // P0 gate: recovered slot-fill for medium/high risk intents requires confirmation
-                        // before execution, even after all slots are filled.
                         val recoveredRisk = if (slotFillerManager.isRecovery(convId)) {
-                            IntentContractRegistry().riskLevel(fillResult.intentName)
+                            intentContractRegistry.riskLevel(fillResult.intentName)
                         } else null
                         if (recoveredRisk != null && recoveredRisk != com.kernel.ai.core.skills.intent.IntentRiskLevel.LOW) {
                             pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
@@ -1634,7 +1633,7 @@ class ChatViewModel @Inject constructor(
             // Debug override: __orchtest:<intent>:<real_input> bypasses QIR
             // and forces a FallThrough so the orchestrator handles the recovery.
             val effectiveText: String
-            if (text.startsWith("__orchtest:")) {
+            if (BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
                 val clean = text.removePrefix("__orchtest:")
                 val colon = clean.indexOf(':')
                 val forcedIntent = if (colon > 0) clean.substring(0, colon) else "create_calendar_event"
@@ -3068,15 +3067,19 @@ private const val SYSTEM_ONLY_TOOL_RETRY_CORRECTION =
  * model to surface stale device state as facts in future turns (#614). Knowledge
  * results (e.g. Wikipedia via run_js) are worth recalling.
  */
-private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillName) {
-    "run_intent",       // device actions — transient state, not facts
-    "get_weather",      // ephemeral — must always call live
-    "get_system_info",  // ephemeral — time/date always stale
-    "load_skill",       // meta-tool — no content value
-    "save_memory",      // memory system handles indexing separately
-    "search_memory",    // read-only, no new content
-    -> false
-    else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+private fun shouldIndexToolCallResult(skillName: String): Boolean {
+    // Recovered intents are device actions (transient) — never indexable.
+    if (skillName.startsWith("Recovered: ")) return false
+    return when (skillName) {
+        "run_intent",       // device actions — transient state, not facts
+        "get_weather",      // ephemeral — must always call live
+        "get_system_info",  // ephemeral — time/date always stale
+        "load_skill",       // meta-tool — no content value
+        "save_memory",      // memory system handles indexing separately
+        "search_memory",    // read-only, no new content
+        -> false
+        else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+    }
 }
 
 

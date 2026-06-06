@@ -55,6 +55,7 @@ import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -1083,6 +1084,7 @@ class ChatViewModelVoiceTest {
     skillExecutor = skillExecutor,
     quickIntentRouter = quickIntentRouter,
     intentRecoveryOrchestrator = intentRecoveryOrchestrator,
+    intentContractRegistry = IntentContractRegistry(),
     slotFillerManager = slotFillerManager,
     kernelAIToolSet = kernelAIToolSet,
     toolProvider = toolProvider,

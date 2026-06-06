@@ -16,14 +16,22 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
     override fun supports(intentName: String): Boolean =
         intentName == "create_calendar_event" || intentName == "create_event"
 
-    private val CAPABILITY_PHRASES = listOf(
+    // Phrases that are always capability questions, never calendar requests.
+    private val PURE_QUESTION_PHRASES = listOf(
         "do you know how to",
-        "can you",
-        "are you able to",
         "how do i",
         "how to",
         "what is",
+        "what's",
+        "whats",
         "explain",
+    )
+
+    // Phrases that can be either capability questions or polite requests.
+    // Only blocked when there's no actionable evidence.
+    private val AMBIGUOUS_CAPABILITY_PHRASES = listOf(
+        "can you",
+        "are you able to",
     )
 
     override fun extract(input: String, contract: IntentContract): ExtractionResult {
@@ -89,10 +97,18 @@ class CalendarSlotExtractor @Inject constructor() : IntentSlotExtractor {
                 }
             }
 
-        // P1 guard: suppress extraction when input looks like a pure capability
-        // question with no actionable evidence (no date, time, or non-generic title).
-        val isCapabilityQuery = CAPABILITY_PHRASES.any { phrase -> lower.startsWith(phrase) }
-        if (isCapabilityQuery && params.isEmpty()) {
+        // P1 guard: suppress extraction for capability questions.
+        // Pure question phrases (what's, how to, explain, etc.) are NEVER calendar intents.
+        val isPureQuestion = PURE_QUESTION_PHRASES.any { phrase -> lower.startsWith(phrase) }
+        if (isPureQuestion) return ExtractionResult.NotActionable
+
+        // Ambiguous phrases (can you, are you able to) may be polite requests.
+        // Require calendar evidence (title match or calendar verb match) — a bare
+        // date/time without a title/verb is not sufficient (e.g. "can you tell me
+        // the weather tomorrow?" has date but no calendar event evidence).
+        val isAmbiguousQuery = AMBIGUOUS_CAPABILITY_PHRASES.any { phrase -> lower.startsWith(phrase) }
+        val hasCalendarEvidence = titleFromFor != null || titleFromVerb != null
+        if (isAmbiguousQuery && !hasCalendarEvidence) {
             return ExtractionResult.NotActionable
         }
 

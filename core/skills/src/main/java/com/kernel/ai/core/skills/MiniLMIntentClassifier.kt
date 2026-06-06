@@ -76,7 +76,7 @@ class MiniLMIntentClassifier @Inject constructor(
         }
     }
 
-    override fun isReady(): Boolean = vocab != null && interpreter != null
+    override fun isReady(): Boolean = vocab != null && interpreter != null && intentPhraseVectors != null
     override fun isFailed(): Boolean = initFailed
 
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
