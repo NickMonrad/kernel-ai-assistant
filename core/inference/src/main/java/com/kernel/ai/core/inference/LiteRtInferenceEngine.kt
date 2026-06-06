@@ -1304,6 +1304,9 @@ class LiteRtInferenceEngine @Inject constructor(
                     engine?.close()
                     lastException = e
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Backend $backendType failed: ${e.message}")
+                lastException = e
             }
         }
 
