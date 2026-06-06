@@ -949,4 +949,94 @@ class ChatViewModelInitTest {
         method.isAccessible = true
         method.invoke(viewModel)
     }
+
+    @Test
+    fun `load skill leak retries with clean reply and sanitised tool metadata`() = runTest(dispatcher) {
+        val prompts = mutableListOf<String>()
+        val leakedInstructions = """
+            run_intent:
+            Available intents:
+            - create_calendar_event
+            Parameters (pass as JSON): title, start_date, start_time
+        """.trimIndent()
+        val cleanReply = "Yes — I can help create calendar events. Tell me the title, date, and time."
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.generate(capture(prompts)) } returnsMany listOf(
+            flowOf(GenerationResult.Token(leakedInstructions), GenerationResult.Complete(durationMs = 1L)),
+            flowOf(GenerationResult.Token(cleanReply), GenerationResult.Complete(durationMs = 1L)),
+        )
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "Do you know how to create calendar events",
+        )
+        every { kernelAIToolSet.wasToolCalled() } returns true
+        every { kernelAIToolSet.lastToolName() } returns "load_skill"
+        every { kernelAIToolSet.lastToolRequest() } returns """{"skill_name":"run_intent"}"""
+        every { kernelAIToolSet.lastToolResult() } returns leakedInstructions
+        every { kernelAIToolSet.lastToolPresentation() } returns null
+        every { kernelAIToolSet.lastToolSpokenSummary() } returns null
+        every { kernelAIToolSet.lastToolWasDirectReply() } returns false
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-id", "assistant-msg-id")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("Do you know how to create calendar events")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(2, prompts.size)
+        assertTrue(prompts[1].contains("You already loaded internal tool instructions"))
+        coVerify(atLeast = 1) {
+            conversationRepository.addMessage(
+                any(),
+                eq("assistant"),
+                eq(cleanReply),
+                any(),
+                match {
+                    it.contains("Loaded internal instructions for run intent.") &&
+                        it.contains("Loaded run intent instructions") &&
+                        !it.contains("Available intents:")
+                },
+            )
+        }
+    }
+
+    private fun createViewModel(
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ): ChatViewModel = ChatViewModel(
+        savedStateHandle = savedStateHandle,
+        chatPreferences = chatPreferences,
+        authRepository = authRepository,
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+    )
+
+    private fun invokeOnCleared(viewModel: ChatViewModel) {
+        val method = ChatViewModel::class.java.getDeclaredMethod("onCleared")
+        method.isAccessible = true
+        method.invoke(viewModel)
+    }
 }

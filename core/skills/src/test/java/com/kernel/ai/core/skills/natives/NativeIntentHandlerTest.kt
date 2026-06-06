@@ -2312,4 +2312,61 @@ class NativeIntentHandlerTest {
 
         return cursor
     }
+
+    @Test
+    fun `resolveDate strips ordinal suffixes from date strings`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveDate",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        val today = java.time.LocalDate.now()
+
+        // "9th June" → resolveDate should strip "th" and parse "9 June"
+        val result = method.invoke(handler, "9th June")
+        assertNotNull(result, "Expected non-null for '9th June'")
+        val localDate = result as java.time.LocalDate
+        assertEquals(today.year, localDate.year, "Year defaults to current year")
+        assertEquals(6, localDate.monthValue, "Month should be June (6)")
+        assertEquals(9, localDate.dayOfMonth, "Day should be 9")
+    }
+
+    @Test
+    fun `resolveCalendarSchedule splits ISO datetime into date and time`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveCalendarSchedule",
+            String::class.java,
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        // E4B may pass "2026-06-06T09:00:00" as date with no separate time param.
+        // resolveCalendarSchedule should split it: date=2026-06-06, time="09:00".
+        val resolved = method.invoke(handler, "2026-06-06T09:00:00", null) as Pair<*, *>
+        val date = resolved.first as java.time.LocalDate
+        assertEquals(2026, date.year)
+        assertEquals(6, date.monthValue)
+        assertEquals(6, date.dayOfMonth)
+        assertEquals("09:00", resolved.second)
+
+        // Space-separated variant: "2026-12-25 14:30" with no separate time
+        val resolved2 = method.invoke(handler, "2026-12-25 14:30", null) as Pair<*, *>
+        val date2 = resolved2.first as java.time.LocalDate
+        assertEquals(2026, date2.year)
+        assertEquals(12, date2.monthValue)
+        assertEquals(25, date2.dayOfMonth)
+        assertEquals("14:30", resolved2.second)
+
+        // Explicit time param takes priority over extracted time
+        val resolved3 = method.invoke(handler, "2026-06-06T09:00:00", "11:00") as Pair<*, *>
+        assertEquals("11:00", resolved3.second)
+
+        // Natural language like "Sunday at 3:00 p.m." must NOT be treated as ISO datetime
+        val resolved4 = method.invoke(handler, "Sunday at 3:00 p.m.", null) as Pair<*, *>
+        val date4 = resolved4.first as java.time.LocalDate
+        assertEquals(
+            java.time.LocalDate.now().with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SUNDAY)),
+            date4,
+        )
+        assertEquals("3:00 p.m.", resolved4.second)
+     }
 }

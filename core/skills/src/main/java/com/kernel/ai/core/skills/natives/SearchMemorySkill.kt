@@ -145,8 +145,8 @@ After calling searchMemory, incorporate its result into your reply naturally.
                 )
 
                 if (filtered.memoryResults.isEmpty() && filtered.messageResults.isEmpty()) {
-                    // Success: action result — LLM narration appropriate
-                    return@withContext SkillResult.Success("No relevant memories found matching '$query'.")
+                    // DirectReply: empty retrieval result is already the complete user-facing answer.
+                    return@withContext SkillResult.DirectReply("No relevant memories found matching '$query'.")
                 }
 
                 val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())

@@ -61,10 +61,23 @@ class LoadSkillSkill @Inject constructor(
     override suspend fun execute(call: SkillCall): SkillResult {
         val skillName = call.arguments["skill_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: skill_name.")
+        // Calendar actions are handled by run_intent, not a standalone skill
+        if (skillName.equals("calendar", ignoreCase = true)) {
+            val runIntentSkill = skillRegistry.get().get("run_intent")
+            if (runIntentSkill != null) {
+                return SkillResult.Success(
+                    "Calendar actions are handled through run_intent. " +
+                    "Use runIntent(intentName=\"create_calendar_event\", parameters={...}).\n\n" +
+                    runIntentSkill.fullInstructions
+                )
+            }
+        }
         val skill = skillRegistry.get().get(skillName)
             ?: return SkillResult.Failure(
                 name,
-                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, save_memory, search_memory, get_system_info, run_js",
+                "Unknown skill: '$skillName'. Available: run_intent, get_weather, " +
+                "query_wikipedia, save_memory, search_memory, get_system_info, run_js. " +
+                "Hint: calendar, alarm, SMS, and other device actions use run_intent."
             )
         return SkillResult.Success(skill.fullInstructions)
     }
