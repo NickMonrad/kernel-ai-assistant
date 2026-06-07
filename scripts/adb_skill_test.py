@@ -1008,8 +1008,31 @@ def stop_keepalive() -> None:
     _keepalive_stop.set()
 
 
-def send_text(text: str) -> None:
-    """Deliver chat_input extra via onNewIntent — navigates to chat from any screen."""
+def _keep_foreground_until_inference_starts() -> None:
+    """Keep the app in the foreground by tapping the screen periodically.
+    On Android 15+, InferenceGenerationService.startForegroundService() must be
+    called within ~5 seconds of the app becoming foreground. This function keeps
+    the activity visible until the inference service starts (detected via
+    InferenceGenerationService log or NativeIntentHandler route marker).
+    Taps every 2 seconds for up to 120 seconds.
+    """
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        log = read_logcat_all()
+        if "InferenceGenerationService" in log or "llm_tools_route:" in log or "OrchTest:" in log:
+            break
+        run_adb("shell", "input", "tap", "500", "1000")
+        time.sleep(2)
+
+
+def send_text(text: str, wait_for_inference: bool = True) -> None:
+    """Deliver chat_input extra via onNewIntent — navigates to chat from any screen.
+
+    On Android 15+, InferenceGenerationService.startForegroundService() must be called
+    within ~5 seconds of the app becoming foreground. After sending the prompt we keep
+    the activity visible (touch screen periodically) so the service start remains valid
+    until inference completes (typically 30-60s for Gemma-4 E-4B).
+    """
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
     # --activity-clear-top ensures our activity is at the top of its task so
@@ -1027,6 +1050,8 @@ def send_text(text: str) -> None:
         "chat_input",
         shlex.quote(text),
     )
+    if wait_for_inference:
+        _keep_foreground_until_inference_starts()
 
 
 def send_quick_action(text: str) -> None:
