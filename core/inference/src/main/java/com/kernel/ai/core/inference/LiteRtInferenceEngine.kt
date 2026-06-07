@@ -532,54 +532,55 @@ class LiteRtInferenceEngine @Inject constructor(
             return
         }
         try {
-        withContext(LlmDispatcher) {
-            // GPU hardware is suspended when the screen is off; delay init until screen is on.
-            waitForScreenInteractive()
-            _isReady.value = false
-
-            // Apply hardware-aware defaults when AUTO is specified.
-            val profile = hardwareProfileDetector.profile
-            val resolvedConfig = if (config.backendType == BackendType.AUTO) {
-                config.copy(
-                    backendType = profile.recommendedBackend,
-                    maxTokens = safeTokenCount(config.maxTokens.coerceAtMost(profile.recommendedMaxTokens)),
-                )
-            } else {
-                config.copy(maxTokens = safeTokenCount(config.maxTokens))
-            }
-
-            Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
-                "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}, " +
-                "maxTokens: ${resolvedConfig.maxTokens} (requested: ${config.maxTokens})")
-
-            // Sanity-check quantization before spending 10-30s initializing.
-            QuantizationVerifier.verify(
-                modelFile = File(resolvedConfig.modelPath),
-                expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
-            )
-
-            // Start foreground service to keep process at high OOM priority during
-            // the ~20s GPU model load. Without this Samsung lmkd demotes the process
-            // to oom_score_adj 700 (cached) and kills it for memory watermark reasons.
+            // Start foreground service on the calling thread (typically main) BEFORE entering
+            // the background dispatcher. Android 15+ requires startForegroundService() to be
+            // called within ~5 seconds of the app being brought to foreground, and only from
+            // the main thread.
             InferenceLoadingService.start(context)
             try {
-                val (eng, backendType) = createEngineWithFallback(resolvedConfig)
-                engine = eng
-                try {
-                    conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-                } finally {
-                    resetExperimentalFlags()
-                }
-                currentConfig = resolvedConfig
-                _activeBackend.value = backendType
-                _resolvedMaxTokens.value = resolvedConfig.maxTokens
-                _isReady.value = true
+                withContext(LlmDispatcher) {
+                    // GPU hardware is suspended when the screen is off; delay init until screen is on.
+                    waitForScreenInteractive()
+                    _isReady.value = false
 
-                Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
+                    // Apply hardware-aware defaults when AUTO is specified.
+                    val profile = hardwareProfileDetector.profile
+                    val resolvedConfig = if (config.backendType == BackendType.AUTO) {
+                        config.copy(
+                            backendType = profile.recommendedBackend,
+                            maxTokens = safeTokenCount(config.maxTokens.coerceAtMost(profile.recommendedMaxTokens)),
+                        )
+                    } else {
+                        config.copy(maxTokens = safeTokenCount(config.maxTokens))
+                    }
+
+                    Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
+                        "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}, " +
+                        "maxTokens: ${resolvedConfig.maxTokens} (requested: ${config.maxTokens})")
+
+                    // Sanity-check quantization before spending 10-30s initializing.
+                    QuantizationVerifier.verify(
+                        modelFile = File(resolvedConfig.modelPath),
+                        expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
+                    )
+
+                    val (eng, backendType) = createEngineWithFallback(resolvedConfig)
+                    engine = eng
+                    try {
+                        conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                    } finally {
+                        resetExperimentalFlags()
+                    }
+                    currentConfig = resolvedConfig
+                    _activeBackend.value = backendType
+                    _resolvedMaxTokens.value = resolvedConfig.maxTokens
+                    _isReady.value = true
+
+                    Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
+                }
             } finally {
                 InferenceLoadingService.stop(context)
             }
-        }
         } finally {
             isInitializing.set(false)
         }
