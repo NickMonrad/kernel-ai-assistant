@@ -7,6 +7,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.annotation.SuppressLint
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
@@ -249,8 +250,8 @@ class OnnxWakeWordDetector @Inject constructor(
         detectionThread = null
         Log.d(TAG, "WakeWordDetector: stopped")
     }
-
-    @Suppress("LongMethod") // hot path — intentional single function to minimise call overhead
+    @Suppress("LongMethod")
+    @SuppressLint("MissingPermission")
     private fun runDetectionLoop(
         bytes: ModelBytes,
         highThreshold: Float,

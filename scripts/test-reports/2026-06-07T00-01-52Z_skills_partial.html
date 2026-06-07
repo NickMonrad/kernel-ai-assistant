@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jandal Skill Regression Report — skills</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    padding: 24px;
+    line-height: 1.5;
+}
+h1 { font-size: 1.6rem; font-weight: 700; color: #f8fafc; }
+h2 { font-size: 1.1rem; font-weight: 600; color: #94a3b8; margin-bottom: 8px; }
+.header { margin-bottom: 24px; }
+.meta { font-size: 0.85rem; color: #94a3b8; margin-top: 6px; }
+.badge {
+    display: inline-block;
+    padding: 10px 22px;
+    border-radius: 8px;
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-top: 12px;
+}
+.badge-green  { background: #14532d; color: #86efac; border: 1px solid #16a34a; }
+.badge-amber  { background: #431407; color: #fdba74; border: 1px solid #ea580c; }
+.badge-red    { background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; }
+.summary-grid {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    margin-top: 16px; margin-bottom: 24px;
+}
+.stat {
+    background: #1e2330;
+    border: 1px solid #2d3548;
+    border-radius: 8px;
+    padding: 12px 20px;
+    min-width: 100px;
+    text-align: center;
+}
+.stat-num { font-size: 1.8rem; font-weight: 700; }
+.stat-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+.green { color: #4ade80; }
+.red   { color: #f87171; }
+.amber { color: #fb923c; }
+.grey  { color: #94a3b8; }
+
+/* Filter buttons */
+.filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-btn {
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: 1px solid #2d3548;
+    background: #1e2330;
+    color: #e2e8f0;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+}
+.filter-btn:hover { background: #2d3548; }
+.filter-btn.active { background: #3b82f6; border-color: #2563eb; color: #fff; }
+
+/* Table */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+th {
+    background: #1e2330;
+    padding: 10px 12px;
+    text-align: left;
+    color: #94a3b8;
+    font-weight: 600;
+    border-bottom: 2px solid #2d3548;
+    position: sticky; top: 0; z-index: 1;
+    white-space: nowrap;
+}
+td { padding: 8px 12px; border-bottom: 1px solid #1a1f2e; vertical-align: top; }
+tr.row-pass  td { background: #0c1f0f; }
+tr.row-fail  td { background: #1f0a0a; }
+tr.row-fail td.col-expect, tr.row-fail td.col-actual { background: #2a0e0e; font-weight: 600; }
+tr.row-xfail td { background: #141520; color: #64748b; }
+tr:hover td { filter: brightness(1.1); }
+
+/* Status badge */
+.status-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.pill-pass  { background: #14532d; color: #86efac; }
+.pill-fail  { background: #450a0a; color: #fca5a5; }
+.pill-xfail { background: #1e1b4b; color: #a5b4fc; }
+
+/* Phase group header */
+.phase-header {
+    background: #1a2035;
+    padding: 8px 12px;
+    font-weight: 600;
+    color: #7c93c3;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid #2d3548;
+    cursor: pointer;
+    user-select: none;
+}
+.phase-header:hover { background: #202840; }
+.phase-toggle { float: right; }
+
+/* Param failures */
+.param-fail { color: #f87171; font-size: 0.78rem; margin-top: 3px; }
+.diff-icon { margin-left: 4px; }
+
+/* Footer */
+footer { margin-top: 32px; font-size: 0.78rem; color: #475569; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🦎 Jandal Skill Regression Report</h1>
+  <div class="meta">Suite: <strong>skills</strong> &nbsp;·&nbsp; Run: <strong>2026-06-07T00-12-28Z</strong></div>
+  <div class="badge badge-red">66.7% pass rate — ⚠ 10 failure(s)</div>
+</div>
+
+<div class="summary-grid"><div class="stat"><div class="stat-num">30</div><div class="stat-label">Total</div></div><div class="stat"><div class="stat-num green">20</div><div class="stat-label">Passed</div></div><div class="stat"><div class="stat-num red">10</div><div class="stat-label">Failed</div></div><div class="stat"><div class="stat-num grey">0</div><div class="stat-label">XFail</div></div></div>
+
+<h2>Results</h2>
+<div class="filters">
+  <button class="filter-btn active" data-filter="all">All (30)</button>
+  <button class="filter-btn" data-filter="fail">Failed (10)</button>
+  <button class="filter-btn" data-filter="pass">Passed (20)</button>
+  <button class="filter-btn" data-filter="xfail">XFail (0)</button>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Input</th>
+      <th>Expected Intent</th>
+      <th>Actual Intent</th>
+      <th>Expected Params</th>
+      <th>Actual Params</th>
+      <th>Status</th>
+      <th>Reply Warn</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="phase-header"><td colspan="8">alarm_timer &nbsp;·&nbsp; <span class="green">20✓</span> <span class="red">10✗</span> <span class="grey">0 xfail</span><span class="phase-toggle">▲</span></td></tr><tbody class="phase-body"><tr class="row-fail" data-status="fail"><td>2</td><td>wake me up at 11:30</td><td class="col-expect">set_alarm</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>4</td><td>alarm 11:30pm</td><td class="col-expect">set_alarm</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>7</td><td>cancel my 11pm alarm</td><td class="col-expect">cancel_alarm</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>9</td><td>delete my alarm</td><td class="col-expect">cancel_alarm</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>11</td><td>set a timer for 2 hours</td><td class="col-expect">set_timer</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>13</td><td>timer 2 hours</td><td class="col-expect">set_timer</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>15</td><td>countdown 2 hours</td><td class="col-expect">set_timer</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>17</td><td>stop the timer</td><td class="col-expect">cancel_timer</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>26</td><td>stop the egg timer</td><td class="col-expect">cancel_timer_named</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-fail" data-status="fail"><td>28</td><td>how long left on my timer</td><td class="col-expect">get_timer_remaining</td><td class="col-actual">—<span class="diff-icon"> ❌</span></td><td>—</td><td>—</td><td><span class="status-pill pill-fail">FAIL</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>1</td><td>set an alarm for 11pm</td><td class="col-expect">set_alarm</td><td class="col-actual">set_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_alarm&quot;, &quot;hours&quot;: &quot;23&quot;, &quot;minutes&quot;: &quot;0&quot;, &quot;time&quot;: &quot;23:00&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>3</td><td>remind me tomorrow at 9</td><td class="col-expect">set_alarm</td><td class="col-actual">set_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_alarm&quot;, &quot;hours&quot;: &quot;9&quot;, &quot;minutes&quot;: &quot;0&quot;, &quot;time&quot;: &quot;9:00&quot;, &quot;day&quot;: &quot;tomorrow&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>5</td><td>can you wake me at 11:30</td><td class="col-expect">set_alarm</td><td class="col-actual">set_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_alarm&quot;, &quot;hours&quot;: &quot;11&quot;, &quot;minutes&quot;: &quot;30&quot;, &quot;time&quot;: &quot;11:30&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>6</td><td>I need an alarm for 11 tonight</td><td class="col-expect">set_alarm</td><td class="col-actual">set_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_alarm&quot;, &quot;hours&quot;: &quot;11&quot;, &quot;minutes&quot;: &quot;0&quot;, &quot;time&quot;: &quot;11:00&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>8</td><td>turn off all my alarms</td><td class="col-expect">cancel_alarm</td><td class="col-actual">cancel_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_alarm&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>10</td><td>get rid of all alarms</td><td class="col-expect">cancel_alarm</td><td class="col-actual">cancel_alarm<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_alarm&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>12</td><td>start a 2 hour timer</td><td class="col-expect">set_timer</td><td class="col-actual">set_timer<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_timer&quot;, &quot;duration_seconds&quot;: &quot;7200&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>14</td><td>start a 3 hour timer</td><td class="col-expect">set_timer</td><td class="col-actual">set_timer<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;set_timer&quot;, &quot;duration_seconds&quot;: &quot;7200&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>16</td><td>cancel the timer</td><td class="col-expect">cancel_timer</td><td class="col-actual">cancel_timer<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>18</td><td>turn off the timer</td><td class="col-expect">cancel_timer</td><td class="col-actual">cancel_timer<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>19</td><td>dismiss the timer</td><td class="col-expect">cancel_timer</td><td class="col-actual">cancel_timer<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>20</td><td>what timers do I have</td><td class="col-expect">list_timers</td><td class="col-actual">list_timers<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;list_timers&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>21</td><td>show my timers</td><td class="col-expect">list_timers</td><td class="col-actual">list_timers<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;list_timers&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>22</td><td>how many timers are running</td><td class="col-expect">list_timers</td><td class="col-actual">list_timers<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;list_timers&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>23</td><td>list timers</td><td class="col-expect">list_timers</td><td class="col-actual">list_timers<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;list_timers&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>24</td><td>cancel the pasta timer</td><td class="col-expect">cancel_timer_named</td><td class="col-actual">cancel_timer_named<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer_named&quot;, &quot;name&quot;: &quot;pasta&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>25</td><td>cancel the 10 minute timer</td><td class="col-expect">cancel_timer_named</td><td class="col-actual">cancel_timer_named<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer_named&quot;, &quot;name&quot;: &quot;10 minute&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>27</td><td>dismiss the laundry timer</td><td class="col-expect">cancel_timer_named</td><td class="col-actual">cancel_timer_named<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;cancel_timer_named&quot;, &quot;name&quot;: &quot;laundry&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>29</td><td>how much time is left on the pasta timer</td><td class="col-expect">get_timer_remaining</td><td class="col-actual">get_timer_remaining<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;get_timer_remaining&quot;, &quot;name&quot;: &quot;pasta&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr><tr class="row-pass" data-status="pass"><td>30</td><td>how long until the timer goes off</td><td class="col-expect">get_timer_remaining</td><td class="col-actual">get_timer_remaining<span class="diff-icon"></span></td><td>—</td><td>{&quot;intent_name&quot;: &quot;get_timer_remaining&quot;}</td><td><span class="status-pill pill-pass">PASS</span></td><td><span class="grey">—</span></td></tr></tbody>
+  </tbody>
+</table>
+
+<footer>Generated by Jandal test harness &nbsp;·&nbsp; 2026-06-07T00:12:28Z</footer>
+
+<script>
+const rows = document.querySelectorAll('tr[data-status]');
+const btns = document.querySelectorAll('.filter-btn');
+
+btns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    btns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const filter = btn.dataset.filter;
+    rows.forEach(row => {
+      if (filter === 'all' || row.dataset.status === filter) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+    // Re-show phase headers only if they have visible children
+    document.querySelectorAll('.phase-header').forEach(ph => {
+      const section = ph.nextElementSibling;
+      if (!section) return;
+      const visibles = section.querySelectorAll('tr[data-status]');
+      let anyVisible = false;
+      visibles.forEach(r => { if (r.style.display !== 'none') anyVisible = true; });
+      ph.style.display = anyVisible ? '' : 'none';
+    });
+  });
+});
+
+// Phase collapse toggle
+document.querySelectorAll('.phase-header').forEach(ph => {
+  ph.addEventListener('click', () => {
+    const section = ph.nextElementSibling;
+    if (!section) return;
+    const hidden = section.style.display === 'none';
+    section.style.display = hidden ? '' : 'none';
+    ph.querySelector('.phase-toggle').textContent = hidden ? '▲' : '▼';
+  });
+});
+</script>
+</body>
+</html>
