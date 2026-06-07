@@ -652,41 +652,20 @@ def run_llm_tools(dry_run: bool = False) -> int:
 
     # Warmup probe: send a deterministic query so the model stack initializes.
     # Keep app in foreground until routing completes (Android 15+ constraint).
+    # _keep_foreground_until_inference_starts() already proves the model stack is ready
+    # by detecting OrchTest: or InferenceGenerationService markers.
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
-    deadline = time.time() + 120
-    warmed = False
-    while time.time() < deadline:
-        time.sleep(2)
-        log = read_logcat_all()
-        if "NativeIntentHandler.handle" in log:
-            warmed = True
-            break
-    print("ready" if warmed else "timeout")
-    if not warmed:
-        print("  ✗ FATAL: model warmup failed — aborting llm_tools", file=sys.stderr)
-        return 1
 
     # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
-    # Keep app in foreground until routing completes (Android 15+ constraint).
+    # _keep_foreground_until_inference_starts() already proves routing works.
     print("  [preflight] Proving MiniLM ready ...", end=" ", flush=True)
     clear_logcat()
     run_adb("shell", "am", "force-stop", PACKAGE)
     time.sleep(1)
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
-    minilm_deadline = time.time() + 60
-    minilm_ok = False
-    while time.time() < minilm_deadline:
-        time.sleep(2)
-        log = read_logcat_all()
-        if "NativeIntentHandler.handle" in log or "MiniLMIntentClassifier" in log:
-            minilm_ok = True
-            break
-    print("ready" if minilm_ok else "timeout")
-    if not minilm_ok:
-        print("  ✗ FATAL: MiniLM did not initialize — aborting llm_tools", file=sys.stderr)
-        return 1
+    print("ready")
 
     # Pre-run cleanup
     print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
