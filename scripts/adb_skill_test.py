@@ -706,9 +706,13 @@ def run_llm_tools(dry_run: bool = False) -> int:
     for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
         print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
 
-        # Isolate: dismiss any notification overlays, then clear conversation state
-        dismiss_notifications()
+        # Isolate: force-stop, dismiss overlays, then send prompt
         _clear_conversation()
+        # Dismiss any notification overlays (Samsung Calendar, etc.)
+        run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(0.3)
+        run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(0.3)
         clear_logcat()
         time.sleep(0.5)
 
