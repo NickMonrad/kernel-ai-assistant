@@ -646,7 +646,9 @@ def run_llm_tools(dry_run: bool = False) -> int:
     clear_logcat()
 
     # Warmup probe: send a deterministic query so the model stack initializes.
+    # Keep app in foreground until routing completes (Android 15+ constraint).
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    _keep_foreground_until_inference_starts()
     deadline = time.time() + 120
     warmed = False
     while time.time() < deadline:
@@ -661,11 +663,13 @@ def run_llm_tools(dry_run: bool = False) -> int:
         return 1
 
     # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
+    # Keep app in foreground until routing completes (Android 15+ constraint).
     print("  [preflight] Proving MiniLM ready ...", end=" ", flush=True)
     clear_logcat()
     run_adb("shell", "am", "force-stop", PACKAGE)
     time.sleep(1)
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    _keep_foreground_until_inference_starts()
     minilm_deadline = time.time() + 60
     minilm_ok = False
     while time.time() < minilm_deadline:
