@@ -1012,7 +1012,7 @@ def _keep_foreground_until_inference_starts() -> None:
     deadline = time.time() + 120
     while time.time() < deadline:
         log = read_logcat_all()
-        if "InferenceGenerationService" in log or "llm_tools_route:" in log or "OrchTest:" in log:
+        if "InferenceGenerationService" in log or "InferenceLoadingService" in log or "llm_tools_route:" in log or "OrchTest:" in log:
             break
         run_adb("shell", "input", "tap", "500", "1000")
         time.sleep(2)
