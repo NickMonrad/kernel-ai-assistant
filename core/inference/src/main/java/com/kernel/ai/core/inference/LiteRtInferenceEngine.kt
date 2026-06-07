@@ -870,98 +870,101 @@ class LiteRtInferenceEngine @Inject constructor(
         systemPrompt: String?,
         thinkingEnabled: Boolean?,
         stopOnFirstJsonObject: Boolean,
-    ): String = withContext(LlmDispatcher) {
-        val config = currentConfig ?: return@withContext ""
-        val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
-        val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
-        val requestedConfig = config.copy(
-            systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
-            thinkingEnabled = requestedThinkingEnabled,
-        )
-        val shouldSwapConfig = requestedConfig != config
-        val timeoutMs = if (requestedSystemPrompt != null) 60_000L else 30_000L
-
-        try {
-            if (shouldSwapConfig) {
-                resetConversationForConfig(requestedConfig)
-            }
-
-            val conv = conversation ?: return@withContext ""
-
-            var acquired = false
-            for (attempt in 0 until 20) {
-                if (generationMutex.tryLock()) {
-                    acquired = true
-                    break
-                }
-                Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
-                delay(250L)
-            }
-            if (!acquired) {
-                Log.w(TAG, "generateOnce: failed to acquire mutex after 5s — engine busy")
-                return@withContext ""
-            }
-
-            _isGenerating.value = true
-            InferenceGenerationService.start(context)
-            try {
-                val response = StringBuilder()
-                val jsonAccumulator = if (stopOnFirstJsonObject) JsonObjectAccumulator() else null
-                val latch = CompletableDeferred<String>()
-                val finished = AtomicBoolean(false)
-                conv.sendMessageAsync(
-                    Contents.of(Content.Text(prompt)),
-                    object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            if (finished.get()) return
-                            val text = message.toString()
-                            if (text.isEmpty() || text.startsWith("<ctrl")) return
-                            response.append(text)
-                            val completedJson = jsonAccumulator?.append(text)
-                            if (completedJson != null && finished.compareAndSet(false, true)) {
-                                latch.complete(completedJson)
-                                try {
-                                    conv.cancelProcess()
-                                } catch (cancelError: Exception) {
-                                    Log.d(TAG, "generateOnce: cancelProcess failed after JSON completion — ignoring", cancelError)
-                                }
-                            }
-                        }
-
-                        override fun onDone() {
-                            if (finished.compareAndSet(false, true)) {
-                                latch.complete(response.toString())
-                            }
-                        }
-
-                        override fun onError(throwable: Throwable) {
-                            if (finished.compareAndSet(false, true)) {
-                                latch.completeExceptionally(throwable)
-                            }
-                        }
-                    },
-                    if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+    ): String {
+        // Start foreground service on the calling thread (typically main) BEFORE entering
+        // the background dispatcher. Android 15+ requires startForegroundService() to be
+        // called within ~5 seconds of the app being brought to foreground, and only from
+        // the main thread.
+        InferenceGenerationService.start(context)
+        return try {
+            withContext(LlmDispatcher) {
+                val config = currentConfig ?: return@withContext ""
+                val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
+                val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
+                val requestedConfig = config.copy(
+                    systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
+                    thinkingEnabled = requestedThinkingEnabled,
                 )
+                val shouldSwapConfig = requestedConfig != config
+                val timeoutMs = if (requestedSystemPrompt != null) 60_000L else 30_000L
                 try {
-                    withTimeout(timeoutMs) { latch.await() }
-                } catch (e: TimeoutCancellationException) {
-                    try {
-                        conv.cancelProcess()
-                    } catch (cancelError: Exception) {
-                        Log.w(TAG, "generateOnce: cancelProcess failed after timeout — ignoring", cancelError)
+                    if (shouldSwapConfig) {
+                        resetConversationForConfig(requestedConfig)
                     }
-                    Log.w(TAG, "generateOnce: timed out after ${timeoutMs / 1000}s waiting for generation — returning empty")
-                    ""
+                    val conv = conversation ?: return@withContext ""
+                    var acquired = false
+                    for (attempt in 0 until 20) {
+                        if (generationMutex.tryLock()) {
+                            acquired = true
+                            break
+                        }
+                        Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
+                        delay(250L)
+                    }
+                    if (!acquired) {
+                        Log.w(TAG, "generateOnce: failed to acquire mutex after 5s — engine busy")
+                        return@withContext ""
+                    }
+                    _isGenerating.value = true
+                    try {
+                        val response = StringBuilder()
+                        val jsonAccumulator = if (stopOnFirstJsonObject) JsonObjectAccumulator() else null
+                        val latch = CompletableDeferred<String>()
+                        val finished = AtomicBoolean(false)
+                        conv.sendMessageAsync(
+                            Contents.of(Content.Text(prompt)),
+                            object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    if (finished.get()) return
+                                    val text = message.toString()
+                                    if (text.isEmpty() || text.startsWith("<ctrl")) return
+                                    response.append(text)
+                                    val completedJson = jsonAccumulator?.append(text)
+                                    if (completedJson != null && finished.compareAndSet(false, true)) {
+                                        latch.complete(completedJson)
+                                        try {
+                                            conv.cancelProcess()
+                                        } catch (cancelError: Exception) {
+                                            Log.d(TAG, "generateOnce: cancelProcess failed after JSON completion — ignoring", cancelError)
+                                        }
+                                    }
+                                }
+                                override fun onDone() {
+                                    if (finished.compareAndSet(false, true)) {
+                                        latch.complete(response.toString())
+                                    }
+                                }
+                                override fun onError(throwable: Throwable) {
+                                    if (finished.compareAndSet(false, true)) {
+                                        latch.completeExceptionally(throwable)
+                                    }
+                                }
+                            },
+                            if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+                        )
+                        try {
+                            withTimeout(timeoutMs) { latch.await() }
+                        } catch (e: TimeoutCancellationException) {
+                            try {
+                                conv.cancelProcess()
+                            } catch (cancelError: Exception) {
+                                Log.w(TAG, "generateOnce: cancelProcess failed after timeout — ignoring", cancelError)
+                            }
+                            Log.w(TAG, "generateOnce: timed out after ${timeoutMs / 1000}s waiting for generation — returning empty")
+                            ""
+                        }
+                    } finally {
+                        _isGenerating.value = false
+                        generationMutex.unlock()
+                    }
+                } finally {
+                    if (shouldSwapConfig) {
+                        resetConversationForConfig(config)
+                    }
                 }
-            } finally {
-                _isGenerating.value = false
-                InferenceGenerationService.stop(context)
-                generationMutex.unlock()
             }
         } finally {
-            if (shouldSwapConfig) {
-                resetConversationForConfig(config)
-            }
+            InferenceGenerationService.stop(context)
         }
     }
     override suspend fun generateStructuredOnce(
@@ -969,243 +972,237 @@ class LiteRtInferenceEngine @Inject constructor(
         spec: StructuredOutputSpec,
         systemPrompt: String?,
         thinkingEnabled: Boolean?,
-    ): String = withContext(LlmDispatcher) {
-        val config = currentConfig ?: run {
-            Log.w(TAG, "generateStructuredOnce: currentConfig is null — engine not initialized?")
-            return@withContext ""
-        }
-        Log.d(
-            TAG,
-            "generateStructuredOnce: spec='${spec.toolName}', schemaLen=${spec.jsonSchema.length}, thinking=$thinkingEnabled",
-        )
-        val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
-        val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
-        // Build a synthetic OpenAPI tool from the spec.
-        // The synthetic tool echoes its input back, so the model sees:
-        // 1. Its own tool call with arguments
-        // 2. The same arguments echoed back as tool response
-        // This is effectively a no-op for the model, but enables constrained decoding
-        // via the tool-calling path.
-        val syntheticToolProvider = tool(
-            object : OpenApiTool {
-                private val desc = JSONObject().apply {
-                    put("name", spec.toolName)
-                    if (spec.toolDescription.isNotBlank()) put("description", spec.toolDescription)
-                    put("parameters", JSONObject(spec.jsonSchema))
-                }.toString()
-
-                override fun getToolDescriptionJsonString(): String = desc
-
-                override fun execute(paramsJsonString: String): String = paramsJsonString
-            },
-        )
-
-        val requestedConfig = config.copy(
-            systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
-            thinkingEnabled = requestedThinkingEnabled,
-        )
-        val shouldSwapConfig = requestedConfig != config
-        val timeoutMs = 60_000L
-
-        try {
-            // Acquire mutex FIRST — prevents closing shared conversation while another
-            // thread (e.g. generateOnce) is using it.
-            var acquired = false
-            for (attempt in 0 until 20) {
-                if (generationMutex.tryLock()) {
-                    acquired = true
-                    break
-                }
-                Log.d(TAG, "generateStructuredOnce: mutex busy, retry ${attempt + 1}/20")
-                delay(250L)
-            }
-            if (!acquired) {
-                Log.w(TAG, "generateStructuredOnce: failed to acquire mutex after 5s — engine busy")
-                return@withContext ""
-            }
-
-            try {
-                // Now safe to swap config and close shared conversation
-                if (shouldSwapConfig) {
-                    currentConfig = requestedConfig
-                    safeClose(conversation, "conversation")
-                }
-
-                val eng = engine ?: run {
-                    Log.w(TAG, "generateStructuredOnce: engine is null — was it evicted?")
+    ): String {
+        // Start foreground service on the calling thread (typically main) BEFORE entering
+        // the background dispatcher. Android 15+ requires startForegroundService() to be
+        // called within ~5 seconds of the app being brought to foreground, and only from
+        // the main thread.
+        InferenceGenerationService.start(context)
+        return try {
+            withContext(LlmDispatcher) {
+                val config = currentConfig ?: run {
+                    Log.w(TAG, "generateStructuredOnce: currentConfig is null — engine not initialized?")
                     return@withContext ""
                 }
-                val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
-
-                // Isolate to synthetic tool only — no other tools interfere with constrained decoding.
-                val convConfigWithTool = convConfig.copy(
-                    tools = listOf(syntheticToolProvider),
-                    automaticToolCalling = false,
+                Log.d(
+                    TAG,
+                    "generateStructuredOnce: spec='${spec.toolName}', schemaLen=${spec.jsonSchema.length}, thinking=$thinkingEnabled",
                 )
-
-                // With automaticToolCalling=false, the model's tool call is returned directly
-                // to the callback instead of being auto-executed.
-                // Enable constrained decoding for synthetic tool calls.
-                // buildConversationConfig only sets this when config.toolProvider is non-null,
-                // but generateStructuredOnce adds tools via convConfig.copy() — so we set it
-                // explicitly here. Must be set before createConversation() (Gallery pattern).
-                ExperimentalFlags.enableConversationConstrainedDecoding = true
+                val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
+                val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
+                // Build a synthetic OpenAPI tool from the spec.
+                // The synthetic tool echoes its input back, so the model sees:
+                // 1. Its own tool call with arguments
+                // 2. The same arguments echoed back as tool response
+                // This is effectively a no-op for the model, but enables constrained decoding
+                // via the tool-calling path.
+                val syntheticToolProvider = tool(
+                    object : OpenApiTool {
+                        private val desc = JSONObject().apply {
+                            put("name", spec.toolName)
+                            if (spec.toolDescription.isNotBlank()) put("description", spec.toolDescription)
+                            put("parameters", JSONObject(spec.jsonSchema))
+                        }.toString()
+                        override fun getToolDescriptionJsonString(): String = desc
+                        override fun execute(paramsJsonString: String): String = paramsJsonString
+                    },
+                )
+                val requestedConfig = config.copy(
+                    systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
+                    thinkingEnabled = requestedThinkingEnabled,
+                )
+                val shouldSwapConfig = requestedConfig != config
+                val timeoutMs = 60_000L
                 try {
-                    val conv = try {
-                        eng.createConversation(convConfigWithTool)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "generateStructuredOnce: conversation creation failed", e)
-                        resetExperimentalFlags()
+                    // Acquire mutex FIRST — prevents closing shared conversation while another
+                    // thread (e.g. generateOnce) is using it.
+                    var acquired = false
+                    for (attempt in 0 until 20) {
+                        if (generationMutex.tryLock()) {
+                            acquired = true
+                            break
+                        }
+                        Log.d(TAG, "generateStructuredOnce: mutex busy, retry ${attempt + 1}/20")
+                        delay(250L)
+                    }
+                    if (!acquired) {
+                        Log.w(TAG, "generateStructuredOnce: failed to acquire mutex after 5s — engine busy")
                         return@withContext ""
                     }
-
-                    _isGenerating.value = true
-                    InferenceGenerationService.start(context)
                     try {
-                        val latch = CompletableDeferred<String>()
-                        val finished = AtomicBoolean(false)
-                        val capturedToolJson = AtomicReference<String?>(null)
-                        val jsonAccumulator = JsonObjectAccumulator()
-                        val TEXT_FALLBACK_MAX_CHARS = 2000
-                        val responseBuilder = StringBuilder()
-
-                        conv.sendMessageAsync(
-                            Contents.of(Content.Text(prompt)),
-                            object : MessageCallback {
-                                override fun onMessage(message: Message) {
-                                    if (finished.get()) return
-
-                                    // Priority 1: tool call matching spec
-                                    val toolCalls = message.toolCalls
-                                    if (toolCalls.isNotEmpty()) {
-                                        Log.d(
-                                            TAG,
-                                            "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
-                                        )
-                                        if (toolCalls.size == 1) {
-                                            val call = toolCalls.single()
-                                            if (call.name == spec.toolName) {
+                        // Now safe to swap config and close shared conversation
+                        if (shouldSwapConfig) {
+                            currentConfig = requestedConfig
+                            safeClose(conversation, "conversation")
+                        }
+                        val eng = engine ?: run {
+                            Log.w(TAG, "generateStructuredOnce: engine is null — was it evicted?")
+                            return@withContext ""
+                        }
+                        val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
+                        // Isolate to synthetic tool only — no other tools interfere with constrained decoding.
+                        val convConfigWithTool = convConfig.copy(
+                            tools = listOf(syntheticToolProvider),
+                            automaticToolCalling = false,
+                        )
+                        // With automaticToolCalling=false, the model's tool call is returned directly
+                        // to the callback instead of being auto-executed.
+                        // Enable constrained decoding for synthetic tool calls.
+                        // buildConversationConfig only sets this when config.toolProvider is non-null,
+                        // but generateStructuredOnce adds tools via convConfig.copy() — so we set it
+                        // explicitly here. Must be set before createConversation() (Gallery pattern).
+                        ExperimentalFlags.enableConversationConstrainedDecoding = true
+                        try {
+                            val conv = try {
+                                eng.createConversation(convConfigWithTool)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "generateStructuredOnce: conversation creation failed", e)
+                                resetExperimentalFlags()
+                                return@withContext ""
+                            }
+                            _isGenerating.value = true
+                            try {
+                                val latch = CompletableDeferred<String>()
+                                val finished = AtomicBoolean(false)
+                                val capturedToolJson = AtomicReference<String?>(null)
+                                val jsonAccumulator = JsonObjectAccumulator()
+                                val TEXT_FALLBACK_MAX_CHARS = 2000
+                                val responseBuilder = StringBuilder()
+                                conv.sendMessageAsync(
+                                    Contents.of(Content.Text(prompt)),
+                                    object : MessageCallback {
+                                        override fun onMessage(message: Message) {
+                                            if (finished.get()) return
+                                            // Priority 1: tool call matching spec
+                                            val toolCalls = message.toolCalls
+                                            if (toolCalls.isNotEmpty()) {
                                                 Log.d(
                                                     TAG,
-                                                    "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
+                                                    "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
                                                 )
-                                                // Serialize Map → proper JSON (not Kotlin Map.toString())
-                                                capturedToolJson.set(JSONObject(call.arguments).toString())
-                                                if (finished.compareAndSet(false, true)) {
-                                                    latch.complete(capturedToolJson.get()!!)
+                                                if (toolCalls.size == 1) {
+                                                    val call = toolCalls.single()
+                                                    if (call.name == spec.toolName) {
+                                                        Log.d(
+                                                            TAG,
+                                                            "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
+                                                        )
+                                                        // Serialize Map → proper JSON (not Kotlin Map.toString())
+                                                        capturedToolJson.set(JSONObject(call.arguments).toString())
+                                                        if (finished.compareAndSet(false, true)) {
+                                                            latch.complete(capturedToolJson.get()!!)
+                                                        }
+                                                        return
+                                                    } else {
+                                                        Log.d(
+                                                            TAG,
+                                                            "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
+                                                        )
+                                                    }
+                                                } else {
+                                                    Log.w(
+                                                        TAG,
+                                                        "generateStructuredOnce: multiple tool calls (${toolCalls.size}), expected exactly one — failing",
+                                                    )
                                                 }
-                                                return
-                                            } else {
+                                            }
+                                            // Priority 2: accumulate text for JSON extraction fallback
+                                            val text = message.toString()
+                                            if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                                                responseBuilder.append(text)
                                                 Log.d(
                                                     TAG,
-                                                    "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
+                                                    "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
                                                 )
+                                                // Fail fast: if model generates too much text without calling the tool
+                                                // or producing JSON, cancel to avoid 60s timeout.
+                                                if (responseBuilder.length > TEXT_FALLBACK_MAX_CHARS && capturedToolJson.get() == null) {
+                                                    Log.w(
+                                                        TAG,
+                                                        "generateStructuredOnce: model generated ${responseBuilder.length} chars of text without tool call or JSON — cancelling",
+                                                    )
+                                                    try { conv.cancelProcess() } catch (ce: Exception) {}
+                                                    if (finished.compareAndSet(false, true)) {
+                                                        latch.complete("")
+                                                    }
+                                                    return
+                                                }
+                                                jsonAccumulator.append(text)?.let { json ->
+                                                    Log.d(
+                                                        TAG,
+                                                        "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
+                                                    )
+                                                    capturedToolJson.set(json)
+                                                    if (finished.compareAndSet(false, true)) {
+                                                        latch.complete(json)
+                                                    }
+                                                }
                                             }
-                                        } else {
-                                            Log.w(
-                                                TAG,
-                                                "generateStructuredOnce: multiple tool calls (${toolCalls.size}), expected exactly one — failing",
-                                            )
                                         }
-                                    }
-
-                                    // Priority 2: accumulate text for JSON extraction fallback
-                                    val text = message.toString()
-                                    if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
-                                        responseBuilder.append(text)
-                                        Log.d(
-                                            TAG,
-                                            "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
-                                        )
-                                        // Fail fast: if model generates too much text without calling the tool
-                                        // or producing JSON, cancel to avoid 60s timeout.
-                                        if (responseBuilder.length > TEXT_FALLBACK_MAX_CHARS && capturedToolJson.get() == null) {
-                                            Log.w(
-                                                TAG,
-                                                "generateStructuredOnce: model generated ${responseBuilder.length} chars of text without tool call or JSON — cancelling",
-                                            )
-                                            try { conv.cancelProcess() } catch (ce: Exception) {}
+                                        override fun onDone() {
                                             if (finished.compareAndSet(false, true)) {
+                                                if (capturedToolJson.get() != null) return
+                                                Log.w(
+                                                    TAG,
+                                                    "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'",
+                                                )
+                                                if (responseBuilder.isNotEmpty()) {
+                                                    Log.d(
+                                                        TAG,
+                                                        "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
+                                                    )
+                                                }
                                                 latch.complete("")
                                             }
-                                            return
                                         }
-                                        jsonAccumulator.append(text)?.let { json ->
-                                            Log.d(
-                                                TAG,
-                                                "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
-                                            )
-                                            capturedToolJson.set(json)
+                                        override fun onError(throwable: Throwable) {
                                             if (finished.compareAndSet(false, true)) {
-                                                latch.complete(json)
+                                                Log.e(
+                                                    TAG,
+                                                    "generateStructuredOnce: error during structured generation",
+                                                    throwable,
+                                                )
+                                                latch.completeExceptionally(throwable)
                                             }
                                         }
-                                    }
+                                    },
+                                    if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+                                )
+                                var result: String? = null
+                                try {
+                                    result = withTimeout(timeoutMs) { latch.await() }
+                                } catch (e: TimeoutCancellationException) {
+                                    try { conv.cancelProcess() } catch (ce: Exception) {}
+                                    Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
+                                    result = ""
                                 }
-
-                                override fun onDone() {
-                                    if (finished.compareAndSet(false, true)) {
-                                        if (capturedToolJson.get() != null) return
-                                        Log.w(
-                                            TAG,
-                                            "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'",
-                                        )
-                                        if (responseBuilder.isNotEmpty()) {
-                                            Log.d(
-                                                TAG,
-                                                "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
-                                            )
-                                        }
-                                        latch.complete("")
-                                    }
-                                }
-
-                                override fun onError(throwable: Throwable) {
-                                    if (finished.compareAndSet(false, true)) {
-                                        Log.e(
-                                            TAG,
-                                            "generateStructuredOnce: error during structured generation",
-                                            throwable,
-                                        )
-                                        latch.completeExceptionally(throwable)
-                                    }
-                                }
-                            },
-                            if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
-                        )
-
-                        var result: String? = null
-                        try {
-                            result = withTimeout(timeoutMs) { latch.await() }
-                        } catch (e: TimeoutCancellationException) {
-                            try { conv.cancelProcess() } catch (ce: Exception) {}
-                            Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
-                            result = ""
+                                Log.d(
+                                    TAG,
+                                    "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
+                                )
+                                result
+                            } finally {
+                                _isGenerating.value = false
+                                safeClose(conv, "structured-conv")
+                            }
+                        } finally {
+                            resetExperimentalFlags()
                         }
-                        Log.d(
-                            TAG,
-                            "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
-                        )
-                        result
                     } finally {
-                        _isGenerating.value = false
-                        InferenceGenerationService.stop(context)
-                        safeClose(conv, "structured-conv")
+                        generationMutex.unlock()
+                        if (shouldSwapConfig) {
+                            resetConversationForConfig(config)
+                        }
                     }
-                } finally {
-                    resetExperimentalFlags()
-                }
-            } finally {
-                generationMutex.unlock()
-                if (shouldSwapConfig) {
-                    resetConversationForConfig(config)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (e: Exception) {
+                    Log.w(TAG, "generateStructuredOnce: error", e)
+                    ""
                 }
             }
-        } catch (ce: CancellationException) {
-            throw ce
-        } catch (e: Exception) {
-            Log.w(TAG, "generateStructuredOnce: error", e)
-            ""
+        } finally {
+            InferenceGenerationService.stop(context)
         }
     }
 

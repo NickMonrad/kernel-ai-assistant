@@ -540,27 +540,28 @@ TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
 LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     LLMToolsTestCase(
-        name="set_timer_natural",
-        message="Can you start a countdown for about four minutes while I make tea?",
-        expected_top_level_tool="run_intent",
-        expected_nested_intent="set_timer",
-        expected_fields={"duration_seconds": "240"},
+        name="query_wikipedia_natural",
+        message="Look up the history of the Battle of Hastings on Wikipedia for me",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "Battle of Hastings"},
         expect_no_regex_match=True,
+        expect_no_classifier_match=True,
     ),
     LLMToolsTestCase(
-        name="add_reminder_natural",
-        message="Could you remind me later today to check the washing?",
-        expected_top_level_tool="run_intent",
-        expected_nested_intent="add_reminder",
-        expected_fields={"item": "washing"},
+        name="save_memory_natural",
+        message="Remember that I need to pick up dry cleaning tomorrow evening",
+        expected_top_level_tool="save_memory",
+        expected_fields={"content": "dry cleaning"},
         expect_no_regex_match=True,
+        expect_no_classifier_match=True,
     ),
     LLMToolsTestCase(
-        name="get_weather_named_city",
-        message="What's the weather looking like around Brisbane tomorrow?",
-        expected_top_level_tool="get_weather",
-        expected_fields={"location": "Brisbane"},
+        name="get_system_info",
+        message="What's my current battery level and how much storage is free",
+        expected_top_level_tool="get_system_info",
+        expected_fields={"fields": "battery"},
         expect_no_regex_match=True,
+        expect_no_classifier_match=True,
     ),
 ]
 
