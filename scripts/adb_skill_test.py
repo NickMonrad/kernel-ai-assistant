@@ -704,7 +704,8 @@ def run_llm_tools(dry_run: bool = False) -> int:
     for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
         print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
 
-        # Isolate: clear conversation state before each case
+        # Isolate: dismiss any notification overlays, then clear conversation state
+        dismiss_notifications()
         _clear_conversation()
         clear_logcat()
         time.sleep(0.5)
@@ -1130,6 +1131,22 @@ def teardown_contact_alias_fixture() -> None:
         "shell", "sqlite3", DB_PATH,
         f"DELETE FROM contact_aliases WHERE alias='{ALIAS_TEST_NAME}';",
     )
+
+
+def dismiss_notifications() -> None:
+    """Dismiss any notification popups or alerts that may block the app from being in the foreground.
+    On Android 15+ Samsung devices, notification popups (e.g. Calendar alerts) can cover
+    the activity and prevent startForegroundService() from succeeding. This function
+    presses the back button to dismiss overlays, then brings the app to the foreground.
+    """
+    # Press back to dismiss any overlay/notification popup
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.5)
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.5)
+    # Bring app to foreground
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(1)
 
 
 def cleanup_side_effects() -> None:
