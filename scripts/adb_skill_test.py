@@ -542,7 +542,7 @@ def logcat_start() -> None:
     # Clear device-side buffer first, then start streaming
     run_adb("logcat", "-c")
     _logcat_proc = subprocess.Popen(
-        ["adb", "logcat", "-s", f"{LOGCAT_TAG}:D", "-v", "brief"],
+        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "-v", "brief"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         universal_newlines=True, bufsize=1,
     )
@@ -573,16 +573,27 @@ def logcat_snapshot() -> str:
     return result
 
 
-def logcat_wait(expected: str, timeout: float = 30.0) -> str:
-    """Poll the logcat buffer until [expected] appears, or timeout. Returns the full snapshot."""
+def logcat_wait(expected: str, timeout: float = WAIT_SECONDS) -> str:
+    """Poll the logcat buffer until [expected] appears, or timeout.
+    Returns accumulated snapshot — evidence isn't lost on timeout."""
     deadline = time.time() + timeout
-    snapshot = ""
+    seen = set()
+    accumulated: list[str] = []
     while time.time() < deadline:
         snapshot = logcat_snapshot()
-        if expected in snapshot:
-            return snapshot
+        if not snapshot:
+            time.sleep(0.5)
+            continue
+        for line in snapshot.split("\n"):
+            line = line.strip()
+            if line and line not in seen:
+                seen.add(line)
+                accumulated.append(line)
+        combined = "\n".join(accumulated)
+        if expected in combined:
+            return combined
         time.sleep(0.5)
-    return snapshot
+    return "\n".join(accumulated)
 
 
 atexit.register(logcat_stop)
@@ -1228,10 +1239,6 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                             phase=phase_name,
                         )
                         phase_results.append(result)
-                        results.append(result)
-                        global_index += 1
-                        print(f"✗ (no AskConfirmation log)")
-                        continue
                 # Turn 2: confirmation reply via chat_input → pending confirmation → skill executes
                 clear_logcat()
                 time.sleep(0.5)
@@ -1239,8 +1246,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             else:
                 send_text(tc.message)
 
-            time.sleep(WAIT_SECONDS)
-            logcat = read_logcat()
+            # Early-exit wait: poll for expected signal instead of fixed WAIT_SECONDS (#1102)
+            signal = tc.expect_log_contains or tc.expect_intent
+            logcat = logcat_wait(signal, WAIT_SECONDS) if signal else (time.sleep(WAIT_SECONDS) or read_logcat())
             actual_intent, actual_params = extract_intent(logcat)
             intent_passed = (actual_intent or "") == tc.expect_intent
             params_ok, param_failures = check_params(tc.expect_params, actual_params)

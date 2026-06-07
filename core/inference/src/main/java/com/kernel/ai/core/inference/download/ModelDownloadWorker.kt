@@ -1,5 +1,6 @@
 package com.kernel.ai.core.inference.download
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -206,6 +207,7 @@ class ModelDownloadWorker(
 
     override suspend fun getForegroundInfo(): ForegroundInfo = buildForegroundInfo("Model", 0)
 
+@SuppressLint("SpecifyForegroundServiceType")
     private fun buildForegroundInfo(displayName: String, progressPct: Int): ForegroundInfo {
         val title = "Downloading $displayName"
         val text = if (progressPct > 0) "$progressPct% complete" else "Starting download…"
