@@ -535,14 +535,16 @@ def _logcat_reader() -> None:
 
 
 def logcat_start() -> None:
-    """Start the persistent logcat stream. Safe to call multiple times (idempotent)."""
+    """Start the persistent logcat stream. Safe to call multiple times (idempotent).
+    Filters to KernelAI:D and LiteRtInferenceEngine:I so profile warmup and
+    orchestration tests both work from the same stream."""
     global _logcat_proc
     if _logcat_proc is not None:
         return
     # Clear device-side buffer first, then start streaming
     run_adb("logcat", "-c")
     _logcat_proc = subprocess.Popen(
-        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "-v", "brief"],
+        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "-v", "brief"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         universal_newlines=True, bufsize=1,
     )
@@ -977,8 +979,9 @@ def check_oom_sanity(results: list[TestResult]) -> None:
 
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None, phases: list[str] | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
-    # Start host-side logcat streaming (#1102) — avoids S21 buffer rotation failures
-    logcat_start()
+    # NB: logcat_start() is deliberately after the dry-run / ADB-existence checks below,
+    # because it touches the device — --dry-run must be a pure no-op without a device.
+
     if dry_run:
         print("=" * 70)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
@@ -1033,6 +1036,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 1
+
+    # Start host-side logcat streaming (#1102) — avoids S21 buffer rotation failures.
+    logcat_start()
 
     print("=" * 70)
     print("  ADB SKILL REGRESSION TEST")
@@ -1491,6 +1497,8 @@ def run_profile_tests(dry_run: bool = False) -> int:
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 2
+
+    logcat_start()
 
     print("=" * 70)
     print("  PROFILE EXTRACTION TEST")

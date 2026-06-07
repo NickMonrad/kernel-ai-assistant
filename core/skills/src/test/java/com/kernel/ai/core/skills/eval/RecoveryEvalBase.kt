@@ -74,21 +74,11 @@ abstract class RecoveryEvalBase {
     )
 
     protected fun findCorpusFile(): File {
-        val cwd = File(System.getProperty("user.dir"))
-        val candidates = listOf(
-            // From test resources (classpath — Gradle runs from module dir)
-            cwd.resolve("src/test/resources/recovery_corpus.json"),
-            // From project root
-            cwd.resolve("scripts/testdata/intent_recovery/recovery_corpus.json"),
-            // From module dir navigating up
-            cwd.resolve("../../../scripts/testdata/intent_recovery/recovery_corpus.json"),
-            cwd.resolve("../../scripts/testdata/intent_recovery/recovery_corpus.json"),
-            cwd.resolve("../scripts/testdata/intent_recovery/recovery_corpus.json"),
-            // Absolute fallback for worktree
-            File("/home/lokhor/.omp/wt/epic-1099-orchestration-eval/scripts/testdata/intent_recovery/recovery_corpus.json"),
-        )
-        return candidates.firstOrNull { it.exists() }
-            ?: error("Cannot find recovery_corpus.json from ${cwd.absolutePath}. Searched: ${candidates.map { it.absolutePath }}")
+        val cwd = File(System.getProperty("user.dir")!!)
+        // Canonical location: core/skills/src/test/resources/ from module working dir
+        val path = cwd.resolve("src/test/resources/recovery_corpus.json")
+        return path.takeIf { it.exists() }
+            ?: error("Cannot find recovery_corpus.json from ${cwd.absolutePath}")
     }
     /** Load fixtures from the golden corpus JSON file. */
     protected fun loadFixtures(): List<EvalFixture> {

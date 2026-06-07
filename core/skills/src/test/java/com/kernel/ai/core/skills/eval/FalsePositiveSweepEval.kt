@@ -17,10 +17,15 @@ import java.io.File
  * Runs each utterance through [IntentRecoveryOrchestrator.recover()] and
  * classifies by actual policy outcome:
  * - Dangerous: RecoveryResult.Execute (auto-execute on non-calendar input)
- * - Visible: RecoveryResult.AskConfirmation (shows confirmation prompt)
- * - Benign: RecoveryResult.AskSlot/AskClarification/NotActionable
+ * - Visible:   RecoveryResult.AskConfirmation (shows confirmation prompt)
+ * - Benign:    RecoveryResult.AskSlot (slot disambiguation — genuinely benign
+ *             for regex-only extraction; excluded from total FP count)
+ * - Report:    RecoveryResult.AskClarification
  *
- * Thresholds per #1103: dangerous FP = 0, visible FP <= 0.4%, total FP <= 1%.
+ * Thresholds per #1103: dangerous FP = 0, visible FP <= 0.4%.
+ * Total FP (AskClarification + AskConfirmation + Execute) <= 1%.
+ * AskSlot is intentionally excluded — the extractor asking "which date?"
+ * is legitimate slot disambiguation, not a calendar action presented to the user.
  */
 class FalsePositiveSweepEval : RecoveryEvalBase() {
 
@@ -36,9 +41,10 @@ class FalsePositiveSweepEval : RecoveryEvalBase() {
         val corpus = loadNonCalendarCorpus()
         val total = corpus.size
         var notActionable = 0
-        var benign = 0
-        var visible = 0
-        var dangerous = 0
+        var askSlot = 0
+        var askClarification = 0
+        var askConfirmation = 0
+        var execute = 0
 
         for (entry in corpus) {
             val input = entry["input"] as String
@@ -47,21 +53,28 @@ class FalsePositiveSweepEval : RecoveryEvalBase() {
 
             when (result) {
                 is RecoveryResult.NotActionable -> notActionable++
-                is RecoveryResult.AskSlot -> benign++
-                is RecoveryResult.AskClarification -> benign++
-                is RecoveryResult.AskConfirmation -> visible++
-                is RecoveryResult.Execute -> dangerous++
+                is RecoveryResult.AskSlot -> askSlot++
+                is RecoveryResult.AskClarification -> askClarification++
+                is RecoveryResult.AskConfirmation -> askConfirmation++
+                is RecoveryResult.Execute -> execute++
             }
         }
 
+        val visible = askConfirmation
+        val dangerous = execute
+        val totalFp = askClarification + askConfirmation + execute
+        val totalFpRate = totalFp.toDouble() / total * 100
         val visibleRate = visible.toDouble() / total * 100
 
         println("\n========== FALSE POSITIVE SWEEP (#1103) ==========")
         println("Total utterances:    $total")
         println("NotActionable:       $notActionable")
-        println("Benign (ask/clarify): $benign")
-        println("Visible (confirm):   $visible (${"%.2f".format(visibleRate)}%)")
-        println("Dangerous (execute): $dangerous")
+        println("AskSlot:             $askSlot")
+        println("AskClarification:    $askClarification")
+        println("AskConfirmation:     $askConfirmation (${"%.2f".format(visibleRate)}%)")
+        println("Execute:            $execute")
+        println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        println("Total FP (any action): $totalFp (${"%.2f".format(totalFpRate)}%)")
         println()
 
         if (dangerous > 0) {
@@ -75,19 +88,19 @@ class FalsePositiveSweepEval : RecoveryEvalBase() {
             println("Reducing them below 0.4% requires classifier integration (beyond regex-only)")
             throw IllegalStateException("Visible FP rate ${"%.2f".format(visibleRate)}% exceeds 0.4%")
         }
+        if (totalFpRate > 1.0) {
+            println("FAIL: Total FP rate ${"%.2f".format(totalFpRate)}% exceeds 1.0%")
+            throw IllegalStateException("Total FP rate ${"%.2f".format(totalFpRate)}% exceeds 1.0%")
+        }
         println("PASS: All thresholds met")
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun loadNonCalendarCorpus(): List<Map<String, Any?>> {
-        val cwd = File(System.getProperty("user.dir"))
-        val candidates = listOf(
-            cwd.resolve("src/test/resources/non_calendar_corpus.json"),
-            cwd.resolve("../../../scripts/testdata/intent_recovery/non_calendar_corpus.json"),
-            cwd.resolve("../../scripts/testdata/intent_recovery/non_calendar_corpus.json"),
-            File("/home/lokhor/.omp/wt/epic-1099-orchestration-eval/scripts/testdata/intent_recovery/non_calendar_corpus.json"),
-        )
-        val file = candidates.firstOrNull { it.exists() }
+        val cwd = File(System.getProperty("user.dir")!!)
+        // Canonical location: core/skills/src/test/resources/ from module working dir
+        val file = cwd.resolve("src/test/resources/non_calendar_corpus.json")
+            .takeIf { it.exists() }
             ?: error("Cannot find non_calendar_corpus.json from ${cwd.absolutePath}")
         val json = file.readText()
         val list = mutableListOf<Map<String, Any?>>()

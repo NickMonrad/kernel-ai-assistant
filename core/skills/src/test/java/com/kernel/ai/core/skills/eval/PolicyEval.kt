@@ -84,7 +84,7 @@ class PolicyEval : RecoveryEvalBase() {
         val scorecard = Scorecard(
             totalFixtures = fixtures.size,
             passedFixtures = passed,
-            failedFixtures = failures.size + dangerousAutoExecutes,
+            failedFixtures = failures.size,
             scoresByCategory = mapOf<String, ScoreDetail>(
                 "layer3_policy" to ScoreDetail(fixtures.size, passed, "Layer 3 — Policy accuracy"),
                 "layer3_dangerous_fp" to ScoreDetail(
