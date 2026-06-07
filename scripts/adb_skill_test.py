@@ -41,6 +41,13 @@ PROFILE_LLM_PATTERN = re.compile(r"Profile LLM extraction succeeded")
 PROFILE_FALLBACK_PATTERN = re.compile(r"Profile regex fallback")
 PROFILE_YAML_PATTERN = re.compile(r"name:\s*(.+)")
 THINKING_PATTERN = re.compile(r"Thinking tokens:\s*(\d+)")
+LLM_TOOLS_ROUTE_PATTERN = re.compile(r"llm_tools_route:\s*(.+)")
+LLM_TOOLS_NATIVE_TOOL_PATTERN = re.compile(r"llm_tools_native_tool:\s*(.+)")
+LLM_TOOLS_LEGACY_TOOL_PATTERN = re.compile(r"llm_tools_legacy_tool:\s*(.+)")
+LLM_TOOLS_SKILL_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*(.+)")
+LLM_TOOLS_MESSAGE_SAVED_PATTERN = re.compile(r"llm_tools_message_toolcall_saved:\s*(.+)")
+LLM_TOOLS_RETRY_PATTERN = re.compile(r"raw_tool_call_retry_succeeded|hallucination_retry_succeeded")
+LLM_TOOLS_SLOT_FILL_PATTERN = re.compile(r"NeedsSlot|ConfirmationFastPath:")
 WAIT_SECONDS = 20
 PROFILE_WAIT_SECONDS = 45  # LLM extraction needs more time than QIR
 REPORTS_DIR = Path(__file__).parent / "test-reports"
@@ -100,6 +107,20 @@ class TestCase:
     # send this reply as a chat_input to confirm and trigger execution.
     confirm_reply: str | None = None
 
+@dataclass
+class LLMToolsTestCase:
+    """Test case for the llm_tools harness phase."""
+    name: str
+    message: str
+    expected_top_level_tool: str  # e.g. "run_intent", "get_weather"
+    expected_nested_intent: str | None = None  # e.g. "set_timer", "add_reminder"
+    expected_fields: dict[str, str] | None = None  # semantic field assertions
+    expected_result_mode: str = "unknown"  # "direct_reply" | "llm_wrapped_success" | "unknown"
+    expect_no_regex_match: bool = True
+    expect_no_classifier_match: bool = True
+    expect_no_slot_fill: bool = True
+    expect_no_retry: bool = True
+
 
 @dataclass
 class TestResult:
@@ -117,6 +138,28 @@ class TestResult:
     reply_warn: str | None
     log_check_warn: str | None
     phase: str = ""
+
+@dataclass
+class LLMToolsResult:
+    """Structured outcome of a single llm_tools test case."""
+    index: int
+    name: str
+    message: str
+    expected_top_level_tool: str
+    actual_top_level_tool: str | None
+    actual_nested_intent: str | None
+    route_marker: str | None
+    native_tool_marker: str | None
+    legacy_tool_marker: str | None
+    skill_result_marker: str | None
+    message_saved_marker: str | None
+    retry_seen: bool
+    slot_fill_seen: bool
+    chip_text: str | None
+    reply_text: str | None
+    passed: bool
+    failures: list[str]
+    phase: str = "llm_tools"
 
 
 PHASES: list[tuple[str, list[TestCase]]] = [
@@ -490,6 +533,309 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
+
+# ── LLM tools golden-set prompts ──────────────────────────────────────────────
+# These prompts intentionally bypass QIR regex and deterministic recovery,
+# forcing the request through to Gemma-4. Adjust to match actual skill schemas.
+
+LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
+    LLMToolsTestCase(
+        name="set_timer_natural",
+        message="Can you start a countdown for about four minutes while I make tea?",
+        expected_top_level_tool="run_intent",
+        expected_nested_intent="set_timer",
+        expected_fields={"duration_seconds": "240"},
+        expect_no_regex_match=True,
+    ),
+    LLMToolsTestCase(
+        name="add_reminder_natural",
+        message="Could you remind me later today to check the washing?",
+        expected_top_level_tool="run_intent",
+        expected_nested_intent="add_reminder",
+        expected_fields={"item": "washing"},
+        expect_no_regex_match=True,
+    ),
+    LLMToolsTestCase(
+        name="get_weather_named_city",
+        message="What's the weather looking like around Brisbane tomorrow?",
+        expected_top_level_tool="get_weather",
+        expected_fields={"location": "Brisbane"},
+        expect_no_regex_match=True,
+    ),
+]
+
+
+
+# ── LLM tools harness ─────────────────────────────────────────────────────────
+
+
+def _parse_tool_marker(marker: str | None) -> dict[str, str]:
+    """Parse a key=value-style marker string into a dict."""
+    if not marker:
+        return {}
+    result: dict[str, str] = {}
+    for kv in re.finditer(r"(\w+)=(\S+)", marker):
+        result[kv.group(1)] = kv.group(2)
+    return result
+
+
+def _poll_for_marker(logcat: str, pattern: re.Pattern[str], timeout: float, poll_interval: float = 2.0) -> str | None:
+    """Poll logcat for a marker pattern within timeout. Returns first match or None."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        logcat = read_logcat_all()
+        m = pattern.search(logcat)
+        if m:
+            return m.group(1).strip() if m.lastindex else m.group(0).strip()
+    return None
+
+
+def _clear_conversation() -> None:
+    """Force-stop the app to clear conversation state and model caches."""
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+
+
+def run_llm_tools(dry_run: bool = False) -> int:
+    """Execute the llm_tools harness phase. Returns non-zero on failures.
+
+    This runner is separate from run_tests() because it has different data models,
+    observability requirements, and state management (conversation isolation per case).
+    """
+    if dry_run:
+        print("=" * 70)
+        print("  LLM TOOLS E2E — DRY RUN (no device interaction)")
+        print("=" * 70)
+        print()
+        for i, tc in enumerate(LLM_TOOLS_CASES, 1):
+            print(f"  [{i:2d}] {tc.name}: \"{tc.message}\"")
+            print(f"       expected → {tc.expected_top_level_tool}"
+                  f"{f' (nested: {tc.expected_nested_intent})' if tc.expected_nested_intent else ''}")
+            if tc.expected_fields:
+                print(f"       fields   → {tc.expected_fields}")
+            print(f"       expect: no_regex_match={tc.expect_no_regex_match}"
+                  f" no_classifier={tc.expect_no_classifier_match}"
+                  f" no_slot_fill={tc.expect_no_slot_fill}"
+                  f" no_retry={tc.expect_no_retry}")
+        print()
+        print(f"  Total: {len(LLM_TOOLS_CASES)} test cases")
+        print("=" * 70)
+        return 0
+
+    if not os.path.isfile(ADB):
+        print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
+        return 1
+
+    print("=" * 70)
+    print("  LLM TOOLS E2E TEST")
+    print("=" * 70)
+    print()
+
+    # Preflight: prove model stack ready and MiniLM ready.
+    print("  [preflight] Warming up model and MiniLM classifier ...", end=" ", flush=True)
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(3)
+    clear_logcat()
+
+    # Warmup probe: send a deterministic query so the model stack initializes.
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    deadline = time.time() + 120
+    warmed = False
+    while time.time() < deadline:
+        time.sleep(2)
+        log = read_logcat_all()
+        if "NativeIntentHandler.handle" in log:
+            warmed = True
+            break
+    print("ready" if warmed else "timeout")
+    if not warmed:
+        print("  ✗ FATAL: model warmup failed — aborting llm_tools", file=sys.stderr)
+
+    # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
+    print("  [preflight] Proving MiniLM ready ...", end=" ", flush=True)
+    clear_logcat()
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    minilm_deadline = time.time() + 60
+    minilm_ok = False
+    while time.time() < minilm_deadline:
+        time.sleep(2)
+        log = read_logcat_all()
+        if "NativeIntentHandler.handle" in log or "MiniLMIntentClassifier" in log:
+            minilm_ok = True
+            break
+    print("ready" if minilm_ok else "timeout")
+    if not minilm_ok:
+        print("  ✗ FATAL: MiniLM did not initialize — aborting llm_tools", file=sys.stderr)
+        return 1
+
+    # Pre-run cleanup
+    print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
+    for pkg in ("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock"):
+        run_adb("shell", "am", "force-stop", pkg)
+    cleanup_side_effects()
+    print("done")
+
+    clear_logcat()
+    time.sleep(WAIT_SECONDS)
+    clear_logcat()
+    time.sleep(1)
+    print()
+
+    # Run each golden prompt in isolation
+    results: list[LLMToolsResult] = []
+    total = len(LLM_TOOLS_CASES)
+    failures = 0
+
+    for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
+        print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
+
+        # Isolate: clear conversation state before each case
+        _clear_conversation()
+        clear_logcat()
+        time.sleep(0.5)
+
+        # Send the prompt
+        send_text(tc.message)
+
+        # Poll for markers with early exit (don't wait fixed WAIT_SECONDS)
+        route_marker = _poll_for_marker(read_logcat_all(), LLM_TOOLS_ROUTE_PATTERN, timeout=45)
+        native_tool = _poll_for_marker(read_logcat_all(), LLM_TOOLS_NATIVE_TOOL_PATTERN, timeout=45)
+        legacy_tool = _poll_for_marker(read_logcat_all(), LLM_TOOLS_LEGACY_TOOL_PATTERN, timeout=45)
+        skill_result = _poll_for_marker(read_logcat_all(), LLM_TOOLS_SKILL_RESULT_PATTERN, timeout=45)
+        message_saved = _poll_for_marker(read_logcat_all(), LLM_TOOLS_MESSAGE_SAVED_PATTERN, timeout=45)
+
+        # Check for slot-fill and retry markers
+        final_log = read_logcat_all()
+        retry_seen = bool(LLM_TOOLS_RETRY_PATTERN.search(final_log))
+        slot_fill_seen = bool(LLM_TOOLS_SLOT_FILL_PATTERN.search(final_log))
+
+        # Extract tool info from markers
+        native_data = _parse_tool_marker(native_tool)
+        legacy_data = _parse_tool_marker(legacy_tool)
+        actual_top_level = native_data.get("tool") or legacy_data.get("tool")
+        actual_nested = native_data.get("nested_intent") or legacy_data.get("nested_intent")
+
+        # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
+        chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
+        chip_text = chip_match.group(1) if chip_match else None
+
+        # Extract reply
+        reply_text = extract_reply(final_log)
+
+        # Build assertion failures
+        failures_list: list[str] = []
+
+        # Tool name check
+        if actual_top_level != tc.expected_top_level_tool:
+            failures_list.append(
+                f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
+            )
+
+        # Nested intent check
+        if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
+            failures_list.append(
+                f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
+            )
+
+        # Field checks
+        if tc.expected_fields:
+            merged_data = {**native_data, **legacy_data}
+            for k, v in tc.expected_fields.items():
+                actual_v = merged_data.get(k)
+                if actual_v is None:
+                    failures_list.append(f"field {k!r}: missing")
+                elif v.lower() not in actual_v.lower() and actual_v.lower() not in v.lower():
+                    failures_list.append(f"field {k!r}: expected {v!r}, got {actual_v!r}")
+
+        # Negative checks
+        if tc.expect_no_regex_match and "NativeIntentHandler.handle" in final_log:
+            # Check if it appeared before the tool-call marker
+            regex_pos = final_log.find("NativeIntentHandler.handle")
+            tool_pos = (final_log.find("llm_tools_native_tool") or final_log.find("llm_tools_legacy_tool"))
+            if tool_pos == -1 or regex_pos < tool_pos:
+                failures_list.append("QIR regex matched before Gemma tool-call")
+
+        if tc.expect_no_classifier_match and "ClassifierMatch" in final_log:
+            failures_list.append("ClassifierMatch before Gemma generation")
+
+        if tc.expect_no_slot_fill and slot_fill_seen:
+            failures_list.append("Slot-fill path triggered before Gemma")
+
+        if tc.expect_no_retry and retry_seen:
+            failures_list.append("Model retry observed (raw_tool_call_retry_succeeded / hallucination_retry_succeeded)")
+
+        # Positive checks
+        if not route_marker and not tc.expect_no_regex_match:
+            failures_list.append("No route-decision marker found")
+
+        if not (native_tool or legacy_tool):
+            failures_list.append("No native-tool or legacy-tool marker found")
+
+        if not message_saved:
+            failures_list.append("No ChatMessage.toolCall persistence marker found")
+
+        # Result mode check
+        if tc.expected_result_mode != "unknown":
+            skill_data = _parse_tool_marker(skill_result)
+            mode = skill_data.get("mode", "unknown")
+            if mode != tc.expected_result_mode:
+                failures_list.append(f"result mode: expected {tc.expected_result_mode!r}, got {mode!r}")
+
+        passed = len(failures_list) == 0
+        result = LLMToolsResult(
+            index=idx,
+            name=tc.name,
+            message=tc.message,
+            expected_top_level_tool=tc.expected_top_level_tool,
+            actual_top_level_tool=actual_top_level,
+            actual_nested_intent=actual_nested,
+            route_marker=route_marker,
+            native_tool_marker=native_tool,
+            legacy_tool_marker=legacy_tool,
+            skill_result_marker=skill_result,
+            message_saved_marker=message_saved,
+            retry_seen=retry_seen,
+            slot_fill_seen=slot_fill_seen,
+            chip_text=chip_text,
+            reply_text=reply_text,
+            passed=passed,
+            failures=failures_list,
+        )
+        results.append(result)
+
+        if passed:
+            print("✓")
+        else:
+            failures += 1
+            print(f"✗ ({'; '.join(failures_list)})")
+
+        # Brief pause between cases
+        time.sleep(2)
+
+    # Summary
+    print()
+    print("-" * 70)
+    print(f"  {'#':>3}  {'RESULT':>6}  {'EXPECTED':<24}  {'ACTUAL':<24}  {'NAME':<30}")
+    print("-" * 70)
+    for r in results:
+        icon = "  ✓" if r.passed else "  ✗"
+        actual = r.actual_top_level_tool or "NO_MATCH"
+        nested = f" (nested: {r.actual_nested_intent})" if r.actual_nested_intent else ""
+        print(f"  {r.index:3d}  {icon:>6}  {r.expected_top_level_tool:<24}  {actual + nested:<24}  \"{r.message}\"")
+    print("-" * 70)
+    print(f"  PASSED: {total - failures}/{total}  FAILED: {failures}/{total}")
+    print("=" * 70)
+
+    # Save report
+    run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
+    print(f"  Report saved → {report_path}")
+
+    return 1 if failures > 0 else 0
 def run_adb(*args: str) -> str:
     """Run an ADB command and return stdout. Prints stderr on non-zero exit."""
     result = subprocess.run(
@@ -806,6 +1152,65 @@ def check_params(
     return len(failures) == 0, failures
 
 
+def save_llm_tools_report(
+    results: list[LLMToolsResult],
+    elapsed: float = 0.0,
+    partial: bool = False,
+    run_ts: str | None = None,
+) -> Path:
+    """Serialise llm_tools results to a JSON report.
+    This is separate from save_report() because LLMToolsResult has a
+    different schema (no intent_passed/params_passed/xfail fields).
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    if partial and run_ts:
+        report_path = REPORTS_DIR / f"{run_ts}_llm_tools_partial.json"
+        status = "in_progress"
+    else:
+        report_path = REPORTS_DIR / f"{ts}_llm_tools.json"
+        status = "complete"
+        if run_ts:
+            partial_file = REPORTS_DIR / f"{run_ts}_llm_tools_partial.json"
+            partial_file.unlink(missing_ok=True)
+    total = len(results)
+    passed = sum(1 for r in results if r.passed)
+    failed = total - passed
+    report = {
+        "suite": "llm_tools",
+        "status": status,
+        "timestamp": ts,
+        "elapsed_seconds": round(elapsed, 1),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+        },
+        "results": [
+            {
+                "index": r.index,
+                "name": r.name,
+                "message": r.message,
+                "expected_top_level_tool": r.expected_top_level_tool,
+                "actual_top_level_tool": r.actual_top_level_tool,
+                "actual_nested_intent": r.actual_nested_intent,
+                "route_marker": r.route_marker,
+                "native_tool_marker": r.native_tool_marker,
+                "legacy_tool_marker": r.legacy_tool_marker,
+                "skill_result_marker": r.skill_result_marker,
+                "message_saved_marker": r.message_saved_marker,
+                "retry_seen": r.retry_seen,
+                "slot_fill_seen": r.slot_fill_seen,
+                "chip_text": r.chip_text,
+                "reply_text": r.reply_text,
+                "passed": r.passed,
+                "failures": r.failures,
+            }
+            for r in results
+        ],
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+    return report_path
 def save_report(
     results: list[TestResult],
     suite: str = "skills",
@@ -1715,8 +2120,9 @@ def main() -> None:
         help=(
             "Run only the specified phases (comma-separated names or 1-based numbers). "
             "e.g. --phases weather  or  --phases 1,3,8  or  --phases alarm_timer,media. "
+            "Also accepts 'llm_tools' for the LLM tool-call generation harness. "
             f"Mutually exclusive with --start-phase. "
-            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}."
+            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))} + llm_tools."
         ),
     )
     args = parser.parse_args()
@@ -1728,6 +2134,8 @@ def main() -> None:
 
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
+    elif phases_list == ["llm_tools"]:
+        sys.exit(run_llm_tools(dry_run=args.dry_run))
     else:
         sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase, phases=phases_list))
 
