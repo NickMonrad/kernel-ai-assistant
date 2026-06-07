@@ -600,6 +600,12 @@ def _clear_conversation() -> None:
 def run_llm_tools(dry_run: bool = False) -> int:
     """Execute the llm_tools harness phase. Returns non-zero on failures.
 
+    Requires runtime marker emission in the app code (ChatViewModel,
+    NativeIntentHandler, and the tool-call path must log
+    ``llm_tools_route``, ``llm_tools_native_tool``, ``llm_tools_legacy_tool``,
+    ``llm_tools_skill_result``, and ``llm_tools_message_toolcall_saved``).
+    Without these markers the harness will fail every case.
+
     This runner is separate from run_tests() because it has different data models,
     observability requirements, and state management (conversation isolation per case).
     """
@@ -630,10 +636,10 @@ def run_llm_tools(dry_run: bool = False) -> int:
     print("=" * 70)
     print("  LLM TOOLS E2E TEST")
     print("=" * 70)
-    print()
+    # Start host-side logcat streaming (required for all read_logcat_all() calls below)
+    logcat_start()
 
     # Preflight: prove model stack ready and MiniLM ready.
-    print("  [preflight] Warming up model and MiniLM classifier ...", end=" ", flush=True)
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
@@ -652,6 +658,7 @@ def run_llm_tools(dry_run: bool = False) -> int:
     print("ready" if warmed else "timeout")
     if not warmed:
         print("  ✗ FATAL: model warmup failed — aborting llm_tools", file=sys.stderr)
+        return 1
 
     # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
     print("  [preflight] Proving MiniLM ready ...", end=" ", flush=True)
@@ -755,7 +762,11 @@ def run_llm_tools(dry_run: bool = False) -> int:
         if tc.expect_no_regex_match and "NativeIntentHandler.handle" in final_log:
             # Check if it appeared before the tool-call marker
             regex_pos = final_log.find("NativeIntentHandler.handle")
-            tool_pos = (final_log.find("llm_tools_native_tool") or final_log.find("llm_tools_legacy_tool"))
+            tool_positions = [p for p in (
+                final_log.find("llm_tools_native_tool"),
+                final_log.find("llm_tools_legacy_tool"),
+            ) if p != -1]
+            tool_pos = min(tool_positions) if tool_positions else -1
             if tool_pos == -1 or regex_pos < tool_pos:
                 failures_list.append("QIR regex matched before Gemma tool-call")
 
@@ -769,7 +780,7 @@ def run_llm_tools(dry_run: bool = False) -> int:
             failures_list.append("Model retry observed (raw_tool_call_retry_succeeded / hallucination_retry_succeeded)")
 
         # Positive checks
-        if not route_marker and not tc.expect_no_regex_match:
+        if not route_marker:
             failures_list.append("No route-decision marker found")
 
         if not (native_tool or legacy_tool):
