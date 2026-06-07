@@ -1208,6 +1208,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             clear_logcat()
             time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
+            first_turn_warn: str | None = None
 
             if tc.slot_reply is not None:
                 # Slot-fill test: two-turn flow
@@ -1229,22 +1230,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     logcat1 = read_logcat()
                     log1_found = tc.expect_log_contains in logcat1
                     if not log1_found:
-                        result = TestResult(
-                            index=global_index,
-                            message=tc.message,
-                            expect_intent=tc.expect_intent,
-                            actual_intent=None,
-                            expect_params=tc.expect_params,
-                            actual_params={},
-                            intent_passed=True,
-                            params_passed=True,
-                            param_failures=[],
-                            xfail=tc.xfail,
-                            reply_warn=None,
-                            log_check_warn=f"AskConfirmation not found (expected {tc.expect_log_contains!r})",
-                            phase=phase_name,
-                        )
-                        phase_results.append(result)
+                        first_turn_warn = f"AskConfirmation not found (expected {tc.expect_log_contains!r})"
                 # Turn 2: confirmation reply via chat_input → pending confirmation → skill executes
                 clear_logcat()
                 time.sleep(0.5)
@@ -1259,11 +1245,6 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             intent_passed = (actual_intent or "") == tc.expect_intent
             params_ok, param_failures = check_params(tc.expect_params, actual_params)
 
-            # Logcat content check (for orchestrator paths that don't fire NativeIntentHandler)
-            log_check_warn: str | None = None
-            if tc.expect_log_contains is not None:
-                if tc.expect_log_contains not in logcat:
-                    log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
 
             # DirectReply verification — best-effort, warn but don't fail the test
             reply_warn: str | None = None
@@ -1273,7 +1254,18 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     reply_warn = "no DirectReply logged"
                 elif not re.search(tc.expect_reply_contains, reply_text):
                     reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
-
+            # Logcat content check (for orchestrator paths that don't fire NativeIntentHandler)
+            log_check_warn: str | None = None
+            if tc.expect_log_contains is not None:
+                if tc.expect_log_contains not in logcat:
+                    log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
+            # Merge first-turn warning (e.g. AskConfirmation not found before confirm_reply)
+            # into the final result so phase_results has exactly one entry per test.
+            if first_turn_warn is not None:
+                if log_check_warn is not None:
+                    log_check_warn = first_turn_warn + "; " + log_check_warn
+                else:
+                    log_check_warn = first_turn_warn
             result = TestResult(
                 index=global_index,
                 message=tc.message,

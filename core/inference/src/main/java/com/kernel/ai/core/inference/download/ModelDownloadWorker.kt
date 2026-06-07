@@ -207,7 +207,7 @@ class ModelDownloadWorker(
 
     override suspend fun getForegroundInfo(): ForegroundInfo = buildForegroundInfo("Model", 0)
 
-@SuppressLint("SpecifyForegroundServiceType")
+    @SuppressLint("SpecifyForegroundServiceType")
     private fun buildForegroundInfo(displayName: String, progressPct: Int): ForegroundInfo {
         val title = "Downloading $displayName"
         val text = if (progressPct > 0) "$progressPct% complete" else "Starting download…"
