@@ -16,6 +16,7 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.telephony.TelephonyManager
+import android.annotation.SuppressLint
 import android.util.Log
 import android.view.KeyEvent
 
@@ -1324,7 +1325,7 @@ class NativeIntentHandler @Inject constructor(
         val isSuperPrimary: Boolean,
         val phoneType: Int,
     )
-
+    @SuppressLint("MissingPermission")
     private fun resolveContactNumber(name: String): String? {
         // 0. Self-referential aliases — resolve to device's own phone number
         val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
