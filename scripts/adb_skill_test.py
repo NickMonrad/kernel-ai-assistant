@@ -642,6 +642,9 @@ def run_llm_tools(dry_run: bool = False) -> int:
     # Preflight: prove model stack ready and MiniLM ready.
     # Dismiss any notification overlays first (Samsung Calendar, etc.)
     dismiss_notifications()
+    # Force-stop to ensure clean process state before warmup
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
