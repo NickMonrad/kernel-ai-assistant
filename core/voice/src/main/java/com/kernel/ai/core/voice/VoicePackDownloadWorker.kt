@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.annotation.SuppressLint
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -284,7 +285,7 @@ class VoicePackDownloadWorker(
 
     override suspend fun getForegroundInfo(): ForegroundInfo =
         buildForegroundInfo("Voice pack", 0)
-
+    @SuppressLint("SpecifyForegroundServiceType")
     private fun buildForegroundInfo(displayName: String, progressPct: Int): ForegroundInfo {
         val title = "Downloading $displayName voice"
         val text = when {
