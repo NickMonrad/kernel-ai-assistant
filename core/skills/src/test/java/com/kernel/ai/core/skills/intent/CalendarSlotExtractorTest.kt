@@ -31,9 +31,31 @@ class CalendarSlotExtractorTest {
     }
 
     @Test
-    fun `extractsTitleFromForPhrasing`() {
-        val params = extractParams("create a calendar event for dentist tomorrow")
+    fun `verbTitleWinsWhenBothVerbAndForMatch`() {
+        // #1100: when both verb-title and for-title match, verb-title wins.
+        // "for marketing" could be context/attendee — not the event title.
+        val params = extractParams("Can you set up a meeting for marketing at 3pm?")
+        assertEquals("Meeting", params["title"])
+        assertEquals("3pm", params["time"])
+    }
+
+    @Test
+    fun `forTitleFallbackWhenVerbTitleIsAbsent`() {
+        // No verb-title match — for-title is the best signal.
+        val params = extractParams("for dentist next Tuesday at 2pm")
         assertEquals("Dentist", params["title"])
+        assertEquals("next tuesday", params["date"])
+    }
+
+    @Test
+    fun `forTitleFallbackWhenVerbTitleIsGenericAndNoForMatch`() {
+        // Only verb-title matched but it's generic (meeting) — no title extracted.
+        // The dataset is not complete enough to use a generic title.
+        val result = extractor.extract("schedule a meeting for next Friday", contract)
+        val extracted = assertInstanceOf(ExtractionResult.Extracted::class.java, result)
+        // Title should not be extracted since "Meeting" is generic
+        assertEquals(null, extracted.params["title"])
+        assertEquals("next friday", extracted.params["date"])
     }
 
     @Test

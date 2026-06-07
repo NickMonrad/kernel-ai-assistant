@@ -490,8 +490,6 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
-
-
 def run_adb(*args: str) -> str:
     """Run an ADB command and return stdout. Prints stderr on non-zero exit."""
     result = subprocess.run(
@@ -505,17 +503,128 @@ def run_adb(*args: str) -> str:
     return result.stdout
 
 
+# ===================================================================
+# Host-side logcat streaming (#1102)
+#
+# Long-running logcat process on the host side avoids the S21's 5MB logcat
+# buffer rotation problem. Instead of polling `adb logcat -d` (which dumps
+# the ring buffer and loses early entries in long runs), we keep a persistent
+# `adb logcat` subprocess whose stdout is continuously buffered on the host.
+#
+# Callers use `logcat_snapshot()` to atomically drain the accumulated output
+# since the last snapshot (or since the stream started).
+# ===================================================================
+
+import subprocess
+import atexit
+import threading
+
+_logcat_proc: subprocess.Popen | None = None
+_logcat_buffer: list[str] = []
+_logcat_lock = threading.Lock()
+
+
+def _logcat_reader() -> None:
+    """Read lines from the persistent logcat subprocess and buffer them."""
+    global _logcat_proc, _logcat_buffer
+    assert _logcat_proc is not None
+    assert _logcat_proc.stdout is not None
+    for line in _logcat_proc.stdout:
+        with _logcat_lock:
+            _logcat_buffer.append(line.rstrip("\n"))
+
+
+def logcat_start() -> None:
+    """Start the persistent logcat stream. Safe to call multiple times (idempotent).
+    Filters to KernelAI:D and LiteRtInferenceEngine:I so profile warmup and
+    orchestration tests both work from the same stream."""
+    global _logcat_proc
+    if _logcat_proc is not None:
+        return
+    # Clear device-side buffer first, then start streaming
+    run_adb("logcat", "-c")
+    _logcat_proc = subprocess.Popen(
+        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "-v", "brief"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        universal_newlines=True, bufsize=1,
+    )
+    reader = threading.Thread(target=_logcat_reader, daemon=True)
+    reader.start()
+    # Brief pause to let the stream establish
+    time.sleep(0.5)
+    # Clear again after stream starts to flush any initial noise
+    run_adb("logcat", "-c")
+
+
+def logcat_stop() -> None:
+    """Stop the persistent logcat stream and drain remaining output."""
+    global _logcat_proc, _logcat_buffer
+    if _logcat_proc is not None:
+        _logcat_proc.terminate()
+        _logcat_proc.wait(timeout=5)
+        _logcat_proc = None
+    with _logcat_lock:
+        _logcat_buffer.clear()
+
+
+def logcat_snapshot() -> str:
+    """Atomically drain the accumulated logcat buffer and return it as a string."""
+    with _logcat_lock:
+        result = "\n".join(_logcat_buffer)
+        _logcat_buffer.clear()
+    return result
+
+
+def logcat_wait(expected: str, timeout: float = WAIT_SECONDS) -> str:
+    """Poll the logcat buffer until [expected] appears, or timeout.
+    Returns accumulated snapshot — evidence isn't lost on timeout."""
+    deadline = time.time() + timeout
+    seen = set()
+    accumulated: list[str] = []
+    while time.time() < deadline:
+        snapshot = logcat_snapshot()
+        if not snapshot:
+            time.sleep(0.5)
+            continue
+        for line in snapshot.split("\n"):
+            line = line.strip()
+            if line and line not in seen:
+                seen.add(line)
+                accumulated.append(line)
+        combined = "\n".join(accumulated)
+        if expected in combined:
+            return combined
+        time.sleep(0.5)
+    return "\n".join(accumulated)
+
+
+atexit.register(logcat_stop)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible wrappers — existing callers continue to work unchanged.
+# Uses streaming buffer instead of `adb logcat -d` to avoid S21's 5MB logcat
+# buffer rotation issue in long runs (#1102).
+# ---------------------------------------------------------------------------
+
 def clear_logcat() -> None:
+    """Clear the logcat buffer. Drains the streaming buffer and clears the device ring buffer."""
+    logcat_snapshot()  # Drain any accumulated output
     run_adb("logcat", "-c")
 
 
 def read_logcat() -> str:
-    return run_adb("logcat", "-d", "-s", f"{LOGCAT_TAG}:D")
+    """Return accumulated KernelAI logcat output since last clear."""
+    return logcat_snapshot()
 
 
 def read_logcat_all() -> str:
-    """Read KernelAI and LiteRtInferenceEngine tags (needed for warm-up and profile tests)."""
-    return run_adb("logcat", "-d", "-s", f"{LOGCAT_TAG}:D", "-s", "LiteRtInferenceEngine:I")
+    """Return accumulated logcat (KernelAI + LiteRtInferenceEngine) since last clear.
+    Note: with streaming, this returns the same snapshot as read_logcat() since
+    the stream is filtered by tag. For LiteRtInferenceEngine logs, callers that
+    specifically need a wider tag filter should use logcat_snapshot() directly
+    after starting a stream with the appropriate filter."""
+    return logcat_snapshot()
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +979,9 @@ def check_oom_sanity(results: list[TestResult]) -> None:
 
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None, phases: list[str] | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
+    # NB: logcat_start() is deliberately after the dry-run / ADB-existence checks below,
+    # because it touches the device — --dry-run must be a pure no-op without a device.
+
     if dry_run:
         print("=" * 70)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
@@ -924,6 +1036,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 1
+
+    # Start host-side logcat streaming (#1102) — avoids S21 buffer rotation failures.
+    logcat_start()
 
     print("=" * 70)
     print("  ADB SKILL REGRESSION TEST")
@@ -1093,6 +1208,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             clear_logcat()
             time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
+            first_turn_warn: str | None = None
 
             if tc.slot_reply is not None:
                 # Slot-fill test: two-turn flow
@@ -1114,26 +1230,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     logcat1 = read_logcat()
                     log1_found = tc.expect_log_contains in logcat1
                     if not log1_found:
-                        result = TestResult(
-                            index=global_index,
-                            message=tc.message,
-                            expect_intent=tc.expect_intent,
-                            actual_intent=None,
-                            expect_params=tc.expect_params,
-                            actual_params={},
-                            intent_passed=True,
-                            params_passed=True,
-                            param_failures=[],
-                            xfail=tc.xfail,
-                            reply_warn=None,
-                            log_check_warn=f"AskConfirmation not found (expected {tc.expect_log_contains!r})",
-                            phase=phase_name,
-                        )
-                        phase_results.append(result)
-                        results.append(result)
-                        global_index += 1
-                        print(f"✗ (no AskConfirmation log)")
-                        continue
+                        first_turn_warn = f"AskConfirmation not found (expected {tc.expect_log_contains!r})"
                 # Turn 2: confirmation reply via chat_input → pending confirmation → skill executes
                 clear_logcat()
                 time.sleep(0.5)
@@ -1141,17 +1238,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             else:
                 send_text(tc.message)
 
-            time.sleep(WAIT_SECONDS)
-            logcat = read_logcat()
+            # Early-exit wait: poll for expected signal instead of fixed WAIT_SECONDS (#1102)
+            signal = tc.expect_log_contains or tc.expect_intent
+            logcat = logcat_wait(signal, WAIT_SECONDS) if signal else (time.sleep(WAIT_SECONDS) or read_logcat())
             actual_intent, actual_params = extract_intent(logcat)
             intent_passed = (actual_intent or "") == tc.expect_intent
             params_ok, param_failures = check_params(tc.expect_params, actual_params)
 
-            # Logcat content check (for orchestrator paths that don't fire NativeIntentHandler)
-            log_check_warn: str | None = None
-            if tc.expect_log_contains is not None:
-                if tc.expect_log_contains not in logcat:
-                    log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
 
             # DirectReply verification — best-effort, warn but don't fail the test
             reply_warn: str | None = None
@@ -1161,7 +1254,18 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     reply_warn = "no DirectReply logged"
                 elif not re.search(tc.expect_reply_contains, reply_text):
                     reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
-
+            # Logcat content check (for orchestrator paths that don't fire NativeIntentHandler)
+            log_check_warn: str | None = None
+            if tc.expect_log_contains is not None:
+                if tc.expect_log_contains not in logcat:
+                    log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
+            # Merge first-turn warning (e.g. AskConfirmation not found before confirm_reply)
+            # into the final result so phase_results has exactly one entry per test.
+            if first_turn_warn is not None:
+                if log_check_warn is not None:
+                    log_check_warn = first_turn_warn + "; " + log_check_warn
+                else:
+                    log_check_warn = first_turn_warn
             result = TestResult(
                 index=global_index,
                 message=tc.message,
@@ -1385,6 +1489,8 @@ def run_profile_tests(dry_run: bool = False) -> int:
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 2
+
+    logcat_start()
 
     print("=" * 70)
     print("  PROFILE EXTRACTION TEST")

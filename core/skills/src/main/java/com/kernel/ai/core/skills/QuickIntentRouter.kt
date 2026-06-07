@@ -12,6 +12,10 @@ import java.time.temporal.TemporalAdjusters
 
 import com.kernel.ai.core.skills.natives.CookingConversionService
 import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
+import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
+import com.kernel.ai.core.skills.intent.ExtractionResult
+import com.kernel.ai.core.skills.intent.IntentContract
+import com.kernel.ai.core.skills.intent.IntentRiskLevel
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -4375,117 +4379,34 @@ class QuickIntentRouter(
 
         /** Returns true if [input] is a simple affirmation (case-insensitive, trims whitespace). */
         fun isAffirmation(input: String): Boolean = input.trim().lowercase() in AFFIRMATIONS
-
         /**
-         * Builds calendar intent params from a raw user query. Always includes `raw_query`.
-         * Attempts to pre-extract a `extracted_title` hint from "for a/an X" phrasing so the
-         * LLM prompt can be made more specific (reducing "title is required" failures).
-         */
+         * Extracts calendar event parameters from a raw user query.
+         *
+         * Delegates to [CalendarSlotExtractor] for canonical extraction logic.
+         * Always includes `raw_query`. Conditionally includes `title`, `date`, `time`
+         * when the extractor finds corresponding evidence in the input.
+         *
+         * Title precedence (#1100): verb-title wins over for-title when both match.
+ */
         fun extractCalendarHints(raw: String): Map<String, String> {
             val params = mutableMapOf("raw_query" to raw)
-            val lower = raw.lowercase()
-
-            // ── Title ─────────────────────────────────────────────────────────────
-            // Try "for a/an X" first (e.g. "create a meeting for tomorrow" → "Meeting").
-            // Fall back to the noun phrase immediately after the verb+article, stopping
-            // before any temporal keyword (e.g. "schedule a dentist appointment Friday").
-            val titleFromFor = Regex(
-                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|to|in|into|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
-                RegexOption.IGNORE_CASE,
-            ).find(raw)
-            val titleFromVerb = Regex(
-                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|to|in|into|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
-                RegexOption.IGNORE_CASE,
-            ).find(raw)
-            val DATE_WORDS = setOf(
-                "today", "tomorrow", "next", "this",
-                "monday", "tuesday", "wednesday",
-                "thursday", "friday", "saturday", "sunday",
+            // Delegate to CalendarSlotExtractor for consistent extraction (#1100).
+            // The legacy inline extraction previously duplicated this logic and had
+            // different title-precedence behavior (for-title won over verb-title).
+            val extractor = CalendarSlotExtractor()
+            // Contract is passed for interface compliance; CalendarSlotExtractor
+            // doesn't reference it (it's a single-intent extractor with its own
+            // embedded contract knowledge).
+            val dummyContract = IntentContract(
+                intentName = "create_calendar_event",
+                capability = "",
+                requiredSlots = emptyMap(),
+                riskLevel = IntentRiskLevel.LOW,
             )
-            val GENERIC_CALENDAR_TITLES = setOf(
-                "appointment",
-                "meeting",
-                "event",
-                "session",
-                "booking",
-                "invite",
-                "entry",
-                "something",
-            )
-            val rawTitle = run {
-                val fromFor = titleFromFor?.groupValues?.get(1)?.trim()
-                    ?.takeIf { it.isNotBlank() && it.length >= 2 && !DATE_WORDS.contains(it.lowercase()) }
-                fromFor ?: titleFromVerb?.groupValues?.get(1)?.trim()
-                    ?.takeIf {
-                        it.isNotBlank() &&
-                            it.length >= 2 &&
-                            !GENERIC_CALENDAR_TITLES.contains(it.lowercase())
-                    }
+            when (val result = extractor.extract(raw, dummyContract)) {
+                is ExtractionResult.Extracted -> params.putAll(result.params)
+                is ExtractionResult.NotActionable -> { /* keep raw_query only */ }
             }
-            val normalizedTitle = rawTitle?.let { candidate ->
-                val trimmed = candidate.trim()
-                val strippedTrailingUp = trimmed.replace(Regex("""\s+up$""", RegexOption.IGNORE_CASE), "").trim()
-                when {
-                    strippedTrailingUp != trimmed && GENERIC_CALENDAR_TITLES.contains(strippedTrailingUp.lowercase()) -> null
-                    else -> trimmed
-                }
-            }
-            if (normalizedTitle != null) {
-                params["title"] = normalizedTitle.split(" ")
-                    .joinToString(" ") { w -> w.replaceFirstChar { c -> c.uppercase() } }
-            }
-
-            // ── Date: relative terms and day names (fed directly to resolveDate()) ──
-            val dateRegex = Regex(
-                """\b(today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b""",
-                RegexOption.IGNORE_CASE,
-            )
-            dateRegex.find(lower)?.value?.trim()?.let { params["date"] = it }
-
-            // ── Date: ordinal and explicit dates ("9th of june", "June 9th") ──
-            if (!params.containsKey("date")) {
-                val ordinalDateRegex = Regex(
-                    """\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b""",
-                    RegexOption.IGNORE_CASE,
-                )
-                ordinalDateRegex.find(raw)?.let { match ->
-                    val day = match.groupValues[1]
-                    val month = match.groupValues[2].lowercase()
-                        .replaceFirstChar { c -> c.uppercase() }
-                    params["date"] = "$day $month"
-                }
-            }
-            if (!params.containsKey("date")) {
-                val monthFirstRegex = Regex(
-                    """\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b""",
-                    RegexOption.IGNORE_CASE,
-                )
-                monthFirstRegex.find(raw)?.let { match ->
-                    val month = match.groupValues[1].lowercase()
-                        .replaceFirstChar { c -> c.uppercase() }
-                    val day = match.groupValues[2]
-                    params["date"] = "$day $month"
-                }
-            }
-
-            // ── Time: "at 2pm", "for 2pm", "at 10:30am", "at 10:30 p.m.", "at noon/midnight", "at 10" ─
-            // Bare hours (no am/pm) are normalised to HH:00 so resolveTime() can parse.
-            val timeRegex = Regex(
-                """(?:at|@|for)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
-                RegexOption.IGNORE_CASE,
-            )
-            timeRegex.find(lower)?.groupValues?.get(1)?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { t ->
-                    params["time"] = when {
-                        t.lowercase() == "noon" -> "12:00pm"
-                        t.lowercase() == "midnight" -> "12:00am"
-                        // bare hour like "10" → "10:00" for resolveTime()
-                        t.matches(Regex("""\d{1,2}""")) -> "${t.padStart(2, '0')}:00"
-                        else -> t
-                    }
-                }
-
             return params
         }
 

@@ -1,0 +1,509 @@
+[
+  {
+    "input": "create a calendar event for dentist tomorrow at 3pm",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Dentist",
+      "date": "tomorrow",
+      "time": "3pm"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "Can you set up a meeting for marketing at 3pm?",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Meeting",
+      "time": "3pm"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "date",
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "schedule a meeting",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "title",
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "schedule a meeting for next Friday",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "date": "next friday"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "title",
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "for dentist next Tuesday at 2pm",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.8,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Dentist",
+      "date": "next tuesday",
+      "time": "2pm"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "Can you chuck dinner with Sam in for next Friday night?",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "date": "next friday"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "title",
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "schedule lunch tomorrow",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Lunch",
+      "date": "tomorrow"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "add gym session for Thursday",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Gym Session",
+      "date": "thursday"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "book appointment June 15",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Appointment June",
+      "date": "15 June"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "meeting at 10:30am",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "time": "10:30am"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "title",
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "put dentist appointment",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Dentist Appointment"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "date",
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "set up a dentist appointment tomorrow at 5pm",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Dentist Appointment",
+      "date": "tomorrow",
+      "time": "5pm"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "input": "what's the weather today",
+    "candidateIntent": "get_weather",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "LOW",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "do you know how to create calendar events",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "can you tell me what's the weather today",
+    "candidateIntent": "get_weather",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "LOW",
+    "missingSlot": null,
+    "evalLayers": [
+      2,
+      3
+    ]
+  },
+  {
+    "input": "create a calendar event for dentist tomorrow at 3pm",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.3,
+    "precomputedSlots": null,
+    "expectedSlots": {
+      "title": "Dentist",
+      "date": "tomorrow",
+      "time": "3pm"
+    },
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "something about the weather",
+    "candidateIntent": "get_weather",
+    "confidence": 0.48,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "LOW",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "schedule a meeting tomorrow",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.3,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "tell Sarah I'm running late",
+    "candidateIntent": "send_sms",
+    "confidence": 0.62,
+    "precomputedSlots": {
+      "contact": "Sarah",
+      "message": "I'm running late"
+    },
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "I parked on level 3",
+    "candidateIntent": "save_memory",
+    "confidence": 0.75,
+    "precomputedSlots": {
+      "content": "I parked on level 3"
+    },
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "Execute",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": false,
+      "allowAutoExecute": true
+    },
+    "risk": "LOW",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "do something weird",
+    "candidateIntent": "nonexistent_intent",
+    "confidence": 0.8,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "LOW",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "send a message to Sarah",
+    "candidateIntent": "send_sms",
+    "confidence": 0.72,
+    "precomputedSlots": null,
+    "expectedSlots": {},
+    "expectedPolicy": {
+      "decision": "NotActionable",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "schedule a team standup tomorrow at 10am",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": {
+      "title": "Team Standup",
+      "date": "tomorrow",
+      "time": "10:00"
+    },
+    "expectedSlots": {
+      "title": "Team Standup",
+      "date": "tomorrow",
+      "time": "10:00"
+    },
+    "expectedPolicy": {
+      "decision": "AskConfirmation",
+      "requiredSlotsPresent": true,
+      "confirmationRequired": true,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": null,
+    "evalLayers": [
+      3
+    ]
+  },
+  {
+    "input": "unrelated chat about the weather",
+    "candidateIntent": "create_calendar_event",
+    "confidence": 0.72,
+    "precomputedSlots": {
+      "title": "Meeting with Bob"
+    },
+    "expectedSlots": {
+      "title": "Meeting with Bob"
+    },
+    "expectedPolicy": {
+      "decision": "AskSlot",
+      "requiredSlotsPresent": false,
+      "confirmationRequired": false,
+      "allowAutoExecute": false
+    },
+    "risk": "MEDIUM",
+    "missingSlot": "date",
+    "evalLayers": [
+      3
+    ]
+  }
+]

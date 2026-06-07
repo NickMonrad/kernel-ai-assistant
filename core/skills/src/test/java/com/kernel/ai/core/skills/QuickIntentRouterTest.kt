@@ -545,6 +545,20 @@ class QuickIntentRouterTest {
             assertEquals(expectedTitle, needsSlot.intent.params["title"], "title for '$input'")
             assertEquals("date", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @Test
+        fun `verb title wins over for title in router level`() {
+            // #1100 regression: "set up a meeting for marketing at 3pm"
+            // Verb-title (meeting) must win over for-title (marketing) through
+            // the full router path (regex match → extractCalendarHints delegation).
+            val result = regexOnlyRouter.route("set up a meeting for marketing at 3pm")
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("Meeting", needsSlot.intent.params["title"])
+            assertEquals("3pm", needsSlot.intent.params["time"])
+            assertEquals("date", needsSlot.missingSlot.name)
+        }
         @Test
         fun `should preserve schedule hints when verb calendar phrase needs title`() {
             val result = regexOnlyRouter.route("set an appointment for 3:00 p.m. Sunday")

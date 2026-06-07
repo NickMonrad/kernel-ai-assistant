@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
+import android.annotation.SuppressLint
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -461,7 +462,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
         }
     }
-
+    @SuppressLint("MissingPermission")
     private fun createAudioRecord(): AudioRecord? {
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,

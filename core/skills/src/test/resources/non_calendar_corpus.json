@@ -1,0 +1,2050 @@
+[
+  {
+    "input": "what is the weather today",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "what is the forecast for this week",
+    "category": "weather"
+  },
+  {
+    "input": "will it rain today",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to snow tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "what is the temperature outside",
+    "category": "weather"
+  },
+  {
+    "input": "how hot will it be today",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather like in Sydney",
+    "category": "weather"
+  },
+  {
+    "input": "what is the forecast for the weekend",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to be sunny tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "what is the humidity level",
+    "category": "weather"
+  },
+  {
+    "input": "what is the wind speed today",
+    "category": "weather"
+  },
+  {
+    "input": "do I need an umbrella today",
+    "category": "weather"
+  },
+  {
+    "input": "what is the UV index",
+    "category": "weather"
+  },
+  {
+    "input": "how cold is it going to be tonight",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather like in Auckland",
+    "category": "weather"
+  },
+  {
+    "input": "what is the forecast for next Monday",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to storm later",
+    "category": "weather"
+  },
+  {
+    "input": "what is the air quality today",
+    "category": "weather"
+  },
+  {
+    "input": "when will the rain stop",
+    "category": "weather"
+  },
+  {
+    "input": "what is the visibility like",
+    "category": "weather"
+  },
+  {
+    "input": "what is the dew point today",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to be foggy tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "what is the barometric pressure",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather expected to be on Friday",
+    "category": "weather"
+  },
+  {
+    "input": "how is the weather in Queenstown",
+    "category": "weather"
+  },
+  {
+    "input": "what will the weather be for my run tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to be a sunny day",
+    "category": "weather"
+  },
+  {
+    "input": "what is the chance of rain",
+    "category": "weather"
+  },
+  {
+    "input": "what is the extended forecast",
+    "category": "weather"
+  },
+  {
+    "input": "weather in Paris this weekend",
+    "category": "weather"
+  },
+  {
+    "input": "tell me the weather for my trip",
+    "category": "weather"
+  },
+  {
+    "input": "should I bring a coat today",
+    "category": "weather"
+  },
+  {
+    "input": "is it raining right now",
+    "category": "weather"
+  },
+  {
+    "input": "what is the temperature in Celsius",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather",
+    "category": "weather"
+  },
+  {
+    "input": "weather today",
+    "category": "weather"
+  },
+  {
+    "input": "weather tomorrow",
+    "category": "weather"
+  },
+  {
+    "input": "current temperature",
+    "category": "weather"
+  },
+  {
+    "input": "how cold is it",
+    "category": "weather"
+  },
+  {
+    "input": "how hot is it",
+    "category": "weather"
+  },
+  {
+    "input": "what is the forecast",
+    "category": "weather"
+  },
+  {
+    "input": "weekly forecast",
+    "category": "weather"
+  },
+  {
+    "input": "will it rain",
+    "category": "weather"
+  },
+  {
+    "input": "is it raining",
+    "category": "weather"
+  },
+  {
+    "input": "will it snow",
+    "category": "weather"
+  },
+  {
+    "input": "is it sunny",
+    "category": "weather"
+  },
+  {
+    "input": "is it cloudy",
+    "category": "weather"
+  },
+  {
+    "input": "what is the humidity",
+    "category": "weather"
+  },
+  {
+    "input": "what is the wind chill",
+    "category": "weather"
+  },
+  {
+    "input": "what is the feels like temperature",
+    "category": "weather"
+  },
+  {
+    "input": "weather for the week",
+    "category": "weather"
+  },
+  {
+    "input": "weather this weekend",
+    "category": "weather"
+  },
+  {
+    "input": "weather on Monday",
+    "category": "weather"
+  },
+  {
+    "input": "weather next week",
+    "category": "weather"
+  },
+  {
+    "input": "check weather",
+    "category": "weather"
+  },
+  {
+    "input": "get weather",
+    "category": "weather"
+  },
+  {
+    "input": "weather report",
+    "category": "weather"
+  },
+  {
+    "input": "weather conditions",
+    "category": "weather"
+  },
+  {
+    "input": "what time is sunrise",
+    "category": "weather"
+  },
+  {
+    "input": "what time is sunset",
+    "category": "weather"
+  },
+  {
+    "input": "weather for my location",
+    "category": "weather"
+  },
+  {
+    "input": "weather in London UK",
+    "category": "weather"
+  },
+  {
+    "input": "what is the temperature in Fahrenheit",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to be a storm",
+    "category": "weather"
+  },
+  {
+    "input": "what is the pollen count",
+    "category": "weather"
+  },
+  {
+    "input": "is the air quality good",
+    "category": "weather"
+  },
+  {
+    "input": "how windy is it today",
+    "category": "weather"
+  },
+  {
+    "input": "what is the chance of thunderstorms",
+    "category": "weather"
+  },
+  {
+    "input": "when is the next full moon",
+    "category": "weather"
+  },
+  {
+    "input": "what phase is the moon in",
+    "category": "weather"
+  },
+  {
+    "input": "search for Italian restaurants near me",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "find a good pizza place",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "look up the capital of France",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who won the World Cup in 2018",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the population of Japan",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how tall is the Eiffel Tower",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the speed of light",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who wrote Romeo and Juliet",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the boiling point of water",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how far is the Moon from Earth",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the GDP of Australia",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who invented the telephone",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the largest ocean",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many planets are in the solar system",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is a black hole",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who painted the Mona Lisa",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "when was the Great Wall built",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the longest river",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how deep is the Mariana Trench",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the chemical formula for water",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many bones are in the human body",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the square root of 144",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who discovered penicillin",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what year did World War 2 end",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the tallest mountain",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how fast does light travel",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the smallest country",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the periodic table",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who was the first person on the Moon",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many languages are spoken in the world",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "search for pizza",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "find coffee near me",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "look up restaurants",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "google something",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the answer",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "I have a question",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "can you look this up",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "search the web",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "find information about",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the definition of",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who is the president",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what happened on this day",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "tell me about space",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "tell me about history",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what are black holes",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how does gravity work",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is photosynthesis",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "who founded Apple",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "when was the internet invented",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how does a car engine work",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the stock market",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the exchange rate",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "convert 100 USD to EUR",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many ounces in a cup",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is 2 plus 2",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is 15 percent of 200",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "calculate 15 times 3",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the answer to this math problem",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how do I change a tyre",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how do I cook pasta",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the recipe for pancakes",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many stars are in the Milky Way",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what causes earthquakes",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is evolution",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how do planes fly",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the human genome",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "hello",
+    "category": "chat_general"
+  },
+  {
+    "input": "hi there",
+    "category": "chat_general"
+  },
+  {
+    "input": "how are you",
+    "category": "chat_general"
+  },
+  {
+    "input": "what is up",
+    "category": "chat_general"
+  },
+  {
+    "input": "how is it going",
+    "category": "chat_general"
+  },
+  {
+    "input": "good morning",
+    "category": "chat_general"
+  },
+  {
+    "input": "good evening",
+    "category": "chat_general"
+  },
+  {
+    "input": "nice to meet you",
+    "category": "chat_general"
+  },
+  {
+    "input": "how do you do",
+    "category": "chat_general"
+  },
+  {
+    "input": "what is your name",
+    "category": "chat_general"
+  },
+  {
+    "input": "who made you",
+    "category": "chat_general"
+  },
+  {
+    "input": "what can you do",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me a joke",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me a fun fact",
+    "category": "chat_general"
+  },
+  {
+    "input": "what is the meaning of life",
+    "category": "chat_general"
+  },
+  {
+    "input": "how old are you",
+    "category": "chat_general"
+  },
+  {
+    "input": "where are you from",
+    "category": "chat_general"
+  },
+  {
+    "input": "do you have feelings",
+    "category": "chat_general"
+  },
+  {
+    "input": "what is your favorite color",
+    "category": "chat_general"
+  },
+  {
+    "input": "are you conscious",
+    "category": "chat_general"
+  },
+  {
+    "input": "can you think",
+    "category": "chat_general"
+  },
+  {
+    "input": "do you dream",
+    "category": "chat_general"
+  },
+  {
+    "input": "what is your purpose",
+    "category": "chat_general"
+  },
+  {
+    "input": "are you happy",
+    "category": "chat_general"
+  },
+  {
+    "input": "can you learn",
+    "category": "chat_general"
+  },
+  {
+    "input": "do you sleep",
+    "category": "chat_general"
+  },
+  {
+    "input": "what do you like to talk about",
+    "category": "chat_general"
+  },
+  {
+    "input": "how do you work",
+    "category": "chat_general"
+  },
+  {
+    "input": "are you smart",
+    "category": "chat_general"
+  },
+  {
+    "input": "can you help me",
+    "category": "chat_general"
+  },
+  {
+    "input": "how are you doing",
+    "category": "chat_general"
+  },
+  {
+    "input": "whats up",
+    "category": "chat_general"
+  },
+  {
+    "input": "how is your day",
+    "category": "chat_general"
+  },
+  {
+    "input": "what are you doing",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me something interesting",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me a story",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me about yourself",
+    "category": "chat_general"
+  },
+  {
+    "input": "do you like music",
+    "category": "chat_general"
+  },
+  {
+    "input": "what do you think about AI",
+    "category": "chat_general"
+  },
+  {
+    "input": "are you useful",
+    "category": "chat_general"
+  },
+  {
+    "input": "what languages do you speak",
+    "category": "chat_general"
+  },
+  {
+    "input": "can you speak Maori",
+    "category": "chat_general"
+  },
+  {
+    "input": "do you understand English",
+    "category": "chat_general"
+  },
+  {
+    "input": "are you listening",
+    "category": "chat_general"
+  },
+  {
+    "input": "can you hear me",
+    "category": "chat_general"
+  },
+  {
+    "input": "hello are you there",
+    "category": "chat_general"
+  },
+  {
+    "input": "thanks for your help",
+    "category": "chat_general"
+  },
+  {
+    "input": "that was helpful",
+    "category": "chat_general"
+  },
+  {
+    "input": "good job",
+    "category": "chat_general"
+  },
+  {
+    "input": "nice work",
+    "category": "chat_general"
+  },
+  {
+    "input": "I like talking to you",
+    "category": "chat_general"
+  },
+  {
+    "input": "you are funny",
+    "category": "chat_general"
+  },
+  {
+    "input": "you are smart",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me a secret",
+    "category": "chat_general"
+  },
+  {
+    "input": "how was your day",
+    "category": "chat_general"
+  },
+  {
+    "input": "what do you think",
+    "category": "chat_general"
+  },
+  {
+    "input": "remind me tomorrow at 3pm to call Mum",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a reminder for 9am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what time is it",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is todays date",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what day of the week is it",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set an alarm for 7am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "snooze for 10 minutes",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is the time in Tokyo",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how many days until Christmas",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is the date next Monday",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "wake me up at 6am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a timer for 5 minutes",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me in an hour",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "countdown to New Year",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what time is sunset today",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how long until my birthday",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is the time difference between Sydney and London",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "is it AM or PM right now",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a stopwatch",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "tell me when its 3pm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a 10 minute timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "alarm for 6:30am weekdays",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me to buy milk at 5pm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "timer for 3 minutes for my eggs",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set an alarm called wake up at 7am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is the current time",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "current time",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what time is it now",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "do I have any reminders",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "show my reminders",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "list my alarms",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set an alarm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "alarm for 8am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set alarm for 10pm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "timer for 30 minutes",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "timer 5 minutes",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how much time is left on my timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "stop the timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "cancel timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "snooze alarm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "dismiss alarm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "turn off alarm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me to pick up groceries",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me about the party",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me at 6pm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me in 2 hours",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what is the date",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what day is it",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "countdown timer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "stopwatch",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "start stopwatch",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how long until New Year",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how many days until my birthday",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what time is it in New York",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "time zone converter",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "time in London",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a timer called tea for 3 minutes",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "cancel my 7am alarm",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "can you tell me the time",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you set a timer",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you play music",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you find a restaurant",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you read my messages",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you make a phone call",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you send a text",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you check the weather",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you tell me a joke",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you navigate home",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you calculate this",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you convert currency",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you tell me the news",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you show me photos",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you open the camera",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you turn on the lights",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know how to cook",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know the capital of Australia",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know what time it is",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know where I live",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to call Mum",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to send an email",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to find my keys",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to help with homework",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to set reminders",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you set up a meeting",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you book an appointment",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know how to schedule events",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you put something in my calendar",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you remind me about my appointment",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you help",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you assist",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you do that",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you handle this",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you understand",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you capable",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you tell me",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you show me",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you give me",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you look up",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you find",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you search",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you calculate",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you compute",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you figure out",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you translate",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you convert",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you measure",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you recommend",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you suggest",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you advise",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you explain",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you describe",
+    "category": "capability_questions"
+  },
+  {
+    "input": "can you define",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know how",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know what",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know where",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know when",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know who",
+    "category": "capability_questions"
+  },
+  {
+    "input": "do you know why",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to help",
+    "category": "capability_questions"
+  },
+  {
+    "input": "are you able to assist",
+    "category": "capability_questions"
+  },
+  {
+    "input": "yes",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "no",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "okay",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "sure",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "thanks",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "thank you",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "that is great",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I agree",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "no way",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "maybe later",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I am not sure",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I do not know",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "that is interesting",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I see",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "go on",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "really",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "wow",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "awesome",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "cool",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "got it",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "alright",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "no problem",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "you are welcome",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "my pleasure",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "absolutely",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I suppose so",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I think so",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "not really",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "probably not",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I guess",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "yeah",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "nah",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "yep",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "nope",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "yup",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "sure thing",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "of course",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "definitely",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "exactly",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "precisely",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "maybe",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "perhaps",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "possibly",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "likely",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "unlikely",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "correct",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "wrong",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "true",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "false",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "right",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "thats right",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "thats wrong",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "youre right",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "youre wrong",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I agree with you",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I disagree",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "I think so too",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "not yet",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "already done",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "working on it",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "hold on",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "wait a minute",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "just a second",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "come again",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "pardon",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "excuse me",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "sorry",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "my bad",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "no worries",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "all good",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "never mind",
+    "category": "chit_chat_fillers"
+  },
+  {
+    "input": "navigate to the nearest gas station",
+    "category": "navigation"
+  },
+  {
+    "input": "find directions to the airport",
+    "category": "navigation"
+  },
+  {
+    "input": "how do I get to the city centre",
+    "category": "navigation"
+  },
+  {
+    "input": "where is the nearest hospital",
+    "category": "navigation"
+  },
+  {
+    "input": "show me the route to the beach",
+    "category": "navigation"
+  },
+  {
+    "input": "how far is the train station",
+    "category": "navigation"
+  },
+  {
+    "input": "take me to 123 Main Street",
+    "category": "navigation"
+  },
+  {
+    "input": "give me directions home",
+    "category": "navigation"
+  },
+  {
+    "input": "find a route to avoid traffic",
+    "category": "navigation"
+  },
+  {
+    "input": "how long does it take to drive to the airport",
+    "category": "navigation"
+  },
+  {
+    "input": "where is the nearest pharmacy",
+    "category": "navigation"
+  },
+  {
+    "input": "show me nearby restaurants",
+    "category": "navigation"
+  },
+  {
+    "input": "navigate to the museum",
+    "category": "navigation"
+  },
+  {
+    "input": "how do I get to the motorway",
+    "category": "navigation"
+  },
+  {
+    "input": "find the fastest route to work",
+    "category": "navigation"
+  },
+  {
+    "input": "play some music",
+    "category": "music_media"
+  },
+  {
+    "input": "play my playlist",
+    "category": "music_media"
+  },
+  {
+    "input": "play the song Shape of You",
+    "category": "music_media"
+  },
+  {
+    "input": "skip this track",
+    "category": "music_media"
+  },
+  {
+    "input": "pause the music",
+    "category": "music_media"
+  },
+  {
+    "input": "next song",
+    "category": "music_media"
+  },
+  {
+    "input": "previous track",
+    "category": "music_media"
+  },
+  {
+    "input": "play music by Ed Sheeran",
+    "category": "music_media"
+  },
+  {
+    "input": "play my workout playlist",
+    "category": "music_media"
+  },
+  {
+    "input": "shuffle my library",
+    "category": "music_media"
+  },
+  {
+    "input": "stop the music",
+    "category": "music_media"
+  },
+  {
+    "input": "play jazz music",
+    "category": "music_media"
+  },
+  {
+    "input": "turn it up",
+    "category": "music_media"
+  },
+  {
+    "input": "play the album Abbey Road",
+    "category": "music_media"
+  },
+  {
+    "input": "play music on Spotify",
+    "category": "music_media"
+  },
+  {
+    "input": "what song is this",
+    "category": "music_media"
+  },
+  {
+    "input": "what is the volume",
+    "category": "music_media"
+  },
+  {
+    "input": "play my weekly discovery playlist",
+    "category": "music_media"
+  },
+  {
+    "input": "play the radio",
+    "category": "music_media"
+  },
+  {
+    "input": "play some relaxing music",
+    "category": "music_media"
+  },
+  {
+    "input": "turn on the lights",
+    "category": "smart_home"
+  },
+  {
+    "input": "turn off the kitchen light",
+    "category": "smart_home"
+  },
+  {
+    "input": "set the thermostat to 22 degrees",
+    "category": "smart_home"
+  },
+  {
+    "input": "dim the bedroom lights to 50 percent",
+    "category": "smart_home"
+  },
+  {
+    "input": "turn on the heater",
+    "category": "smart_home"
+  },
+  {
+    "input": "switch off the air conditioner",
+    "category": "smart_home"
+  },
+  {
+    "input": "close the blinds",
+    "category": "smart_home"
+  },
+  {
+    "input": "lock the front door",
+    "category": "smart_home"
+  },
+  {
+    "input": "open the garage door",
+    "category": "smart_home"
+  },
+  {
+    "input": "turn on the coffee maker",
+    "category": "smart_home"
+  },
+  {
+    "input": "set the scene to movie mode",
+    "category": "smart_home"
+  },
+  {
+    "input": "turn on the fan",
+    "category": "smart_home"
+  },
+  {
+    "input": "switch on the porch light",
+    "category": "smart_home"
+  },
+  {
+    "input": "unlock the back door",
+    "category": "smart_home"
+  },
+  {
+    "input": "adjust the temperature",
+    "category": "smart_home"
+  },
+  {
+    "input": "turn on Bluetooth",
+    "category": "device_actions"
+  },
+  {
+    "input": "enable Wi-Fi",
+    "category": "device_actions"
+  },
+  {
+    "input": "switch on mobile data",
+    "category": "device_actions"
+  },
+  {
+    "input": "turn off airplane mode",
+    "category": "device_actions"
+  },
+  {
+    "input": "enable do not disturb",
+    "category": "device_actions"
+  },
+  {
+    "input": "turn on the flashlight",
+    "category": "device_actions"
+  },
+  {
+    "input": "take a screenshot",
+    "category": "device_actions"
+  },
+  {
+    "input": "open the camera app",
+    "category": "device_actions"
+  },
+  {
+    "input": "open Settings",
+    "category": "device_actions"
+  },
+  {
+    "input": "check my battery level",
+    "category": "device_actions"
+  },
+  {
+    "input": "how much storage do I have",
+    "category": "device_actions"
+  },
+  {
+    "input": "clear my cache",
+    "category": "device_actions"
+  },
+  {
+    "input": "turn up the brightness",
+    "category": "device_actions"
+  },
+  {
+    "input": "turn down the volume",
+    "category": "device_actions"
+  },
+  {
+    "input": "enable dark mode",
+    "category": "device_actions"
+  },
+  {
+    "input": "call Mum",
+    "category": "communication"
+  },
+  {
+    "input": "call John on speaker",
+    "category": "communication"
+  },
+  {
+    "input": "phone the office",
+    "category": "communication"
+  },
+  {
+    "input": "make a call to Sarah",
+    "category": "communication"
+  },
+  {
+    "input": "email David about the meeting",
+    "category": "communication"
+  },
+  {
+    "input": "send a text to Mum saying I am running late",
+    "category": "communication"
+  },
+  {
+    "input": "text Sarah see you at 6",
+    "category": "communication"
+  },
+  {
+    "input": "message the group chat",
+    "category": "communication"
+  },
+  {
+    "input": "WhatsApp Mike",
+    "category": "communication"
+  },
+  {
+    "input": "reply to Janes message",
+    "category": "communication"
+  },
+  {
+    "input": "what is the air pressure",
+    "category": "weather"
+  },
+  {
+    "input": "is there a weather warning",
+    "category": "weather"
+  },
+  {
+    "input": "what is the marine forecast",
+    "category": "weather"
+  },
+  {
+    "input": "what is the forecast for the next hour",
+    "category": "weather"
+  },
+  {
+    "input": "what will the weather be like at noon",
+    "category": "weather"
+  },
+  {
+    "input": "weather in 3 days",
+    "category": "weather"
+  },
+  {
+    "input": "what is the overnight forecast",
+    "category": "weather"
+  },
+  {
+    "input": "is it supposed to rain this evening",
+    "category": "weather"
+  },
+  {
+    "input": "what is the weather this afternoon",
+    "category": "weather"
+  },
+  {
+    "input": "check the radar",
+    "category": "weather"
+  },
+  {
+    "input": "what is the 10 day forecast",
+    "category": "weather"
+  },
+  {
+    "input": "hourly forecast",
+    "category": "weather"
+  },
+  {
+    "input": "weather alerts",
+    "category": "weather"
+  },
+  {
+    "input": "is it foggy outside",
+    "category": "weather"
+  },
+  {
+    "input": "what is the grass pollen level",
+    "category": "weather"
+  },
+  {
+    "input": "is it going to hail",
+    "category": "weather"
+  },
+  {
+    "input": "wake me up at sunrise",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set alarm for every weekday at 7am",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how many days until Friday",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what day is Christmas this year",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "remind me every morning to take vitamins",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set a repeating reminder",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "countdown until my holiday",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "how many weeks until summer",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what month is it",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what year is it",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "set multiple alarms",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "show all my timers",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "when is daylight saving",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "what time zone am I in",
+    "category": "temporal_non_calendar"
+  },
+  {
+    "input": "find me a hotel",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "search for flights to Sydney",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the cheapest option",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how do you say hello in French",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "translate goodbye to Spanish",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the population of New Zealand",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the area of Australia",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "how many time zones in Russia",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "what is the official language of Brazil",
+    "category": "search_knowledge"
+  },
+  {
+    "input": "hey there",
+    "category": "chat_general"
+  },
+  {
+    "input": "howdy",
+    "category": "chat_general"
+  },
+  {
+    "input": "greetings",
+    "category": "chat_general"
+  },
+  {
+    "input": "what do you know",
+    "category": "chat_general"
+  },
+  {
+    "input": "tell me everything",
+    "category": "chat_general"
+  },
+  {
+    "input": "share some wisdom",
+    "category": "chat_general"
+  },
+  {
+    "input": "give me advice",
+    "category": "chat_general"
+  },
+  {
+    "input": "what should I do today",
+    "category": "chat_general"
+  },
+  {
+    "input": "I appreciate you",
+    "category": "chat_general"
+  },
+  {
+    "input": "you are great",
+    "category": "chat_general"
+  },
+  {
+    "input": "you are the best",
+    "category": "chat_general"
+  }
+]

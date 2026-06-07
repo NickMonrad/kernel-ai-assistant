@@ -68,19 +68,19 @@ jobs:
       - name: Build (debug)
         run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
 
-      # - name: Lint
-      #   run: ./gradlew lint
+      - name: Lint
+        run: ./gradlew lint
 
-      # - name: Unit tests
-      #   run: ./gradlew test
+      - name: Unit tests
+        run: ./gradlew :core:skills:testDebugUnitTest :feature:chat:testDebugUnitTest
 
-      # - name: Upload test results
-      #   if: always()
-      #   uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-      #   with:
-      #     name: test-results-${{ github.sha }}
-      #     path: '**/build/reports/tests/'
-      #     retention-days: 14
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-results-${{ github.sha }}
+          path: '**/build/reports/tests/'
+          retention-days: 14
 
       - name: Upload APK
         if: success()

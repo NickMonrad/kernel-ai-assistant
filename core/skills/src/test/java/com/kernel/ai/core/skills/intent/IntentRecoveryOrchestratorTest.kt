@@ -21,7 +21,7 @@ class IntentRecoveryOrchestratorTest {
         val orchestrator = IntentRecoveryOrchestrator(registry, slotFillerManager, skillRegistry, extractors)
 
         // "create a calendar event for dentist tomorrow at 3pm"
-        // → title=Dentist, date=tomorrow, time=3pm
+        // → title=Dentist (calendar event is blocked-always, for-title wins, #1100)
         val result = orchestrator.recover(
             conversationId = "conv-1",
             input = "create a calendar event for dentist tomorrow at 3pm",
