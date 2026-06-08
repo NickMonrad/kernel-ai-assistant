@@ -2296,9 +2296,14 @@ class ChatViewModel @Inject constructor(
                                     "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${nativeToolCall.requestJson.take(500)}",
                                 )
                             // E2E marker: native SDK skill result
+                            val nativeResultMode = when {
+                                !nativeToolCall.isSuccess -> "failure"
+                                kernelAIToolSet.lastToolWasDirectReply() -> "direct_reply"
+                                else -> "success"
+                            }
                             Log.d(
                                 "KernelAI",
-                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=${if (kernelAIToolSet.lastToolWasDirectReply()) "direct_reply" else "success"}",
+                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
                             )
                             }
                             // E2E marker: legacy fallback tool call
