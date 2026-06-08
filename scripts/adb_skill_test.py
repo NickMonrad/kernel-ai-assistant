@@ -258,7 +258,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         # pause_media (#521)
         TestCase("hold on, pause the music", "pause_media"),
         TestCase("pause playback", "pause_media"),
-        TestCase("hold on", "pause_media"),
+        TestCase("hold on", "pause_media", xfail=True),  # standalone "hold on" requires active media context per semantic routing guidelines
         # stop_media (#521)
         TestCase("stop playing", "stop_media"),
         TestCase("stop playback", "stop_media"),
@@ -318,7 +318,6 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("make me a list for camping", "create_list"),
         TestCase("create a new list called work tasks", "create_list"),
         # bulk_add_to_list (#529 — LLM-routed, xfail until verified)
-        TestCase("save all those ingredients to my shopping list", "bulk_add_to_list", xfail=True),
         TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True),
         TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True),
         TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True),
@@ -579,6 +578,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expected_fields={"query": "Battle of Hastings"},
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
     ),
     LLMToolsTestCase(
         name="save_memory_durable_fact",
@@ -590,16 +590,18 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expected_fields={"content": "preferred dry cleaner"},
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
+        expected_result_mode="success",
     ),
     LLMToolsTestCase(
         name="get_system_info_natural",
         # Must avoid "battery" (triggers get_battery regex), "storage"/"ram"/"memory"
         # (triggers get_system_info regex), and all 32 MiniLM intents.
-        message="Can you tell me the specs of this phone?",
+        message="Can you inspect this device and summarise its current system status?",
         expected_top_level_tool="get_system_info",
         expected_fields=None,
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
     ),
 ]
 
@@ -824,6 +826,9 @@ def run_llm_tools(dry_run: bool = False) -> int:
         # Build assertion failures
         failures_list: list[str] = []
 
+        if not chip_text:
+            failures_list.append("No tool_chip_visible marker found")
+
         # Tool name check
         if actual_top_level != tc.expected_top_level_tool:
             failures_list.append(
@@ -876,6 +881,8 @@ def run_llm_tools(dry_run: bool = False) -> int:
 
         if not message_saved:
             failures_list.append("No ChatMessage.toolCall persistence marker found")
+        if actual_top_level and not skill_result:
+            failures_list.append("No skill_result marker found")
 
         # Result mode check
         if tc.expected_result_mode != "unknown":

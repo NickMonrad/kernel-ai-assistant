@@ -2295,6 +2295,16 @@ class ChatViewModel @Inject constructor(
                                     "KernelAI",
                                     "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${nativeToolCall.requestJson.take(500)}",
                                 )
+                            // E2E marker: native SDK skill result
+                            val nativeResultMode = when {
+                                !nativeToolCall.isSuccess -> "failure"
+                                kernelAIToolSet.lastToolWasDirectReply() -> "direct_reply"
+                                else -> "success"
+                            }
+                            Log.d(
+                                "KernelAI",
+                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
+                            )
                             }
                             // E2E marker: legacy fallback tool call
                             val toolCallResult = if (nativeToolCall == null) {
@@ -2371,6 +2381,11 @@ class ChatViewModel @Inject constructor(
                                 Log.d(
                                     "KernelAI",
                                     "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
+                                )
+                                // E2E marker: chip visible evidence
+                                Log.d(
+                                    "KernelAI",
+                                    "tool_chip_visible: tool=${toolCall.skillName}",
                                 )
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
@@ -2749,7 +2764,7 @@ class ChatViewModel @Inject constructor(
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: skill=${extracted.take(200)} resultType=${result::class.simpleName} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: skill=${extracted.take(200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
         return when (result) {
             is SkillResult.Success -> {
