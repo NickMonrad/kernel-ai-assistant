@@ -3,7 +3,8 @@
 > **Issue ref:** #427 Living Test Document
 > **Harness:** `scripts/adb_skill_test.py`
 > **Date:** 2025-07-17
-> **Status:** Draft — ready for implementation
+> **Status:** Design / Draft — many test cases not yet wired into the current harness.
+> See [`docs/automated-testing.md`](../automated-testing.md) for current operational docs.
 
 ---
 

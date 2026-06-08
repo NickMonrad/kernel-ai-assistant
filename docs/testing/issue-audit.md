@@ -1,3 +1,7 @@
+> **Status:** Historical audit (2025-07-18). Retained for reference.
+> See [`docs/automated-testing.md`](../automated-testing.md) for current operational docs and
+> [`docs/testing/README.md`](./README.md) for the testing docs index.
+>
 # Open Issues Audit — NickMonrad/kernel-ai-assistant
 
 > **Date:** 2025-07-18  
