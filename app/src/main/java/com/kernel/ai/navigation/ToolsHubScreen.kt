@@ -15,9 +15,12 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -38,7 +41,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-private const val DEFAULT_MODEL_MANAGEMENT_ROUTE = "settings/model_management?scrollTo=false"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +80,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Checklist,
                 title = "Lists",
                 subtitle = "Shopping, tasks, and reusable lists",
-                onClick = { onNavigateToRoute("lists") },
+                onClick = { onNavigateToRoute(ROUTE_LISTS) },
             )
             HorizontalDivider()
             ToolsListItem(
@@ -86,7 +88,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Note,
                 title = "Notes",
                 subtitle = "Quick notes and saved thoughts",
-                onClick = { onNavigateToRoute("settings/notes") },
+                onClick = { onNavigateToRoute(ROUTE_NOTES) },
             )
             HorizontalDivider()
             ToolsListItem(
@@ -94,7 +96,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Bookmarks,
                 title = "Meal plans",
                 subtitle = "Plan meals and generate shopping ideas",
-                onClick = { onNavigateToRoute("meal_plans") },
+                onClick = { onNavigateToRoute(ROUTE_MEAL_PLANS) },
             )
             HorizontalDivider()
 
@@ -112,7 +114,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Timer,
                 title = "Clock",
                 subtitle = "Alarms, timers, stopwatch, and world clock",
-                onClick = { onNavigateToRoute("settings/side_panel") },
+                onClick = { onNavigateToRoute(ROUTE_SIDE_PANEL) },
             )
             HorizontalDivider()
             ToolsListItem(
@@ -120,7 +122,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Event,
                 title = "Important dates",
                 subtitle = "Birthdays, anniversaries, and recurring dates",
-                onClick = { onNavigateToRoute("settings/important_dates") },
+                onClick = { onNavigateToRoute(ROUTE_IMPORTANT_DATES) },
             )
             HorizontalDivider()
 
@@ -138,7 +140,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.People,
                 title = "People & Contacts",
                 subtitle = "Contact aliases and people Jandal can recognise",
-                onClick = { onNavigateToRoute("settings/contact_aliases") },
+                onClick = { onNavigateToRoute(ROUTE_CONTACT_ALIASES) },
             )
             HorizontalDivider()
 
@@ -156,7 +158,49 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Calculate,
                 title = "Convert",
                 subtitle = "Units, currency, and quick calculations",
-                onClick = { onNavigateToRoute("convert") },
+                onClick = { onNavigateToRoute(ROUTE_CONVERT) },
+            )
+            HorizontalDivider()
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Personalisation",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("tools_group_personalisation"),
+            )
+            ToolsListItem(
+                testTag = "tools_row_user_profile",
+                icon = Icons.Default.Person,
+                title = "User Profile",
+                subtitle = "Tell Jandal about yourself",
+                onClick = { onNavigateToRoute(ROUTE_USER_PROFILE) },
+            )
+            HorizontalDivider()
+            ToolsListItem(
+                testTag = "tools_row_memory",
+                icon = Icons.Default.Bookmarks,
+                title = "Memory",
+                subtitle = "Manage stored memories",
+                onClick = { onNavigateToRoute(ROUTE_MEMORY) },
+            )
+            HorizontalDivider()
+            ToolsListItem(
+                testTag = "tools_row_voice",
+                icon = Icons.Default.Tune,
+                title = "Voice",
+                subtitle = "Speech and spoken response settings",
+                onClick = { onNavigateToRoute(ROUTE_VOICE) },
+            )
+            HorizontalDivider()
+            ToolsListItem(
+                testTag = "tools_row_chat_preferences",
+                icon = Icons.Default.Forum,
+                title = "Chat Preferences",
+                subtitle = "Archive, themes, wallpaper, and copy options",
+                onClick = { onNavigateToRoute(ROUTE_CHAT_PREFERENCES) },
             )
             HorizontalDivider()
 
@@ -174,15 +218,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Settings,
                 title = "Settings",
                 subtitle = "App preferences and configuration",
-                onClick = { onNavigateToRoute("settings") },
-            )
-            HorizontalDivider()
-            ToolsListItem(
-                testTag = "tools_row_voice",
-                icon = Icons.Default.Tune,
-                title = "Voice",
-                subtitle = "Speech and spoken response settings",
-                onClick = { onNavigateToRoute("settings/voice") },
+                onClick = { onNavigateToRoute(ROUTE_SETTINGS) },
             )
             HorizontalDivider()
             ToolsListItem(
@@ -190,7 +226,7 @@ fun ToolsHubScreen(
                 icon = Icons.Default.SmartToy,
                 title = "Models",
                 subtitle = "Downloads, availability, and inference preferences",
-                onClick = { onNavigateToRoute(DEFAULT_MODEL_MANAGEMENT_ROUTE) },
+                onClick = { onNavigateToRoute(buildModelManagementRoute()) },
             )
             HorizontalDivider()
             ToolsListItem(
@@ -198,7 +234,15 @@ fun ToolsHubScreen(
                 icon = Icons.Default.Security,
                 title = "Permissions",
                 subtitle = "Review Android permissions used by Jandal",
-                onClick = { onNavigateToRoute("settings/app_permissions") },
+                onClick = { onNavigateToRoute(ROUTE_APP_PERMISSIONS) },
+            )
+            HorizontalDivider()
+            ToolsListItem(
+                testTag = "tools_row_about",
+                icon = Icons.Default.Info,
+                title = "About",
+                subtitle = "Build info and debug tools",
+                onClick = { onNavigateToRoute(ROUTE_ABOUT) },
             )
             HorizontalDivider()
         }

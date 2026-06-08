@@ -8,13 +8,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -95,49 +96,101 @@ class ToolsHubNavTest {
             "tools_row_voice",
             "tools_row_models",
             "tools_row_permissions",
+            "tools_group_personalisation",
+            "tools_row_user_profile",
+            "tools_row_memory",
+            "tools_row_chat_preferences",
+            "tools_row_about",
         ).forEach { tag ->
             assertTagExists(tag)
         }
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasText("Archive, themes, wallpaper, and copy options"))
+        composeTestRule.onNodeWithText("Archive, themes, wallpaper, and copy options").assertIsDisplayed()
     }
 
     @Test
     fun toolsHub_rowListsNavigatesToLists() {
-        assertRowNavigatesTo("tools_row_lists", "lists")
+        assertRowNavigatesTo("tools_row_lists", ROUTE_LISTS)
+    }
+
+    @Test
+    fun toolsHub_rowNotesNavigatesToNotes() {
+        assertRowNavigatesTo("tools_row_notes", ROUTE_NOTES)
+    }
+
+    @Test
+    fun toolsHub_rowMealPlansNavigatesToMealPlans() {
+        assertRowNavigatesTo("tools_row_meal_plans", ROUTE_MEAL_PLANS)
     }
 
     @Test
     fun toolsHub_rowClockNavigatesToClock() {
-        assertRowNavigatesTo("tools_row_clock", "settings/side_panel")
+        assertRowNavigatesTo("tools_row_clock", ROUTE_SIDE_PANEL)
+    }
+
+    @Test
+    fun toolsHub_rowImportantDatesNavigatesToImportantDates() {
+        assertRowNavigatesTo("tools_row_important_dates", ROUTE_IMPORTANT_DATES)
     }
 
     @Test
     fun toolsHub_rowPeopleNavigatesToContacts() {
-        assertRowNavigatesTo("tools_row_people_contacts", "settings/contact_aliases", swipeUps = 1)
+        assertRowNavigatesTo("tools_row_people_contacts", ROUTE_CONTACT_ALIASES)
     }
 
     @Test
     fun toolsHub_rowConvertNavigatesToConvert() {
-        assertRowNavigatesTo("tools_row_convert", "convert", swipeUps = 1)
+        assertRowNavigatesTo("tools_row_convert", ROUTE_CONVERT)
+    }
+
+    @Test
+    fun toolsHub_rowUserProfileNavigatesToUserProfile() {
+        assertRowNavigatesTo("tools_row_user_profile", ROUTE_USER_PROFILE)
+    }
+
+    @Test
+    fun toolsHub_rowMemoryNavigatesToMemory() {
+        assertRowNavigatesTo("tools_row_memory", ROUTE_MEMORY)
+    }
+
+    @Test
+    fun toolsHub_rowVoiceNavigatesToVoice() {
+        assertRowNavigatesTo("tools_row_voice", ROUTE_VOICE)
+    }
+
+    @Test
+    fun toolsHub_rowChatPreferencesNavigatesToChatPreferences() {
+        assertRowNavigatesTo("tools_row_chat_preferences", ROUTE_CHAT_PREFERENCES)
     }
 
     @Test
     fun toolsHub_rowSettingsNavigatesToSettings() {
-        assertRowNavigatesTo("tools_row_settings", "settings", swipeUps = 2)
+        assertRowNavigatesTo("tools_row_settings", ROUTE_SETTINGS)
     }
 
     @Test
     fun toolsHub_rowModelsNavigatesToModelManagement() {
         assertRowNavigatesTo(
             rowTag = "tools_row_models",
-            expectedRoute = "settings/model_management?scrollTo=false",
-            swipeUps = 2,
+            expectedRoute = buildModelManagementRoute(),
         )
+    }
+
+    @Test
+    fun toolsHub_rowPermissionsNavigatesToPermissions() {
+        assertRowNavigatesTo("tools_row_permissions", ROUTE_APP_PERMISSIONS)
+    }
+
+    @Test
+    fun toolsHub_rowAboutNavigatesToAbout() {
+        assertRowNavigatesTo("tools_row_about", ROUTE_ABOUT)
     }
 
     private fun assertRowNavigatesTo(
         rowTag: String,
         expectedRoute: String,
-        swipeUps: Int = 0,
     ) {
         var lastRoute = ""
         composeTestRule.setContent {
@@ -147,9 +200,8 @@ class ToolsHubNavTest {
             )
         }
 
-        repeat(swipeUps) {
-            composeTestRule.onNodeWithTag("tools_screen").performTouchInput { swipeUp() }
-        }
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag(rowTag))
         composeTestRule.onNodeWithTag(rowTag, useUnmergedTree = true).performClick()
 
         assertEquals(expectedRoute, lastRoute)
