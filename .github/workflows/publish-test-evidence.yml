@@ -1,0 +1,84 @@
+name: Publish test evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Evidence source (ci or on_device)
+        required: true
+        default: ci
+        type: choice
+        options:
+          - ci
+          - on_device
+      pr:
+        description: PR number (required for PR-scoped results)
+        required: false
+        type: string
+      release:
+        description: Release/tag name (required for release-scoped results)
+        required: false
+        type: string
+      commit:
+        description: Commit SHA to associate with the evidence
+        required: true
+        type: string
+      allow_commit_mismatch:
+        description: Allow publishing evidence whose commit does not match the workflow commit
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish test evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          fetch-depth: 0
+
+      - name: Publish test evidence
+        env:
+          SOURCE: ${{ inputs.source }}
+          PR_NUM: ${{ inputs.pr }}
+          RELEASE: ${{ inputs.release }}
+          COMMIT: ${{ inputs.commit }}
+          ALLOW_MISMATCH: ${{ inputs.allow_commit_mismatch && '--allow-commit-mismatch' || '' }}
+        run: |
+          if [ -z "$PR_NUM" ] && [ -z "$RELEASE" ]; then
+            echo "ERROR: at least one of pr or release is required" >&2
+            exit 1
+          fi
+
+          # Determine input: for CI, use the latest CI evidence artifact from the last workflow run
+          # For on_device, require a manual URL or path
+          INPUT_ARGS=""
+          if [ "$SOURCE" = "ci" ]; then
+            INPUT_ARGS="--input-dir /tmp/ci-evidence"
+          elif [ "$SOURCE" = "on_device" ]; then
+            echo "ERROR: on_device publishing requires --input pointing to a normalised evidence file" >&2
+            echo "This workflow currently supports CI evidence only." >&2
+            exit 1
+          fi
+
+          PR_ARGS=""
+          if [ -n "$PR_NUM" ]; then
+            PR_ARGS="--pr $PR_NUM"
+          fi
+
+          RELEASE_ARGS=""
+          if [ -n "$RELEASE" ]; then
+            RELEASE_ARGS="--release $RELEASE"
+          fi
+
+          python3 scripts/publish_test_evidence.py \
+            $INPUT_ARGS \
+            --source "$SOURCE" \
+            $PR_ARGS \
+            $RELEASE_ARGS \
+            --commit "$COMMIT" \
+            $ALLOW_MISMATCH
