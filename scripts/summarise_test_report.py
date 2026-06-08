@@ -60,11 +60,25 @@ def normalise_timestamp(ts: str) -> str:
     return ts
 
 
+def _parse_yaml_scalar(value: str):
+    """Convert YAML scalar to Python type — null → None, integers → int."""
+    if value == "null":
+        return None
+    if re.fullmatch(r"-?\d+", value):
+        return int(value)
+    return value
+
+
 def _yaml_load(source: str) -> dict:
     """Minimal YAML subset parser for the device registry.
 
     Handles the subset used by ``devices.yaml``: top-level ``key: value``,
-    nested dicts, comments, and ``null`` values.  Avoids a PyYAML dep.
+    nested dicts, comments, ``null`` values, and integer scalars.
+    Avoids a PyYAML dependency.
+
+    ``key:`` (empty value) opens a nested mapping for the inline-dict YAML
+    pattern used by the device registry.  ``key: null`` stores ``None``
+    without opening a child scope.
     """
     result: dict = {}
     stack: list[tuple[dict, str | None]] = [(result, None)]
@@ -79,17 +93,14 @@ def _yaml_load(source: str) -> dict:
             continue
         key, _, val = stripped.partition(":")
         key = key.strip()
-        val = val.strip()
-        val = None if val == "null" else val
+        val_raw = val.strip()
         current = stack[-1][0]
-        if val is None:
-            current[key] = {}
-            stack.append((current[key], indent))
-        elif not val:
+        if not val_raw:
+            # Empty value opens a nested mapping (inline-dict pattern)
             current[key] = {}
             stack.append((current[key], indent))
         else:
-            current[key] = val
+            current[key] = _parse_yaml_scalar(val_raw)
     return result
 
 
