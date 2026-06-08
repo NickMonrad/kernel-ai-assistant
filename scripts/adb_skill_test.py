@@ -596,7 +596,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         name="get_system_info_natural",
         # Must avoid "battery" (triggers get_battery regex), "storage"/"ram"/"memory"
         # (triggers get_system_info regex), and all 32 MiniLM intents.
-        message="Can you tell me the specs of this phone?",
+        message="Can you inspect this device and summarise its current system status?",
         expected_top_level_tool="get_system_info",
         expected_fields=None,
         expect_no_regex_match=True,
