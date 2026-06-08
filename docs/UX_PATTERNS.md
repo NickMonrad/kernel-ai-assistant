@@ -15,11 +15,149 @@
 
 ### 1.1 Top-level structure
 
-- **Bottom navigation bar** — two permanent tabs: **Chats** (conversations list) and **Actions** (quick commands).
-- **Navigation drawer** — secondary screens that are not tab-level: Meal Plans, Settings.
-- All navigation is managed by `KernelNavHost` in `:app`. Do not create parallel navigation graphs.
+Primary bottom navigation uses three launch destinations:
 
-### 1.2 Navigation from widget / external entry points
+| Destination | Purpose |
+|---|---|
+| **Chats** | Conversation history and assistant chat |
+| **Actions** | Direct command execution and action result history |
+| **Tools** | Discover and open app capabilities |
+| **Drawer** | Secondary / overflow navigation during transition |
+| **Settings** | Configuration, accessible from Tools and the drawer |
+
+This three-destination launch model is the deliberate design decision from
+[#751](https://github.com/NickMonrad/kernel-ai-assistant/issues/751).
+
+- **Bottom navigation bar** — permanent launch tabs: **Chats**, **Actions**, **Tools**.
+- **Tools** is the primary discovery surface for capabilities that are otherwise hard to find from
+  Chats or Actions.
+- **Navigation drawer** remains available as secondary / overflow navigation during the transition.
+- **Settings** is configuration, not the primary feature-discovery surface.
+- All navigation is managed by `KernelNavHost` in `:app`. Do not create parallel navigation graphs.
+- This document defines the target UX model. It does not require adding `ROUTE_TOOLS`, changing
+  `KernelNavHost`, or migrating to Navigation 3 in this documentation slice.
+
+### 1.2 Tools hub
+
+The Tools hub is the launch-discoverability surface for existing app capabilities. It should link
+to existing destinations rather than duplicating their implementation.
+
+Preferred destinations include:
+
+- Lists
+- Notes
+- Clock
+- Convert
+- Important dates
+- People & Contacts
+- Meal plans
+- Settings
+- Voice
+- Model Management
+- App Permissions
+
+Use the existing Settings-style grouped row pattern rather than a dense icon grid.
+
+Recommended structure:
+
+```text
+Tools
+
+Productivity
+  Lists
+  Notes
+  Meal plans
+
+Time & planning
+  Clock
+  Important dates
+
+People
+  People & Contacts
+
+Utilities
+  Convert
+
+App setup
+  Settings
+  Voice
+  Models
+  Permissions
+
+Learn what Jandal can do
+  Quick Actions examples
+  Example prompts
+```
+
+Each row uses the existing app visual language:
+
+```text
+Icon | Title
+       Short description
+       Optional status/count
+```
+
+Example row copy:
+
+- **Lists** — Shopping, tasks, and reusable lists
+- **Clock** — Alarms, timers, stopwatch, and world clock
+- **People & Contacts** — Contact aliases and people Jandal can recognise
+- **Convert** — Units, currency, and quick calculations
+- **Voice** — Speech and spoken response settings
+- **Models** — Downloads, availability, and inference preferences
+
+Any Tools row or summary related to models / Model Management must follow
+[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md). The Tools screen must
+not invent new model state labels, badges, provider access flows, download actions, licensing
+actions, or model-selection language. Model Management remains the authoritative interface for
+model administration.
+
+Tools search is deferred for the first implementation slice. Do not require a search bar yet.
+However, represent Tools entries in a search-friendly data model so search can be added later
+without rewriting the screen. Future-friendly entry metadata should include:
+
+- title
+- subtitle
+- group
+- keywords
+- destination route
+- optional example prompt
+
+Future search should be able to produce matches such as:
+
+| Query | Suggested matches |
+|---|---|
+| `timer` | Clock, `set a timer for 5 minutes` |
+| `shopping` | Lists, `add milk to shopping list` |
+| `voice` | Voice settings, spoken responses |
+| `model` | Model Management, model availability |
+| `contacts` | People & Contacts |
+| `convert cups` | Convert |
+
+### 1.3 Tool examples and demo prompts
+
+The "Learn what Jandal can do" area is educational.
+
+Example prompts may:
+
+- show example text;
+- explain what a capability does;
+- navigate to Actions with prompt text prefilled;
+- open a preview or confirmation sheet.
+
+Example prompts must not:
+
+- auto-execute side-effect actions;
+- create alarms, timers, or reminders without confirmation;
+- send messages;
+- save memories;
+- mutate lists or notes;
+- change settings.
+
+Any action that creates, deletes, sends, saves, schedules, or changes settings must require
+explicit user confirmation in the destination flow.
+
+### 1.4 Navigation from widget / external entry points
 
 Widget activities (`VoiceCommandActivity`, `WidgetTextInputActivity`) fire an explicit intent to
 `MainActivity` with extras, which `KernelNavHost` picks up via `LaunchedEffect(initialQuickActionQuery)`
@@ -28,12 +166,92 @@ and navigates to `"actions?widgetQuery=<text>&widgetVoice=<bool>"`.
 A `savedStateHandle` boolean (e.g. `widgetQueryConsumed`) **must** guard any auto-execute logic
 triggered by nav args — prevents re-execution on recompose and process-death restore.
 
-### 1.3 Back-stack hygiene
+### 1.5 Back-stack hygiene
 
 Overlay activities launched from the widget (`VoiceCommandActivity`, `WidgetTextInputActivity`) declare:
 - `android:taskAffinity=""` — isolated task, never merges with `MainActivity`'s back stack
 - `android:excludeFromRecents="true"`
 - `android:noHistory="true"` — not retained in the back stack
+
+### 1.6 Navigation implementation reference
+
+Implementation work for this pattern should review
+[`android/nav3-recipes`](https://github.com/android/nav3-recipes) as navigation and UX-pattern
+guidance only. Relevant areas to review include common top-level navigation UI, multiple back
+stacks, responsive navigation surfaces, list-detail / two-pane layouts, deep links, correct Up
+behaviour, and modularised navigation.
+
+Do not treat this pattern as a requirement to migrate to Navigation 3. Any future Navigation 3
+migration should be proposed and tracked separately after the launch navigation UX is proven.
+
+### 1.7 Navigation feature test expectations
+
+Any PR under [#751](https://github.com/NickMonrad/kernel-ai-assistant/issues/751) that changes
+top-level navigation, drawer behaviour, Tools hub destinations, or demo/example prompt behaviour
+must include an explicit test plan.
+
+Document and validate:
+
+- **Documentation/design slices** — Markdown renders correctly, links resolve, UX patterns do not
+  contradict themselves, and the PR body clearly states whether the slice is design-only or
+  implementation.
+- **Compose/UI tests** — use where practical for primary tab visibility, visible Tools groups/rows,
+  click navigation to linked destinations, and confirmation that Chats and Actions remain usable.
+- **UI Automator / instrumentation** — use where practical for drawer open/close, system back,
+  app-shell navigation across top-level destinations, blank-screen regressions, and duplicate or
+  stranded back-stack states.
+- **ADB/manual on-device smoke** — require PR evidence for implementation slices when device-level
+  behaviour cannot be trusted from unit tests alone.
+
+Future implementation PRs should add stable semantics identifiers for new navigation surfaces so
+Compose UI tests and UI Automator flows can target them reliably. Prefer stable, descriptive names
+grouped by screen/component rather than names derived only from display copy. Example tags:
+
+```text
+bottom_nav_chats
+bottom_nav_actions
+bottom_nav_tools
+tools_screen
+tools_group_productivity
+tools_group_time_planning
+tools_group_people
+tools_group_utilities
+tools_group_app_setup
+tools_group_learn
+tools_row_lists
+tools_row_notes
+tools_row_clock
+tools_row_convert
+tools_row_important_dates
+tools_row_people_contacts
+tools_row_meal_plans
+tools_row_settings
+tools_row_voice
+tools_row_models
+tools_row_permissions
+```
+
+Keep navigation-shell tests separate from the `llm_tools` harness:
+
+| Area | Test approach |
+|---|---|
+| LLM tool-call generation after LLM fallthrough | `llm_tools` harness |
+| Runtime tool markers, chip visibility, skill result, persistence | `llm_tools` harness |
+| Navigation shell, Tools hub, drawer, system back | Compose UI / UI Automator / on-device smoke |
+| Historical result visibility | #1113 |
+| Detailed testing docs and report interpretation | #1118 |
+
+Implementation PRs should include a short PR-body evidence section that clearly states the slice is
+an implementation follow-up to this design/test-pattern alignment work, then covers:
+
+- automated coverage added or updated;
+- device coverage used for smoke checks;
+- minimum navigation smoke scenarios such as `Launch app → Chats visible`, `Actions → visible`,
+  `Tools → visible`, `Tools → Lists → Back`, `Tools → Clock → Back`, `Tools → Settings → Back`,
+  `Tools → Actions → Tools → Chats`, and `Drawer opens from primary destinations`;
+- confirmation that no blank screen was observed;
+- screenshots attached where the changed navigation surface is user-visible;
+- any skipped checks, device limitations, or follow-up notes.
 
 ---
 
@@ -245,14 +463,18 @@ Every list screen must handle the empty state explicitly:
 
 ---
 
-## 11. Feature-specific Screens Reachable from Navigation Drawer
+## 11. Drawer and Secondary Destinations
 
-Non-tab features (Meal Plans, Settings) live in the navigation drawer, not the bottom nav bar.
-The bottom nav bar is reserved for the two primary tabs (Chats, Actions).
+The drawer remains part of the app shell during the transition to the `Chats | Actions | Tools`
+launch model. Treat it as secondary / overflow navigation, not the primary discovery surface for
+core capabilities.
 
-When adding a new top-level feature screen:
-- Add it to the drawer, not the bottom nav.
-- Do not add a third bottom nav tab without a deliberate design decision documented in the PR.
+- Keep the drawer available from the primary destinations during the transition.
+- Use **Tools** for primary capability discovery.
+- Use **Settings** for configuration and preferences, accessible from both Tools and the drawer.
+- Do not remove or simplify the drawer in the same slice that introduces or refines Tools.
+- Do not assume every future destination belongs in bottom navigation; evaluate whether it belongs
+  in Tools, the drawer, or a nested flow under an existing destination.
 
 ---
 
