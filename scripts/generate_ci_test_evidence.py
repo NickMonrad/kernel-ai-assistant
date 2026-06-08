@@ -189,7 +189,7 @@ def _build_case(name: str, passed: bool, failures: list[str] | None = None) -> d
         "expected_tool": None,
         "actual_tool": None,
         "expected_result_mode": "success",
-        "actual_result_mode": "success" if passed else "failed",
+        "actual_result_mode": "success" if passed else "unknown",
         "chip_present": False,
         "skill_result_present": False,
         "message_saved": False,
@@ -436,6 +436,11 @@ def main() -> None:
     print(f"\n{'=' * 48}")
     print(f"  {total} checks  |  {passed} passed  |  {failed} failed  |  {pass_rate:.1%}")
     print(f"{'=' * 48}")
+
+    # ── Exit code ─────────────────────────────────────────────────────────
+    if failed > 0:
+        print(f"  → {failed} check(s) failed; exiting 1 (artifacts still uploaded)", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
