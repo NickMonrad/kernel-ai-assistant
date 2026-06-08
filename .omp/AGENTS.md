@@ -134,17 +134,11 @@ connectedDebugAndroidTest   # requires device
 
 **Standalone:** `rtk gain` shows token savings. `rtk env` shows filtered env vars. **Hard rule:** If output is >5 lines, use `rtk`.
 
-## context-mode — Think in Code (when available)
+## context-mode — routing
 
-`ctx_execute(language, code)` runs code in a sandbox — only stdout enters context. Use it for analysis (count, filter, parse, transform) instead of reading raw data into context. A one-liner replaces 10+ `read`/`bash` calls.
+context-mode is installed globally (MCP tools + native OMP hooks). Full routing rules at `~/.omp/agent/SYSTEM.md`.
 
-| Instead of | Use | Saves |
-|------------|-----|-------|
-| 10x `read` to count patterns | `ctx_execute("shell", "grep -c ...")` | ~5K tokens |
-| `bash node -e "..."` for analysis | `ctx_execute("javascript", "...")` | Stdout only |
-| `read(<url>)` for content | `ctx_fetch_and_index(url)` → `ctx_search()` | 50-90% |
-
-**Rule:** For data analysis, write code. Don't read data into context — program the analysis.
+Key paradigm: **Think in Code** — write `ctx_execute(language, code)` for analysis/count/filter/parse. Only stdout enters context.
 
 ## Branching & PR standards
 
