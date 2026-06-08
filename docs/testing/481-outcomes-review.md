@@ -1,3 +1,7 @@
+> **Status:** Historical audit (2025-07-19). Retained for reference.
+> See [`docs/automated-testing.md`](../automated-testing.md) for current operational docs and
+> [`docs/testing/README.md`](./README.md) for the testing docs index.
+>
 # Issue #481 — Hallucination Guard: Outcomes Audit
 
 > **Branch:** `feature/519-profile-parser-llm-extraction`  

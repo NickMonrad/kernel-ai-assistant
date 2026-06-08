@@ -47,9 +47,218 @@ Supported harness phases today:
 8. `system`
 9. `misc`
 10. `slot_fill`
+The `llm_tools` harness is a separate special mode (see below) — it is not one of the ten
+QIR skill-routing phases and is not included in a normal full-suite run.
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
-See [`scripts/test-reports/README.md`](../scripts/test-reports/README.md) for the report format.
+
+### Reports and result inspection
+
+Each run produces a timestamped JSON report:
+
+| Suite | File pattern | Example |
+|-------|-------------|---------|
+| Full QIR skill routing | `<timestamp>_skills.json` | `2026-06-07T01-39-59Z_skills.json` |
+| LLM tool-call generation | `<timestamp>_llm_tools.json` | `2026-06-08T04-28-55Z_llm_tools.json` |
+| Partial in-progress snapshot | `<timestamp>_<suite>_partial.json` | `2026-06-08T04-28-55Z_llm_tools_partial.json` |
+
+The HTML report generator (`scripts/generate_report.py`) automatically converts `skills` JSON
+reports to HTML when present.
+
+**Finding the latest report:**
+
+```bash
+latest=$(ls -t scripts/test-reports/*_skills.json | head -1)
+latest_llm=$(ls -t scripts/test-reports/*_llm_tools.json | head -1)
+```
+
+**Inspecting with `jq`:**
+
+```bash
+# Summary fields
+jq '.summary' "$latest"
+
+# Per-result: passed, intent matching, param detail
+jq '.results[] | {index, message, expect_intent, actual_intent, intent_passed, params_passed, status}' "$latest"
+
+# Only failures
+jq '.results[] | select(.status == "fail") | {message, expect_intent, actual_intent, param_failures}' "$latest"
+
+# llm_tools — per-result summary (mode is embedded in skill_result_marker)
+jq '.results[] | {name, passed, expected_top_level_tool, actual_top_level_tool, route_marker, skill_result_marker, failures}' "$latest_llm"
+# llm_tools — only failures with failure details
+jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actual_top_level_tool, failures}' "$latest_llm"
+```
+
+**Report schema (skills suite):**
+
+```json
+{
+  "suite": "skills",
+  "status": "complete",         // or "in_progress" for partial
+  "timestamp": "2026-06-07T01-39-59Z",
+  "elapsed_seconds": 3545.0,
+  "summary": { "total": 199, "passed": 73, "xfail": 5, "failed": 121 },
+  "results": [
+    {
+      "index": 1,
+      "message": "set an alarm for 11pm",
+      "expect_intent": "set_alarm",
+      "actual_intent": "set_alarm",
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "phase": "alarm_timer",
+      "status": "pass"          // "pass", "fail", or "xfail"
+    }
+  ]
+}
+```
+
+**Report schema (llm_tools suite):**
+
+```json
+{
+  "suite": "llm_tools",
+  "status": "complete",
+  "timestamp": "2026-06-08T04-28-55Z",
+  "elapsed_seconds": 0,
+  "summary": { "total": 3, "passed": 2, "failed": 1 },
+  "results": [
+    {
+      "index": 1,
+      "name": "query_wikipedia_natural",
+      "message": "Look up the history of the Battle of Hastings...",
+      "expected_top_level_tool": "query_wikipedia",
+      "actual_top_level_tool": "query_wikipedia",
+      "route_marker": "result=fallthrough ...",
+      "native_tool_marker": null,
+      "legacy_tool_marker": "<|tool_call|>call:query_wikipedia...",
+      "skill_result_marker": "skill={\"name\":\"query_wikipedia\",...}",
+      "message_saved_marker": "id=7e195582-... tool=query_wikipedia",
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "chip_text": "tool=query_wikipedia",
+      "reply_text": null,
+      "passed": true,
+      "failures": []
+    }
+  ]
+}
+```
+
+### `llm_tools` phase
+
+The `llm_tools` harness phase validates E2E model tool-call generation after the query bypasses
+QIR/classifier deterministic routing and falls through to Gemma. It covers the
+`Tier 2 → FallThrough → Tier 3 (Gemma)` path.
+
+**What it validates per case:**
+
+- The harness confirms a `llm_tools_route` marker was emitted and that deterministic
+  QIR/classifier/slot-fill paths did not win before Gemma tool-call generation
+- Gemma generated a native **or** legacy text-format tool call
+- The expected tool was actually called
+- The tool result is observable via `llm_tools_skill_result` marker
+- The tool call is persisted in chat history
+- A UI chip for the tool call is visible
+- No unexpected hallucination retry path was triggered
+- No unexpected QIR slot-fill path was used
+
+**Run commands:**
+
+```bash
+# Preview without a device
+python3 scripts/adb_skill_test.py --dry-run --phases=llm_tools
+
+# Run on device
+python3 scripts/adb_skill_test.py --phases=llm_tools
+```
+
+**Golden prompts (3 cases):**
+
+| Case | Prompt | Expected tool | Assertions |
+|------|--------|--------------|------------|
+| Wikipedia query | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | No regex matching, no classifier, no slot fill, no retry |
+| Memory save | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field present |
+| System info | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Same, no args expected |
+
+### On-device validation
+
+Run the harness against a physical device by setting `ANDROID_SERIAL`:
+
+```bash
+# USB-connected device (serial from `adb devices`)
+ANDROID_SERIAL=R5CR605B71K python3 scripts/adb_skill_test.py --phases=llm_tools
+
+# Wireless device (IP:port from `adb connect`)
+ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=llm_tools
+```
+
+**Reference and tracked devices:**
+
+| Device | SoC | RAM | Inference backend | Role |
+|--------|-----|-----|-------------------|------|
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Reference device — primary target |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Tracked reliability signal — see #1089 / #684 |
+| Honor Magic 8 Pro | Snapdragon 8 Elite | 12 GB | NPU | Future tracked / reference candidate |
+| Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
+
+See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
+gotcha troubleshooting.
+
+**Expected pass-rate variance:** Model tool-call generation reliability differs across SoCs
+and inference backends. A case that passes on S23 Ultra NPU may fail on S21 Exynos GPU due
+to differences in model output distribution across backends. Track device-specific flakes
+in issues, not by relaxing harness assertions.
+
+### CI vs on-device evidence
+
+| Validation type | What it verifies | Limitations |
+|----------------|-----------------|-------------|
+| `--dry-run` | Phase definitions, test structure, CLI parsing | No device interaction, no model inference |
+| Unit tests (Gradle) | Kotlin logic, routing, parsing | No E2E device behaviour |
+| On-device run | Full E2E model tool-call generation | Requires physical device; results vary by SoC/backend |
+| CI (GitHub Actions) | Build, lint, unit tests | No physical device available — no `--phases=llm_tools` or live ADB tests |
+
+> **CI cannot validate physical-device model/tool-call reliability** unless a self-hosted
+> device runner is added. On-device results must be reported separately from CI results.
+> Model/tool-call generation flakes must not be hidden as harness passes.
+
+Evidence normalisation and a dashboard view (combining CI and on-device runs, tracking
+pass-rate trends per device) are tracked in [#1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113).
+
+### Failure interpretation
+
+| Failure pattern | Meaning | Likely cause |
+|---|---|---|
+| No native/legacy tool marker | Model did not call any tool | Model missed the tool-call form in its output |
+| Wrong actual tool | Model called a different tool than expected | Intent confusion from the LLM |
+| Missing `tool_chip_visible` | UI chip for the tool call not found | UI rendering delay, missing chip, or timing issue |
+| Missing `llm_tools_skill_result` | Tool execution result not observed | Result logging missing or routing failure |
+| Wrong result mode | Expected `success` / `direct_reply` / `failure` mismatch | Tool implementation divergence |
+| `NO_MATCH` / conversational response | Model gave plain-text instead of a tool call | Model/tool-call generation miss, not a harness bug |
+| Retry marker present | Unexpected hallucination retry path triggered | Spurious retry from the model |
+| Slot-fill marker present | QIR slot-fill path used instead of LLM tool call | Prompt did not stay on the expected LLM tool-call path |
+
+### Runtime markers
+
+The harness reads structured logcat markers emitted by the app. These are the signals that
+determine pass/fail for `llm_tools` cases:
+
+| Marker | Report field | When it appears | Required to pass |
+|--------|-------------|----------------|:---:|
+| `llm_tools_route:` | `route_marker` | After QIR/classifier — confirms query fell through to Gemma | ✓ |
+| `llm_tools_native_tool:` | `native_tool_marker` | Tool call dispatched via the native SDK tool-call path | one of these ✓ |
+| `llm_tools_legacy_tool:` | `legacy_tool_marker` | Tool call dispatched via legacy Gemma text-format path | one of these ✓ |
+| `llm_tools_skill_result:` | `skill_result_marker` | Tool execution result captured (includes tool name, args, mode, success) | ✓ |
+| `llm_tools_message_toolcall_saved:` | `message_saved_marker` | Tool call message persisted in chat history (UUID + tool name) | ✓ |
+| `tool_chip_visible` (in chip_text) | `chip_text` | UI chip for the tool call is visible on screen | ✓ |
+| `raw_tool_call_retry_succeeded` / `hallucination_retry_succeeded` | `retry_seen` | Unexpected retry path activated | must be `false` |
+| `NeedsSlot` / `ConfirmationFastPath:` | `slot_fill_seen` | QIR slot-fill or confirmation path used | must be `false` |
 
 ## What is still planned
 
@@ -60,3 +269,15 @@ document is wired into a single runnable repo command yet.
 
 Treat this file as the "what exists today" index, and the detailed testing specification as
 the "where we want to grow next" design document.
+
+## Related docs
+
+| Document | Purpose |
+|----------|---------|
+| [`docs/testing/README.md`](./testing/README.md) | Index of all testing documentation |
+| [`docs/testing/llm-tools-harness.md`](./testing/llm-tools-harness.md) | Deep reference for the `llm_tools` harness |
+| [`docs/adb-testing.md`](./adb-testing.md) | Device setup, build & install, logcat filters, benchmarks |
+| [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py) | The harness script (source of truth for CLI args) |
+| [`scripts/generate_report.py`](../scripts/generate_report.py) | HTML report generator |
+| [#1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113) | GitHub-native test evidence dashboard |
+| [#1118](https://github.com/NickMonrad/kernel-ai-assistant/issues/1118) | This documentation update |

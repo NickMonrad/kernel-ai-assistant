@@ -1,5 +1,9 @@
 # Natural Language Test Specification — Jandal AI
 
+> **Status:** Design / Living document. Implementation-agnostic test cases derived from
+> real human speech patterns. Not all cases are wired into the current harness.
+> See [`docs/automated-testing.md`](../automated-testing.md) for current operational coverage.
+>
 > **Purpose:** Implementation-agnostic test cases derived from how real humans speak to voice assistants.
 > Written with zero knowledge of regex patterns, slot names, or routing internals.
 > The implementation must be adapted to pass these tests — not the other way around.

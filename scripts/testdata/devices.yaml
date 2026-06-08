@@ -1,0 +1,42 @@
+# Device registry for test evidence normalisation.
+#
+# Each entry is keyed by a short device/source ID used in normalised reports.
+# Tiers: reference (may block release), tracked (reliability signal), experimental (informational).
+# Execution: physical (real device on ADB) or github_hosted_runner (CI).
+
+devices:
+  s23-ultra:
+    label: S23 Ultra
+    manufacturer: Samsung
+    model: SM-S918B
+    soc: Snapdragon 8 Gen 2
+    tier: reference
+    android_api: 35
+    execution: physical
+
+  s21-exynos:
+    label: S21
+    manufacturer: Samsung
+    model: R5CR605B71K
+    soc: Exynos 2100
+    tier: tracked
+    android_api: 35
+    execution: physical
+
+  honor-magic-8-pro:
+    label: Honor Magic 8 Pro
+    manufacturer: Honor
+    model: Unknown
+    soc: latest Snapdragon
+    tier: tracked
+    android_api: null
+    execution: physical
+
+  ubuntu-latest:
+    label: ubuntu-latest
+    manufacturer: GitHub
+    model: Actions runner
+    soc: x86_64
+    tier: ci
+    android_api: null
+    execution: github_hosted_runner
