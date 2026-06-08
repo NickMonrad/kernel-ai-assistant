@@ -283,7 +283,11 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"item": "eggs", "list_name": "grocery"}),
         # "add bread and butter" is a multi-item request → bulk_add_to_list (xfail)
         TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True),
-        TestCase("chuck milk on the list", "add_to_list"),
+        # Kiwi/Aus colloquial usage: "chuck X on the list" means add/put X on the list.
+        TestCase("chuck milk on the list", "add_to_list",
+                 expect_params={"item": "milk"}),
+        TestCase("chuck eggs on the grocery list", "add_to_list",
+                 expect_params={"item": "eggs", "list_name": "grocery"}),
         TestCase("pop coffee on my list", "add_to_list"),
         TestCase("put sunscreen on the holiday list", "add_to_list"),
         # get_list_items
