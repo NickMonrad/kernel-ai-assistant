@@ -341,6 +341,171 @@ def _validate_invariants(normalised: dict) -> list[str]:
     return errors
 
 
+def _validate_against_schema(data: dict, schema_path: Path) -> list[str]:
+    """Validate a normalised evidence dict against the JSON Schema document.
+
+    Covers the full schema contract used in test_evidence.schema.json:
+    required fields, type/null unions, enum, pattern, conditional (if/then),
+    and additionalProperties constraints.  No external JSON Schema lib needed.
+    """
+    try:
+        schema = json.loads(schema_path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        return [f"Cannot load schema: {e}"]
+
+    errors: list[str] = []
+    props = schema.get("properties", {})
+    reqd = set(schema.get("required", []))
+
+    # ── Required top-level fields ──
+    for field in sorted(reqd):
+        if field not in data:
+            errors.append(f"schema: missing required field '{field}'")
+
+    # ── Per-field validation ──
+    for field, value in data.items():
+        if field not in props:
+            if schema.get("additionalProperties") is False:
+                errors.append(f"schema: unexpected field '{field}'")
+            continue
+
+        ps = props[field]
+        field_errors = _check_value(field, value, ps, f"schema.{field}")
+        errors.extend(field_errors)
+
+    # ── Conditional: source=ci → device.execution/c.tier + null model ──
+    source = data.get("source")
+    for cond in schema.get("allOf", []):
+        if_block = cond.get("if", {})
+        then_block = cond.get("then", {})
+        if not if_block or not then_block:
+            continue
+        const_val = _if_source_const(if_block)
+        if const_val is None:
+            continue
+        if source != const_val:
+            continue
+        then_props = then_block.get("properties", {})
+        for t_field, t_schema in then_props.items():
+            actual = data.get(t_field)
+            sub = t_schema.get("properties", {})
+            for sub_field, sub_schema in sub.items():
+                sub_actual = actual.get(sub_field) if isinstance(actual, dict) else None
+                sub_errs = _check_value(
+                    f"{t_field}.{sub_field}", sub_actual, sub_schema,
+                    f"schema.{t_field}.{sub_field} (condition: source={const_val})",
+                )
+                errors.extend(sub_errs)
+
+    return errors
+
+
+def _if_source_const(if_block: dict) -> str | None:
+    """Extract the expected source constant from an ``if`` block, or None."""
+    source_schema = if_block.get("properties", {}).get("source", {})
+    if source_schema.get("required") == ["source"] or "source" in if_block.get("required", []):
+        pass
+    const_val = source_schema.get("const")
+    return const_val if isinstance(const_val, str) else None
+
+
+def _check_value(path: str, value, schema: dict, ctx: str) -> list[str]:
+    """Validate a single value against its schema fragment.  Returns error messages."""
+    errors: list[str] = []
+
+    # ── type / oneOf (nullable) ──
+    if "oneOf" in schema:
+        return _check_oneof(path, value, schema["oneOf"], ctx)
+
+    if "type" not in schema:
+        return errors  # no type constraint
+
+    expected = schema["type"]
+    if expected == "null":
+        if value is not None:
+            errors.append(f"{ctx}: expected null, got {type(value).__name__}")
+        return errors
+
+    if expected == "string" and not isinstance(value, str):
+        errors.append(f"{ctx}: expected string, got {type(value).__name__}")
+        return errors  # no point checking patterns
+    if expected == "boolean" and not isinstance(value, bool):
+        errors.append(f"{ctx}: expected boolean, got {type(value).__name__}")
+        return errors
+    if expected == "integer" and not isinstance(value, int):
+        errors.append(f"{ctx}: expected integer, got {type(value).__name__}")
+        return errors
+    if expected == "number" and not isinstance(value, (int, float)):
+        errors.append(f"{ctx}: expected number, got {type(value).__name__}")
+        return errors
+    if expected == "array" and not isinstance(value, list):
+        errors.append(f"{ctx}: expected array, got {type(value).__name__}")
+        return errors
+    if expected == "object" and not isinstance(value, dict):
+        errors.append(f"{ctx}: expected object, got {type(value).__name__}")
+        return errors
+
+    # ── enum ──
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{ctx}: value {value!r} not in enum {schema['enum']}")
+
+    # ── pattern ──
+    if "pattern" in schema and isinstance(value, str):
+        if not re.match(schema["pattern"], value):
+            errors.append(f"{ctx}: value {value!r} does not match pattern {schema['pattern']}")
+
+    # ── minimum / maximum ──
+    if "minimum" in schema and isinstance(value, (int, float)) and value < schema["minimum"]:
+        errors.append(f"{ctx}: value {value} < minimum {schema['minimum']}")
+    if "maximum" in schema and isinstance(value, (int, float)) and value > schema["maximum"]:
+        errors.append(f"{ctx}: value {value} > maximum {schema['maximum']}")
+
+    # ── nested object ──
+    if expected == "object" and isinstance(value, dict):
+        obj_props = schema.get("properties", {})
+        obj_reqd = set(schema.get("required", []))
+        for r in sorted(obj_reqd):
+            if r not in value:
+                errors.append(f"{ctx}: missing required field '{r}'")
+        if schema.get("additionalProperties") is False:
+            for k in value:
+                if k not in obj_props:
+                    errors.append(f"{ctx}: unexpected field '{k}'")
+        for k, v in value.items():
+            if k in obj_props:
+                sub = _check_value(f"{path}.{k}", v, obj_props[k], f"{ctx}.{k}")
+                errors.extend(sub)
+
+    return errors
+
+
+def _check_oneof(path: str, value, variants: list, ctx: str) -> list[str]:
+    """Validate a value against oneOf variants (typically type + null)."""
+    errors: list[str] = []
+    allowed = []
+    for variant in variants:
+        # If this variant is "null" type and value is None, accept
+        if variant.get("type") == "null" and value is None:
+            return errors
+        # Non-null variant
+        if "type" in variant and variant["type"] != "null":
+            allowed.append(variant["type"])
+            variant_errors = _check_value(path, value, variant, ctx)
+            if not variant_errors:
+                return errors  # matched
+    # Check if value is None but null variant doesn't exist
+    if value is None and "null" not in [v.get("type") for v in variants]:
+        errors.append(f"{ctx}: value is null but null not in oneOf")
+        return errors
+    # No variant matched
+    types_str = "|".join(v.get("type", "?") for v in variants)
+    errors.append(
+        f"{ctx}: value {value!r} ({type(value).__name__}) does not match any oneOf variant "
+        f"[{types_str}]"
+    )
+    return errors
+
+
 # ── Main ────────────────────────────────────────────────────────────────
 
 
@@ -421,10 +586,14 @@ def main() -> None:
     }
 
     # ── Validate ─────────────────────────────────────────────────────────
+    schemar_errors = _validate_against_schema(
+        normalised, HERE / "testdata" / "test_evidence.schema.json"
+    )
     iverrors = _validate_invariants(normalised)
-    if iverrors:
-        for e in iverrors:
-            print(f"  [INVARIANT ERROR] {e}", file=sys.stderr)
+    all_errors = iverrors + schemar_errors
+    if all_errors:
+        for e in all_errors:
+            print(f"  [SCHEMA ERROR] {e}", file=sys.stderr)
 
     # ── Write outputs ────────────────────────────────────────────────────
     _write_json(normalised, out_dir / "ci_evidence.json")
