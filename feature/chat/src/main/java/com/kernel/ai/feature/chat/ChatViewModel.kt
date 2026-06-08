@@ -2298,7 +2298,7 @@ class ChatViewModel @Inject constructor(
                             // E2E marker: native SDK skill result
                             Log.d(
                                 "KernelAI",
-                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=${if (kernelAIToolSet.lastToolWasDirectReply()) "direct_reply" else "success"} success=true",
+                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=${if (kernelAIToolSet.lastToolWasDirectReply()) "direct_reply" else "success"}",
                             )
                             }
                             // E2E marker: legacy fallback tool call
