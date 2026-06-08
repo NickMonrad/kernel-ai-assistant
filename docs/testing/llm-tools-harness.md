@@ -20,8 +20,8 @@ It does **not** test:
 
 For each of the 3 golden prompts, the harness checks:
 
-1. **Route to Gemma** — the query reached Gemma via LLM fallthrough (`llm_tools_route` marker
-   contains `result=fallthrough`)
+1. **Route to Gemma** — the harness confirms a `llm_tools_route` marker was emitted,
+   indicating the query reached Gemma (via fallthrough from deterministic QIR/classifier paths)
 2. **Tool call generation** — Gemma produced either a native SDK tool call or a legacy
    text-format tool call
 3. **Correct tool** — the expected top-level tool name matches the actual tool called
@@ -59,12 +59,13 @@ Each case expects a specific result mode, encoded in the `llm_tools_skill_result
 
 | Mode | Meaning | Expected for |
 |------|---------|-------------|
-| `success` | Tool executed and returned a result | `query_wikipedia`, `get_system_info` |
-| `direct_reply` | Tool result was streamed directly as a chat reply | `save_memory` |
+| `success` | Tool executed and returned a result | `save_memory` |
+| `direct_reply` | Tool result was streamed directly as a chat reply | `query_wikipedia`, `get_system_info` |
 | `failure` | Tool execution failed | Not expected for golden prompts; seen during development |
 
-The `save_memory` case uses `direct_reply` mode because the memory save operation returns a
-human-readable confirmation rather than structured data.
+The `query_wikipedia` and `get_system_info` cases expect `direct_reply` because the tool
+execution result is streamed directly as a chat reply. The `save_memory` case expects
+`success` because the memory save operation confirms persistence.
 
 ## Report format
 
@@ -95,14 +96,12 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/adb_skill_test.py --phases=llm_tools
 
 # Dry run (no device needed)
 python3 scripts/adb_skill_test.py --dry-run --phases=llm_tools
-
-# Full suite including llm_tools (llm_tools runs after the QIR phases)
-python3 scripts/adb_skill_test.py --phases=llm_tools
 ```
 
-The `--phases=llm_tools` flag is handled as a special case — it does not run the QIR skill
-phases at all. To run llm_tools alongside QIR phases, run the full harness which includes
-all phases in order; llm_tools is phase 11 (last).
+The `--phases=llm_tools` flag is handled as a special case — it does not run any QIR skill
+phases. `llm_tools` is intentionally separate from the normal QIR/skills phase list because
+it has different data models, runtime markers, model/tool-call assertions, and device
+reliability characteristics.
 
 ## Known model/device flakes
 

@@ -47,7 +47,8 @@ Supported harness phases today:
 8. `system`
 9. `misc`
 10. `slot_fill`
-11. `llm_tools` — E2E model tool-call generation after LLM fallthrough (3 golden prompts, runtime marker assertions)
+The `llm_tools` harness is a separate special mode (see below) — it is not one of the ten
+QIR skill-routing phases and is not included in a normal full-suite run.
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
 
@@ -83,9 +84,9 @@ jq '.results[] | {index, message, expect_intent, actual_intent, intent_passed, p
 # Only failures
 jq '.results[] | select(.status == "fail") | {message, expect_intent, actual_intent, param_failures}' "$latest"
 
-# llm_tools — per-result summary
-jq '.results[] | {name, passed, expected_top_level_tool, actual_top_level_tool, expected_result_mode: "success", actual_result_mode, failures}' "$latest_llm"
-
+```bash
+# llm_tools — per-result summary (mode is embedded in skill_result_marker)
+jq '.results[] | {name, passed, expected_top_level_tool, actual_top_level_tool, route_marker, skill_result_marker, failures}' "$latest_llm"
 # llm_tools — only failures with failure details
 jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actual_top_level_tool, failures}' "$latest_llm"
 ```
@@ -158,7 +159,8 @@ QIR/classifier deterministic routing and falls through to Gemma. It covers the
 
 **What it validates per case:**
 
-- The query reached Gemma via LLM fallthrough (not QIR match, not classifier match)
+- The harness confirms a `llm_tools_route` marker was emitted and that deterministic
+  QIR/classifier/slot-fill paths did not win before Gemma tool-call generation
 - Gemma generated a native **or** legacy text-format tool call
 - The expected tool was actually called
 - The tool result is observable via `llm_tools_skill_result` marker
