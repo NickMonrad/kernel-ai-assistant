@@ -571,25 +571,61 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
 
 
 def _parse_tool_marker(marker: str | None) -> dict[str, str]:
-    """Parse a key=value-style marker string into a dict."""
+    """Parse a key=value-style marker string into a dict.
+    Also handles request=<json> by parsing the JSON and merging its
+    top-level string keys into the result dict, so field assertions
+    (e.g. expected_fields={"query": "Battle of Hastings"}) work
+    against the native tool marker's JSON request payload.
+    """
     if not marker:
         return {}
     result: dict[str, str] = {}
     for kv in re.finditer(r"(\w+)=(\S+)", marker):
         result[kv.group(1)] = kv.group(2)
+    # If there's a request=<json> field, merge its top-level string values
+    if "request" in result:
+        try:
+            parsed = json.loads(result["request"])
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    if isinstance(v, str):
+                        result[k] = v
+        except (json.JSONDecodeError, TypeError):
+            pass
     return result
 
-
-def _poll_for_marker(logcat: str, pattern: re.Pattern[str], timeout: float, poll_interval: float = 2.0) -> str | None:
-    """Poll logcat for a marker pattern within timeout. Returns first match or None."""
+def _poll_for_all_markers(
+    patterns: dict[str, re.Pattern[str]],
+    timeout: float = 120,
+    poll_interval: float = 2.0,
+) -> tuple[dict[str, str | None], str]:
+    """Poll logcat for multiple marker patterns simultaneously.
+    Accumulates a single log buffer across all poll iterations and searches
+    all patterns against it. Also taps the screen periodically to keep the
+    app foregrounded (required by Android 15+ foreground service constraint).
+    Returns (results, accumulated_log) where results maps each pattern key
+    to the first match content (or None), and accumulated_log is the full
+    accumulated snapshot for additional searches (retry, slot-fill, etc.).
+    """
     deadline = time.time() + timeout
+    accumulated = ""
+    results: dict[str, str | None] = {k: None for k in patterns}
     while time.time() < deadline:
         time.sleep(poll_interval)
-        logcat = read_logcat_all()
-        m = pattern.search(logcat)
-        if m:
-            return m.group(1).strip() if m.lastindex else m.group(0).strip()
-    return None
+        accumulated += "\n" + read_logcat_all()
+        # Search all unfound patterns against the full accumulated log
+        for key, pat in patterns.items():
+            if results[key] is not None:
+                continue
+            m = pat.search(accumulated)
+            if m:
+                results[key] = m.group(1).strip() if m.lastindex else m.group(0).strip()
+        # Keep app foregrounded with periodic taps (Android 15+)
+        run_adb("shell", "input", "tap", "500", "1000")
+        # Early exit if all markers found
+        if all(v is not None for v in results.values()):
+            break
+    return results, accumulated
 
 
 def _clear_conversation() -> None:
@@ -667,14 +703,12 @@ def run_llm_tools(dry_run: bool = False) -> int:
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
     print("ready")
-
     # Pre-run cleanup
     print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
     for pkg in ("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock"):
         run_adb("shell", "am", "force-stop", pkg)
     cleanup_side_effects()
     print("done")
-
     clear_logcat()
     time.sleep(WAIT_SECONDS)
     clear_logcat()
@@ -699,21 +733,27 @@ def run_llm_tools(dry_run: bool = False) -> int:
         clear_logcat()
         time.sleep(0.5)
 
-        # Send the prompt
-        send_text(tc.message)
-
-        # Poll for markers with early exit (don't wait fixed WAIT_SECONDS)
-        route_marker = _poll_for_marker(read_logcat_all(), LLM_TOOLS_ROUTE_PATTERN, timeout=45)
-        native_tool = _poll_for_marker(read_logcat_all(), LLM_TOOLS_NATIVE_TOOL_PATTERN, timeout=45)
-        legacy_tool = _poll_for_marker(read_logcat_all(), LLM_TOOLS_LEGACY_TOOL_PATTERN, timeout=45)
-        skill_result = _poll_for_marker(read_logcat_all(), LLM_TOOLS_SKILL_RESULT_PATTERN, timeout=45)
-        message_saved = _poll_for_marker(read_logcat_all(), LLM_TOOLS_MESSAGE_SAVED_PATTERN, timeout=45)
-
-        # Check for slot-fill and retry markers
-        final_log = read_logcat_all()
+        # Send the prompt (foreground keepalive handled by _poll_for_all_markers)
+        send_text(tc.message, wait_for_inference=False)
+        # Poll for all markers simultaneously from a single accumulated buffer,
+        # avoiding the log-draining bug where sequential _poll_for_marker calls
+        # consume markers that arrived together.
+        patterns = {
+            "route": LLM_TOOLS_ROUTE_PATTERN,
+            "native_tool": LLM_TOOLS_NATIVE_TOOL_PATTERN,
+            "legacy_tool": LLM_TOOLS_LEGACY_TOOL_PATTERN,
+            "skill_result": LLM_TOOLS_SKILL_RESULT_PATTERN,
+            "message_saved": LLM_TOOLS_MESSAGE_SAVED_PATTERN,
+        }
+        markers, final_log = _poll_for_all_markers(patterns, timeout=120)
+        route_marker = markers["route"]
+        native_tool = markers["native_tool"]
+        legacy_tool = markers["legacy_tool"]
+        skill_result = markers["skill_result"]
+        message_saved = markers["message_saved"]
+        # Check for slot-fill and retry markers (from the same accumulated log)
         retry_seen = bool(LLM_TOOLS_RETRY_PATTERN.search(final_log))
         slot_fill_seen = bool(LLM_TOOLS_SLOT_FILL_PATTERN.search(final_log))
-
         # Extract tool info from markers
         native_data = _parse_tool_marker(native_tool)
         legacy_data = _parse_tool_marker(legacy_tool)
