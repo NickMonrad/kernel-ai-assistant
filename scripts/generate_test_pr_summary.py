@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -120,16 +119,22 @@ def failure_breakdown(reports: list[dict]) -> dict[str, int]:
 def device_table(reports: list[dict]) -> list[str]:
     """Render a per-device result table for a list of reports.
 
-    Reports are deduped by device ID + commit to avoid repeating the same
-    run that was normalised twice.
+    Reports with the same source, suite, device, commit, and run_id are
+    deduped to avoid repeating identical runs loaded twice.
     """
     rows: list[tuple[Any, ...]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for r in reports:
         dev = r.get("device", {})
         did = dev.get("id", "?")
         commit = r.get("commit", "?")
-        key = (did, commit)
+        key = (
+            r.get("source", "?"),
+            r.get("suite", "?"),
+            did,
+            commit,
+            str(r.get("run_id", "") or ""),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -213,10 +218,6 @@ def main() -> None:
         "--out-md", required=True,
         help="Output path for generated PR comment Markdown",
     )
-    parser.add_argument(
-        "--post", action="store_true",
-        help="(Optional) Also post the comment to the PR via GitHub API",
-    )
     args = parser.parse_args()
 
     reports = load_reports(args.input)
@@ -232,10 +233,10 @@ def main() -> None:
     lines.append(f"## Test Evidence — PR #{args.pr}")
     lines.append("")
     lines.append(
-        f"**Suites:** {', '.join(suites)}  \\"
+        f"**Suites:** {', '.join(suites)}"
     )
     lines.append(
-        f"**Reports:** {len(reports)} normalised evidence file(s)  \\"
+        f"**Reports:** {len(reports)} normalised evidence file(s)"
     )
     lines.append("")
 
@@ -306,26 +307,6 @@ def main() -> None:
     out.write_text("\n".join(lines) + "\n")
     print(f"PR summary written to {out}")
 
-    # ── Optional post ───────────────────────────────────────────────────────
-    if args.post:
-        _post_to_pr(out, args.pr)
-
-
-def _post_to_pr(md_path: Path, pr_number: int) -> None:
-    """Post the generated Markdown as a PR comment.
-
-    Uses GitHub CLI (``gh``).  The caller must be authenticated.
-    """
-    import subprocess
-    body = md_path.read_text()
-    result = subprocess.run(
-        ["gh", "pr", "comment", str(pr_number), "--body", body],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error posting PR comment: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
-    print(f"Comment posted to PR #{pr_number}")
 
 
 if __name__ == "__main__":
