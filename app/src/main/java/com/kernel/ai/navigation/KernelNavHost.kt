@@ -760,14 +760,16 @@ fun KernelNavHost(
                 }
 
                 composable(ROUTE_TOOLS) {
-                    ToolsHubScreen(
-                        onOpenDrawer = {
-                            coroutineScope.launch { drawerState.open() }
-                        },
-                        onNavigateToRoute = { route ->
-                            navController.navigateToToolsDestination(route)
-                        },
-                    )
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        ToolsHubScreen(
+                            onOpenDrawer = {
+                                coroutineScope.launch { drawerState.open() }
+                            },
+                            onNavigateToRoute = { route ->
+                                navController.navigateToToolsDestination(route)
+                            },
+                        )
+                    }
                 }
             }
         }
