@@ -576,11 +576,14 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     top-level string keys into the result dict, so field assertions
     (e.g. expected_fields={"query": "Battle of Hastings"}) work
     against the native tool marker's JSON request payload.
+    For legacy raw-text markers (raw=<|tool_call>call:<tool>{...}):
+    extracts the tool name and merges JSON fields from the raw text
+    so the same assertion logic works for both paths.
     """
     if not marker:
         return {}
     result: dict[str, str] = {}
-    for kv in re.finditer(r"(\w+)=(\S+)", marker):
+    for kv in re.finditer(r"(\w+)=((?:(?!\s+\w+=).)+)", marker):
         result[kv.group(1)] = kv.group(2)
     # If there's a request=<json> field, merge its top-level string values
     if "request" in result:
@@ -592,6 +595,19 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
                         result[k] = v
         except (json.JSONDecodeError, TypeError):
             pass
+    # Legacy raw-text marker: extract tool name and merge JSON from
+    # the raw content (format: <|tool_call>call:<tool>{<json>})
+    if "raw" in result and "tool" not in result:
+        raw = result["raw"]
+        # Extract tool name: call:<toolName>{
+        tool_m = re.search(r"call:(\w+)\{", raw)
+        if tool_m:
+            result["tool"] = tool_m.group(1)
+        # Extract key=value fields from Gemma-4 tool call format:
+        #   <key>:<|"|><value><|"|>
+        # JSON parsing won't work because keys are unquoted.
+        for fv in re.finditer(r"(\w+):<\\?\|\\?\"\\?\|>(.+?)<\\?\|\\?\"\\?\|>", raw):
+            result[fv.group(1)] = fv.group(2)
     return result
 
 def _poll_for_all_markers(
