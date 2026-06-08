@@ -84,7 +84,6 @@ jq '.results[] | {index, message, expect_intent, actual_intent, intent_passed, p
 # Only failures
 jq '.results[] | select(.status == "fail") | {message, expect_intent, actual_intent, param_failures}' "$latest"
 
-```bash
 # llm_tools — per-result summary (mode is embedded in skill_result_marker)
 jq '.results[] | {name, passed, expected_top_level_tool, actual_top_level_tool, route_marker, skill_result_marker, failures}' "$latest_llm"
 # llm_tools — only failures with failure details
