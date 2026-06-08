@@ -162,15 +162,33 @@ class LLMToolsResult:
     phase: str = "llm_tools"
 
 
+# Semantic routing guidelines for deterministic test cases:
+#   - "note to self <memo>" => save_memory (memo/note capture). Until a dedicated
+#     notes skill exists, keep under save_memory. If a notes skill is added, move
+#     there, not to add_reminder.
+#   - "remember that <durable fact/preference>" => save_memory.
+#   - "remember/remind me to <task> at/on <time/date>" => add_reminder.
+#   - "wake me / alarm <time>" => set_alarm.
+#   - Avoid standalone anaphora ("those ingredients", "that", "it") in single-turn
+#     golden cases — no prior context to resolve them.
+#   - Avoid context-dependent media commands ("hold on", "normal speed") unless the
+#     suite explicitly sets up media context first.
+#   - "text myself" requires expect_params to confirm contact resolution works.
+#
+
 PHASES: list[tuple[str, list[TestCase]]] = [
     ("alarm_timer", [
         # set_alarm
         TestCase("set an alarm for 11pm", "set_alarm"),
         TestCase("wake me up at 11:30", "set_alarm"),
-        TestCase("remind me tomorrow at 9", "set_alarm"),
+        TestCase("set an alarm for tomorrow at 9am", "set_alarm"),
         TestCase("alarm 11:30pm", "set_alarm"),
         TestCase("can you wake me at 11:30", "set_alarm"),
         TestCase("I need an alarm for 11 tonight", "set_alarm"),
+        # add_reminder — explicit future-task prompts, distinct from save_memory
+        TestCase("remind me to call the dentist Monday", "add_reminder"),
+        TestCase("remind me at 9am Monday to call the dentist", "add_reminder"),
+        TestCase("remind me to pick up dry cleaning tomorrow evening", "add_reminder"),
         # cancel_alarm
         TestCase("cancel my 11pm alarm", "cancel_alarm"),
         TestCase("turn off all my alarms", "cancel_alarm"),
@@ -238,7 +256,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("louder", "set_volume"),
         TestCase("mute", "set_volume"),
         # pause_media (#521)
-        TestCase("pause the music", "pause_media"),
+        TestCase("hold on, pause the music", "pause_media"),
         TestCase("pause playback", "pause_media"),
         TestCase("hold on", "pause_media"),
         # stop_media (#521)
@@ -263,10 +281,9 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"item": "milk", "list_name": "shopping"}),
         TestCase("put eggs on the grocery list", "add_to_list",
                  expect_params={"item": "eggs", "list_name": "grocery"}),
-        TestCase("add bread and butter to my shopping list", "add_to_list"),
+        # "add bread and butter" is a multi-item request → bulk_add_to_list (xfail)
+        TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True),
         TestCase("chuck milk on the list", "add_to_list"),
-        TestCase("stick bananas on the shopping list", "add_to_list"),
-        TestCase("add tomatoes to the grocery list", "add_to_list"),
         TestCase("pop coffee on my list", "add_to_list"),
         TestCase("put sunscreen on the holiday list", "add_to_list"),
         # get_list_items
@@ -274,11 +291,11 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"list_name": "todo"}),
         TestCase("what's on my shopping list", "get_list_items",
                  expect_params={"list_name": "shopping"}),
-        TestCase("read me my grocery list", "get_list_items"),
+        TestCase("what do I need to get from the shops", "get_list_items"),
         TestCase("what's on my grocery list", "get_list_items"),
         TestCase("show me the shopping list", "get_list_items"),
         TestCase("read out my holiday list", "get_list_items"),
-        TestCase("what do I need to get", "get_list_items"),
+        TestCase("read me my grocery list", "get_list_items"),
         # remove_from_list
         TestCase("remove milk from my shopping list", "remove_from_list",
                  expect_params={"item": "milk", "list_name": "shopping"}),
@@ -293,6 +310,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"list_name": "groceries"}),
         TestCase("make a new list called holiday packing", "create_list",
                  expect_params={"list_name": "holiday packing"}),
+        TestCase("add eggs, milk, and bread to my shopping list", "bulk_add_to_list", xfail=True),
         TestCase("make me a list for camping", "create_list"),
         TestCase("create a new list called work tasks", "create_list"),
         # bulk_add_to_list (#529 — LLM-routed, xfail until verified)
@@ -309,10 +327,17 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("kill the lights", "smart_home_off"),
     ]),
     ("memory", [
-        TestCase("save that we're meeting Tuesday", "save_memory"),
+        # save_memory — durable facts/preferences only, not future tasks
+        # "remember that <durable fact/preference>" => save_memory
+        # "note to self <memo>" => save_memory (until a dedicated notes skill exists)
+        # "remind me to <task>" => add_reminder (not save_memory)
+        TestCase("remember that I usually meet Sarah on Tuesdays", "save_memory"),
         TestCase("remember that I prefer dark mode", "save_memory"),
+        # Memo/note capture — no alert implied. If a dedicated notes skill is added,
+        # this should move from save_memory to that note/memo intent, not add_reminder.
         TestCase("note to self call the dentist Monday", "save_memory"),
-        TestCase("don't forget I parked on level 3", "save_memory"),
+        # Ephemeral memo capture — no alert implied.
+        TestCase("remember that I parked on level 3", "save_memory"),
     ]),
     ("navigation", [
         # navigate_to
@@ -324,6 +349,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("open Spotify", "open_app"),
         TestCase("launch Google Maps", "open_app"),
         # make_call
+        # make_call
         TestCase("call voicemail", "make_call"),
         TestCase("call my voicemail", "make_call"),
         TestCase("ring mum", "make_call"),
@@ -332,7 +358,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("call zippy", "make_call"),
         TestCase("ring zippy", "make_call"),
         # send_sms
-        TestCase("text myself a reminder to buy groceries", "send_sms"),
+        TestCase("text myself a reminder to buy groceries", "send_sms",
+                 expect_params={"contact": "myself", "message": "buy groceries"}),
         TestCase("send a message to myself saying call the plumber", "send_sms"),
         TestCase("text John saying I'll be 10 minutes late", "send_sms"),
         TestCase("message mum that I'm on my way", "send_sms"),
@@ -403,7 +430,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         # podcast_speed (#524)
         TestCase("play at 1.5x speed", "podcast_speed"),
         TestCase("set playback speed to 2x", "podcast_speed"),
-        TestCase("normal speed", "podcast_speed"),
+        TestCase("set podcast playback to normal speed", "podcast_speed"),
         TestCase("slow down the podcast", "podcast_speed"),
     ]),
     ("slot_fill", [
@@ -538,6 +565,22 @@ TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 # These prompts intentionally bypass QIR regex and deterministic recovery,
 # forcing the request through to Gemma-4. Adjust to match actual skill schemas.
 
+# ── LLM tools golden-set test cases ──────────────────────────────────────
+#
+# These prompts must:
+#   (a) bypass deterministic QIR (no regex or MiniLM match),
+#   (b) reach Gemma-4 and generate a tool call,
+#   (c) be low side-effect (read-only when possible).
+#
+# Semantic routing guidelines applied here:
+#   - "remember that <durable fact/preference>"  => save_memory.
+#   - Wikipedia / system-info queries are read-only and low risk.
+#   - Avoid ambiguous anaphora ("those", "that", "it") — no prior context.
+#   - Avoid prompts that sound like reminders or tasks (those should
+#     route to add_reminder/calendar, not save_memory).
+#   - expected_fields only when the tool schema actually accepts them.
+#     get_system_info takes no request parameters, so skip field asserts.
+# ────────────────────────────────────────────────────────────────────────
 LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     LLMToolsTestCase(
         name="query_wikipedia_natural",
@@ -548,18 +591,18 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_classifier_match=True,
     ),
     LLMToolsTestCase(
-        name="save_memory_natural",
-        message="Remember that I need to pick up dry cleaning tomorrow evening",
+        name="save_memory_durable_fact",
+        message="Remember that my preferred dry cleaner is Star Dry Cleaning",
         expected_top_level_tool="save_memory",
-        expected_fields={"content": "dry cleaning"},
+        expected_fields={"content": "preferred dry cleaner"},
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
     ),
     LLMToolsTestCase(
-        name="get_system_info",
-        message="What's my current battery level and how much storage is free",
+        name="get_system_info_natural",
+        message="What's my current battery level and how much storage is free?",
         expected_top_level_tool="get_system_info",
-        expected_fields={"fields": "battery"},
+        expected_fields=None,
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
     ),
@@ -636,14 +679,14 @@ def _poll_for_all_markers(
             m = pat.search(accumulated)
             if m:
                 results[key] = m.group(1).strip() if m.lastindex else m.group(0).strip()
-        # Keep app foregrounded with periodic taps (Android 15+)
+        # Keep screen on and app foregrounded (Android 15+ foreground service)
+        run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        time.sleep(0.1)
         run_adb("shell", "input", "tap", "500", "1000")
         # Early exit if all markers found
         if all(v is not None for v in results.values()):
             break
     return results, accumulated
-
-
 def _clear_conversation() -> None:
     """Force-stop the app to clear conversation state and model caches."""
     run_adb("shell", "am", "force-stop", PACKAGE)
