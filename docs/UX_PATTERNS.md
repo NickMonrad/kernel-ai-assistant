@@ -144,6 +144,25 @@ Future search should be able to produce matches such as:
 
 The "Learn what Jandal can do" area is educational.
 
+Example prompts use grouped sections with a collapsed default showing two examples per
+group and a **View more** button to expand that group to show additional prompts.
+
+When the user taps an example prompt, the app navigates to the Actions screen using a safe
+draft route (`actions?openSheet=true&draftQuery=<encoded prompt>`) which opens the Quick
+Action bottom sheet with the prompt text prefilled. The user must tap **Send** to execute;
+the prompt is never auto-executed on tap.
+
+The `draftQuery` route parameter is separate from `initialQuery`/`widgetQuery`:
+
+| Parameter | Route | Behaviour |
+|---|---|---|
+| `widgetQuery` | `actions?widgetQuery=...` | Auto-executes the query (widget/ADB path) |
+| `draftQuery` | `actions?openSheet=true&draftQuery=...` | Opens sheet prefilled, does not execute |
+
+Some examples, such as `Create a calendar event for soccer training`, are intentionally
+incomplete to demonstrate that Jandal can ask follow-up slot-filling questions (e.g.
+"What day is soccer training for?") before completing the action.
+
 Example prompts may:
 
 - show example text;
@@ -159,6 +178,9 @@ Example prompts must not:
 - save memories;
 - mutate lists or notes;
 - change settings.
+
+Any action that creates, deletes, sends, saves, schedules, or changes settings must require
+explicit user confirmation in the destination flow.
 
 Any action that creates, deletes, sends, saves, schedules, or changes settings must require
 explicit user confirmation in the destination flow.
@@ -236,6 +258,28 @@ tools_row_voice
 tools_row_models
 tools_row_permissions
 ```
+```
+
+Tool example and Quick Action sheet test tags:
+
+```text
+tools_examples_header
+tools_examples_helper_copy
+tools_examples_group_lists
+tools_examples_view_more_lists
+tools_example_lists_add_milk
+tools_examples_group_meal_planning
+tools_examples_view_more_meal_planning
+tools_example_meal_plan_dinners_week
+tools_examples_group_weather
+tools_examples_view_more_weather
+tools_example_weather_current
+tools_examples_group_utilities_conversions
+tools_examples_view_more_utilities_conversions
+tools_example_convert_cups_ml
+quick_action_input
+quick_action_submit_button
+quick_action_example_hint
 
 Keep navigation-shell tests separate from the `llm_tools` harness:
 
@@ -255,8 +299,8 @@ an implementation follow-up to this design/test-pattern alignment work, then cov
 - minimum navigation smoke scenarios such as `Launch app → Chats visible`, `Actions → visible`,
   `Tools → visible`, `Tools → Lists → Back`, `Tools → Clock → Back`, `Tools → Settings → Back`,
   `Tools → Actions → Tools → Chats`, and `Drawer opens from primary destinations`;
+- automated screenshot capture via `ToolsHubScreenshotTest` saved to device external files and pulled via `adb pull`;
 - confirmation that no blank screen was observed;
-- screenshots attached where the changed navigation surface is user-visible;
 - any skipped checks, device limitations, or follow-up notes.
 
 ---
