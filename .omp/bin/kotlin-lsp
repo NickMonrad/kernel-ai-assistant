@@ -11,7 +11,7 @@
 #
 # Usage:
 #   export KOTLIN_LSP_BIN=/path/to/intellij-server
-#   ./omp/bin/kotlin-lsp --stdio
+#   .omp/bin/kotlin-lsp --stdio
 #
 # Caches:
 #   IDEA_CONFIG_DIR  = ~/.cache/kotlin-lsp/config
