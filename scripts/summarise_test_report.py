@@ -36,17 +36,70 @@ REPO = "NickMonrad/kernel-ai-assistant"
 HERE = Path(__file__).resolve().parent
 DEVICES_PATH = HERE / "testdata" / "devices.yaml"
 
+# Known case-name → expected_result_mode mapping for legacy raw reports
+# that do not carry per-case expected_result_mode.
+_EXPECTED_MODES: dict[str, str] = {
+    "query_wikipedia_natural": "direct_reply",
+    "save_memory_durable_fact": "success",
+    "get_system_info_natural": "direct_reply",
+}
+
+# Matches "YYYY-MM-DDTHH-MM-SSZ" (raw harness format)
+_TIMESTAMP_NORM_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z$")
+
+
+def normalise_timestamp(ts: str) -> str:
+    """Convert raw harness timestamp to ISO/date-time.
+
+    Raw format: ``2026-06-08T04-28-55Z`` → ``2026-06-08T04:28:55Z``.
+    """
+    if m := _TIMESTAMP_NORM_RE.match(ts):
+        return f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}Z"
+    if ts and not ts.endswith("Z"):
+        return ts + "Z"
+    return ts
+
+
+def _yaml_load(source: str) -> dict:
+    """Minimal YAML subset parser for the device registry.
+
+    Handles the subset used by ``devices.yaml``: top-level ``key: value``,
+    nested dicts, comments, and ``null`` values.  Avoids a PyYAML dep.
+    """
+    result: dict = {}
+    stack: list[tuple[dict, str | None]] = [(result, None)]
+    for raw_line in source.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip())
+        while stack and indent <= (stack[-1][1] if stack[-1][1] is not None else -1):
+            stack.pop()
+        if ":" not in stripped:
+            continue
+        key, _, val = stripped.partition(":")
+        key = key.strip()
+        val = val.strip()
+        val = None if val == "null" else val
+        current = stack[-1][0]
+        if val is None:
+            current[key] = {}
+            stack.append((current[key], indent))
+        elif not val:
+            current[key] = {}
+            stack.append((current[key], indent))
+        else:
+            current[key] = val
+    return result
+
 
 # ── Device registry ──────────────────────────────────────────────────────────
 
 def load_devices() -> dict:
     """Load device registry from YAML.  Returns {device_id: {…}}."""
-    import yaml
-    with open(DEVICES_PATH) as f:
-        data = yaml.safe_load(f)
+    source = DEVICES_PATH.read_text()
+    data = _yaml_load(source)
     return data.get("devices", {})
-
-
 def resolve_device(device_id: str, devices: dict) -> dict:
     """Look up a device by ID; exit with clear error on unknown ID."""
     if device_id not in devices:
@@ -248,40 +301,117 @@ def build_run_id(source: str, timestamp: str, device_id: str) -> str:
     return f"{source}-{ts}-{device_id}"
 
 
-def write_csv(cases: list[dict], path: Path) -> None:
-    """Write one CSV row per case."""
+def write_csv(normalised: dict, path: Path) -> None:
+    """Write CSV with one row per case, enriched with report-level fields."""
+    cases = normalised.get("cases", [])
     if not cases:
         path.write_text("")
         return
-    fieldnames = list(cases[0].keys())
+    rows = []
+    for c in cases:
+        row = {
+            # Report-level fields
+            "timestamp": normalised["timestamp"],
+            "source": normalised["source"],
+            "repo": normalised["repo"],
+            "branch": normalised["branch"],
+            "commit": normalised["commit"],
+            "pr": normalised["pr"] or "",
+            "run_id": normalised["run_id"],
+            "suite": normalised["suite"],
+            # Device
+            "device_id": normalised["device"]["id"],
+            "device_label": normalised["device"]["label"],
+            "device_soc": normalised["device"]["soc"],
+            "device_tier": normalised["device"]["tier"],
+            "device_api": normalised["device"].get("android_api") or "",
+            # Model
+            "model_name": normalised["model"]["name"] or "",
+            "model_runtime": normalised["model"]["runtime"] or "",
+            "model_backend": normalised["model"]["backend"] or "",
+            # Case fields
+            "case": c["name"],
+            "passed": c["passed"],
+            "expected_tool": c["expected_tool"] or "",
+            "actual_tool": c["actual_tool"] or "",
+            "expected_result_mode": c["expected_result_mode"],
+            "actual_result_mode": c["actual_result_mode"],
+            "chip_present": c["chip_present"],
+            "skill_result_present": c["skill_result_present"],
+            "message_saved": c["message_saved"],
+            "retry_seen": c["retry_seen"],
+            "slot_fill_seen": c["slot_fill_seen"],
+            "failure_category": c["failure_category"] or "",
+            "failures": "; ".join(c["failures"]) if c["failures"] else "",
+        }
+        rows.append(row)
+    fieldnames = list(rows[0].keys())
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
-        w.writerows(cases)
+        w.writerows(rows)
 
 
-def write_markdown(summary: dict, cases: list[dict], path: Path) -> None:
-    """Write a compact single-run Markdown summary."""
+def write_markdown(normalised: dict, path: Path) -> None:
+    """Write a single-run Markdown summary with report metadata."""
+    s = normalised["summary"]
+    cases = normalised.get("cases", [])
+    dev = normalised["device"]
+    md = normalised["model"]
     lines = [
         "## Test Run Summary",
         "",
+        "### Run metadata",
+        "",
+        f"| Field | Value |",
+        f"|-------|-------|",
+        f"| Source | {normalised['source']} |",
+        f"| Commit | `{normalised['commit'][:10]}` |",
+        f"| Branch | {normalised['branch']} |",
+        f"| Suite | {normalised['suite']} |",
+        f"| PR | {normalised['pr'] or '—'} |",
+        f"| Timestamp | {normalised['timestamp']} |",
+        f"| Run ID | `{normalised['run_id']}` |",
+        "",
+        "### Device",
+        "",
+        f"| Field | Value |",
+        f"|-------|-------|",
+        f"| ID | {dev['id']} |",
+        f"| Label | {dev['label']} |",
+        f"| SoC | {dev['soc']} |",
+        f"| Android API | {dev.get('android_api') or '—'} |",
+        f"| Tier | {dev['tier']} |",
+        "",
+        "### Model",
+        "",
+        f"| Field | Value |",
+        f"|-------|-------|",
+        f"| Name | {md['name'] or '—'} |",
+        f"| Runtime | {md['runtime'] or '—'} |",
+        f"| Backend | {md['backend'] or '—'} |",
+        "",
+        "### Results",
+        "",
         f"| Metric | Value |",
         f"|--------|-------|",
-        f"| Total | {summary['total']} |",
-        f"| Passed | {summary['passed']} |",
-        f"| Failed | {summary['failed']} |",
-        f"| Pass rate | {summary['pass_rate']:.1%} |",
+        f"| Total | {s['total']} |",
+        f"| Passed | {s['passed']} |",
+        f"| Failed | {s['failed']} |",
+        f"| Pass rate | {s['pass_rate']:.1%} |",
         "",
     ]
     if cases:
-        lines.append("| Case | Result | Expected Tool | Actual Tool | Failure Category |")
-        lines.append("|------|--------|---------------|-------------|------------------|")
+        lines.append("| Case | Result | Expected Tool | Actual Tool | Exp Mode | Act Mode | Failure Category |")
+        lines.append("|------|--------|---------------|-------------|----------|----------|------------------|")
         for c in cases:
             icon = "✅" if c["passed"] else "❌"
             et = c["expected_tool"] or "—"
             at = c["actual_tool"] or "—"
+            em = c["expected_result_mode"]
+            am = c["actual_result_mode"]
             fc = c["failure_category"] or "—"
-            lines.append(f"| {c['name']} | {icon} | {et} | {at} | {fc} |")
+            lines.append(f"| {c['name']} | {icon} | {et} | {at} | {em} | {am} | {fc} |")
     path.write_text("\n".join(lines) + "\n")
 
 
@@ -368,25 +498,24 @@ def main() -> None:
         }
 
     # ── Timestamp ─────────────────────────────────────────────────────────
-    timestamp = raw.get("timestamp", "")
-    if timestamp and not timestamp.endswith("Z"):
-        timestamp += "Z"
+    timestamp = normalise_timestamp(raw.get("timestamp", ""))
 
     # ── Normalise cases ───────────────────────────────────────────────────
     raw_results = raw.get("results", [])
     cases: list[dict] = []
 
     for r in raw_results:
-        # future: raw report may carry per-case expected_result_mode
         expected_mode: str | None = r.get("expected_result_mode")
+        if expected_mode is None:
+            expected_mode = _EXPECTED_MODES.get(r.get("name", ""))
         if expected_mode is None:
             expected_mode = args.default_expected_mode
         if expected_mode is None:
             print(
                 f"Error: cannot derive expected_result_mode for case "
                 f"'{r.get('name', '<unknown>')}'. "
-                f"Add per-case expected_result_mode to raw report or pass "
-                f"--default-expected-mode.",
+                f"Add per-case expected_result_mode to raw report, pass "
+                f"--default-expected-mode, or extend _EXPECTED_MODES.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -442,11 +571,11 @@ def main() -> None:
     print(f"Normalised JSON: {json_path}")
 
     csv_path = out_dir / f"{stem}_cases.csv"
-    write_csv(cases, csv_path)
+    write_csv(normalised, csv_path)
     print(f"Case CSV:       {csv_path}")
 
     md_path = out_dir / f"{stem}_summary.md"
-    write_markdown(summary, cases, md_path)
+    write_markdown(normalised, md_path)
     print(f"Summary MD:     {md_path}")
 
     # ── Print quick summary to stdout ─────────────────────────────────────
