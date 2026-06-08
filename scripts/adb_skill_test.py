@@ -41,6 +41,13 @@ PROFILE_LLM_PATTERN = re.compile(r"Profile LLM extraction succeeded")
 PROFILE_FALLBACK_PATTERN = re.compile(r"Profile regex fallback")
 PROFILE_YAML_PATTERN = re.compile(r"name:\s*(.+)")
 THINKING_PATTERN = re.compile(r"Thinking tokens:\s*(\d+)")
+LLM_TOOLS_ROUTE_PATTERN = re.compile(r"llm_tools_route:\s*(.+)")
+LLM_TOOLS_NATIVE_TOOL_PATTERN = re.compile(r"llm_tools_native_tool:\s*(.+)")
+LLM_TOOLS_LEGACY_TOOL_PATTERN = re.compile(r"llm_tools_legacy_tool:\s*(.+)")
+LLM_TOOLS_SKILL_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*(.+)")
+LLM_TOOLS_MESSAGE_SAVED_PATTERN = re.compile(r"llm_tools_message_toolcall_saved:\s*(.+)")
+LLM_TOOLS_RETRY_PATTERN = re.compile(r"raw_tool_call_retry_succeeded|hallucination_retry_succeeded")
+LLM_TOOLS_SLOT_FILL_PATTERN = re.compile(r"NeedsSlot|ConfirmationFastPath:")
 WAIT_SECONDS = 20
 PROFILE_WAIT_SECONDS = 45  # LLM extraction needs more time than QIR
 REPORTS_DIR = Path(__file__).parent / "test-reports"
@@ -100,6 +107,20 @@ class TestCase:
     # send this reply as a chat_input to confirm and trigger execution.
     confirm_reply: str | None = None
 
+@dataclass
+class LLMToolsTestCase:
+    """Test case for the llm_tools harness phase."""
+    name: str
+    message: str
+    expected_top_level_tool: str  # e.g. "run_intent", "get_weather"
+    expected_nested_intent: str | None = None  # e.g. "set_timer", "add_reminder"
+    expected_fields: dict[str, str] | None = None  # semantic field assertions
+    expected_result_mode: str = "unknown"  # "direct_reply" | "llm_wrapped_success" | "unknown"
+    expect_no_regex_match: bool = True
+    expect_no_classifier_match: bool = True
+    expect_no_slot_fill: bool = True
+    expect_no_retry: bool = True
+
 
 @dataclass
 class TestResult:
@@ -118,16 +139,56 @@ class TestResult:
     log_check_warn: str | None
     phase: str = ""
 
+@dataclass
+class LLMToolsResult:
+    """Structured outcome of a single llm_tools test case."""
+    index: int
+    name: str
+    message: str
+    expected_top_level_tool: str
+    actual_top_level_tool: str | None
+    actual_nested_intent: str | None
+    route_marker: str | None
+    native_tool_marker: str | None
+    legacy_tool_marker: str | None
+    skill_result_marker: str | None
+    message_saved_marker: str | None
+    retry_seen: bool
+    slot_fill_seen: bool
+    chip_text: str | None
+    reply_text: str | None
+    passed: bool
+    failures: list[str]
+    phase: str = "llm_tools"
+
+
+# Semantic routing guidelines for deterministic test cases:
+#   - "note to self <memo>" => save_memory (memo/note capture). Until a dedicated
+#     notes skill exists, keep under save_memory. If a notes skill is added, move
+#     there, not to add_reminder.
+#   - "remember that <durable fact/preference>" => save_memory.
+#   - "remember/remind me to <task> at/on <time/date>" => add_reminder.
+#   - "wake me / alarm <time>" => set_alarm.
+#   - Avoid standalone anaphora ("those ingredients", "that", "it") in single-turn
+#     golden cases — no prior context to resolve them.
+#   - Avoid context-dependent media commands ("hold on", "normal speed") unless the
+#     suite explicitly sets up media context first.
+#   - "text myself" requires expect_params to confirm contact resolution works.
+#
 
 PHASES: list[tuple[str, list[TestCase]]] = [
     ("alarm_timer", [
         # set_alarm
         TestCase("set an alarm for 11pm", "set_alarm"),
         TestCase("wake me up at 11:30", "set_alarm"),
-        TestCase("remind me tomorrow at 9", "set_alarm"),
+        TestCase("set an alarm for tomorrow at 9am", "set_alarm"),
         TestCase("alarm 11:30pm", "set_alarm"),
         TestCase("can you wake me at 11:30", "set_alarm"),
         TestCase("I need an alarm for 11 tonight", "set_alarm"),
+        # add_reminder — explicit future-task prompts, distinct from save_memory
+        TestCase("remind me to call the dentist Monday", "add_reminder"),
+        TestCase("remind me at 9am Monday to call the dentist", "add_reminder"),
+        TestCase("remind me to pick up dry cleaning tomorrow evening", "add_reminder"),
         # cancel_alarm
         TestCase("cancel my 11pm alarm", "cancel_alarm"),
         TestCase("turn off all my alarms", "cancel_alarm"),
@@ -195,7 +256,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("louder", "set_volume"),
         TestCase("mute", "set_volume"),
         # pause_media (#521)
-        TestCase("pause the music", "pause_media"),
+        TestCase("hold on, pause the music", "pause_media"),
         TestCase("pause playback", "pause_media"),
         TestCase("hold on", "pause_media"),
         # stop_media (#521)
@@ -220,10 +281,13 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"item": "milk", "list_name": "shopping"}),
         TestCase("put eggs on the grocery list", "add_to_list",
                  expect_params={"item": "eggs", "list_name": "grocery"}),
-        TestCase("add bread and butter to my shopping list", "add_to_list"),
-        TestCase("chuck milk on the list", "add_to_list"),
-        TestCase("stick bananas on the shopping list", "add_to_list"),
-        TestCase("add tomatoes to the grocery list", "add_to_list"),
+        # "add bread and butter" is a multi-item request → bulk_add_to_list (xfail)
+        TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True),
+        # Kiwi/Aus colloquial usage: "chuck X on the list" means add/put X on the list.
+        TestCase("chuck milk on the list", "add_to_list",
+                 expect_params={"item": "milk"}),
+        TestCase("chuck eggs on the grocery list", "add_to_list",
+                 expect_params={"item": "eggs", "list_name": "grocery"}),
         TestCase("pop coffee on my list", "add_to_list"),
         TestCase("put sunscreen on the holiday list", "add_to_list"),
         # get_list_items
@@ -231,11 +295,11 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"list_name": "todo"}),
         TestCase("what's on my shopping list", "get_list_items",
                  expect_params={"list_name": "shopping"}),
-        TestCase("read me my grocery list", "get_list_items"),
+        TestCase("what do I need to get from the shops", "get_list_items"),
         TestCase("what's on my grocery list", "get_list_items"),
         TestCase("show me the shopping list", "get_list_items"),
         TestCase("read out my holiday list", "get_list_items"),
-        TestCase("what do I need to get", "get_list_items"),
+        TestCase("read me my grocery list", "get_list_items"),
         # remove_from_list
         TestCase("remove milk from my shopping list", "remove_from_list",
                  expect_params={"item": "milk", "list_name": "shopping"}),
@@ -250,6 +314,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"list_name": "groceries"}),
         TestCase("make a new list called holiday packing", "create_list",
                  expect_params={"list_name": "holiday packing"}),
+        TestCase("add eggs, milk, and bread to my shopping list", "bulk_add_to_list", xfail=True),
         TestCase("make me a list for camping", "create_list"),
         TestCase("create a new list called work tasks", "create_list"),
         # bulk_add_to_list (#529 — LLM-routed, xfail until verified)
@@ -266,10 +331,17 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("kill the lights", "smart_home_off"),
     ]),
     ("memory", [
-        TestCase("save that we're meeting Tuesday", "save_memory"),
+        # save_memory — durable facts/preferences only, not future tasks
+        # "remember that <durable fact/preference>" => save_memory
+        # "note to self <memo>" => save_memory (until a dedicated notes skill exists)
+        # "remind me to <task>" => add_reminder (not save_memory)
+        TestCase("remember that I usually meet Sarah on Tuesdays", "save_memory"),
         TestCase("remember that I prefer dark mode", "save_memory"),
+        # Memo/note capture — no alert implied. If a dedicated notes skill is added,
+        # this should move from save_memory to that note/memo intent, not add_reminder.
         TestCase("note to self call the dentist Monday", "save_memory"),
-        TestCase("don't forget I parked on level 3", "save_memory"),
+        # Ephemeral memo capture — no alert implied.
+        TestCase("remember that I parked on level 3", "save_memory"),
     ]),
     ("navigation", [
         # navigate_to
@@ -281,6 +353,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("open Spotify", "open_app"),
         TestCase("launch Google Maps", "open_app"),
         # make_call
+        # make_call
         TestCase("call voicemail", "make_call"),
         TestCase("call my voicemail", "make_call"),
         TestCase("ring mum", "make_call"),
@@ -289,7 +362,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("call zippy", "make_call"),
         TestCase("ring zippy", "make_call"),
         # send_sms
-        TestCase("text myself a reminder to buy groceries", "send_sms"),
+        TestCase("text myself a reminder to buy groceries", "send_sms",
+                 expect_params={"contact": "myself", "message": "buy groceries"}),
         TestCase("send a message to myself saying call the plumber", "send_sms"),
         TestCase("text John saying I'll be 10 minutes late", "send_sms"),
         TestCase("message mum that I'm on my way", "send_sms"),
@@ -360,7 +434,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         # podcast_speed (#524)
         TestCase("play at 1.5x speed", "podcast_speed"),
         TestCase("set playback speed to 2x", "podcast_speed"),
-        TestCase("normal speed", "podcast_speed"),
+        TestCase("set podcast playback to normal speed", "podcast_speed"),
         TestCase("slow down the podcast", "podcast_speed"),
     ]),
     ("slot_fill", [
@@ -490,6 +564,377 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
+#   - Wikipedia / system-info queries are read-only and low risk.
+#   - Avoid ambiguous anaphora ("those", "that", "it") — no prior context.
+#   - Avoid prompts that sound like reminders or tasks (those should
+#     route to add_reminder/calendar, not save_memory).
+#   - expected_fields only when the tool schema actually accepts them.
+#     get_system_info takes no request parameters, so skip field asserts.
+# ────────────────────────────────────────────────────────────────────────
+LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
+    LLMToolsTestCase(
+        name="query_wikipedia_natural",
+        message="Look up the history of the Battle of Hastings on Wikipedia for me",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "Battle of Hastings"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+    ),
+    LLMToolsTestCase(
+        name="save_memory_durable_fact",
+        # Must NOT use "remember that...", "save that...", "note to self..." — all
+        # trigger MiniLM's save_memory training phrases at confidence >=0.85 threshold.
+        # Unusual phrasing forces fallthrough (bestGuess=save_memory, confidence <0.85).
+        message="Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning",
+        expected_top_level_tool="save_memory",
+        expected_fields={"content": "preferred dry cleaner"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+    ),
+    LLMToolsTestCase(
+        name="get_system_info_natural",
+        # Must avoid "battery" (triggers get_battery regex), "storage"/"ram"/"memory"
+        # (triggers get_system_info regex), and all 32 MiniLM intents.
+        message="Can you tell me the specs of this phone?",
+        expected_top_level_tool="get_system_info",
+        expected_fields=None,
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+    ),
+]
+
+
+
+# ── LLM tools harness ─────────────────────────────────────────────────────────
+
+
+def _parse_tool_marker(marker: str | None) -> dict[str, str]:
+    """Parse a key=value-style marker string into a dict.
+    Also handles request=<json> by parsing the JSON and merging its
+    top-level string keys into the result dict, so field assertions
+    (e.g. expected_fields={"query": "Battle of Hastings"}) work
+    against the native tool marker's JSON request payload.
+    For legacy raw-text markers (raw=<|tool_call>call:<tool>{...}):
+    extracts the tool name and merges JSON fields from the raw text
+    so the same assertion logic works for both paths.
+    """
+    if not marker:
+        return {}
+    result: dict[str, str] = {}
+    for kv in re.finditer(r"(\w+)=((?:(?!\s+\w+=).)+)", marker):
+        result[kv.group(1)] = kv.group(2)
+    # If there's a request=<json> field, merge its top-level string values
+    if "request" in result:
+        try:
+            parsed = json.loads(result["request"])
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    if isinstance(v, str):
+                        result[k] = v
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # Legacy raw-text marker: extract tool name and merge JSON from
+    # the raw content (format: <|tool_call>call:<tool>{<json>})
+    if "raw" in result and "tool" not in result:
+        raw = result["raw"]
+        # Extract tool name: call:<toolName>{
+        tool_m = re.search(r"call:(\w+)\{", raw)
+        if tool_m:
+            result["tool"] = tool_m.group(1)
+        # Extract key=value fields from Gemma-4 tool call format:
+        #   <key>:<|"|><value><|"|>
+        # JSON parsing won't work because keys are unquoted.
+        for fv in re.finditer(r"(\w+):<\\?\|\\?\"\\?\|>(.+?)<\\?\|\\?\"\\?\|>", raw):
+            result[fv.group(1)] = fv.group(2)
+    return result
+
+def _poll_for_all_markers(
+    patterns: dict[str, re.Pattern[str]],
+    timeout: float = 120,
+    poll_interval: float = 2.0,
+) -> tuple[dict[str, str | None], str]:
+    """Poll logcat for multiple marker patterns simultaneously.
+    Accumulates a single log buffer across all poll iterations and searches
+    all patterns against it. Also taps the screen periodically to keep the
+    app foregrounded (required by Android 15+ foreground service constraint).
+    Returns (results, accumulated_log) where results maps each pattern key
+    to the first match content (or None), and accumulated_log is the full
+    accumulated snapshot for additional searches (retry, slot-fill, etc.).
+    """
+    deadline = time.time() + timeout
+    accumulated = ""
+    results: dict[str, str | None] = {k: None for k in patterns}
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        accumulated += "\n" + read_logcat_all()
+        # Search all unfound patterns against the full accumulated log
+        for key, pat in patterns.items():
+            if results[key] is not None:
+                continue
+            m = pat.search(accumulated)
+            if m:
+                results[key] = m.group(1).strip() if m.lastindex else m.group(0).strip()
+        # Keep screen on and app foregrounded (Android 15+ foreground service)
+        run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        time.sleep(0.1)
+        run_adb("shell", "input", "tap", "500", "1000")
+        # Early exit if all markers found
+        if all(v is not None for v in results.values()):
+            break
+    return results, accumulated
+def _clear_conversation() -> None:
+    """Force-stop the app to clear conversation state and model caches."""
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+
+
+def run_llm_tools(dry_run: bool = False) -> int:
+    """Execute the llm_tools harness phase. Returns non-zero on failures.
+
+    Requires runtime marker emission in the app code (ChatViewModel,
+    NativeIntentHandler, and the tool-call path must log
+    ``llm_tools_route``, ``llm_tools_native_tool``, ``llm_tools_legacy_tool``,
+    ``llm_tools_skill_result``, and ``llm_tools_message_toolcall_saved``).
+    Without these markers the harness will fail every case.
+
+    This runner is separate from run_tests() because it has different data models,
+    observability requirements, and state management (conversation isolation per case).
+    """
+    if dry_run:
+        print("=" * 70)
+        print("  LLM TOOLS E2E — DRY RUN (no device interaction)")
+        print("=" * 70)
+        print()
+        for i, tc in enumerate(LLM_TOOLS_CASES, 1):
+            print(f"  [{i:2d}] {tc.name}: \"{tc.message}\"")
+            print(f"       expected → {tc.expected_top_level_tool}"
+                  f"{f' (nested: {tc.expected_nested_intent})' if tc.expected_nested_intent else ''}")
+            if tc.expected_fields:
+                print(f"       fields   → {tc.expected_fields}")
+            print(f"       expect: no_regex_match={tc.expect_no_regex_match}"
+                  f" no_classifier={tc.expect_no_classifier_match}"
+                  f" no_slot_fill={tc.expect_no_slot_fill}"
+                  f" no_retry={tc.expect_no_retry}")
+        print()
+        print(f"  Total: {len(LLM_TOOLS_CASES)} test cases")
+        print("=" * 70)
+        return 0
+
+    if not os.path.isfile(ADB):
+        print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
+        return 1
+
+    print("=" * 70)
+    print("  LLM TOOLS E2E TEST")
+    print("=" * 70)
+    # Start host-side logcat streaming (required for all read_logcat_all() calls below)
+    logcat_start()
+
+    # Preflight: prove model stack ready and MiniLM ready.
+    # Dismiss any notification overlays first (Samsung Calendar, etc.)
+    dismiss_notifications()
+    # Force-stop to ensure clean process state before warmup
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(3)
+    clear_logcat()
+
+    # Warmup probe: send a deterministic query so the model stack initializes.
+    # Keep app in foreground until routing completes (Android 15+ constraint).
+    # _keep_foreground_until_inference_starts() already proves the model stack is ready
+    # by detecting OrchTest: or InferenceGenerationService markers.
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    _keep_foreground_until_inference_starts()
+
+    # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
+    # _keep_foreground_until_inference_starts() already proves routing works.
+    print("  [preflight] Proving MiniLM ready ...", end=" ", flush=True)
+    clear_logcat()
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    _keep_foreground_until_inference_starts()
+    print("ready")
+    # Pre-run cleanup
+    print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
+    for pkg in ("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock"):
+        run_adb("shell", "am", "force-stop", pkg)
+    cleanup_side_effects()
+    print("done")
+    clear_logcat()
+    time.sleep(WAIT_SECONDS)
+    clear_logcat()
+    time.sleep(1)
+    print()
+
+    # Run each golden prompt in isolation
+    results: list[LLMToolsResult] = []
+    total = len(LLM_TOOLS_CASES)
+    failures = 0
+
+    for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
+        print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
+
+        # Isolate: force-stop, dismiss overlays, then send prompt
+        _clear_conversation()
+        # Dismiss any notification overlays (Samsung Calendar, etc.)
+        run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(0.3)
+        run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(0.3)
+        clear_logcat()
+        time.sleep(0.5)
+
+        # Send the prompt (foreground keepalive handled by _poll_for_all_markers)
+        send_text(tc.message, wait_for_inference=False)
+        # Poll for all markers simultaneously from a single accumulated buffer,
+        # avoiding the log-draining bug where sequential _poll_for_marker calls
+        # consume markers that arrived together.
+        patterns = {
+            "route": LLM_TOOLS_ROUTE_PATTERN,
+            "native_tool": LLM_TOOLS_NATIVE_TOOL_PATTERN,
+            "legacy_tool": LLM_TOOLS_LEGACY_TOOL_PATTERN,
+            "skill_result": LLM_TOOLS_SKILL_RESULT_PATTERN,
+            "message_saved": LLM_TOOLS_MESSAGE_SAVED_PATTERN,
+        }
+        markers, final_log = _poll_for_all_markers(patterns, timeout=120)
+        route_marker = markers["route"]
+        native_tool = markers["native_tool"]
+        legacy_tool = markers["legacy_tool"]
+        skill_result = markers["skill_result"]
+        message_saved = markers["message_saved"]
+        # Check for slot-fill and retry markers (from the same accumulated log)
+        retry_seen = bool(LLM_TOOLS_RETRY_PATTERN.search(final_log))
+        slot_fill_seen = bool(LLM_TOOLS_SLOT_FILL_PATTERN.search(final_log))
+        # Extract tool info from markers
+        native_data = _parse_tool_marker(native_tool)
+        legacy_data = _parse_tool_marker(legacy_tool)
+        actual_top_level = native_data.get("tool") or legacy_data.get("tool")
+        actual_nested = native_data.get("nested_intent") or legacy_data.get("nested_intent")
+
+        # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
+        chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
+        chip_text = chip_match.group(1) if chip_match else None
+
+        # Extract reply
+        reply_text = extract_reply(final_log)
+
+        # Build assertion failures
+        failures_list: list[str] = []
+
+        # Tool name check
+        if actual_top_level != tc.expected_top_level_tool:
+            failures_list.append(
+                f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
+            )
+
+        # Nested intent check
+        if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
+            failures_list.append(
+                f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
+            )
+
+        # Field checks
+        if tc.expected_fields:
+            merged_data = {**native_data, **legacy_data}
+            for k, v in tc.expected_fields.items():
+                actual_v = merged_data.get(k)
+                if actual_v is None:
+                    failures_list.append(f"field {k!r}: missing")
+                elif v.lower() not in actual_v.lower() and actual_v.lower() not in v.lower():
+                    failures_list.append(f"field {k!r}: expected {v!r}, got {actual_v!r}")
+
+        # Negative checks
+        if tc.expect_no_regex_match and "NativeIntentHandler.handle" in final_log:
+            # Check if it appeared before the tool-call marker
+            regex_pos = final_log.find("NativeIntentHandler.handle")
+            tool_positions = [p for p in (
+                final_log.find("llm_tools_native_tool"),
+                final_log.find("llm_tools_legacy_tool"),
+            ) if p != -1]
+            tool_pos = min(tool_positions) if tool_positions else -1
+            if tool_pos == -1 or regex_pos < tool_pos:
+                failures_list.append("QIR regex matched before Gemma tool-call")
+
+        if tc.expect_no_classifier_match and "ClassifierMatch" in final_log:
+            failures_list.append("ClassifierMatch before Gemma generation")
+
+        if tc.expect_no_slot_fill and slot_fill_seen:
+            failures_list.append("Slot-fill path triggered before Gemma")
+
+        if tc.expect_no_retry and retry_seen:
+            failures_list.append("Model retry observed (raw_tool_call_retry_succeeded / hallucination_retry_succeeded)")
+
+        # Positive checks
+        if not route_marker:
+            failures_list.append("No route-decision marker found")
+
+        if not (native_tool or legacy_tool):
+            failures_list.append("No native-tool or legacy-tool marker found")
+
+        if not message_saved:
+            failures_list.append("No ChatMessage.toolCall persistence marker found")
+
+        # Result mode check
+        if tc.expected_result_mode != "unknown":
+            skill_data = _parse_tool_marker(skill_result)
+            mode = skill_data.get("mode", "unknown")
+            if mode != tc.expected_result_mode:
+                failures_list.append(f"result mode: expected {tc.expected_result_mode!r}, got {mode!r}")
+
+        passed = len(failures_list) == 0
+        result = LLMToolsResult(
+            index=idx,
+            name=tc.name,
+            message=tc.message,
+            expected_top_level_tool=tc.expected_top_level_tool,
+            actual_top_level_tool=actual_top_level,
+            actual_nested_intent=actual_nested,
+            route_marker=route_marker,
+            native_tool_marker=native_tool,
+            legacy_tool_marker=legacy_tool,
+            skill_result_marker=skill_result,
+            message_saved_marker=message_saved,
+            retry_seen=retry_seen,
+            slot_fill_seen=slot_fill_seen,
+            chip_text=chip_text,
+            reply_text=reply_text,
+            passed=passed,
+            failures=failures_list,
+        )
+        results.append(result)
+
+        if passed:
+            print("✓")
+        else:
+            failures += 1
+            print(f"✗ ({'; '.join(failures_list)})")
+
+        # Brief pause between cases
+        time.sleep(2)
+
+    # Summary
+    print()
+    print("-" * 70)
+    print(f"  {'#':>3}  {'RESULT':>6}  {'EXPECTED':<24}  {'ACTUAL':<24}  {'NAME':<30}")
+    print("-" * 70)
+    for r in results:
+        icon = "  ✓" if r.passed else "  ✗"
+        actual = r.actual_top_level_tool or "NO_MATCH"
+        nested = f" (nested: {r.actual_nested_intent})" if r.actual_nested_intent else ""
+        print(f"  {r.index:3d}  {icon:>6}  {r.expected_top_level_tool:<24}  {actual + nested:<24}  \"{r.message}\"")
+    print("-" * 70)
+    print(f"  PASSED: {total - failures}/{total}  FAILED: {failures}/{total}")
+    print("=" * 70)
+
+    # Save report
+    run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
+    print(f"  Report saved → {report_path}")
+
+    return 1 if failures > 0 else 0
 def run_adb(*args: str) -> str:
     """Run an ADB command and return stdout. Prints stderr on non-zero exit."""
     result = subprocess.run(
@@ -651,8 +1096,31 @@ def stop_keepalive() -> None:
     _keepalive_stop.set()
 
 
-def send_text(text: str) -> None:
-    """Deliver chat_input extra via onNewIntent — navigates to chat from any screen."""
+def _keep_foreground_until_inference_starts() -> None:
+    """Keep the app in the foreground by tapping the screen periodically.
+    On Android 15+, InferenceGenerationService.startForegroundService() must be
+    called within ~5 seconds of the app becoming foreground. This function keeps
+    the activity visible until the inference service starts (detected via
+    InferenceGenerationService log or NativeIntentHandler route marker).
+    Taps every 2 seconds for up to 120 seconds.
+    """
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        log = read_logcat_all()
+        if "InferenceGenerationService" in log or "InferenceLoadingService" in log or "initEngineWhenReady" in log or "llm_tools_route:" in log or "OrchTest:" in log:
+            break
+        run_adb("shell", "input", "tap", "500", "1000")
+        time.sleep(2)
+
+
+def send_text(text: str, wait_for_inference: bool = True) -> None:
+    """Deliver chat_input extra via onNewIntent — navigates to chat from any screen.
+
+    On Android 15+, InferenceGenerationService.startForegroundService() must be called
+    within ~5 seconds of the app becoming foreground. After sending the prompt we keep
+    the activity visible (touch screen periodically) so the service start remains valid
+    until inference completes (typically 30-60s for Gemma-4 E-4B).
+    """
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
     # --activity-clear-top ensures our activity is at the top of its task so
@@ -670,6 +1138,8 @@ def send_text(text: str) -> None:
         "chat_input",
         shlex.quote(text),
     )
+    if wait_for_inference:
+        _keep_foreground_until_inference_starts()
 
 
 def send_quick_action(text: str) -> None:
@@ -746,6 +1216,22 @@ def teardown_contact_alias_fixture() -> None:
     )
 
 
+def dismiss_notifications() -> None:
+    """Dismiss any notification popups or alerts that may block the app from being in the foreground.
+    On Android 15+ Samsung devices, notification popups (e.g. Calendar alerts) can cover
+    the activity and prevent startForegroundService() from succeeding. This function
+    presses the back button to dismiss overlays, then brings the app to the foreground.
+    """
+    # Press back to dismiss any overlay/notification popup
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.5)
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.5)
+    # Bring app to foreground
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(1)
+
+
 def cleanup_side_effects() -> None:
     """Cancel any timers and alarms set during testing to avoid them firing on the device."""
     for msg in ("cancel the timer", "cancel all alarms"):
@@ -806,6 +1292,65 @@ def check_params(
     return len(failures) == 0, failures
 
 
+def save_llm_tools_report(
+    results: list[LLMToolsResult],
+    elapsed: float = 0.0,
+    partial: bool = False,
+    run_ts: str | None = None,
+) -> Path:
+    """Serialise llm_tools results to a JSON report.
+    This is separate from save_report() because LLMToolsResult has a
+    different schema (no intent_passed/params_passed/xfail fields).
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    if partial and run_ts:
+        report_path = REPORTS_DIR / f"{run_ts}_llm_tools_partial.json"
+        status = "in_progress"
+    else:
+        report_path = REPORTS_DIR / f"{ts}_llm_tools.json"
+        status = "complete"
+        if run_ts:
+            partial_file = REPORTS_DIR / f"{run_ts}_llm_tools_partial.json"
+            partial_file.unlink(missing_ok=True)
+    total = len(results)
+    passed = sum(1 for r in results if r.passed)
+    failed = total - passed
+    report = {
+        "suite": "llm_tools",
+        "status": status,
+        "timestamp": ts,
+        "elapsed_seconds": round(elapsed, 1),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+        },
+        "results": [
+            {
+                "index": r.index,
+                "name": r.name,
+                "message": r.message,
+                "expected_top_level_tool": r.expected_top_level_tool,
+                "actual_top_level_tool": r.actual_top_level_tool,
+                "actual_nested_intent": r.actual_nested_intent,
+                "route_marker": r.route_marker,
+                "native_tool_marker": r.native_tool_marker,
+                "legacy_tool_marker": r.legacy_tool_marker,
+                "skill_result_marker": r.skill_result_marker,
+                "message_saved_marker": r.message_saved_marker,
+                "retry_seen": r.retry_seen,
+                "slot_fill_seen": r.slot_fill_seen,
+                "chip_text": r.chip_text,
+                "reply_text": r.reply_text,
+                "passed": r.passed,
+                "failures": r.failures,
+            }
+            for r in results
+        ],
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+    return report_path
 def save_report(
     results: list[TestResult],
     suite: str = "skills",
@@ -1715,8 +2260,9 @@ def main() -> None:
         help=(
             "Run only the specified phases (comma-separated names or 1-based numbers). "
             "e.g. --phases weather  or  --phases 1,3,8  or  --phases alarm_timer,media. "
+            "Also accepts 'llm_tools' for the LLM tool-call generation harness. "
             f"Mutually exclusive with --start-phase. "
-            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}."
+            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))} + llm_tools."
         ),
     )
     args = parser.parse_args()
@@ -1728,6 +2274,8 @@ def main() -> None:
 
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
+    elif phases_list == ["llm_tools"]:
+        sys.exit(run_llm_tools(dry_run=args.dry_run))
     else:
         sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase, phases=phases_list))
 

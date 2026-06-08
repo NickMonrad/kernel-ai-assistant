@@ -1695,7 +1695,27 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
-
+            // ── E2E marker: route decision (Gemma fallthrough) ──────────────
+            // Emitted after QIR route decision so the harness can verify whether
+            // the request was classified by Tier 2 or fell through to Gemma-4.
+            when (routeResult) {
+                is QuickIntentRouter.RouteResult.FallThrough -> {
+                    Log.d(
+                        "KernelAI",
+                        "llm_tools_route: result=fallthrough best_guess=${routeResult.bestGuess?.intentName ?: "null"} confidence=${routeResult.bestConfidence}",
+                    )
+                }
+                is QuickIntentRouter.RouteResult.ClassifierMatch,
+                is QuickIntentRouter.RouteResult.RegexMatch -> {
+                    Log.d(
+                        "KernelAI",
+                        "llm_tools_route: result=classified intent=${matchedIntent?.intentName ?: "null"}",
+                    )
+                }
+                is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                    // No route marker — slot-fill path, harness expects fallthrough
+                }
+            }
             // ── Intent Recovery Orchestrator ───────────────────────────────────
             // When FallThrough has a bestGuess above the soft threshold, try to
             // recover deterministically before falling back to Gemma.
@@ -2269,14 +2289,21 @@ class ChatViewModel @Inject constructor(
                                         ?: kernelAIToolSet.lastToolPresentation()?.toSpokenSummary(),
                                 )
                             } else null
-
-                            // Fallback: if the SDK didn't handle tool calls (e.g. model
-                            // emitted raw JSON instead of using native format), try the
-                            // legacy text-based extraction path.
+                            // E2E marker: native SDK tool call
+                            if (nativeToolCall != null) {
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${nativeToolCall.requestJson.take(500)}",
+                                )
+                            }
+                            // E2E marker: legacy fallback tool call
                             val toolCallResult = if (nativeToolCall == null) {
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
+                                )
                                 tryExecuteToolCall(fullContent)
                             } else null
-
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
@@ -2339,6 +2366,11 @@ class ChatViewModel @Inject constructor(
                                     convId, "assistant", resultContent,
                                     thinkingText = thinking,
                                     toolCallJson = toolCall.toJsonString(),
+                                )
+                                // E2E marker: message persisted with tool call
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
                                 )
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
@@ -2713,8 +2745,12 @@ class ChatViewModel @Inject constructor(
         // {"name": ..., "arguments": ...} block from anywhere in the response.
         val extracted = ToolCallExtractor.extractNativeToolCall(raw)
             ?: ToolCallExtractor.extractToolCallJson(raw) ?: return null
-
         val result = skillExecutor.execute(extracted)
+        // E2E marker: skill execution result
+        Log.d(
+            "KernelAI",
+            "llm_tools_skill_result: skill=${extracted.take(200)} resultType=${result::class.simpleName} success=${result !is SkillResult.Failure}",
+        )
         return when (result) {
             is SkillResult.Success -> {
                 val skillName = try {
