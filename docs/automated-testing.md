@@ -47,9 +47,11 @@ Supported harness phases today:
 8. `system`
 9. `misc`
 10. `slot_fill`
+11. `llm_tools` — E2E model tool-call generation after LLM fallthrough (3 golden prompts, runtime marker assertions)
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
-See [`scripts/test-reports/README.md`](../scripts/test-reports/README.md) for the report format.
+
+Detailed report-format documentation, `llm_tools` marker interpretation, on-device result guidance, and CI vs physical-device evidence guidance are tracked in [#1118](https://github.com/NickMonrad/kernel-ai-assistant/issues/1118).
 
 ## What is still planned
 
