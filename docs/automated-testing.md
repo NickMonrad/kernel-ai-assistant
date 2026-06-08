@@ -48,7 +48,6 @@ Supported harness phases today:
 9. `misc`
 10. `slot_fill`
 11. `llm_tools` — E2E model tool-call generation after LLM fallthrough (3 golden prompts, runtime marker assertions)
-12. `orch` — Intent recovery orchestration eval (long-run device scenarios)
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
 See [`scripts/test-reports/README.md`](../scripts/test-reports/README.md) for the report format.

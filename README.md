@@ -87,7 +87,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - ❄️ **Model Availability UX** — StateBadge with download/size/status indicator, ModelCard with interactive download/retry/delete, gated-model status repo for model management (#1025/#1067, PRs #1028/#1067)
 - 🎤 **Sherpa-ONNX streaming STT family** — selectable Zipformer (default, streaming online), SenseVoice (multilingual offline), Whisper tiny.en (offline), and Paraformer (online) engines in Settings → Voice (#821/#1022, PRs #995/#1044)
 - 🔤 **STT transcript normalisation** — central TranscriptNormaliser with Kiwi phonetic normalisation, unit alias tables, and trailing-punctuation strip; all STT engines route through the shared pipeline (#935/#939/#982/#1017, PR #1070)
-- 🎙️ **"Hey Jandal" wake word** — trained ML model with dual-threshold Sherpa-ONNX verification; integrates with Android Default Assistant (#983/#984, PRs #987/#1000)
+- 🎙️ **"Hey Jandal" wake-word infrastructure** — trained ML model and Sherpa-ONNX dual-threshold verification integrated with Android Default Assistant; FP tuning remains tracked separately (#983/#984/#986, PRs #987/#1000)
 
 ### Coming Soon
 - 🗒️ **Lists — hierarchical items** — nested sub-items within lists *(#928)*

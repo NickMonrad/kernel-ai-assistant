@@ -1480,7 +1480,7 @@ viewModelScope.launch {
 | JDK | 17 |
 | Min SDK | API 35 (Android 15) |
 | Target SDK | 36 |
-| Test device | Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16); S21 Exynos (Mali-G78, 8GB RAM) — GPU inference enabled (#1089)|
+| Test device | Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16); S21 Exynos (Mali-G78, 8GB RAM) — GPU inference enabled (#1089) |
 
 **Backend note:** Current dev/test guidance assumes the Samsung Galaxy S23 Ultra uses the
 Hexagon NPU path when the required delegate and models are present, with GPU fallback still
@@ -1520,7 +1520,6 @@ When adding dependencies or features that span multiple modules (especially feat
 ./gradlew :core:inference:test       # Single-module test
 python3 scripts/adb_skill_test.py    # Device routing/profile regression harness
 python3 scripts/adb_skill_test.py --phases llm_tools  # E2E model tool-call generation harness
-python3 scripts/adb_skill_test.py --phases orch       # Intent recovery orchestration eval
 ```
 
 **CI:** Runs lint + unit tests + debug build. No real model inference in CI — `InferenceEngine`
