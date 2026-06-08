@@ -352,6 +352,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("open Spotify", "open_app"),
         TestCase("launch Google Maps", "open_app"),
         # make_call
+        # make_call
         TestCase("call voicemail", "make_call"),
         TestCase("call my voicemail", "make_call"),
         TestCase("ring mum", "make_call"),
