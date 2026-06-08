@@ -6,8 +6,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Event
@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,7 +34,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -87,6 +91,7 @@ private const val ROUTE_SIDE_PANEL = "settings/side_panel"
 private const val ROUTE_MEAL_PLANS = "meal_plans"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
+private const val ROUTE_TOOLS = "tools"
 private const val ROUTE_CONVERT = "convert"
 private const val ROUTE_NOTES = "settings/notes"
 private const val ROUTE_NOTE_DETAIL = "settings/notes/{noteId}"
@@ -105,7 +110,7 @@ private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 /** Routes that show the bottom navigation bar. */
-private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
+private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
 
 internal fun buildChatRoute(
     initialQuery: String? = null,
@@ -130,6 +135,59 @@ internal fun buildNewMealPlanChatRoute(): String =
 internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
         .replace("+", "%20")
+
+private fun NavHostController.navigateToPrimaryRoute(route: String) {
+    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
+    if (currentBaseRoute == route) return
+
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+private fun NavHostController.navigateToToolsDestination(route: String) {
+    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
+    val targetBaseRoute = route.substringBefore('?')
+    if (currentBaseRoute == targetBaseRoute) return
+
+    navigate(route) {
+        launchSingleTop = true
+    }
+}
+
+@Composable
+internal fun PrimaryBottomBar(
+    currentBaseRoute: String?,
+    onNavigateToRoute: (String) -> Unit,
+) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = currentBaseRoute == ROUTE_LIST,
+            onClick = { onNavigateToRoute(ROUTE_LIST) },
+            icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
+            label = { Text("Chats") },
+            modifier = Modifier.testTag("bottom_nav_chats"),
+        )
+        NavigationBarItem(
+            selected = currentBaseRoute == ROUTE_ACTIONS,
+            onClick = { onNavigateToRoute(ROUTE_ACTIONS) },
+            icon = { Icon(Icons.Default.Bolt, contentDescription = null) },
+            label = { Text("Actions") },
+            modifier = Modifier.testTag("bottom_nav_actions"),
+        )
+        NavigationBarItem(
+            selected = currentBaseRoute == ROUTE_TOOLS,
+            onClick = { onNavigateToRoute(ROUTE_TOOLS) },
+            icon = { Icon(Icons.Default.Build, contentDescription = null) },
+            label = { Text("Tools") },
+            modifier = Modifier.testTag("bottom_nav_tools"),
+        )
+    }
+}
 
 @Composable
 fun KernelNavHost(
@@ -304,35 +362,12 @@ fun KernelNavHost(
         Scaffold(
             bottomBar = {
                 if (currentBaseRoute in BOTTOM_NAV_ROUTES) {
-                    NavigationBar {
-                        NavigationBarItem(
-                            selected = currentBaseRoute == ROUTE_LIST,
-                            onClick = {
-                                if (currentBaseRoute != ROUTE_LIST) {
-                                    navController.navigate(ROUTE_LIST) {
-                                        popUpTo(ROUTE_LIST) { inclusive = true }
-                                        launchSingleTop = true
-                                    }
-                                }
-                            },
-                            icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
-                            label = { Text("Chats") },
-                        )
-                        NavigationBarItem(
-                            selected = currentBaseRoute == ROUTE_ACTIONS,
-                            onClick = {
-                                if (currentBaseRoute != ROUTE_ACTIONS) {
-                                    navController.navigate(ROUTE_ACTIONS) {
-                                        popUpTo(ROUTE_LIST) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = { Icon(Icons.Default.Bolt, contentDescription = null) },
-                            label = { Text("Actions") },
-                        )
-                    }
+                    PrimaryBottomBar(
+                        currentBaseRoute = currentBaseRoute,
+                        onNavigateToRoute = { route ->
+                            navController.navigateToPrimaryRoute(route)
+                        },
+                    )
                 }
             },
         ) { innerPadding ->
@@ -720,6 +755,17 @@ fun KernelNavHost(
                                 popUpTo(ROUTE_LIST) { saveState = true }
                                 launchSingleTop = true
                             }
+                        },
+                    )
+                }
+
+                composable(ROUTE_TOOLS) {
+                    ToolsHubScreen(
+                        onOpenDrawer = {
+                            coroutineScope.launch { drawerState.open() }
+                        },
+                        onNavigateToRoute = { route ->
+                            navController.navigateToToolsDestination(route)
                         },
                     )
                 }
