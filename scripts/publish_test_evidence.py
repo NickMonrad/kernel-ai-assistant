@@ -316,6 +316,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Validate: at least one of --pr or --release
     if args.pr is None and args.release is None:
         parser.error("at least one of --pr or --release is required")
+    if args.target_branch.lower() in ("main", "master"):
+        parser.error(
+            f"target branch '{args.target_branch}' is a default branch; "
+            f"use a dedicated branch like '{DEFAULT_TARGET_BRANCH}'"
+        )
 
     return args
 
@@ -450,6 +455,7 @@ def _build_output_paths(files: list[Path], args: argparse.Namespace, data: dict 
                 dest_name = f"__{f.name}"
 
         dest = f"{base}/{dest_name}"
+        dest = os.path.normpath(dest)
         mapping[f] = dest
 
     return mapping
@@ -567,15 +573,9 @@ def main() -> None:
     files = _collect_input_files(args)
 
     # Find JSON evidence file for validation
-    json_file: Path | None = None
-    for f in files:
-        if f.suffix == ".json":
-            json_file = f
-            break
-
-    # Validate JSON evidence (if present in the input)
+    json_files: list[Path] = [f for f in files if f.suffix == ".json"]
     data: dict | None = None
-    if json_file is not None:
+    for json_file in json_files:
         data = _validate_evidence_file(json_file, args)
 
     # Build output path mapping
@@ -584,10 +584,10 @@ def main() -> None:
     # Path safety check: ensure all dest paths are within results/
     for local, dest in mapping.items():
         # Normalise and verify the leading component
-        normalized = dest.lstrip("./")
-        if not normalized.startswith("results/"):
+        normalized = os.path.normpath(dest)
+        if not normalized.startswith("results/") and normalized != "results":
             print(
-                f"ERROR: output path '{dest}' escapes results/ tree. Aborting.",
+                f"ERROR: output path '{dest}' escapes results/ tree (normalized: {normalized}). Aborting.",
                 file=sys.stderr,
             )
             sys.exit(1)
