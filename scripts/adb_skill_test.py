@@ -819,14 +819,15 @@ def run_llm_tools(dry_run: bool = False) -> int:
         # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
         chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
         chip_text = chip_match.group(1) if chip_match else None
-        if not chip_text:
-            failures_list.append("No tool_chip_visible marker found")
 
         # Extract reply
         reply_text = extract_reply(final_log)
 
         # Build assertion failures
         failures_list: list[str] = []
+
+        if not chip_text:
+            failures_list.append("No tool_chip_visible marker found")
 
         # Tool name check
         if actual_top_level != tc.expected_top_level_tool:
@@ -880,7 +881,7 @@ def run_llm_tools(dry_run: bool = False) -> int:
 
         if not message_saved:
             failures_list.append("No ChatMessage.toolCall persistence marker found")
-        if (native_tool or legacy_tool) and not skill_result:
+        if actual_top_level and not skill_result:
             failures_list.append("No skill_result marker found")
 
         # Result mode check
