@@ -1,3 +1,7 @@
+> **Status:** Historical test plan (PRs #72, #74). Retained for reference.
+> See [`docs/automated-testing.md`](../automated-testing.md) for current operational docs and
+> [`docs/testing/README.md`](./README.md) for the testing docs index.
+>
 # PR #72/#74 — Settings: Model Info & Selection Manual Test Plan
 
 **Issues:** #59 (show active model info), #60 (manual E2B/E4B selection)
