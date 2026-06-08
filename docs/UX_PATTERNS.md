@@ -5,9 +5,11 @@
 > here first. Consistent patterns across features are a deliberate design choice — do not
 > invent a parallel approach without a documented reason.
 >
-> This document describes **how things are built**, not what is planned. For feature status see
-> [`ROADMAP.md`](./ROADMAP.md). For technical architecture see [`SPECIFICATION.md`](./SPECIFICATION.md).
-> For model availability and acquisition patterns, see [`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md).
+> This document describes the canonical UX contract: usually how things are built, and in
+> explicitly-marked cases how an approved target pattern should be built before implementation has
+> fully landed. For current implementation status see [`ROADMAP.md`](./ROADMAP.md). For technical
+> architecture see [`SPECIFICATION.md`](./SPECIFICATION.md). For model availability and acquisition
+> patterns, see [`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md).
 
 ---
 
@@ -27,6 +29,10 @@ Primary bottom navigation uses three launch destinations:
 
 This three-destination launch model is the deliberate design decision from
 [#751](https://github.com/NickMonrad/kernel-ai-assistant/issues/751).
+
+The current app shell may still reflect the earlier two-tab implementation while #751 is in
+progress. Treat this section as the approved target UX pattern for the navigation refactor, not as
+a claim that every navigation change is already implemented.
 
 - **Bottom navigation bar** — permanent launch tabs: **Chats**, **Actions**, **Tools**.
 - **Tools** is the primary discovery surface for capabilities that are otherwise hard to find from
