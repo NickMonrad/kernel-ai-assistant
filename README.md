@@ -25,8 +25,8 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 | DI | Hilt |
 | Persistence | Room |
 | Min SDK | API 35 (Android 15) |
-| Speech-to-Text | Vosk (default), Android SpeechRecognizer (optional) |
-| Text-to-Speech | Android TTS (default), Sherpa Piper/Kokoro (optional) |
+| Speech-to-Text | Sherpa-ONNX (Zipformer default, SenseVoice/Whisper/Paraformer optional) |
+| Text-to-Speech | Sherpa VITS (default), Android TTS (optional), Kokoro (research) |
 
 ## Features
 
@@ -84,6 +84,10 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 💬 **Multi-turn dialog** — expanded confirmation, digression, and slot-filling coverage across more intents (#708, PR #712)
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen; full CRUD via nav drawer (#479, PR #484)
 - 🗒️ **Lists management upgrades** — rename, pin, sort, edit items, favorites, and due dates (#662)
+- ❄️ **Model Availability UX** — StateBadge with download/size/status indicator, ModelCard with interactive download/retry/delete, gated-model status repo for model management (#1025/#1067, PRs #1028/#1067)
+- 🎤 **Sherpa-ONNX streaming STT family** — selectable Zipformer (default, streaming online), SenseVoice (multilingual offline), Whisper tiny.en (offline), and Paraformer (online) engines in Settings → Voice (#821/#1022, PRs #995/#1044)
+- 🔤 **STT transcript normalisation** — central TranscriptNormaliser with Kiwi phonetic normalisation, unit alias tables, and trailing-punctuation strip; all STT engines route through the shared pipeline (#935/#939/#982/#1017, PR #1070)
+- 🎙️ **"Hey Jandal" wake word** — trained ML model with dual-threshold Sherpa-ONNX verification; integrates with Android Default Assistant (#983/#984, PRs #987/#1000)
 
 ### Coming Soon
 - 🗒️ **Lists — hierarchical items** — nested sub-items within lists *(#928)*
@@ -93,7 +97,6 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🧩 **Wasm skill store** — community-extensible plugins with sandboxed execution *(Phase 5)*
 - 🏠 **Home Assistant / Google Home** — smart home control *(Phase 5)*
 - 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 6)*
-- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3F)*
 
 ## Roadmap
 
@@ -113,6 +116,7 @@ consciously parked.
 | Issue | Size | Summary |
 |-------|------|---------|
 | ~~[#915](https://github.com/NickMonrad/kernel-ai-assistant/issues/915)~~ · ~~[#916](https://github.com/NickMonrad/kernel-ai-assistant/issues/916)~~ | L · S | ✓ Toolchain upgrade — AGP 9.0.1 / Gradle 9.1.0 / Kotlin 2.3.21 / Hilt 2.59.2 (PR #1082) |
+| ~~[#1107](https://github.com/NickMonrad/kernel-ai-assistant/issues/1107)~~ · ~~[#1110](https://github.com/NickMonrad/kernel-ai-assistant/issues/1110)~~ | M · S | ✓ llm_tools E2E harness + hardened runtime markers (PRs #1108, #1111) |
 | [#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428) | M | Memory profiling — peak RAM & concurrent model usage (feeds #430/#432) |
 | [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | M | Fix inference stalls in Boring AI Mode |
 | [#937](https://github.com/NickMonrad/kernel-ai-assistant/issues/937) · [#957](https://github.com/NickMonrad/kernel-ai-assistant/issues/957) | M · S | Memory + intent-routing correctness bugs |
@@ -152,6 +156,14 @@ consciously parked.
 | [#868](https://github.com/NickMonrad/kernel-ai-assistant/issues/868) | S | Documentation & licence/attribution review |
 | [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) | M | Publish to Play Store — account, signing, listing, policy compliance |
 
+> **Launch validation & evidence:** Launch readiness also requires measurable
+> cross-cutting stability work beyond the feature items above:
+> - ✅ `llm_tools` E2E harness and hardened runtime markers (#1107/#1110, PRs #1108/#1111)
+> - ✅ Orchestration eval framework with golden-corpus regression protection (#1099, PR #1106)
+> - ⬜ GitHub-native test evidence dashboard for CI + on-device result visibility (#1113)
+> - ⬜ S21 Exynos GPU reliability — fixed via PR #1089, ongoing runtime monitoring needed
+> - ⬜ Model/tool-call generation reliability tracking across reference devices
+
 ### 🟡 Post-Launch — fast-follow after publish
 
 - **Memory & data** — cosine-distance vec tables ([#647](https://github.com/NickMonrad/kernel-ai-assistant/issues/647)), anaphoric "remember that" ([#958](https://github.com/NickMonrad/kernel-ai-assistant/issues/958)), low-confidence search filtering ([#959](https://github.com/NickMonrad/kernel-ai-assistant/issues/959)), Artifact entity ([#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235))
@@ -165,7 +177,7 @@ consciously parked.
 
 - **Phase 4 — Dreaming Engine** ([#705](https://github.com/NickMonrad/kernel-ai-assistant/issues/705)) incl. graph-DB memory research ([#419](https://github.com/NickMonrad/kernel-ai-assistant/issues/419))
 - **Phase 5 — Wasm Runtime + Skill Store** ([#706](https://github.com/NickMonrad/kernel-ai-assistant/issues/706)) incl. MCP integration research ([#944](https://github.com/NickMonrad/kernel-ai-assistant/issues/944))
-- **Phase 6 — Device Optimisation** ([#707](https://github.com/NickMonrad/kernel-ai-assistant/issues/707)) incl. S21 generation failure ([#684](https://github.com/NickMonrad/kernel-ai-assistant/issues/684))
+- **Phase 6 — Device Optimisation** ([#707](https://github.com/NickMonrad/kernel-ai-assistant/issues/707)) incl. 8GB RAM device optimisation
 - **Model experiments** ([#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704)) — Qwen 3.5 4B/0.8B ([#691](https://github.com/NickMonrad/kernel-ai-assistant/issues/691), [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699)), llama.cpp backend ([#702](https://github.com/NickMonrad/kernel-ai-assistant/issues/702))
 - **Alternative STT** — Parakeet CTC ([#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700)) & whisper.cpp ([#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703)) — gated on the Sherpa-default decision ([#1008](https://github.com/NickMonrad/kernel-ai-assistant/issues/1008))
 - **Fun / content skills** — joke ([#819](https://github.com/NickMonrad/kernel-ai-assistant/issues/819)), storytelling ([#820](https://github.com/NickMonrad/kernel-ai-assistant/issues/820)), learn-something-new ([#949](https://github.com/NickMonrad/kernel-ai-assistant/issues/949))
