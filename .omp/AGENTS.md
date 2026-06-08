@@ -136,9 +136,9 @@ connectedDebugAndroidTest   # requires device
 
 ## context-mode — routing
 
-context-mode is installed globally (MCP tools + native OMP hooks). Full routing rules at `~/.omp/agent/SYSTEM.md`.
+context-mode is installed globally (MCP tools + native OMP hooks). Full routing rules at `~/.omp/agent/SYSTEM.md` (if available).
 
-Key paradigm: **Think in Code** — write `ctx_execute(language, code)` for analysis/count/filter/parse. Only stdout enters context.
+**Fallback (no SYSTEM.md):** Use `ctx_execute(language, code)` for count/filter/parse/transform analysis. Only stdout enters context — keep analysis in code, not raw data. A one-liner replaces 10+ `read`/`bash` calls. Avoid reading large data into context when code can summarise it.
 
 ## Branching & PR standards
 
