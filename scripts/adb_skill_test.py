@@ -564,20 +564,6 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
-
-# ── LLM tools golden-set prompts ──────────────────────────────────────────────
-# These prompts intentionally bypass QIR regex and deterministic recovery,
-# forcing the request through to Gemma-4. Adjust to match actual skill schemas.
-
-# ── LLM tools golden-set test cases ──────────────────────────────────────
-#
-# These prompts must:
-#   (a) bypass deterministic QIR (no regex or MiniLM match),
-#   (b) reach Gemma-4 and generate a tool call,
-#   (c) be low side-effect (read-only when possible).
-#
-# Semantic routing guidelines applied here:
-#   - "remember that <durable fact/preference>"  => save_memory.
 #   - Wikipedia / system-info queries are read-only and low risk.
 #   - Avoid ambiguous anaphora ("those", "that", "it") — no prior context.
 #   - Avoid prompts that sound like reminders or tasks (those should
@@ -596,7 +582,10 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     ),
     LLMToolsTestCase(
         name="save_memory_durable_fact",
-        message="Remember that my preferred dry cleaner is Star Dry Cleaning",
+        # Must NOT use "remember that...", "save that...", "note to self..." — all
+        # trigger MiniLM's save_memory training phrases at confidence >=0.85 threshold.
+        # Unusual phrasing forces fallthrough (bestGuess=save_memory, confidence <0.85).
+        message="Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning",
         expected_top_level_tool="save_memory",
         expected_fields={"content": "preferred dry cleaner"},
         expect_no_regex_match=True,
@@ -604,7 +593,9 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     ),
     LLMToolsTestCase(
         name="get_system_info_natural",
-        message="What's my current battery level and how much storage is free?",
+        # Must avoid "battery" (triggers get_battery regex), "storage"/"ram"/"memory"
+        # (triggers get_system_info regex), and all 32 MiniLM intents.
+        message="Can you tell me the specs of this phone?",
         expected_top_level_tool="get_system_info",
         expected_fields=None,
         expect_no_regex_match=True,
