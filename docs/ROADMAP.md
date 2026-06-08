@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-12 (PR #848 merged: deterministic currency conversion #831; PR #847 merged: homescreen Glance widget #617; PR #845 merged: aye pronunciation fix #843; cooking conversions #827 in progress)
+> **Last updated:** 2026-06-08 (PR #1111 merged: hardened llm_tools assertions; PR #1108 merged: llm_tools E2E harness; PR #1106 merged: orchestration eval framework; PR #1095 merged: Intent Recovery Orchestrator; PR #1089 merged: Exynos S21 GPU fixes; PR #1082 merged: AGP 9/Gradle 9/Kotlin 2.3.21 toolchain upgrade; PR #1070 merged: STT transcript normaliser; PR #1067 merged: Model Availability UX overhaul)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -21,10 +21,11 @@
 | **Chat model** | Gemma-4 E-4B / E-2B |
 | **Embeddings** | EmbeddingGemma-300M (SentencePiece + TFLite) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
+| **Intent recovery** | `IntentRecoveryOrchestrator` (deterministic slot extraction, risk-gated execution) |
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
-| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) |
+| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM); S21 Exynos (Mali GPU, 8GB RAM) |
 
 ---
 
@@ -122,7 +123,7 @@ tri-tiered memory architecture inspired by the
 > and [#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708).
 > See [GitHub milestone](https://github.com/NickMonrad/kernel-ai-assistant/milestone/3).
 
-### Three-Tier Intent Architecture
+### Three-Tier Intent Architecture (with Intent Recovery)
 
 ```
 User Input (voice/text)
@@ -309,17 +310,19 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#727](https://github.com/NickMonrad/kernel-ai-assistant/issues/727) | Chat voice foundation for conversational push-to-talk | ✅ Done — PR #731 | 🟡 Medium |
 | [#728](https://github.com/NickMonrad/kernel-ai-assistant/issues/728) | Chat voice UI/UX and turn-taking controls | ✅ Done — PR #735 | 🟡 Medium |
 | [#741](https://github.com/NickMonrad/kernel-ai-assistant/issues/741) | Chat voice mode switch (one-shot vs back-and-forth) | ✅ Done — PR #744 | 🟡 Medium |
-| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
+| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Sherpa-ONNX dual-threshold verification | ✅ Partially — PRs #987, #1000 (infrastructure); FP tuning #986 → 🟡 Post-Launch | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
-**Current state after merged PRs #780, #789, #805, and #818:**
+**Current state after merged PRs #780, #789, #805, #818, #995, #1044, #987, #1000, #1070, and #1067:**
 
 > **Note:** #781 (Semaine emotional styles) is closed — the emotion detection approach was abandoned because Semaine exposes different *speakers*, not emotional variants. Speaker selection (#817) ships all 4 Semaine voices (Prudence/Spike/Obadiah/Poppy) via Settings → Voice, consistent with VCTK. Emotion research folded into #783 (TTS engine/expressiveness).
 
 - Streaming TTS pipeline (`runStreamingPlayback()` two-coroutine producer/consumer), per-message speaker button, verbal stop command, expanded TTS settings, VCTK + Semaine multi-speaker selection, and chat voice push-to-talk are all shipped.
 - Voice quality slice complete: URL colon preservation in `cleanTextForSpeech()`, speech rate clamping, abbreviation-aware sentence splitting, and Sherpa quality evaluation done on Samsung Galaxy S23 Ultra.
 - `autoSpeakEnabled` is now a cached field in `ChatViewModel` — chat auto-speak is fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
-- Remaining voice research: Sherpa-ONNX STT + VAD evaluation (#700/#703 + new issue), Kokoro-82M/VoxSherpa (#783, including expressiveness/emotion exploration), Kiwi corpus tuning (#784), VITS noise_scale (#788).
+- **Sherpa-ONNX STT shipped** as the primary STT engine (#821/#1022, PRs #995/#1044): selectable Zipformer (streaming, default), SenseVoice (multilingual), Whisper tiny.en, and Paraformer families via Settings → Voice. All engines pass through the central `TranscriptNormaliser` (#1070) for Kiwi phonetic normalisation, unit alias tables, and trailing-punctuation strip.
+- **"Hey Jandal" wake word infrastructure shipped** (#983/#984, PRs #987/#1000): trained ML model with Sherpa-ONNX dual-threshold verification; integrates with Android Default Assistant. FP-rate tuning tracked as post-launch (#986).
+- Remaining voice research: Kokoro-82M/VoxSherpa (#783, including expressiveness/emotion exploration), Kiwi corpus tuning (#784), VITS noise_scale (#788).
 - Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) remain tracked separately.
 
 ---
@@ -523,8 +526,8 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#59](https://github.com/NickMonrad/kernel-ai-assistant/issues/59) | Settings: show active model/backend/tier | Phase 2 | ✅ Done (#72) |
 | [#60](https://github.com/NickMonrad/kernel-ai-assistant/issues/60) | Model selection: choose E2B/E4B | Phase 2 | ✅ Done (#72) |
 | [#61](https://github.com/NickMonrad/kernel-ai-assistant/issues/61) | Full markdown rendering | Phase 2 | ✅ Done (#63) |
-| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode | Phase 3F | ⬜ Pending |
-| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word | Phase 3F | ⬜ Pending |
+| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Sherpa-ONNX dual-threshold verification | ✅ Partially — PRs #987, #1000 (infrastructure); FP tuning #986 → 🟡 Post-Launch | 🟡 Medium |
+| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 | [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns | Phase 3 | ⬜ Pending |
 | [#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78) | Copy chat content | Phase 3 | ✅ Done |
 | [#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84) | Gemma 4 native tool calling | Phase 3 | ✅ Done |

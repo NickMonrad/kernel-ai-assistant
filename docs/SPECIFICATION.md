@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-06-01 (PR #1044 Sherpa STT family split — Zipformer, SenseVoice, Whisper tiny.en, Paraformer; offline VAD; wake-word verification isolation)
+> **Last updated:** 2026-06-08 (PR #1111 merged: hardened llm_tools assertions; PR #1108: llm_tools E2E harness; PR #1106: orchestration eval framework; PR #1095: Intent Recovery Orchestrator; PR #1089: Exynos S21 GPU fixes; PR #1082: AGP 9/Gradle 9/Kotlin 2.3.21 toolchain upgrade; PR #1070: STT transcript normaliser; PR #1067: Model Availability UX overhaul)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -1480,7 +1480,7 @@ viewModelScope.launch {
 | JDK | 17 |
 | Min SDK | API 35 (Android 15) |
 | Target SDK | 36 |
-| Test device | Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16) |
+| Test device | Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16); S21 Exynos (Mali-G78, 8GB RAM) — GPU inference enabled (#1089) |
 
 **Backend note:** Current dev/test guidance assumes the Samsung Galaxy S23 Ultra uses the
 Hexagon NPU path when the required delegate and models are present, with GPU fallback still
@@ -1519,6 +1519,7 @@ When adding dependencies or features that span multiple modules (especially feat
 ./gradlew installDebug               # Build + install on connected device
 ./gradlew :core:inference:test       # Single-module test
 python3 scripts/adb_skill_test.py    # Device routing/profile regression harness
+python3 scripts/adb_skill_test.py --phases llm_tools  # E2E model tool-call generation harness
 ```
 
 **CI:** Runs lint + unit tests + debug build. No real model inference in CI — `InferenceEngine`

@@ -1,9 +1,11 @@
 # ADB Testing Guide
 
-| Device | Chip | RAM | Backend | Tier |
-|--------|------|-----|---------|------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP |
-| Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP |
+| Device | Chip | RAM | Backend | Tier | Role |
+|--------|------|-----|---------|------|------|
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Reference device — primary target |
+| Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Tracked reliability signal — see #1089 / #684 |
+| Honor Magic 8 Pro | Snapdragon 8 Elite | 12 GB | NPU | FLAGSHIP | Future tracked / reference candidate |
 
 ---
 
@@ -250,3 +252,23 @@ adb shell monkey -p com.kernel.ai.debug 1
 # Pull a bugreport for CI/issue reporting
 adb bugreport ~/Desktop/kernel-ai-bugreport.zip
 ```
+
+---
+
+## 9. Running the `llm_tools` Harness
+
+The `llm_tools` harness phase validates E2E model tool-call generation (Tier 2 → FallThrough → Tier 3 / Gemma).
+
+```bash
+# Run just the llm_tools phase
+ANDROID_SERIAL=R5CR605B71K python3 scripts/adb_skill_test.py --phases=llm_tools
+
+# Wireless device
+ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=llm_tools
+
+# Dry run (no device needed)
+python3 scripts/adb_skill_test.py --dry-run --phases=llm_tools
+```
+
+See [`docs/automated-testing.md`](./automated-testing.md) for detailed output format and
+[`docs/testing/llm-tools-harness.md`](./testing/llm-tools-harness.md) for deep reference.
