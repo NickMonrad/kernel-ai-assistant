@@ -148,17 +148,18 @@ private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentBaseRoute = currentRoute?.substringBefore('?')
     if (currentBaseRoute == route) return
 
-    // When navigating from a parameterised primary route (e.g. actions?openSheet=true&draftQuery=X)
-    // to a different primary route, avoid restoreState: the parameterised entry may have been
-    // saved during the popUpTo with stale bottom-sheet state that can block the navigation.
-    // Instead, pop the entire backstack and navigate fresh.
-    val hasQueryParams = currentRoute?.contains('?') == true
+    // When the current route has transient query parameters
+    // (e.g. actions?openSheet=true&draftQuery=X), navigating to another
+    // primary route should not save or restore state. The parameterised
+    // route may be nested under the wrong tab's back stack and restoring
+    // it would bring back stale draft or sheet state.
+    val hasTransientParams = currentRoute?.contains('?') == true
     navigate(route) {
         popUpTo(graph.findStartDestination().id) {
-            saveState = true
+            saveState = !hasTransientParams
         }
         launchSingleTop = true
-        restoreState = !hasQueryParams
+        restoreState = !hasTransientParams
     }
 }
 

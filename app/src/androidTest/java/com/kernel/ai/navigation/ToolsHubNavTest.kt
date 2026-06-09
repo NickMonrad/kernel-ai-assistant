@@ -483,6 +483,43 @@ class ToolsHubNavTest {
         // Step 4: Verify we're back on Tools hub
         composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
     }
+
+    @Test
+    fun bottomNav_toolsAfterChatFromActionsDraft_restoresToolsNotActions() {
+        composeTestRule.setContent {
+            NavigationHarness()
+        }
+
+        // Step 1: Start on Tools hub
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Step 2: Navigate to Learn, then to Actions via draft link
+        composeTestRule.onNodeWithTag("btn_nav_learn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_draft_navigate").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("actions_screen").assertIsDisplayed()
+
+        // Step 3: Switch to Chat
+        composeTestRule.onNodeWithTag("bottom_nav_chat").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("chat_screen").assertIsDisplayed()
+
+        // Step 4: Switch to Tools
+        composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
+        composeTestRule.waitForIdle()
+
+        // Step 5: Verify we're on the Tools hub, not Actions
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag(
+            "actions_screen", useUnmergedTree = true,
+        ).fetchSemanticsNodes().let { nodes ->
+            assertTrue(
+                "Expected no Actions screen after navigating Tools from Chat",
+                nodes.isEmpty(),
+            )
+        }
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -576,16 +613,16 @@ private fun QuickActionSheetHarness(initialText: String) {
 }
 
 /**
- * Minimal NavHost harness simulating the Tools → Learn → Actions draft → Tools
- * bottom-nav flow. Uses [navigateToPrimaryRoute]-equivalent logic for the Tools
- * bottom-nav item.
+ * Minimal NavHost harness simulating bottom-nav flows:
+ * Tools → Learn → Actions draft → [Chat] → Tools
+ * Uses simple navigate+launchSingleTop for bottom-nav items without
+ * save/restore (production navigateToPrimaryRoute handles that).
  */
 @Composable
 private fun NavigationHarness() {
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
-
     Column {
         NavHost(
             navController = navController,
@@ -601,7 +638,21 @@ private fun NavigationHarness() {
                     ) {
                         Text("Learn what Jandal can do")
                     }
+                    Button(
+                        onClick = {
+                            navController.navigate(buildActionsDraftRoute("Convert 2 cups to mL")) {
+                                launchSingleTop = true
+                            }
+                        },
+                        modifier = Modifier.testTag("btn_draft_navigate"),
+                    ) {
+                        Text("Tap example (direct)")
+                    }
                 }
+            }
+
+            composable("chat") {
+                Text("Chat Screen", modifier = Modifier.testTag("chat_screen"))
             }
 
             composable("tools/learn") {
@@ -637,17 +688,23 @@ private fun NavigationHarness() {
 
         NavigationBar {
             NavigationBarItem(
+                selected = currentBaseRoute == "chat",
+                onClick = {
+                    navController.navigate("chat") {
+                        popUpTo(navController.graph.startDestinationId) { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
+                icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                label = { Text("Chat") },
+                modifier = Modifier.testTag("bottom_nav_chat"),
+            )
+            NavigationBarItem(
                 selected = currentBaseRoute == "tools",
                 onClick = {
                     navController.navigate("tools") {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
-                        }
+                        popUpTo(navController.graph.startDestinationId) { inclusive = false }
                         launchSingleTop = true
-                        // Match KernelNavHost's navigateToPrimaryRoute behavior:
-                        // skip restoreState when current route has query params
-                        val hasQueryParams = currentRoute?.contains('?') == true
-                        restoreState = !hasQueryParams
                     }
                 },
                 icon = { Icon(Icons.Default.Build, contentDescription = null) },
