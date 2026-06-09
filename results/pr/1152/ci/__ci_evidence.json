@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "source": "ci",
+  "suite": "ci",
+  "timestamp": "2026-06-09T11:33:24Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "1152/merge",
+  "commit": "2798a1dd0a08f654e6fea0f36d0accb2531fb5ef",
+  "pr": 1152,
+  "release": null,
+  "run_id": "ci-2026-06-09T11-33-24Z-ubuntu-latest",
+  "device": {
+    "id": "ubuntu-latest",
+    "serial": null,
+    "label": "ubuntu-latest",
+    "manufacturer": "GitHub",
+    "model": "Actions runner",
+    "soc": "x86_64",
+    "tier": "ci",
+    "android_api": null,
+    "execution": "github_hosted_runner"
+  },
+  "model": {
+    "name": null,
+    "runtime": null,
+    "backend": null
+  },
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "pass_rate": 1.0
+  },
+  "cases": [
+    {
+      "name": "python_compile_checks",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "fixture_schema_validation",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "gradle_build",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "gradle_lint",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "unit_tests",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ]
+}

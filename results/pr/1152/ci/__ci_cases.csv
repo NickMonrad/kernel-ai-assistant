@@ -1,0 +1,6 @@
+source,suite,timestamp,commit,device_id,case,passed,expected_result_mode,actual_result_mode,failure_category,failures
+ci,ci,2026-06-09T11:33:24Z,2798a1dd0a08f654e6fea0f36d0accb2531fb5ef,ubuntu-latest,python_compile_checks,True,success,success,,
+ci,ci,2026-06-09T11:33:24Z,2798a1dd0a08f654e6fea0f36d0accb2531fb5ef,ubuntu-latest,fixture_schema_validation,True,success,success,,
+ci,ci,2026-06-09T11:33:24Z,2798a1dd0a08f654e6fea0f36d0accb2531fb5ef,ubuntu-latest,gradle_build,True,success,success,,
+ci,ci,2026-06-09T11:33:24Z,2798a1dd0a08f654e6fea0f36d0accb2531fb5ef,ubuntu-latest,gradle_lint,True,success,success,,
+ci,ci,2026-06-09T11:33:24Z,2798a1dd0a08f654e6fea0f36d0accb2531fb5ef,ubuntu-latest,unit_tests,True,success,success,,
