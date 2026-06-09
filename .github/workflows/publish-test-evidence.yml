@@ -55,12 +55,17 @@ jobs:
 
       - name: Publish test evidence
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE: ${{ inputs.source }}
           PR_NUM: ${{ inputs.pr }}
           RELEASE: ${{ inputs.release }}
           COMMIT: ${{ inputs.commit }}
           ALLOW_MISMATCH: ${{ inputs.allow_commit_mismatch && '--allow-commit-mismatch' || '' }}
         run: |
+          # Configure git auth for pushing to test-results branch
+          # The Python script creates a temp repo and pushes from there,
+          # which doesn't inherit actions/checkout's includeIf credential helper.
+          git config --global credential.helper "!f() { echo username=x-access-token; echo password=\${GITHUB_TOKEN}; }; f"
           if [ -z "$PR_NUM" ] && [ -z "$RELEASE" ]; then
             echo "ERROR: at least one of pr or release is required" >&2
             exit 1
