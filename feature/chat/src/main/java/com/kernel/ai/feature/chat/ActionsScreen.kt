@@ -104,6 +104,8 @@ fun ActionsScreen(
     initialQuery: String? = null,
     initialQueryIsVoice: Boolean = false,
     adbSlotReply: String? = null,
+    draftQuery: String? = null,
+    onDraftQueryConsumed: () -> Unit = {},
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
     onInitialQueryConsumed: () -> Unit = {},
@@ -134,6 +136,7 @@ fun ActionsScreen(
     }
 
     val context = LocalContext.current
+    var initialSheetText by remember { mutableStateOf("") }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -205,6 +208,17 @@ fun ActionsScreen(
         if (autoOpenSheet) onAutoOpenSheetConsumed()
     }
 
+    // Tools example prompt: prefill the Quick Action sheet with draft text.
+    // The sheet is already opened by autoOpenSheet (same route includes openSheet=true).
+    // This only sets the draft text; no action is executed automatically.
+    LaunchedEffect(draftQuery) {
+        if (!draftQuery.isNullOrBlank()) {
+            initialSheetText = draftQuery
+            if (!showBottomSheet) showBottomSheet = true
+            onDraftQueryConsumed()
+        }
+    }
+
     LaunchedEffect(autoStartVoiceCommand) {
         if (autoStartVoiceCommand) {
             onAutoStartVoiceConsumed()
@@ -258,6 +272,12 @@ fun ActionsScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            // Clean up any stale bottom-sheet state when the Actions screen is
+            // disposed (e.g. navigating to Tools via bottom nav). This prevents
+            // a remembered-showBottomSheet=true from persisting through saveState
+            // and interfering with the new destination.
+            showBottomSheet = false
+            initialSheetText = ""
         }
     }
 
@@ -496,10 +516,15 @@ fun ActionsScreen(
         QuickActionBottomSheet(
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
-            onDismiss = { showBottomSheet = false },
+            onDismiss = {
+                showBottomSheet = false
+                initialSheetText = ""
+            },
+            initialText = initialSheetText,
             onSubmit = { query ->
                 viewModel.executeAction(query)
                 showBottomSheet = false
+                initialSheetText = ""
             },
             onVoiceAction = {
                 showBottomSheet = false
@@ -775,10 +800,19 @@ private fun QuickActionBottomSheet(
     onSubmit: (String) -> Unit,
     onVoiceAction: () -> Unit,
     onStopVoiceAction: () -> Unit,
+    initialText: String = "",
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var inputText by rememberSaveable { mutableStateOf("") }
+    var inputText by rememberSaveable(initialText) { mutableStateOf(initialText) }
+    // When initialText changes externally (new draft from Tools example),
+    // replace the text field value. Preserves user-typed text across
+    // recomposition and configuration changes while the sheet is open.
+    LaunchedEffect(initialText) {
+        if (initialText.isNotBlank()) {
+            inputText = initialText
+        }
+    }
     val commandCaptureState = when (voiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
         is ActionsViewModel.VoiceCaptureState.Listening -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
@@ -807,6 +841,15 @@ private fun QuickActionBottomSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+            if (initialText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Example loaded — review or edit before running.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("quick_action_example_hint"),
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
@@ -814,7 +857,7 @@ private fun QuickActionBottomSheet(
                 onValueChange = { inputText = it },
                 placeholder = { Text("What do you want to do?") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("quick_action_input"),
                 trailingIcon = {
                     val isLoading = uiState != ActionsViewModel.UiState.Idle
                     if (isLoading) {
@@ -847,6 +890,7 @@ private fun QuickActionBottomSheet(
                                     }
                                 },
                                 enabled = inputText.isNotBlank(),
+                                modifier = Modifier.testTag("quick_action_submit_button"),
                             ) {
                                 Icon(Icons.Default.Send, contentDescription = "Send")
                             }

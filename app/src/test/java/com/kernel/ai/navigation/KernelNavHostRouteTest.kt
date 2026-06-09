@@ -28,4 +28,41 @@ class KernelNavHostRouteTest {
             buildNewMealPlanChatRoute(),
         )
     }
+
+    @Test
+    fun `buildActionsDraftRoute contains openSheet and draftQuery`() {
+        val route = buildActionsDraftRoute("test query")
+        assertEquals("actions?openSheet=true&draftQuery=test%20query", route)
+    }
+
+    @Test
+    fun `buildActionsDraftRoute does not contain widgetQuery`() {
+        val route = buildActionsDraftRoute("anything")
+        assertEquals(false, route.contains("widgetQuery"))
+    }
+
+    @Test
+    fun `buildActionsDraftRoute encodes special characters`() {
+        val route = buildActionsDraftRoute("add milk & eggs")
+        assertEquals("actions?openSheet=true&draftQuery=add%20milk%20%26%20eggs", route)
+    }
+
+    @Test
+    fun `buildActionsDraftRoute encodes question mark`() {
+        val route = buildActionsDraftRoute("What's the weather?")
+        assertEquals(
+            "actions?openSheet=true&draftQuery=What%27s%20the%20weather%3F",
+            route,
+        )
+    }
+
+    @Test
+    fun `encodeRouteQueryValue encodes spaces as percent-20`() {
+        assertEquals("hello%20world", encodeRouteQueryValue("hello world"))
+    }
+
+    @Test
+    fun `encodeRouteQueryValue encodes ampersand`() {
+        assertEquals("a%20%26%20b", encodeRouteQueryValue("a & b"))
+    }
 }
