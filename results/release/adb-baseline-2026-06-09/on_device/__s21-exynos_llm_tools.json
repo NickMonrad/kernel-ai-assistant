@@ -4,10 +4,10 @@
   "suite": "llm_tools",
   "timestamp": "2026-06-09T21:38:46Z",
   "repo": "NickMonrad/kernel-ai-assistant",
-  "branch": "feature/1154-navigation-backstack-harness",
-  "commit": "d6d11c4c07b129d1e3b929d863e17ad90cb20e59",
+  "branch": "main",
+  "commit": "5ec6a7ad4abcdd9f8d629d48456805f9e6fcd424",
   "pr": null,
-  "release": null,
+  "release": "adb-baseline-2026-06-09",
   "run_id": "on_device-2026-06-09T21-38-46Z-s21-exynos",
   "device": {
     "id": "s21-exynos",
