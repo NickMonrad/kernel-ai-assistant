@@ -7,12 +7,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -38,6 +42,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -447,6 +459,30 @@ class ToolsHubNavTest {
             composeTestRule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(),
         )
     }
+
+    @Test
+    fun bottomNav_toolsFromActionsDraftRoute_navigatesToTools() {
+        composeTestRule.setContent {
+            NavigationHarness()
+        }
+
+        // Step 1: Start on Tools hub
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Step 2: Navigate to Learn, then to Actions via draft link
+        composeTestRule.onNodeWithTag("btn_draft_navigate").performClick()
+        composeTestRule.waitForIdle()
+
+        // Verify Actions screen is displayed
+        composeTestRule.onNodeWithTag("actions_screen").assertIsDisplayed()
+
+        // Step 3: Tap Tools bottom nav
+        composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
+        composeTestRule.waitForIdle()
+
+        // Step 4: Verify we're back on Tools hub
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -535,6 +571,89 @@ private fun QuickActionSheetHarness(initialText: String) {
                     },
                 )
             }
+        }
+    }
+}
+
+/**
+ * Minimal NavHost harness simulating the Tools → Learn → Actions draft → Tools
+ * bottom-nav flow. Uses [navigateToPrimaryRoute]-equivalent logic for the Tools
+ * bottom-nav item.
+ */
+@Composable
+private fun NavigationHarness() {
+    val navController = rememberNavController()
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val currentBaseRoute = currentRoute?.substringBefore('?')
+
+    Column {
+        NavHost(
+            navController = navController,
+            startDestination = "tools",
+            modifier = Modifier.weight(1f),
+        ) {
+            composable("tools") {
+                Column {
+                    Text("Tools Hub", modifier = Modifier.testTag("tools_screen"))
+                    Button(
+                        onClick = { navController.navigate("tools/learn") { launchSingleTop = true } },
+                        modifier = Modifier.testTag("btn_nav_learn"),
+                    ) {
+                        Text("Learn what Jandal can do")
+                    }
+                }
+            }
+
+            composable("tools/learn") {
+                Column {
+                    Text("Learn Screen")
+                    Button(
+                        onClick = {
+                            navController.navigate(buildActionsDraftRoute("Convert 2 cups to mL")) {
+                                launchSingleTop = true
+                            }
+                        },
+                        modifier = Modifier.testTag("btn_draft_navigate"),
+                    ) {
+                        Text("Tap example")
+                    }
+                }
+            }
+
+            composable(
+                route = "actions?openSheet={openSheet}&startVoice={startVoice}&widgetQuery={widgetQuery}&widgetVoice={widgetVoice}&draftQuery={draftQuery}",
+                arguments = listOf(
+                    navArgument("openSheet") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("startVoice") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("widgetQuery") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("widgetVoice") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("draftQuery") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) {
+                Text("Actions Screen", modifier = Modifier.testTag("actions_screen"))
+                Text("Draft: ${it.arguments?.getString("draftQuery")}")
+            }
+        }
+
+        NavigationBar {
+            NavigationBarItem(
+                selected = currentBaseRoute == "tools",
+                onClick = {
+                    navController.navigate("tools") {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        // Match KernelNavHost's navigateToPrimaryRoute behavior:
+                        // skip restoreState when current route has query params
+                        val hasQueryParams = currentRoute?.contains('?') == true
+                        restoreState = !hasQueryParams
+                    }
+                },
+                icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                label = { Text("Tools") },
+                modifier = Modifier.testTag("bottom_nav_tools"),
+            )
         }
     }
 }

@@ -246,7 +246,6 @@ tools_group_time_planning
 tools_group_people
 tools_group_utilities
 tools_group_app_setup
-tools_group_learn
 tools_row_lists
 tools_row_notes
 tools_row_clock

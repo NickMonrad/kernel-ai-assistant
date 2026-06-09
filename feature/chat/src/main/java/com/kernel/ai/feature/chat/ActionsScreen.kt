@@ -272,6 +272,12 @@ fun ActionsScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            // Clean up any stale bottom-sheet state when the Actions screen is
+            // disposed (e.g. navigating to Tools via bottom nav). This prevents
+            // a remembered-showBottomSheet=true from persisting through saveState
+            // and interfering with the new destination.
+            showBottomSheet = false
+            initialSheetText = ""
         }
     }
 
