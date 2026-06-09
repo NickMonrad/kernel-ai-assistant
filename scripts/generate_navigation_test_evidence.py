@@ -230,6 +230,8 @@ _FAILURE_CATEGORY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"assertion.*failed|expected.*but was|expected.*true|expected.*false",
                 re.IGNORECASE), "navigation_state_mismatch"),
     (re.compile(r"Device.*not found|No such device|adb|device.*unavailable",
+                re.IGNORECASE), "device_unavailable"),
+]
 def _build_case(
     case_def: dict[str, Any],
     result: dict[str, Any] | None,
