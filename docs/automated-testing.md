@@ -248,15 +248,15 @@ For on-device evidence:
 
 ```text
 ADB harness run produces JSON report
-  → user normalises report to evidence schema
-  → user publishes locally with scripts/publish_test_evidence.py
+  → agent normalises report to evidence schema (when instructed)
+  → agent publishes locally with scripts/publish_test_evidence.py
   → evidence lands in test-results branch
-  → user manually triggers Publish test dashboard
+  → agent triggers Publish test dashboard workflow if gh auth is available
 ```
 
 **Key points:**
 
-- Evidence publishing is reviewer/user-controlled, not automatic.
+- Evidence publishing is reviewer/agent-controlled, not automatic. Agents gather metadata and publish when instructed.
 - CI and on-device evidence are kept distinct in the schema (`source` field).
 - Publishing is not a merge gate — PRs can merge without published evidence.
 - The dashboard is a historical record and trend view, not a CI gate.
