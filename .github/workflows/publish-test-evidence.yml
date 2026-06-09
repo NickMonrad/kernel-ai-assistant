@@ -1,0 +1,111 @@
+name: Publish test evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Evidence source (ci or on_device)
+        required: true
+        default: ci
+        type: choice
+        options:
+          - ci
+          - on_device
+      pr:
+        description: PR number (required for PR-scoped results)
+        required: false
+        type: string
+      release:
+        description: Release/tag name (required for release-scoped results)
+        required: false
+        type: string
+      commit:
+        description: Commit SHA to associate with the evidence
+        required: true
+        type: string
+      allow_commit_mismatch:
+        description: Allow publishing evidence whose commit does not match the workflow commit
+        required: false
+        default: false
+        type: boolean
+      run_id:
+        description: GitHub Actions run ID containing ci-test-evidence artifact (required for CI source)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish test evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          fetch-depth: 0
+
+      - name: Download CI test evidence artifact
+        if: inputs.source == 'ci' && inputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/ci-evidence
+          gh run download "${{ inputs.run_id }}" -n "ci-test-evidence-${{ inputs.commit }}" -D /tmp/ci-evidence --repo "${{ github.repository }}"
+
+      - name: Publish test evidence
+        env:
+          SOURCE: ${{ inputs.source }}
+          PR_NUM: ${{ inputs.pr }}
+          RELEASE: ${{ inputs.release }}
+          COMMIT: ${{ inputs.commit }}
+          ALLOW_MISMATCH: ${{ inputs.allow_commit_mismatch && '--allow-commit-mismatch' || '' }}
+        run: |
+          if [ -z "$PR_NUM" ] && [ -z "$RELEASE" ]; then
+            echo "ERROR: at least one of pr or release is required" >&2
+            exit 1
+          fi
+
+          # Determine input: for CI, use the latest CI evidence artifact from the last workflow run
+          # For on_device, require a manual URL or path
+          INPUT_ARGS=""
+          if [ "$SOURCE" = "ci" ]; then
+            INPUT_ARGS="--input-dir /tmp/ci-evidence"
+          elif [ "$SOURCE" = "on_device" ]; then
+            echo "on_device evidence requires running locally with:" >&2
+            echo "" >&2
+            echo "  python3 scripts/publish_test_evidence.py --input <file.json> \\" >&2
+            echo "      --source on_device --pr <PR_NUM> --commit <SHA>" >&2
+            echo "" >&2
+            echo "Or for release-scoped:" >&2
+            echo "" >&2
+            echo "  python3 scripts/publish_test_evidence.py --input <file.json> \\" >&2
+            echo "      --source on_device --release <RELEASE> --commit <SHA>" >&2
+            echo "" >&2
+            exit 1
+          fi
+
+          if [ "$SOURCE" = "ci" ] && [ -z "${{ inputs.run_id }}" ]; then
+            echo "ERROR: run_id input is required when source=ci" >&2
+            echo "Go to a CI run (e.g. from a pull request), copy its Run ID," >&2
+            echo "and provide it as the run_id input." >&2
+            exit 1
+          fi
+
+          PR_ARGS=""
+          if [ -n "$PR_NUM" ]; then
+            PR_ARGS="--pr $PR_NUM"
+          fi
+
+          RELEASE_ARGS=""
+          if [ -n "$RELEASE" ]; then
+            RELEASE_ARGS="--release $RELEASE"
+          fi
+
+          python3 scripts/publish_test_evidence.py \
+            $INPUT_ARGS \
+            --source "$SOURCE" \
+            $PR_ARGS \
+            $RELEASE_ARGS \
+            --commit "$COMMIT" \
+            $ALLOW_MISMATCH
