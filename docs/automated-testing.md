@@ -245,12 +245,13 @@ CI generates normalised evidence artifact
 
 For on-device evidence:
 
+
 ```text
 ADB harness run produces JSON report
   → user normalises report to evidence schema
-  → user publishes via Publish test evidence workflow (manual dispatch)
+  → user publishes locally with scripts/publish_test_evidence.py
   → evidence lands in test-results branch
-  → user must manually trigger Publish test dashboard (no local dispatch yet)
+  → user manually triggers Publish test dashboard
 ```
 
 **Key points:**
