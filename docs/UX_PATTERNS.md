@@ -90,9 +90,9 @@ App setup
   Models
   Permissions
 
-Learn what Jandal can do
-  Quick Actions examples
-  Example prompts
+Learn what Jandal can do (first row, opens dedicated Learn screen)
+  Example prompts for actions, planning, weather, maps, media, and more
+  Opens ToolsLearnScreen with 9 grouped categories
 ```
 
 Each row uses the existing app visual language:
@@ -142,7 +142,29 @@ Future search should be able to produce matches such as:
 
 ### 1.3 Tool examples and demo prompts
 
-The "Learn what Jandal can do" area is educational.
+Example prompts live on a dedicated **Learn screen** (`ToolsLearnScreen`, route `tools/learn`).
+The Tools hub contains a single "Learn what Jandal can do" row (tag `tools_row_learn`) at
+the top of the screen that opens the Learn screen. Examples are never rendered inline in
+the Tools hub.
+
+The Learn screen uses grouped sections with a collapsed default showing two examples per
+group and a **View more** button to expand that group to show additional prompts.
+
+When the user taps an example prompt, the app navigates to the Actions screen using a safe
+draft route (`actions?openSheet=true&draftQuery=<encoded prompt>`) which opens the Quick
+Action bottom sheet with the prompt text prefilled. The user must tap **Send** to execute;
+the prompt is never auto-executed on tap.
+
+The `draftQuery` route parameter is separate from `initialQuery`/`widgetQuery`:
+
+| Parameter | Route | Behaviour |
+|---|---|---|
+| `widgetQuery` | `actions?widgetQuery=...` | Auto-executes the query (widget/ADB path) |
+| `draftQuery` | `actions?openSheet=true&draftQuery=...` | Opens sheet prefilled, does not execute |
+
+Some examples, such as `Create a calendar event for soccer training`, are intentionally
+incomplete to demonstrate that Jandal can ask follow-up slot-filling questions (e.g.
+"What day is soccer training for?") before completing the action.
 
 Example prompts may:
 
@@ -162,6 +184,7 @@ Example prompts must not:
 
 Any action that creates, deletes, sends, saves, schedules, or changes settings must require
 explicit user confirmation in the destination flow.
+
 
 ### 1.4 Navigation from widget / external entry points
 
@@ -223,7 +246,6 @@ tools_group_time_planning
 tools_group_people
 tools_group_utilities
 tools_group_app_setup
-tools_group_learn
 tools_row_lists
 tools_row_notes
 tools_row_clock
@@ -234,7 +256,30 @@ tools_row_meal_plans
 tools_row_settings
 tools_row_voice
 tools_row_models
-tools_row_permissions
+```
+
+Tool hub and example test tags (v2 IA):
+
+```text
+tools_row_learn
+tools_learn_screen
+tools_learn_helper_copy
+tools_learn_privacy_note
+tools_learn_group_lists
+tools_learn_view_more_lists
+tools_learn_lists_add_milk
+tools_learn_group_meal_planning
+tools_learn_view_more_meal_planning
+tools_learn_meal_plan_dinners_week
+tools_learn_group_weather
+tools_learn_view_more_weather
+tools_learn_weather_current
+tools_learn_group_utilities_conversions
+tools_learn_view_more_utilities_conversions
+tools_learn_convert_cups_ml
+quick_action_input
+quick_action_submit_button
+quick_action_example_hint
 ```
 
 Keep navigation-shell tests separate from the `llm_tools` harness:
@@ -255,8 +300,8 @@ an implementation follow-up to this design/test-pattern alignment work, then cov
 - minimum navigation smoke scenarios such as `Launch app → Chats visible`, `Actions → visible`,
   `Tools → visible`, `Tools → Lists → Back`, `Tools → Clock → Back`, `Tools → Settings → Back`,
   `Tools → Actions → Tools → Chats`, and `Drawer opens from primary destinations`;
+- automated screenshot capture via `ToolsHubScreenshotTest` saved to device external files and pulled via `adb pull`;
 - confirmation that no blank screen was observed;
-- screenshots attached where the changed navigation surface is user-visible;
 - any skipped checks, device limitations, or follow-up notes.
 
 ---

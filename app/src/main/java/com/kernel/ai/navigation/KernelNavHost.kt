@@ -92,6 +92,7 @@ internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_TOOLS = "tools"
+internal const val ROUTE_TOOLS_LEARN = "tools/learn"
 internal const val ROUTE_CONVERT = "convert"
 internal const val ROUTE_NOTES = "settings/notes"
 private const val ROUTE_NOTE_DETAIL = "settings/notes/{noteId}"
@@ -104,12 +105,12 @@ private const val ARG_SPEAK_RESPONSE = "speakResponse"
 private const val ARG_START_VOICE = "startVoice"
 private const val ARG_WIDGET_QUERY = "widgetQuery"
 private const val ARG_WIDGET_VOICE = "widgetVoice"
+private const val ARG_DRAFT_QUERY = "draftQuery"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
-/** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
 
 internal fun buildChatRoute(
@@ -135,20 +136,30 @@ internal fun buildNewMealPlanChatRoute(): String =
 internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
     "settings/model_management?scrollTo=$scrollTo"
 
+internal fun buildActionsDraftRoute(draftQuery: String): String =
+    "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}"
+
 internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
         .replace("+", "%20")
 
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
-    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
+    val currentRoute = currentBackStackEntry?.destination?.route
+    val currentBaseRoute = currentRoute?.substringBefore('?')
     if (currentBaseRoute == route) return
 
+    // When the current route has transient query parameters
+    // (e.g. actions?openSheet=true&draftQuery=X), navigating to another
+    // primary route should not save or restore state. The parameterised
+    // route may be nested under the wrong tab's back stack and restoring
+    // it would bring back stale draft or sheet state.
+    val hasTransientParams = currentRoute?.contains('?') == true
     navigate(route) {
         popUpTo(graph.findStartDestination().id) {
-            saveState = true
+            saveState = !hasTransientParams
         }
         launchSingleTop = true
-        restoreState = true
+        restoreState = !hasTransientParams
     }
 }
 
@@ -407,7 +418,7 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}",
+                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}&$ARG_DRAFT_QUERY={$ARG_DRAFT_QUERY}",
                     arguments = listOf(
                         navArgument("openSheet") {
                             type = NavType.BoolType
@@ -426,6 +437,11 @@ fun KernelNavHost(
                             type = NavType.BoolType
                             defaultValue = false
                         },
+                        navArgument(ARG_DRAFT_QUERY) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = false
+                        },
                     ),
                 ) { backStackEntry ->
                     val openSheet = (backStackEntry.arguments?.getBoolean("openSheet") ?: false) &&
@@ -440,6 +456,10 @@ fun KernelNavHost(
                     val widgetVoice = if (widgetQuery != null) {
                         backStackEntry.arguments?.getBoolean(ARG_WIDGET_VOICE) ?: false
                     } else false
+                    // draftQuery: baked into the route URL for Tools example prompt prefill.
+                    // ActionsScreen tracks last-seen draft to prevent re-fire on recomposition.
+                    val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY)
+                        ?.takeIf { it.isNotBlank() }
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
@@ -447,6 +467,10 @@ fun KernelNavHost(
                             initialQuery = widgetQuery,
                             initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
+                            draftQuery = draftQuery,
+                            onDraftQueryConsumed = {
+                                backStackEntry.arguments?.putString(ARG_DRAFT_QUERY, "")
+                            },
                             onAutoOpenSheetConsumed = {
                                 backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
                                 backStackEntry.arguments?.putBoolean("openSheet", false)
@@ -761,7 +785,6 @@ fun KernelNavHost(
                         },
                     )
                 }
-
                 composable(ROUTE_TOOLS) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ToolsHubScreen(
@@ -770,6 +793,19 @@ fun KernelNavHost(
                             },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
+                            },
+                        )
+                    }
+                }
+
+                composable(ROUTE_TOOLS_LEARN) {
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        ToolsLearnScreen(
+                            onBack = { navController.popBackStack() },
+                            onOpenPrompt = { prompt ->
+                                navController.navigate(buildActionsDraftRoute(prompt)) {
+                                    launchSingleTop = true
+                                }
                             },
                         )
                     }

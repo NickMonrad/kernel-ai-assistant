@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Forum
@@ -67,6 +68,15 @@ fun ToolsHubScreen(
                 .verticalScroll(rememberScrollState())
                 .testTag("tools_screen"),
         ) {
+            ToolsListItem(
+                testTag = "tools_row_learn",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                title = "Learn what Jandal can do",
+                subtitle = "Example prompts for actions, planning, weather, maps, media, and more",
+                onClick = { onNavigateToRoute(ROUTE_TOOLS_LEARN) },
+            )
+            HorizontalDivider()
+
             Text(
                 text = "Productivity",
                 style = MaterialTheme.typography.labelMedium,
@@ -244,7 +254,6 @@ fun ToolsHubScreen(
                 subtitle = "Build info and debug tools",
                 onClick = { onNavigateToRoute(ROUTE_ABOUT) },
             )
-            HorizontalDivider()
         }
     }
 }
