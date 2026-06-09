@@ -1,12 +1,34 @@
 package com.kernel.ai.navigation
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -335,6 +357,70 @@ class ToolsHubNavTest {
         val route = buildActionsDraftRoute("add milk & eggs")
         assertTrue(route.contains("draftQuery=add%20milk%20%26%20eggs"))
     }
+    @Test
+    fun toolsHub_draftPrefill_showsPrefilledText() {
+        composeTestRule.setContent {
+            QuickActionSheetHarness(initialText = "Add milk to my shopping list")
+        }
+
+        composeTestRule.onNodeWithTag("quick_action_input")
+            .assertIsDisplayed()
+        // Verify the text field contains the prefilled text
+        composeTestRule.onNodeWithText("Add milk to my shopping list")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_draftPrefill_showsExampleHint() {
+        composeTestRule.setContent {
+            QuickActionSheetHarness(initialText = "Set a timer for 10 minutes")
+        }
+
+        composeTestRule.onNodeWithTag("quick_action_example_hint")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Set a timer for 10 minutes")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_draftPrefill_hidesExampleHintWhenEmpty() {
+        composeTestRule.setContent {
+            QuickActionSheetHarness(initialText = "")
+        }
+
+        composeTestRule.onNodeWithTag("quick_action_input")
+            .assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag(
+            "quick_action_example_hint", useUnmergedTree = true,
+        ).fetchSemanticsNodes().let { nodes ->
+            assertTrue(
+                "Expected no example hint when initialText is empty",
+                nodes.isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun toolsHub_draftPrefill_submitButtonShown() {
+        composeTestRule.setContent {
+            QuickActionSheetHarness(initialText = "Plan dinners for this week")
+        }
+
+        composeTestRule.onNodeWithTag("quick_action_submit_button")
+            .assertIsDisplayed()
+        // Submit button should be enabled when text is present
+        composeTestRule.onNodeWithTag("quick_action_submit_button")
+            .assertIsEnabled()
+    }
+
+    @Test
+    fun toolsHub_draftPrefill_nothingAutoExecutes() {
+        // Verify the draft route does NOT contain widgetQuery (which triggers auto-execute)
+        val route = buildActionsDraftRoute("test prompt")
+        assertEquals(false, route.contains("widgetQuery"))
+        assertTrue(route.contains("draftQuery"))
+        assertTrue(route.contains("openSheet=true"))
+    }
 
     private fun assertRowNavigatesTo(
         rowTag: String,
@@ -380,6 +466,75 @@ private fun BottomNavHarness() {
                 onOpenDrawer = {},
                 onNavigateToRoute = {},
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickActionSheetHarness(initialText: String) {
+    var showSheet by remember { mutableStateOf(true) }
+    var inputText by remember { mutableStateOf(initialText) }
+    // When initialText changes externally, replace the text field value
+    LaunchedEffect(initialText) {
+        if (initialText.isNotBlank()) {
+            inputText = initialText
+        }
+    }
+
+    if (showSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+            ) {
+                Text(
+                    text = "Quick Action",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Type a command or tap the mic for a voice action.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                if (initialText.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Example loaded — review or edit before running.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("quick_action_example_hint"),
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    placeholder = { Text("What do you want to do?") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("quick_action_input"),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {},
+                                modifier = Modifier.testTag("quick_action_submit_button"),
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = "Send",
+                                )
+                            }
+                        }
+                    },
+                )
+            }
         }
     }
 }

@@ -111,7 +111,7 @@ private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
-private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS, ROUTE_TOOLS_LEARN)
+private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
 
 internal fun buildChatRoute(
     initialQuery: String? = null,

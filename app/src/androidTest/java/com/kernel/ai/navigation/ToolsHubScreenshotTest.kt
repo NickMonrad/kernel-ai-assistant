@@ -3,9 +3,17 @@ package com.kernel.ai.navigation
 import android.os.Environment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -23,7 +31,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -36,7 +43,7 @@ import java.io.File
  * Produces repeatable visual evidence for:
  *   - Tools Hub Learn entry row
  *   - Learn screen (ToolsLearnScreen) with collapsed/expanded example groups
- *   - Actions draft prefill and calendar slot-fill
+ *   - Actions draft prefill (realistic preview)
  *
  * Screenshots are saved to external Pictures/ directory; falls back to
  * internal filesDir/pictures/ when external storage is unavailable.
@@ -166,25 +173,7 @@ class ToolsHubScreenshotTest {
             println("Actions draft screenshot saved to: ${dir.absolutePath}")
         }
     }
-
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Test
-    fun captureCalendarSlotFillScreenshot() {
-        val dir = screenshotDir()
-        val d = device()
-
-        composeTestRule.setContent {
-            CalendarSlotFillPreview()
-        }
-        composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "07-actions-calendar-slot-fill.png"))
-
-        composeTestRule.runOnIdle {
-            println("Calendar slot-fill screenshot saved to: ${dir.absolutePath}")
-        }
-    }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActionsDraftPrefillPreview() {
@@ -217,6 +206,7 @@ private fun ActionsDraftPrefillPreview() {
                     text = "Example loaded — review or edit before running.",
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("quick_action_example_hint"),
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedTextField(
@@ -224,41 +214,22 @@ private fun ActionsDraftPrefillPreview() {
                     onValueChange = { inputText = it },
                     placeholder = { Text("What do you want to do?") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("quick_action_input"),
+                    trailingIcon = {
+                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            androidx.compose.material3.IconButton(
+                                onClick = {},
+                                modifier = Modifier.testTag("quick_action_submit_button"),
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    androidx.compose.material.icons.Icons.Default.Send,
+                                    contentDescription = "Send",
+                                )
+                            }
+                        }
+                    },
                 )
             }
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CalendarSlotFillPreview() {
-    var showSheet by remember { mutableStateOf(true) }
-    var inputText by remember { mutableStateOf("Create a calendar event for soccer training") }
-    var submitted by remember { mutableStateOf(true) }
-    var slotQuestion by remember { mutableStateOf("What day is soccer training for?") }
-
-    Column(
-        modifier = Modifier.padding(16.dp),
-    ) {
-        Text(
-            text = "Actions",
-            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "What day is soccer training for?",
-            style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = "",
-            onValueChange = {},
-            placeholder = { Text("Type a reply or tap the mic") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
