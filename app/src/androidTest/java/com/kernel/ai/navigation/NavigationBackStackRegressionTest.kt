@@ -851,11 +851,9 @@ class NavigationBackStackRegressionTest {
     @Test
     fun realToolsHubScreen_rendersAllRows() {
         val navigatedRoutes = mutableListOf<String>()
-        var drawerOpened = false
-
         composeTestRule.setContent {
             ToolsHubScreen(
-                onOpenDrawer = { drawerOpened = true },
+                onOpenDrawer = {},
                 onNavigateToRoute = { route -> navigatedRoutes.add(route) },
             )
         }
@@ -865,6 +863,11 @@ class NavigationBackStackRegressionTest {
         composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
+
+        // Clicking a row triggers the navigate callback (do this before scrolling away)
+        composeTestRule.onNodeWithTag("tools_row_lists").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue("Expected navigate to lists route", navigatedRoutes.contains("lists"))
         // Scroll to and verify rows below the fold
         composeTestRule.onNodeWithTag("tools_screen")
             .performScrollToNode(hasTestTag("tools_row_settings"))
@@ -879,11 +882,6 @@ class NavigationBackStackRegressionTest {
         composeTestRule.onNodeWithTag("tools_screen")
             .performScrollToNode(hasTestTag("tools_group_app_setup"))
         composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
-
-        // Clicking a row triggers the navigate callback
-        composeTestRule.onNodeWithTag("tools_row_lists").performClick()
-        composeTestRule.waitForIdle()
-        assertTrue("Expected navigate to lists route", navigatedRoutes.contains("lists"))
     }
 
     @Test
