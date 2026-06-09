@@ -109,3 +109,16 @@ jobs:
             $RELEASE_ARGS \
             --commit "$COMMIT" \
             $ALLOW_MISMATCH
+
+      - name: Trigger dashboard rebuild
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching test-evidence-published event to rebuild Pages dashboard..."
+          gh api repos/${{ github.repository }}/dispatches \
+            -f event_type=test-evidence-published \
+            -f client_payload[source]="${{ inputs.source }}" \
+            -f client_payload[pr]="${{ inputs.pr }}" \
+            -f client_payload[release]="${{ inputs.release }}" \
+            -f client_payload[commit]="${{ inputs.commit }}"
