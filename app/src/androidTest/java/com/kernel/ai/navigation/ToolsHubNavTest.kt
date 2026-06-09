@@ -615,14 +615,14 @@ private fun QuickActionSheetHarness(initialText: String) {
 /**
  * Minimal NavHost harness simulating bottom-nav flows:
  * Tools → Learn → Actions draft → [Chat] → Tools
- * Uses simple navigate+launchSingleTop for bottom-nav items without
- * save/restore (production navigateToPrimaryRoute handles that).
+ * Uses simple navigate+launchSingleTop for bottom-nav items.
  */
 @Composable
 private fun NavigationHarness() {
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
+
     Column {
         NavHost(
             navController = navController,
@@ -690,10 +690,7 @@ private fun NavigationHarness() {
             NavigationBarItem(
                 selected = currentBaseRoute == "chat",
                 onClick = {
-                    navController.navigate("chat") {
-                        popUpTo(navController.graph.startDestinationId) { inclusive = false }
-                        launchSingleTop = true
-                    }
+                    navController.navigate("chat") { launchSingleTop = true }
                 },
                 icon = { Icon(Icons.Default.Build, contentDescription = null) },
                 label = { Text("Chat") },
@@ -702,10 +699,7 @@ private fun NavigationHarness() {
             NavigationBarItem(
                 selected = currentBaseRoute == "tools",
                 onClick = {
-                    navController.navigate("tools") {
-                        popUpTo(navController.graph.startDestinationId) { inclusive = false }
-                        launchSingleTop = true
-                    }
+                    navController.navigate("tools") { launchSingleTop = true }
                 },
                 icon = { Icon(Icons.Default.Build, contentDescription = null) },
                 label = { Text("Tools") },
