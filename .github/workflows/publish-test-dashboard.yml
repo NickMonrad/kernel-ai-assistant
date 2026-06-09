@@ -26,6 +26,7 @@ jobs:
 
       - name: Checkout test-results
         uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        continue-on-error: true
         with:
           ref: test-results
           path: test-results
@@ -34,6 +35,7 @@ jobs:
       - name: Ensure test-results checkout
         run: |
           if [ ! -d test-results/results ]; then
+            rm -rf test-results
             mkdir -p test-results/results
             echo "::warning::test-results branch not found or empty; using empty results"
           fi
