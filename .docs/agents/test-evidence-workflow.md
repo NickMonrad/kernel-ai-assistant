@@ -151,7 +151,7 @@ The schema (`docs/testing/test-evidence-schema.md`) distinguishes `ci` from `on_
 - **No charts/analytics** in the dashboard beyond tabular pass/fail data.
 - **No PR comments** from the dashboard or evidence pipeline.
 - **No self-hosted device runner** — on-device testing remains manual.
-- **No local dashboard dispatch** — on-device evidence publishing requires manual dashboard refresh.
+- **No automatic local dashboard dispatch** — local/on-device evidence does not auto-refresh the dashboard by itself. If `gh` auth is available and the user has explicitly instructed publication, the agent may manually trigger the Publish test dashboard workflow after local publish.
 
 ## Related documents
 
