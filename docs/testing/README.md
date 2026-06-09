@@ -6,6 +6,8 @@
 |----------|---------|
 | [`docs/automated-testing.md`](../automated-testing.md) | Primary operational index — harness commands, supported phases, report inspection, on-device validation, CI vs on-device evidence, failure interpretation |
 | [`docs/adb-testing.md`](../adb-testing.md) | Device setup, build & install, logcat filters, TTFT benchmarking, memory monitoring, wireless debugging |
+| [`docs/testing/test-evidence-schema.md`](./test-evidence-schema.md) | Normalised evidence schema, `ci` vs `on_device` definitions, field reference |
+| [`.docs/agents/test-evidence-workflow.md`](../../.docs/agents/test-evidence-workflow.md) | Agent guidance on evidence lifecycle — generation, reporting, publishing, dashboard |
 | [`docs/testing/llm-tools-harness.md`](./llm-tools-harness.md) | Deep reference for the `llm_tools` harness phase — markers, assertions, troubleshooting |
 
 ## Design / specification docs

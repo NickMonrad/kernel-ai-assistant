@@ -231,6 +231,39 @@ in issues, not by relaxing harness assertions.
 Evidence normalisation and a dashboard view (combining CI and on-device runs, tracking
 pass-rate trends per device) are tracked in [#1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113).
 
+
+## Evidence lifecycle
+
+The current test evidence lifecycle is:
+
+```text
+CI generates normalised evidence artifact
+  → reviewer publishes selected snapshot via Publish test evidence workflow
+  → evidence lands in test-results branch
+  → dashboard auto-refreshes via repository_dispatch
+```
+
+For on-device evidence:
+
+
+```text
+ADB harness run produces JSON report
+  → agent normalises report to evidence schema (when instructed)
+  → agent publishes locally with scripts/publish_test_evidence.py
+  → evidence lands in test-results branch
+  → agent may manually trigger Publish test dashboard workflow if gh auth is available and user instructed publication
+```
+
+**Key points:**
+
+- Evidence publishing is reviewer/agent-controlled, not automatic. Agents gather metadata and publish when instructed.
+- CI and on-device evidence are kept distinct in the schema (`source` field).
+- Publishing is not a merge gate — PRs can merge without published evidence.
+- The dashboard is a historical record and trend view, not a CI gate.
+
+Detailed agent guidance: [`.docs/agents/test-evidence-workflow.md`](../.docs/agents/test-evidence-workflow.md).
+Evidence schema reference: [`docs/testing/test-evidence-schema.md`](./testing/test-evidence-schema.md).
+
 ### Failure interpretation
 
 | Failure pattern | Meaning | Likely cause |
