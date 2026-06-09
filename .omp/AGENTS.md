@@ -153,6 +153,12 @@ Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` on
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
 - Coroutine tests: use `MainDispatcherRule` (replaces `Dispatchers.Main` with `TestDispatcher`) to avoid `IllegalStateException`. Use Turbine library for StateFlow/Flow assertion in tests.
 
+### Test evidence workflow
+
+Feature PRs should let normal CI generate test evidence artifacts. Do not publish durable evidence unless explicitly instructed. In PR notes or final summary, report the PR number, head commit SHA, and CI run ID so the reviewer can decide whether to publish a durable snapshot to `test-results`. Keep CI/static evidence distinct from physical on-device evidence.
+
+Details: `.docs/agents/test-evidence-workflow.md`.
+
 ## Working style
 
 - Search before reading; read surgically and minimally
@@ -199,6 +205,7 @@ Load these only when relevant:
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
 - `.docs/agents/repo-map.md` — key file index by area
 - `docs/UX_PATTERNS.md` — canonical UI/UX patterns (read before any new screen)
+- `.docs/agents/test-evidence-workflow.md` — test evidence lifecycle, CI vs on-device, publishing workflow, agent guidance
 - `docs/model-availability-ux-patterns.md` — model-facing screen patterns
 
 **Phase status:** see `docs/ROADMAP.md` for the full tracker.
