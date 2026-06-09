@@ -20,6 +20,7 @@ Validation:
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import re
 import shutil
@@ -45,10 +46,36 @@ DEFAULT_TARGET_BRANCH = "test-results"
 # Only publish these file extensions
 ALLOWED_EXTENSIONS = frozenset({".json", ".csv", ".md"})
 
-# Extensions that are explicitly blocked from publishing
 BLOCKED_EXTENSIONS = frozenset({
     ".log", ".txt~", ".bak", ".tmp", ".dump", ".hprof",
 })
+
+
+def _validate_path_segment(value: str, label: str) -> None:
+    """Validate a CLI value used as a path segment.
+
+    Rejects empty strings, path separators, traversal components,
+    null bytes, and characters that are unsafe in filesystem paths.
+    """
+    if not value:
+        print(f"ERROR: {label} must not be empty", file=sys.stderr)
+        sys.exit(1)
+    if "/" in value or "\\" in value:
+        print(f"ERROR: {label} must not contain path separators: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if "\x00" in value:
+        print(f"ERROR: {label} must not contain null bytes", file=sys.stderr)
+        sys.exit(1)
+    if value in (".", ".."):
+        print(f"ERROR: {label} must not be '.' or '..': {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", value):
+        print(
+            f"ERROR: {label} contains invalid characters: {value!r}. "
+            f"Allowed: alphanumeric, dots, hyphens, underscores (must start with alphanumeric).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 # ── Remote URL resolution ──────────────────────────────────────────────────────
@@ -316,11 +343,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Validate: at least one of --pr or --release
     if args.pr is None and args.release is None:
         parser.error("at least one of --pr or --release is required")
+    if args.pr is not None and args.release is not None:
+        parser.error("--pr and --release are mutually exclusive; provide only one")
     if args.target_branch.lower() in ("main", "master"):
         parser.error(
             f"target branch '{args.target_branch}' is a default branch; "
             f"use a dedicated branch like '{DEFAULT_TARGET_BRANCH}'"
         )
+
+    # Validate release path segment safety
+    if args.release is not None:
+        _validate_path_segment(args.release, "--release")
+    # Target branch traversal safety (allow / for nesting, block dangerous patterns)
+    if "../" in args.target_branch or args.target_branch.startswith("/"):
+        parser.error(
+            f"target branch '{args.target_branch}' contains path traversal; "
+            f"use a plain branch name like '{DEFAULT_TARGET_BRANCH}'"
+        )
+    if "\x00" in args.target_branch:
+        parser.error("target branch must not contain null bytes")
 
     return args
 
