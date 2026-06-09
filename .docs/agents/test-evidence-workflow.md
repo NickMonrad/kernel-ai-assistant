@@ -36,7 +36,12 @@ In the PR description or final summary comment, **always report:**
 - **Head commit SHA** — the full SHA of the latest commit on the PR branch
 - **CI run ID** — the GitHub Actions run ID that generated the evidence artifacts
 
-This metadata is needed by the reviewer or user to publish a durable evidence snapshot using the "Publish test evidence" workflow.
+When preparing to publish CI evidence, note that the evidence artifact name and embedded commit use the **merge commit SHA** (`github.sha` for `pull_request` events), not the PR head SHA. Both appear in the CI run output:
+
+- **Merge commit SHA** → used in the artifact name `ci-test-evidence-<sha>` and the evidence JSON's `commit` field. Pass this as `inputs.commit` to the Publish test evidence workflow.
+- **Head commit SHA** → the PR branch's latest commit. Useful for identification but not directly used in artifact download.
+
+The publisher validates that `--commit` matches the evidence JSON's `commit` field. Use `--allow-commit-mismatch` only when publishing manually-created evidence where the SHA cannot match a CI run.
 
 ### 3. Stop for review
 
