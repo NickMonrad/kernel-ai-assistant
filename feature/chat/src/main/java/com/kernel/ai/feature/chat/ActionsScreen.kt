@@ -804,10 +804,10 @@ private fun QuickActionBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var inputText by remember { mutableStateOf(initialText) }
+    var inputText by rememberSaveable(initialText) { mutableStateOf(initialText) }
     // When initialText changes externally (new draft from Tools example),
-    // replace the text field value. Does not reset when blank (preserves
-    // user-typed text after process-death restore).
+    // replace the text field value. Preserves user-typed text across
+    // recomposition and configuration changes while the sheet is open.
     LaunchedEffect(initialText) {
         if (initialText.isNotBlank()) {
             inputText = initialText
