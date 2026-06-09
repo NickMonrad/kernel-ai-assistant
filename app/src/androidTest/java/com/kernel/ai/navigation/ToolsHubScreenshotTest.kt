@@ -35,11 +35,16 @@ import java.io.File
  * Produces repeatable visual evidence for the Tools example prompts flow
  * and Actions draft prefill.
  *
- * Screenshots are saved to:
+ * Screenshots are saved to external Pictures/ directory; falls back to
+ * internal filesDir/pictures/ when external storage is unavailable.
+ * Primary path (external):
  *   /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/
+ * Fallback path (internal, requires run-as):
+ *   /data/data/com.kernel.ai.debug/files/pictures/test-screenshots/pr-751-child-03/
  *
  * After running connected tests, pull with:
  *   adb pull /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/ ./debug/pr-1137-screenshots
+ * (If external unavailable: adb exec-out run-as com.kernel.ai.debug tar cf - files/pictures/test-screenshots | tar xf - -C ./debug/pr-1137-screenshots)
  */
 @RunWith(AndroidJUnit4::class)
 class ToolsHubScreenshotTest {
@@ -47,11 +52,12 @@ class ToolsHubScreenshotTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
-    private fun screenshotDir(): File = File(
-        InstrumentationRegistry.getInstrumentation().targetContext
-            .getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-        "test-screenshots/pr-751-child-03",
-    ).also { it.mkdirs() }
+    private fun screenshotDir(): File {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val baseDir = ctx.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            ?: File(ctx.filesDir, "pictures")
+        return File(baseDir, "test-screenshots/pr-751-child-03").also { it.mkdirs() }
+    }
 
     private fun device(): UiDevice =
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
