@@ -90,18 +90,14 @@ NAVIGATION_CASES: list[dict[str, Any]] = [
 ]
 
 
-# ── Device metadata resolvers ──────────────────────────────────────────────
-
 def _load_devices() -> dict:
-    """Load device metadata from scripts/testdata/devices.yaml."""
-    import yaml  # type: ignore[import-untyped]
-    path = HERE / "testdata" / "devices.yaml"
-    if not path.exists():
-        print(f"WARNING: devices.yaml not found at {path}", file=sys.stderr)
-        return {}
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    return data.get("devices", {})
+    """Load device metadata from scripts/testdata/devices.yaml.
+
+    Reuses the minimal YAML loader from summarise_test_report.py to avoid
+    adding a PyYAML dependency to the default Python environment.
+    """
+    from summarise_test_report import load_devices as _load_devices_impl
+    return _load_devices_impl()
 
 
 def _resolve_device(device_id: str) -> dict:
