@@ -1,0 +1,9 @@
+source,suite,timestamp,commit,device_id,case,passed,expected_result_mode,actual_result_mode,failure_category,failures
+ci,ci,2026-06-09T21:31:09Z,0876abaf0e1c40bd6cf9139600ef7736102c9467,ubuntu-latest,python_compile_checks,False,success,unknown,harness_error,"generate_navigation_test_evidence.py: File ""/home/runner/work/kernel-ai-assistant/kernel-ai-assistant/scripts/generate_navigation_test_evidence.py"", line 232
+    (re.compile(r""Device.*not found|No such device|adb|device.*unavailable"",
+               ^
+SyntaxError: '(' was never closed"
+ci,ci,2026-06-09T21:31:09Z,0876abaf0e1c40bd6cf9139600ef7736102c9467,ubuntu-latest,fixture_schema_validation,True,success,success,,
+ci,ci,2026-06-09T21:31:09Z,0876abaf0e1c40bd6cf9139600ef7736102c9467,ubuntu-latest,gradle_build,True,success,success,,
+ci,ci,2026-06-09T21:31:09Z,0876abaf0e1c40bd6cf9139600ef7736102c9467,ubuntu-latest,gradle_lint,True,success,success,,
+ci,ci,2026-06-09T21:31:09Z,0876abaf0e1c40bd6cf9139600ef7736102c9467,ubuntu-latest,unit_tests,True,success,success,,

@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "source": "ci",
+  "suite": "ci",
+  "timestamp": "2026-06-09T21:31:09Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "1160/merge",
+  "commit": "0876abaf0e1c40bd6cf9139600ef7736102c9467",
+  "pr": 1160,
+  "release": null,
+  "run_id": "ci-2026-06-09T21-31-09Z-ubuntu-latest",
+  "device": {
+    "id": "ubuntu-latest",
+    "serial": null,
+    "label": "ubuntu-latest",
+    "manufacturer": "GitHub",
+    "model": "Actions runner",
+    "soc": "x86_64",
+    "tier": "ci",
+    "android_api": null,
+    "execution": "github_hosted_runner"
+  },
+  "model": {
+    "name": null,
+    "runtime": null,
+    "backend": null
+  },
+  "summary": {
+    "total": 5,
+    "passed": 4,
+    "failed": 1,
+    "pass_rate": 0.8
+  },
+  "cases": [
+    {
+      "name": "python_compile_checks",
+      "passed": false,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "harness_error",
+      "failures": [
+        "generate_navigation_test_evidence.py: File \"/home/runner/work/kernel-ai-assistant/kernel-ai-assistant/scripts/generate_navigation_test_evidence.py\", line 232\n    (re.compile(r\"Device.*not found|No such device|adb|device.*unavailable\",\n               ^\nSyntaxError: '(' was never closed"
+      ]
+    },
+    {
+      "name": "fixture_schema_validation",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "gradle_build",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "gradle_lint",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "unit_tests",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ]
+}

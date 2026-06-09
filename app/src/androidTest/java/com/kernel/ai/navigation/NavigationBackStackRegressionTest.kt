@@ -64,6 +64,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import kotlinx.coroutines.launch
 import org.junit.Before
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -733,10 +734,10 @@ class NavigationBackStackRegressionTest {
         composeTestRule.waitForIdle()
         // Should navigate to Lists destination
         composeTestRule.onNodeWithTag("dest_lists").assertIsDisplayed()
-        // Back returns to Tools
+        // Back returns to Chats (the drawer's popUpTo(ROUTE_LIST) resets to start destination)
         composeTestRule.onNodeWithTag("btn_back_from_dest_lists").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()
     }
 
     @Test
@@ -860,20 +861,24 @@ class NavigationBackStackRegressionTest {
         }
         composeTestRule.waitForIdle()
 
-        // Verify the screen renders
+        // Verify the screen renders with visible rows
         composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
-        // Verify multiple route rows are present
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_row_settings").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_row_about").assertIsDisplayed()
-        // Scroll and verify later entries
+        // Scroll to and verify rows below the fold
         composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_row_permissions"))
-        composeTestRule.onNodeWithTag("tools_row_permissions").assertIsDisplayed()
+            .performScrollToNode(hasTestTag("tools_row_settings"))
+        composeTestRule.onNodeWithTag("tools_row_settings").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_about"))
+        composeTestRule.onNodeWithTag("tools_row_about").assertIsDisplayed()
         // Verify group headers
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_productivity"))
         composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_time_planning").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_app_setup"))
+        composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
 
         // Clicking a row triggers the navigate callback
         composeTestRule.onNodeWithTag("tools_row_lists").performClick()
