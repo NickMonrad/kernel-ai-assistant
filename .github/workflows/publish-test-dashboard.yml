@@ -2,6 +2,9 @@ name: Publish test dashboard
 
 on:
   workflow_dispatch:
+  repository_dispatch:
+    types:
+      - test-evidence-published
   push:
     branches:
       - main
