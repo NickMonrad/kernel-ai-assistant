@@ -155,17 +155,15 @@ def normalise_skills_case(r: dict) -> dict:
     intent_passed = r.get("intent_passed", False)
 
     # xfail: expected failure — the harness knows this case is known to fail.
-    # Mark as passed (the test correctly identified the known limitation)
-    # with no failure details to satisfy the invariant:
-    #   passed=true → failure_category=null, failures=[]
+    # Mark as passed with no failure details to satisfy invariants.
     if xfail and not intent_passed:
         return {
             "name": name,
             "passed": True,
             "expected_tool": r.get("expect_intent"),
             "actual_tool": r.get("actual_intent"),
-            "expected_result_mode": None,
-            "actual_result_mode": None,
+            "expected_result_mode": "direct_reply",
+            "actual_result_mode": "direct_reply",
             "chip_present": False,
             "skill_result_present": False,
             "message_saved": False,
@@ -180,13 +178,17 @@ def normalise_skills_case(r: dict) -> dict:
     failures = _build_failures(r)
     failure_category = classify_skills_failure(r)
 
+    # Skills cases always use direct_reply mode (QIR dispatches intents synchronously)
+    actual_tool = r.get("actual_intent")
+    actual_result_mode = "direct_reply" if actual_tool else "unknown"
+
     return {
         "name": name,
         "passed": passed,
         "expected_tool": r.get("expect_intent"),
-        "actual_tool": r.get("actual_intent"),
-        "expected_result_mode": None,
-        "actual_result_mode": None,
+        "actual_tool": actual_tool,
+        "expected_result_mode": "direct_reply",
+        "actual_result_mode": actual_result_mode,
         "chip_present": False,
         "skill_result_present": False,
         "message_saved": False,
