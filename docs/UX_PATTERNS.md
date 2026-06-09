@@ -182,8 +182,6 @@ Example prompts must not:
 Any action that creates, deletes, sends, saves, schedules, or changes settings must require
 explicit user confirmation in the destination flow.
 
-Any action that creates, deletes, sends, saves, schedules, or changes settings must require
-explicit user confirmation in the destination flow.
 
 ### 1.4 Navigation from widget / external entry points
 
@@ -257,7 +255,6 @@ tools_row_settings
 tools_row_voice
 tools_row_models
 tools_row_permissions
-```
 ```
 
 Tool example and Quick Action sheet test tags:

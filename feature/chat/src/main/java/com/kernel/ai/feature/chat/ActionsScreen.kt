@@ -510,11 +510,15 @@ fun ActionsScreen(
         QuickActionBottomSheet(
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
-            onDismiss = { showBottomSheet = false },
+            onDismiss = {
+                showBottomSheet = false
+                initialSheetText = ""
+            },
             initialText = initialSheetText,
             onSubmit = { query ->
                 viewModel.executeAction(query)
                 showBottomSheet = false
+                initialSheetText = ""
             },
             onVoiceAction = {
                 showBottomSheet = false
@@ -794,7 +798,15 @@ private fun QuickActionBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var inputText by rememberSaveable { mutableStateOf(initialText) }
+    var inputText by remember { mutableStateOf(initialText) }
+    // When initialText changes externally (new draft from Tools example),
+    // replace the text field value. Does not reset when blank (preserves
+    // user-typed text after process-death restore).
+    LaunchedEffect(initialText) {
+        if (initialText.isNotBlank()) {
+            inputText = initialText
+        }
+    }
     val commandCaptureState = when (voiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
         is ActionsViewModel.VoiceCaptureState.Listening -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }

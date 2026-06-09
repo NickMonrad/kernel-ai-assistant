@@ -108,7 +108,6 @@ private const val ARG_DRAFT_QUERY = "draftQuery"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
-private const val STATE_DRAFT_QUERY_CONSUMED = "draftQueryConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 /** Routes that show the bottom navigation bar. */
@@ -451,10 +450,9 @@ fun KernelNavHost(
                         backStackEntry.arguments?.getBoolean(ARG_WIDGET_VOICE) ?: false
                     } else false
                     // draftQuery: baked into the route URL for Tools example prompt prefill.
-                    // savedStateHandle guards against re-opening on recomposition.
+                    // ActionsScreen tracks last-seen draft to prevent re-fire on recomposition.
                     val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY)
                         ?.takeIf { it.isNotBlank() }
-                        ?.takeIf { backStackEntry.savedStateHandle.get<Boolean>(STATE_DRAFT_QUERY_CONSUMED) != true }
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
@@ -464,7 +462,6 @@ fun KernelNavHost(
                             adbSlotReply = initialSlotReply,
                             draftQuery = draftQuery,
                             onDraftQueryConsumed = {
-                                backStackEntry.savedStateHandle[STATE_DRAFT_QUERY_CONSUMED] = true
                                 backStackEntry.arguments?.putString(ARG_DRAFT_QUERY, "")
                             },
                             onAutoOpenSheetConsumed = {

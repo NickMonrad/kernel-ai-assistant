@@ -329,6 +329,20 @@ class ToolsHubNavTest {
             composeTestRule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(),
         )
     }
+
+    @Test
+    fun toolsHub_draftRoute_safeConstruction() {
+        val route = buildActionsDraftRoute("Convert 2 cups to mL")
+        assertTrue(route.startsWith("actions?openSheet=true"))
+        assertTrue(route.contains("draftQuery=Convert%202%20cups%20to%20mL"))
+        assertEquals(false, route.contains("widgetQuery"))
+    }
+
+    @Test
+    fun toolsHub_draftRoute_encodesSpecialCharacters() {
+        val route = buildActionsDraftRoute("add milk & eggs")
+        assertTrue(route.contains("draftQuery=add%20milk%20%26%20eggs"))
+    }
 }
 
 @androidx.compose.runtime.Composable
