@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "llm_tools",
+  "timestamp": "2026-06-09T21:38:46Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "feature/1154-navigation-backstack-harness",
+  "commit": "d6d11c4c07b129d1e3b929d863e17ad90cb20e59",
+  "pr": null,
+  "release": null,
+  "run_id": "on_device-2026-06-09T21-38-46Z-s21-exynos",
+  "device": {
+    "id": "s21-exynos",
+    "serial": null,
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "R5CR605B71K",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma E2B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
+    "pass_rate": 0.6667
+  },
+  "cases": [
+    {
+      "name": "query_wikipedia_natural",
+      "passed": true,
+      "expected_tool": "query_wikipedia",
+      "actual_tool": "query_wikipedia",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "save_memory_durable_fact",
+      "passed": false,
+      "expected_tool": "save_memory",
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "wrong_tool",
+      "failures": [
+        "No tool_chip_visible marker found",
+        "tool name: expected 'save_memory', got None",
+        "field 'content': missing",
+        "No ChatMessage.toolCall persistence marker found",
+        "result mode: expected 'success', got 'unknown'"
+      ]
+    },
+    {
+      "name": "get_system_info_natural",
+      "passed": true,
+      "expected_tool": "get_system_info",
+      "actual_tool": "get_system_info",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ]
+}
