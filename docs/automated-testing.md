@@ -251,7 +251,7 @@ ADB harness run produces JSON report
   → agent normalises report to evidence schema (when instructed)
   → agent publishes locally with scripts/publish_test_evidence.py
   → evidence lands in test-results branch
-  → agent triggers Publish test dashboard workflow if gh auth is available
+  → agent may manually trigger Publish test dashboard workflow if gh auth is available and user instructed publication
 ```
 
 **Key points:**
