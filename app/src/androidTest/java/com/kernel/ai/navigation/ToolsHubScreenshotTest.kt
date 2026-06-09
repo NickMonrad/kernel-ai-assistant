@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -32,18 +33,23 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Produces repeatable visual evidence for the Tools example prompts flow
- * and Actions draft prefill.
+ * Produces repeatable visual evidence for:
+ *   - Tools Hub Learn entry row
+ *   - Learn screen (ToolsLearnScreen) with collapsed/expanded example groups
+ *   - Actions draft prefill and calendar slot-fill
  *
  * Screenshots are saved to external Pictures/ directory; falls back to
  * internal filesDir/pictures/ when external storage is unavailable.
+ *
  * Primary path (external):
  *   /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/
+ *
  * Fallback path (internal, requires run-as):
  *   /data/data/com.kernel.ai.debug/files/pictures/test-screenshots/pr-751-child-03/
  *
  * After running connected tests, pull with:
  *   adb pull /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/ ./debug/pr-1137-screenshots
+ *
  * (If external unavailable: adb exec-out run-as com.kernel.ai.debug tar cf - files/pictures/test-screenshots | tar xf - -C ./debug/pr-1137-screenshots)
  */
 @RunWith(AndroidJUnit4::class)
@@ -63,11 +69,10 @@ class ToolsHubScreenshotTest {
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
     @Test
-    fun captureToolsLearnSectionScreenshots() {
+    fun captureToolsHubLearnEntryScreenshot() {
         val dir = screenshotDir()
         val d = device()
 
-        // 1. Collapsed Learn section
         composeTestRule.setContent {
             ToolsHubScreen(
                 onOpenDrawer = {},
@@ -75,49 +80,72 @@ class ToolsHubScreenshotTest {
             )
         }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_examples_helper_copy"))
-        composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "01-tools-learn-collapsed.png"))
 
-        // 2. Expand Meal planning
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_examples_view_more_meal_planning"))
-        composeTestRule.onNodeWithTag(
-            "tools_examples_view_more_meal_planning", useUnmergedTree = true,
-        ).performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_example_meal_plan_family"))
-        composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "02-tools-learn-expanded-meal-planning.png"))
-
-        // 3. Expand Weather
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_examples_view_more_weather"))
-        composeTestRule.onNodeWithTag(
-            "tools_examples_view_more_weather", useUnmergedTree = true,
-        ).performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_example_weather_wellington"))
-        composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "03-tools-learn-expanded-weather.png"))
-
-        // 4. Expand Utilities & conversions
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_examples_view_more_utilities_conversions"))
-        composeTestRule.onNodeWithTag(
-            "tools_examples_view_more_utilities_conversions", useUnmergedTree = true,
-        ).performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_example_convert_currency_aud_nzd"))
-        composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "04-tools-learn-expanded-utilities.png"))
+        // tools_row_learn is the first row, should be visible without scrolling
+        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
+        d.takeScreenshot(File(dir, "01-tools-hub-learn-entry.png"))
 
         composeTestRule.runOnIdle {
-            println("Tools screenshots saved to: ${dir.absolutePath}")
+            println("Tools Hub Learn entry screenshot saved to: ${dir.absolutePath}")
+        }
+    }
+
+    @Test
+    fun captureToolsLearnSectionScreenshots() {
+        val dir = screenshotDir()
+        val d = device()
+
+        // 1. Collapsed Learn screen
+        composeTestRule.setContent {
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
+            )
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_helper_copy"))
+        composeTestRule.waitForIdle()
+        d.takeScreenshot(File(dir, "02-tools-learn-collapsed.png"))
+
+        // 2. Expand Meal planning
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_view_more_meal_planning"))
+        composeTestRule.onNodeWithTag(
+            "tools_learn_view_more_meal_planning", useUnmergedTree = true,
+        ).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_meal_plan_family"))
+        composeTestRule.waitForIdle()
+        d.takeScreenshot(File(dir, "03-tools-learn-expanded-meal-planning.png"))
+
+        // 3. Expand Weather (keep meal planning expanded)
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
+        composeTestRule.onNodeWithTag(
+            "tools_learn_view_more_weather", useUnmergedTree = true,
+        ).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_weather_wellington"))
+        composeTestRule.waitForIdle()
+        d.takeScreenshot(File(dir, "04-tools-learn-expanded-weather.png"))
+
+        // 4. Expand Utilities & conversions (keep previous expanded)
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_view_more_utilities_conversions"))
+        composeTestRule.onNodeWithTag(
+            "tools_learn_view_more_utilities_conversions", useUnmergedTree = true,
+        ).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_learn_screen")
+            .performScrollToNode(hasTestTag("tools_learn_convert_currency_aud_nzd"))
+        composeTestRule.waitForIdle()
+        d.takeScreenshot(File(dir, "05-tools-learn-expanded-utilities.png"))
+
+        composeTestRule.runOnIdle {
+            println("Learn screen screenshots saved to: ${dir.absolutePath}")
             println("Pull command: adb pull ${dir.absolutePath} ./debug/pr-1137-screenshots")
         }
     }
@@ -132,7 +160,7 @@ class ToolsHubScreenshotTest {
             ActionsDraftPrefillPreview()
         }
         composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "05-actions-draft-prefill.png"))
+        d.takeScreenshot(File(dir, "06-actions-draft-prefill.png"))
 
         composeTestRule.runOnIdle {
             println("Actions draft screenshot saved to: ${dir.absolutePath}")
@@ -149,7 +177,7 @@ class ToolsHubScreenshotTest {
             CalendarSlotFillPreview()
         }
         composeTestRule.waitForIdle()
-        d.takeScreenshot(File(dir, "06-actions-calendar-slot-fill.png"))
+        d.takeScreenshot(File(dir, "07-actions-calendar-slot-fill.png"))
 
         composeTestRule.runOnIdle {
             println("Calendar slot-fill screenshot saved to: ${dir.absolutePath}")

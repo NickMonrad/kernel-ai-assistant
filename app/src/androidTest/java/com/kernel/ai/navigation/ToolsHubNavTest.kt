@@ -80,6 +80,7 @@ class ToolsHubNavTest {
         }
 
         listOf(
+            "tools_row_learn",
             "tools_group_productivity",
             "tools_group_time_planning",
             "tools_group_people",
@@ -108,6 +109,26 @@ class ToolsHubNavTest {
         composeTestRule.onNodeWithTag("tools_screen")
             .performScrollToNode(hasText("Archive, themes, wallpaper, and copy options"))
         composeTestRule.onNodeWithText("Archive, themes, wallpaper, and copy options").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_rowLearnNavigatesToToolsLearn() {
+        assertRowNavigatesTo("tools_row_learn", ROUTE_TOOLS_LEARN)
+    }
+
+    @Test
+    fun toolsHub_learnRowIsFirstRow() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+            )
+        }
+
+        // tools_row_learn should be visible without scrolling
+        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Learn what Jandal can do").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Example prompts for actions, planning, weather, maps, media, and more").assertIsDisplayed()
     }
 
     @Test
@@ -189,119 +210,130 @@ class ToolsHubNavTest {
     }
 
     @Test
-    fun toolsHub_learnSection_headerAndHelperCopyRender() {
+    fun toolsLearnScreen_showsHelperCopy() {
         composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
             )
         }
 
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_examples_helper_copy"))
-        composeTestRule.onNodeWithTag("tools_examples_helper_copy").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_examples_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_learn_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_learn_helper_copy").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_learn_privacy_note").assertIsDisplayed()
     }
 
     @Test
-    fun toolsHub_learnSection_showsDefaultExamplesCollapsed() {
+    fun toolsLearnScreen_showsDefaultExamplesCollapsed() {
         composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
             )
         }
 
         // Default examples should be visible
-        val screenNode = composeTestRule.onNodeWithTag("tools_screen")
-        screenNode.performScrollToNode(hasTestTag("tools_example_lists_add_milk"))
-        composeTestRule.onNodeWithTag("tools_example_lists_add_milk").assertIsDisplayed()
-        screenNode.performScrollToNode(hasTestTag("tools_example_meal_plan_dinners_week"))
-        composeTestRule.onNodeWithTag("tools_example_meal_plan_dinners_week").assertIsDisplayed()
-        screenNode.performScrollToNode(hasTestTag("tools_example_weather_current"))
-        composeTestRule.onNodeWithTag("tools_example_weather_current").assertIsDisplayed()
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_lists_add_milk"))
+        composeTestRule.onNodeWithTag("tools_learn_lists_add_milk").assertIsDisplayed()
+        screenNode.performScrollToNode(hasTestTag("tools_learn_meal_plan_dinners_week"))
+        composeTestRule.onNodeWithTag("tools_learn_meal_plan_dinners_week").assertIsDisplayed()
+        screenNode.performScrollToNode(hasTestTag("tools_learn_weather_current"))
+        composeTestRule.onNodeWithTag("tools_learn_weather_current").assertIsDisplayed()
     }
 
     @Test
-    fun toolsHub_learnSection_expandMealPlanningShowsMoreExamples() {
+    fun toolsLearnScreen_expandMealPlanningShowsMoreExamples() {
         composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
             )
         }
 
-        // Scroll to Meal planning View more and click it
-        val screenNode = composeTestRule.onNodeWithTag("tools_screen")
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_meal_planning"))
-        composeTestRule.onNodeWithTag("tools_examples_view_more_meal_planning", useUnmergedTree = true).performClick()
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_meal_planning"))
+        composeTestRule.onNodeWithTag("tools_learn_view_more_meal_planning", useUnmergedTree = true).performClick()
         composeTestRule.waitForIdle()
 
-        // More examples should now be visible
-        screenNode.performScrollToNode(hasTestTag("tools_example_meal_plan_family"))
-        composeTestRule.onNodeWithTag("tools_example_meal_plan_family").assertIsDisplayed()
-
-        // Show less should be visible
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_meal_planning"))
+        screenNode.performScrollToNode(hasTestTag("tools_learn_meal_plan_family"))
+        composeTestRule.onNodeWithTag("tools_learn_meal_plan_family").assertIsDisplayed()
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_meal_planning"))
         composeTestRule.onNodeWithText("Show less").assertIsDisplayed()
     }
 
     @Test
-    fun toolsHub_learnSection_expandWeatherShowsMoreExamples() {
+    fun toolsLearnScreen_expandWeatherShowsMoreExamples() {
         composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
             )
         }
 
-        val screenNode = composeTestRule.onNodeWithTag("tools_screen")
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_weather"))
-        composeTestRule.onNodeWithTag("tools_examples_view_more_weather", useUnmergedTree = true).performClick()
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
+        composeTestRule.onNodeWithTag("tools_learn_view_more_weather", useUnmergedTree = true).performClick()
         composeTestRule.waitForIdle()
 
-        screenNode.performScrollToNode(hasTestTag("tools_example_weather_wellington"))
-        composeTestRule.onNodeWithTag("tools_example_weather_wellington").assertIsDisplayed()
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_weather"))
+        screenNode.performScrollToNode(hasTestTag("tools_learn_weather_wellington"))
+        composeTestRule.onNodeWithTag("tools_learn_weather_wellington").assertIsDisplayed()
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
         composeTestRule.onNodeWithText("Show less").assertIsDisplayed()
     }
 
     @Test
-    fun toolsHub_learnSection_expandUtilitiesShowsMoreExamples() {
-        composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
-            )
-        }
-
-        val screenNode = composeTestRule.onNodeWithTag("tools_screen")
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_utilities_conversions"))
-        composeTestRule.onNodeWithTag("tools_examples_view_more_utilities_conversions", useUnmergedTree = true).performClick()
-        composeTestRule.waitForIdle()
-
-        screenNode.performScrollToNode(hasTestTag("tools_example_convert_currency_aud_nzd"))
-        composeTestRule.onNodeWithTag("tools_example_convert_currency_aud_nzd").assertIsDisplayed()
-        screenNode.performScrollToNode(hasTestTag("tools_examples_view_more_utilities_conversions"))
-        composeTestRule.onNodeWithText("Show less").assertIsDisplayed()
-    }
-
-    @Test
-    fun toolsHub_learnSection_tappingExampleTriggersOnOpenExamplePrompt() {
+    fun toolsLearnScreen_tappingExampleTriggersOnOpenPrompt() {
         var lastPrompt = ""
         composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
-                onOpenExamplePrompt = { lastPrompt = it },
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = { lastPrompt = it },
             )
         }
 
-        val screenNode = composeTestRule.onNodeWithTag("tools_screen")
-        screenNode.performScrollToNode(hasTestTag("tools_example_time_timer_10"))
-        composeTestRule.onNodeWithTag("tools_example_time_timer_10", useUnmergedTree = true).performClick()
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_time_timer_10"))
+        composeTestRule.onNodeWithTag("tools_learn_time_timer_10", useUnmergedTree = true).performClick()
 
         assertEquals("Set a timer for 10 minutes", lastPrompt)
+    }
+
+    @Test
+    fun toolsLearnScreen_collapseAfterExpand() {
+        composeTestRule.setContent {
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
+            )
+        }
+
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
+        composeTestRule.onNodeWithTag("tools_learn_view_more_weather", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
+        composeTestRule.onNodeWithText("Show less").performClick()
+        composeTestRule.waitForIdle()
+
+        // After collapse, weather section shows "View more" again
+        screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
+        composeTestRule.onNodeWithTag("tools_learn_view_more_weather").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_draftRoute_safeConstruction() {
+        val route = buildActionsDraftRoute("Convert 2 cups to mL")
+        assertTrue(route.startsWith("actions?openSheet=true"))
+        assertTrue(route.contains("draftQuery=Convert%202%20cups%20to%20mL"))
+        assertEquals(false, route.contains("widgetQuery"))
+    }
+
+    @Test
+    fun toolsHub_draftRoute_encodesSpecialCharacters() {
+        val route = buildActionsDraftRoute("add milk & eggs")
+        assertTrue(route.contains("draftQuery=add%20milk%20%26%20eggs"))
     }
 
     private fun assertRowNavigatesTo(
@@ -328,20 +360,6 @@ class ToolsHubNavTest {
             "Expected semantics node with tag '$tag'",
             composeTestRule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(),
         )
-    }
-
-    @Test
-    fun toolsHub_draftRoute_safeConstruction() {
-        val route = buildActionsDraftRoute("Convert 2 cups to mL")
-        assertTrue(route.startsWith("actions?openSheet=true"))
-        assertTrue(route.contains("draftQuery=Convert%202%20cups%20to%20mL"))
-        assertEquals(false, route.contains("widgetQuery"))
-    }
-
-    @Test
-    fun toolsHub_draftRoute_encodesSpecialCharacters() {
-        val route = buildActionsDraftRoute("add milk & eggs")
-        assertTrue(route.contains("draftQuery=add%20milk%20%26%20eggs"))
     }
 }
 

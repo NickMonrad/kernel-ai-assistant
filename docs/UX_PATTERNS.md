@@ -90,9 +90,9 @@ App setup
   Models
   Permissions
 
-Learn what Jandal can do
-  Quick Actions examples
-  Example prompts
+Learn what Jandal can do (first row, opens dedicated Learn screen)
+  Example prompts for actions, planning, weather, maps, media, and more
+  Opens ToolsLearnScreen with 9 grouped categories
 ```
 
 Each row uses the existing app visual language:
@@ -142,9 +142,12 @@ Future search should be able to produce matches such as:
 
 ### 1.3 Tool examples and demo prompts
 
-The "Learn what Jandal can do" area is educational.
+Example prompts live on a dedicated **Learn screen** (`ToolsLearnScreen`, route `tools/learn`).
+The Tools hub contains a single "Learn what Jandal can do" row (tag `tools_row_learn`) at
+the top of the screen that opens the Learn screen. Examples are never rendered inline in
+the Tools hub.
 
-Example prompts use grouped sections with a collapsed default showing two examples per
+The Learn screen uses grouped sections with a collapsed default showing two examples per
 group and a **View more** button to expand that group to show additional prompts.
 
 When the user taps an example prompt, the app navigates to the Actions screen using a safe
@@ -254,29 +257,29 @@ tools_row_meal_plans
 tools_row_settings
 tools_row_voice
 tools_row_models
-tools_row_permissions
-```
-
-Tool example and Quick Action sheet test tags:
+Tool hub and example test tags (v2 IA):
 
 ```text
-tools_examples_header
-tools_examples_helper_copy
-tools_examples_group_lists
-tools_examples_view_more_lists
-tools_example_lists_add_milk
-tools_examples_group_meal_planning
-tools_examples_view_more_meal_planning
-tools_example_meal_plan_dinners_week
-tools_examples_group_weather
-tools_examples_view_more_weather
-tools_example_weather_current
-tools_examples_group_utilities_conversions
-tools_examples_view_more_utilities_conversions
-tools_example_convert_cups_ml
+tools_row_learn
+tools_learn_screen
+tools_learn_helper_copy
+tools_learn_privacy_note
+tools_learn_group_lists
+tools_learn_view_more_lists
+tools_learn_lists_add_milk
+tools_learn_group_meal_planning
+tools_learn_view_more_meal_planning
+tools_learn_meal_plan_dinners_week
+tools_learn_group_weather
+tools_learn_view_more_weather
+tools_learn_weather_current
+tools_learn_group_utilities_conversions
+tools_learn_view_more_utilities_conversions
+tools_learn_convert_cups_ml
 quick_action_input
 quick_action_submit_button
 quick_action_example_hint
+```
 
 Keep navigation-shell tests separate from the `llm_tools` harness:
 

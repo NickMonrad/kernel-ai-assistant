@@ -92,6 +92,7 @@ internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_TOOLS = "tools"
+internal const val ROUTE_TOOLS_LEARN = "tools/learn"
 internal const val ROUTE_CONVERT = "convert"
 internal const val ROUTE_NOTES = "settings/notes"
 private const val ROUTE_NOTE_DETAIL = "settings/notes/{noteId}"
@@ -110,8 +111,7 @@ private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
-/** Routes that show the bottom navigation bar. */
-private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
+private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS, ROUTE_TOOLS_LEARN)
 
 internal fun buildChatRoute(
     initialQuery: String? = null,
@@ -778,7 +778,6 @@ fun KernelNavHost(
                         },
                     )
                 }
-
                 composable(ROUTE_TOOLS) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ToolsHubScreen(
@@ -788,7 +787,15 @@ fun KernelNavHost(
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
                             },
-                            onOpenExamplePrompt = { prompt ->
+                        )
+                    }
+                }
+
+                composable(ROUTE_TOOLS_LEARN) {
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        ToolsLearnScreen(
+                            onBack = { navController.popBackStack() },
+                            onOpenPrompt = { prompt ->
                                 navController.navigate(buildActionsDraftRoute(prompt)) {
                                     launchSingleTop = true
                                 }
