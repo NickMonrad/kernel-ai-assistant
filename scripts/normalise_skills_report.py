@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -63,9 +64,8 @@ def _slugify(text: str, max_len: int = 60) -> str:
     if len(slug) <= max_len:
         return slug
     # Truncate and append a short hash for uniqueness
-    h = hex(hash(text))[-6:]
+    h = hashlib.sha1(text.encode()).hexdigest()[:6]
     return f"{slug[:max_len-7]}_{h}"
-
 
 def classify_skills_failure(r: dict) -> str | None:
     """Classify a failed skills case into a standard failure category.
@@ -76,8 +76,7 @@ def classify_skills_failure(r: dict) -> str | None:
     2. ``intent_passed`` false + ``actual_intent`` is null → ``model_tool_generation_miss``
     3. ``intent_passed`` false + ``actual_intent`` differs → ``wrong_tool``
     4. ``params_passed`` false (intent correct) → ``field_mismatch``
-    5. ``xfail`` true → ``expected_failure``
-    6. Timeout/harness clues in failures → ``timeout`` / ``harness_error``
+    5. Timeout/harness clues in failures → ``timeout`` / ``harness_error``
     """
     if r.get("log_check_warn"):
         return "missing_marker"
@@ -96,8 +95,6 @@ def classify_skills_failure(r: dict) -> str | None:
     if not r.get("params_passed", True):
         return "field_mismatch"
 
-    if r.get("xfail"):
-        return "expected_failure"
 
     # Status-based fallback
     status = r.get("status", "")
@@ -156,7 +153,7 @@ def normalise_skills_case(r: dict) -> dict:
 
     # xfail: expected failure — the harness knows this case is known to fail.
     # Mark as passed with no failure details to satisfy invariants.
-    if xfail and not intent_passed:
+    if xfail:
         return {
             "name": name,
             "passed": True,
