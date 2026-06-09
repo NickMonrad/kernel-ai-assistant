@@ -5,9 +5,9 @@
   "timestamp": "2026-06-07T01:39:59Z",
   "repo": "NickMonrad/kernel-ai-assistant",
   "branch": "main",
-  "commit": "d6d11c4c07b129d1e3b929d863e17ad90cb20e59",
+  "commit": "c0d87dbf1378cf3d7f1fba85c1f1ad252bb0ec8d",
   "pr": null,
-  "release": null,
+  "release": "adb-baseline-2026-06-09",
   "run_id": "on_device-2026-06-07T01-39-59Z-s21-exynos",
   "device": {
     "id": "s21-exynos",
@@ -27,9 +27,9 @@
   },
   "summary": {
     "total": 199,
-    "passed": 78,
-    "failed": 121,
-    "pass_rate": 0.392
+    "passed": 81,
+    "failed": 118,
+    "pass_rate": 0.407
   },
   "cases": [
     {
@@ -1628,7 +1628,7 @@
       "failures": []
     },
     {
-      "name": "put_tortilla_chips_beef_mince_and_kidney_beans_on_my__ecc671",
+      "name": "put_tortilla_chips_beef_mince_and_kidney_beans_on_my__83a21d",
       "passed": true,
       "expected_tool": "bulk_add_to_list",
       "actual_tool": null,
@@ -3102,7 +3102,7 @@
       ]
     },
     {
-      "name": "__orchtestcreate_calendar_eventschedule_a_dentist_vis_60c24a",
+      "name": "__orchtestcreate_calendar_eventschedule_a_dentist_vis_5ffb4d",
       "passed": false,
       "expected_tool": "",
       "actual_tool": null,
@@ -3154,20 +3154,18 @@
     },
     {
       "name": "__orchtestsend_smstell_sarah_i_am_running_late",
-      "passed": false,
+      "passed": true,
       "expected_tool": "",
       "actual_tool": null,
       "expected_result_mode": "direct_reply",
-      "actual_result_mode": "unknown",
+      "actual_result_mode": "direct_reply",
       "chip_present": false,
       "skill_result_present": false,
       "message_saved": false,
       "retry_seen": false,
       "slot_fill_seen": false,
-      "failure_category": "missing_marker",
-      "failures": [
-        "log_check: expected log 'RecoveryOrchestrator.NotActionable' not found"
-      ]
+      "failure_category": null,
+      "failures": []
     },
     {
       "name": "__orchtestxyzzy_unknownsome_nonsense_input",
@@ -3204,7 +3202,7 @@
       ]
     },
     {
-      "name": "__orchtestcreate_calendar_eventbook_a_meetup_at_noon__94b1cb",
+      "name": "__orchtestcreate_calendar_eventbook_a_meetup_at_noon__3c683f",
       "passed": false,
       "expected_tool": "",
       "actual_tool": null,
@@ -3221,7 +3219,7 @@
       ]
     },
     {
-      "name": "__orchtestcreate_calendar_eventset_up_a_morning_huddl_9768a1",
+      "name": "__orchtestcreate_calendar_eventset_up_a_morning_huddl_f25237",
       "passed": false,
       "expected_tool": "",
       "actual_tool": null,
@@ -3239,37 +3237,33 @@
     },
     {
       "name": "__orchtestsend_smsping_mum_that_i_am_on_my_way",
-      "passed": false,
+      "passed": true,
       "expected_tool": "",
       "actual_tool": null,
       "expected_result_mode": "direct_reply",
-      "actual_result_mode": "unknown",
+      "actual_result_mode": "direct_reply",
       "chip_present": false,
       "skill_result_present": false,
       "message_saved": false,
       "retry_seen": false,
       "slot_fill_seen": false,
-      "failure_category": "missing_marker",
-      "failures": [
-        "log_check: expected log 'RecoveryOrchestrator.NotActionable' not found"
-      ]
+      "failure_category": null,
+      "failures": []
     },
     {
       "name": "__orchtestsave_memoryremember_that_i_parked_on_level_3",
-      "passed": false,
+      "passed": true,
       "expected_tool": "",
       "actual_tool": null,
       "expected_result_mode": "direct_reply",
-      "actual_result_mode": "unknown",
+      "actual_result_mode": "direct_reply",
       "chip_present": false,
       "skill_result_present": false,
       "message_saved": false,
       "retry_seen": false,
       "slot_fill_seen": false,
-      "failure_category": "missing_marker",
-      "failures": [
-        "log_check: expected log 'RecoveryOrchestrator.NotActionable' not found"
-      ]
+      "failure_category": null,
+      "failures": []
     }
   ]
 }
