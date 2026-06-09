@@ -80,6 +80,10 @@ NAVIGATION_CASES: list[dict[str, Any]] = [
     {"name": "reopenSameChildDestination_noDuplicateStack", "category": "repeated_tap"},
     {"name": "repeatedToolsRowTap_noDuplicateStacks", "category": "repeated_tap"},
     {"name": "toolsLearn_example_dismissActions_returnToTools", "category": "repeated_tap"},
+    # ── Real composable tests ──
+    {"name": "realToolsHubScreen_rendersAllRows", "category": "real_composable"},
+    {"name": "realPrimaryBottomBar_rendersAndNavigates", "category": "real_composable"},
+    {"name": "realToolsHubScreen_toolbarOpensDrawer", "category": "real_composable"},
     # ── Screenshot capture tests ──
     {"name": "captureScreenshot_toolsHub", "category": "screenshot"},
     {"name": "captureScreenshot_toolsLearnChild", "category": "screenshot"},
