@@ -1,0 +1,59 @@
+name: Publish test dashboard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - test-results
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+environment:
+  name: github-pages
+  url: ${{ steps.deployment.outputs.page_url }}
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Checkout test-results
+        uses: actions/checkout@v4
+        with:
+          ref: test-results
+          path: test-results
+          fetch-depth: 1
+
+      - name: Ensure test-results checkout
+        run: |
+          if [ ! -d test-results/results ]; then
+            mkdir -p test-results/results
+            echo "::warning::test-results branch not found or empty; using empty results"
+          fi
+
+      - name: Build dashboard
+        run: |
+          cd repo
+          python3 scripts/build_test_dashboard.py --results-dir ../test-results/results --out-dir _site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo/_site
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
