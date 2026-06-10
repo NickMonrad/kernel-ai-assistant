@@ -54,7 +54,7 @@ fun ToolsHubScreen(
             TopAppBar(
                 title = { Text("Tools") },
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
+                    IconButton(onClick = onOpenDrawer, modifier = Modifier.testTag("tools_menu_button")) {
                         Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
                 },
