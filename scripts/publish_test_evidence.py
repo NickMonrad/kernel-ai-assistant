@@ -132,8 +132,9 @@ def _check_pr_mismatches(
     * Always compares CLI ``--pr`` against each evidence JSON ``pr`` field.
     * When ``detected_pr`` is provided (from ``gh pr view``), also checks
       CLI ``--pr`` against the live PR as an additional safety measure.
-    * ``None`` evidence PRs (unset field) are ignored — not every evidence
-      file carries a ``pr`` field.
+    * ``None`` evidence PRs (unset or null ``pr`` field) are treated as a
+      mismatch when ``cli_pr`` is set — evidence without a PR number should
+      not be published under a PR scope.
     * ``cli_pr is None`` means release-scoped — no PR validation needed.
     """
     if cli_pr is None:
@@ -142,8 +143,13 @@ def _check_pr_mismatches(
     mismatches: list[str] = []
 
     # 1. Direct comparison: CLI --pr vs each evidence JSON pr field
-    known_evidence_prs = {p for p in evidence_prs if p is not None}
-    for evidence_pr in sorted(known_evidence_prs):
+    #    Including None — evidence without a pr field cannot go under PR scope
+    if None in evidence_prs:
+        mismatches.append(
+            f"Evidence JSON pr field is null/missing but CLI --pr={cli_pr}. "
+            f"All evidence files must have a 'pr' field matching the PR being published."
+        )
+    for evidence_pr in sorted(p for p in evidence_prs if p is not None):
         if evidence_pr != cli_pr:
             mismatches.append(
                 f"Evidence JSON pr={evidence_pr} does not match CLI --pr={cli_pr}. "

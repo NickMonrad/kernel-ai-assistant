@@ -45,7 +45,7 @@ class CheckPrMismatchesTest(unittest.TestCase):
     def test_multiple_evidence_all_match(self) -> None:
         """Multiple evidence PRs all matching cli_pr."""
         self.assertEqual(
-            pte._check_pr_mismatches(1171, {1171, 1171, None}, None),
+            pte._check_pr_mismatches(1171, {1171, 1171}, None),
             [],
         )
 
@@ -70,10 +70,12 @@ class CheckPrMismatchesTest(unittest.TestCase):
         self.assertIn("1171", mismatches[0])
 
     def test_evidence_mismatch_with_none_prs(self) -> None:
-        """None evidence PRs are ignored; only the real mismatch surfaces."""
+        """None evidence PRs are also mismatches alongside real mismatches."""
         mismatches = pte._check_pr_mismatches(1171, {None, 1154, None}, None)
-        self.assertEqual(len(mismatches), 1)
-        self.assertIn("1154", mismatches[0])
+        self.assertEqual(len(mismatches), 2, "Should report None mismatch + 1154 mismatch")
+        self.assertTrue(any("null/missing" in m and "1171" in m for m in mismatches),
+                        f"Expected null evidence mismatch, got: {mismatches}")
+        self.assertTrue(any("1154" in m for m in mismatches))
 
     def test_multiple_evidence_mismatches(self) -> None:
         """Multiple evidence PRs, none matching cli_pr."""
@@ -104,14 +106,18 @@ class CheckPrMismatchesTest(unittest.TestCase):
         mismatches = pte._check_pr_mismatches(1171, {1154}, 1160)
         self.assertEqual(len(mismatches), 2)
         self.assertIn("1154", mismatches[0])
-        self.assertIn("1160", mismatches[1])
+    def test_null_evidence_mismatch(self) -> None:
+        """None evidence PR with cli_pr set → mismatch reported."""
+        mismatches = pte._check_pr_mismatches(1171, {None}, None)
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("null/missing", mismatches[0])
+        self.assertIn("1171", mismatches[0])
 
-    # ── Edge cases ─────────────────────────────────────────────────────────
-
-    def test_none_evidence_prs_removed(self) -> None:
-        """None entries in evidence_prs set are filtered out."""
-        mismatches = pte._check_pr_mismatches(1171, {None, None}, None)
-        self.assertEqual(mismatches, [])
+    def test_null_evidence_with_other_matches(self) -> None:
+        """Mix of matching and null evidence → only null reported as mismatch."""
+        mismatches = pte._check_pr_mismatches(1171, {1171, None, 1171}, None)
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("null/missing", mismatches[0])
 
 
 class ValidatePrNumberTest(unittest.TestCase):
@@ -164,6 +170,12 @@ class ValidatePrNumberTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             pte._validate_pr_number(1171, {1160}, allow_mismatch=False)
         self.assertEqual(ctx.exception.code, 1)
+    def test_null_evidence_exits(self) -> None:
+        """Null evidence PR with cli_pr; allow_mismatch=False → sys.exit(1)."""
+        pte._detect_current_pr_number = lambda: None
+        with self.assertRaises(SystemExit) as ctx:
+            pte._validate_pr_number(1171, {None}, allow_mismatch=False)
+        self.assertEqual(ctx.exception.code, 1)
 
     # ── Mismatch + --allow-pr-mismatch → warning, no exit ──────────────────
 
@@ -178,6 +190,11 @@ class ValidatePrNumberTest(unittest.TestCase):
         """detected mismatch with allow_mismatch → warning, no exit."""
         pte._detect_current_pr_number = lambda: 1154
         pte._validate_pr_number(1171, set(), allow_mismatch=True)
+        # No exception = pass
+    def test_null_evidence_allowed_does_not_exit(self) -> None:
+        """Null evidence with allow_mismatch → warning, no exit."""
+        pte._detect_current_pr_number = lambda: None
+        pte._validate_pr_number(1171, {None}, allow_mismatch=True)
         # No exception = pass
 
 
