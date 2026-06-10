@@ -48,8 +48,18 @@ LLM_TOOLS_SKILL_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*(.+)")
 LLM_TOOLS_MESSAGE_SAVED_PATTERN = re.compile(r"llm_tools_message_toolcall_saved:\s*(.+)")
 LLM_TOOLS_RETRY_PATTERN = re.compile(r"raw_tool_call_retry_succeeded|hallucination_retry_succeeded")
 LLM_TOOLS_SLOT_FILL_PATTERN = re.compile(r"NeedsSlot|ConfirmationFastPath:")
-WAIT_SECONDS = 20
-PROFILE_WAIT_SECONDS = 45  # LLM extraction needs more time than QIR
+
+# WAIT_SECONDS and PROFILE_WAIT_SECONDS can be overridden via environment variables:
+#   ADB_WAIT_SECONDS         (default: 8)  — test execution poll timeout and inter-test delay
+#   ADB_PROFILE_WAIT_SECONDS  (default: 20) — profile extraction fixed delay
+#
+# These are per-device/per-run adjustable — S23U TCP/TLS runs at ~8 tok/s can use tighter
+# waits (8s/20s) while S21 Exynos USB runs may need larger values (20s/45s) for longer
+# inference times. Set before each run:
+#   export ADB_WAIT_SECONDS=20
+#   export ADB_PROFILE_WAIT_SECONDS=45
+WAIT_SECONDS = int(os.environ.get("ADB_WAIT_SECONDS", "8"))
+PROFILE_WAIT_SECONDS = int(os.environ.get("ADB_PROFILE_WAIT_SECONDS", "20"))
 REPORTS_DIR = Path(__file__).parent / "test-reports"
 
 
@@ -996,16 +1006,15 @@ def logcat_start() -> None:
     # Clear device-side buffer first, then start streaming
     run_adb("logcat", "-c")
     _logcat_proc = subprocess.Popen(
-        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "-v", "brief"],
+        [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "MiniLMIntentClassifier:I", "-v", "brief"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         universal_newlines=True, bufsize=1,
     )
     reader = threading.Thread(target=_logcat_reader, daemon=True)
     reader.start()
-    # Brief pause to let the stream establish
+    # Brief pause to let the stream establish, then drain initial noise from buffer
     time.sleep(0.5)
-    # Clear again after stream starts to flush any initial noise
-    run_adb("logcat", "-c")
+    logcat_snapshot()  # Discard initial burst without blocking device clear on ADB-over-TCP
 
 
 def logcat_stop() -> None:
@@ -1060,9 +1069,9 @@ atexit.register(logcat_stop)
 # ---------------------------------------------------------------------------
 
 def clear_logcat() -> None:
-    """Clear the logcat buffer. Drains the streaming buffer and clears the device ring buffer."""
+    """Clear the logcat buffer. Drains the streaming buffer only (skips device
+    ring buffer clear which blocks on ADB-over-TCP while streaming is active)."""
     logcat_snapshot()  # Drain any accumulated output
-    run_adb("logcat", "-c")
 
 
 def read_logcat() -> str:
@@ -1109,9 +1118,9 @@ def _keep_foreground_until_inference_starts() -> None:
     called within ~5 seconds of the app becoming foreground. This function keeps
     the activity visible until the inference service starts (detected via
     InferenceGenerationService log or NativeIntentHandler route marker).
-    Taps every 2 seconds for up to 120 seconds.
+    Taps every 2 seconds for up to 30 seconds.
     """
-    deadline = time.time() + 120
+    deadline = time.time() + 30
     while time.time() < deadline:
         log = read_logcat_all()
         if "InferenceGenerationService" in log or "InferenceLoadingService" in log or "initEngineWhenReady" in log or "llm_tools_route:" in log or "OrchTest:" in log:
@@ -1242,7 +1251,7 @@ def dismiss_notifications() -> None:
 def cleanup_side_effects() -> None:
     """Cancel any timers and alarms set during testing to avoid them firing on the device."""
     for msg in ("cancel the timer", "cancel all alarms"):
-        send_text(msg)
+        send_text(msg, wait_for_inference=False)
         time.sleep(3)  # Brief pause — just enough for the intent to dispatch
     # Force-stop all clock apps to silence any ringing timers/alarms that have
     # already fired (send_text cancels pending ones; force-stop kills active alerts).
@@ -1662,7 +1671,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     warmed_ml = False
     while time.time() < deadline:
         time.sleep(3)
-        log = run_adb("logcat", "-d", "-s", "MiniLMIntentClassifier:*")
+        log = read_logcat()
         if "Ready:" in log:
             warmed_ml = True
             break
@@ -2099,6 +2108,7 @@ def run_profile_tests(dry_run: bool = False) -> int:
             param_failures=[],
             xfail=False,
             reply_warn=None,
+            log_check_warn=None,
         ))
         method_tag = f"[{extracted['method'] or 'NO_LOG'}]"
         print("✓" if passed else "✗", method_tag)
