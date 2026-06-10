@@ -15,7 +15,7 @@ No CI result summaries were included.
 
 |   | Device | Label | Tier | SoC | API | Model | Runtime | Backend | Commit | Total | ✅ | ❌ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ⚠️ | s23-ultra | S23 Ultra | reference | Snapdragon 8 Gen 2 | 35 | — | — | — | `b093d3b54d` | 25 | 25 | 0 |
+| ⚠️ | s23-ultra | S23 Ultra | reference | Snapdragon 8 Gen 2 | 35 | — | — | — | `dd67d38d73` | 25 | 25 | 0 |
 
 ### Interpretation
 
