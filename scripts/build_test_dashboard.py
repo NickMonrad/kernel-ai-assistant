@@ -303,12 +303,16 @@ def _build_aggregates(evidence: list[dict]) -> dict:
     for rel, recs in sorted_releases:
         ci_recs = [r for r in recs if r.get("source") == "ci"]
         od_recs = [r for r in recs if r.get("source") == "on_device"]
-        ts_all = max((r.get("timestamp", "") for r in recs), default="")
+        ci_latest_ts = max((r.get("timestamp", "") for r in ci_recs), default="") if ci_recs else ""
+        od_latest_ts = max((r.get("timestamp", "") for r in od_recs), default="") if od_recs else ""
+        ts_all = max(ci_latest_ts, od_latest_ts)
         releases_data.append({
             "release": rel,
             "ci_count": len(ci_recs),
             "on_device_count": len(od_recs),
             "latest": ts_all,
+            "ci_latest": ci_latest_ts,
+            "od_latest": od_latest_ts,
             "ci_summary": _merge_summaries(ci_recs),
             "od_summary": _merge_summaries(od_recs),
         })
@@ -501,7 +505,7 @@ def _render_overview(data: dict) -> str:
   <td>{commit_cell}</td>
   <td>{_result_cell(ci)}</td>
   <td>{_result_cell(od)}</td>
-  <td>{_iso_short(ci['latest'] or od['latest'])}{mixed_note}</td>
+  <td>{_iso_short(max(ci['latest'], od['latest']))}{mixed_note}</td>
 </tr>"""
     if not pr_rows:
         pr_rows = '<tr><td colspan="5" class="empty">No PR evidence yet</td></tr>'
@@ -677,7 +681,7 @@ def _render_releases(data: dict) -> str:
   <td>{ci['failed']}</td>
   <td>{ci['total']}</td>
   <td>{_result_cell(ci)}</td>
-  <td>{_iso_short(rel['latest'])}</td>
+  <td>{_iso_short(rel['ci_latest']) if rel['ci_count'] > 0 else '—'}</td>
 </tr>
 <tr>
   <td><span class="source-tag source-od">on_device</span> {ON_DEVICE_LABEL}</td>
@@ -686,7 +690,7 @@ def _render_releases(data: dict) -> str:
   <td>{od['failed']}</td>
   <td>{od['total']}</td>
   <td>{_result_cell(od)}</td>
-  <td>{_iso_short(rel['latest'])}</td>
+  <td>{_iso_short(rel['od_latest']) if rel['on_device_count'] > 0 else '—'}</td>
 </tr>
 </tbody>
 </table>
