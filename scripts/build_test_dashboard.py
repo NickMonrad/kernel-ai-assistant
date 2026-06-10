@@ -25,7 +25,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 REQUIRED_EVIDENCE_FIELDS = frozenset({
-    "source", "suite", "summary", "timestamp",
+    "schema_version", "source", "suite", "timestamp", "repo",
+    "branch", "commit", "pr", "release", "run_id",
+    "device", "model", "summary", "cases",
 })
 
 CI_LABEL = "CI / static runner"
@@ -45,19 +47,30 @@ PASSTHROUGH = {"source", "suite", "timestamp", "commit", "pr", "release", "run_i
 
 def _load_evidence(path: Path) -> dict | None:
     """Load and validate a single evidence JSON file.  Returns ``None`` on
-    parse or validation failure (printed to stderr)."""
+    any structural or required-field violation (warning printed to stderr)."""
     try:
         raw = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"[WARN] Skipping {path}: {exc}", file=sys.stderr)
+        print(f"[WARN] {path}: {exc}", file=sys.stderr)
         return None
+
+    if not isinstance(raw, dict):
+        print(f"[WARN] {path}: not a JSON object", file=sys.stderr)
+        return None
+
     missing = REQUIRED_EVIDENCE_FIELDS - set(raw)
     if missing:
         print(
-            f"[WARN] Skipping {path}: missing fields {missing}",
+            f"[WARN] {path}: missing required fields: {', '.join(sorted(missing))}",
             file=sys.stderr,
         )
         return None
+
+    src = raw.get("source")
+    if src not in SOURCE_LABELS:
+        print(f"[WARN] {path}: unknown source {src!r}", file=sys.stderr)
+        return None
+
     return raw
 
 
@@ -222,32 +235,34 @@ def _build_aggregates(evidence: list[dict]) -> dict:
     sorted_prs = sorted(pr_map.items(), key=lambda x: x[0], reverse=True)
     sorted_releases = sorted(release_map.items(), key=lambda x: x[0], reverse=True)
 
-    # Per-PR aggregates
     prs_data: list[dict] = []
     for pr_num, recs in sorted_prs:
         ci_recs = [r for r in recs if r.get("source") == "ci"]
         od_recs = [r for r in recs if r.get("source") == "on_device"]
-        ci_summary = _merge_summaries(ci_recs)
-        od_summary = _merge_summaries(od_recs)
 
-        # Latest timestamp per source
-        ts_ci = max((r.get("timestamp", "") for r in ci_recs), default="")
-        ts_od = max((r.get("timestamp", "") for r in od_recs), default="")
-
-        # Latest evidence record per source (for per-source commit SHA)
+        # Latest evidence record per source (by timestamp)
         ci_latest = max(ci_recs, key=lambda r: r.get("timestamp", "")) if ci_recs else None
         od_latest = max(od_recs, key=lambda r: r.get("timestamp", "")) if od_recs else None
 
+        # Use the latest record's summary for the main result (not merged across all records)
+        ci_latest_summary = ci_latest.get("summary", {}) if ci_latest else {}
+        od_latest_summary = od_latest.get("summary", {}) if od_latest else {}
+
         ci_commit = str(ci_latest.get("commit", "")) if ci_latest else ""
         od_commit = str(od_latest.get("commit", "")) if od_latest else ""
+        ts_ci = ci_latest.get("timestamp", "") if ci_latest else ""
+        ts_od = od_latest.get("timestamp", "") if od_latest else ""
 
-        # Determine mixed-commit status: both sources exist with different commits
+        # Merged summary kept as separate aggregate field for reference
+        ci_merged = _merge_summaries(ci_recs)
+        od_merged = _merge_summaries(od_recs)
+
+        # Determine mixed-commit status
         has_mixed_commits = (
             bool(ci_recs) and bool(od_recs)
             and ci_commit and od_commit
             and ci_commit != od_commit
         )
-        # When both agree, use shared commit; when only one source, use that; when mixed, empty
         if has_mixed_commits:
             pr_commit = ""
         elif ci_latest:
@@ -260,17 +275,27 @@ def _build_aggregates(evidence: list[dict]) -> dict:
             "commit": pr_commit,
             "ci": {
                 "count": len(ci_recs),
-                **ci_summary,
+                "total": ci_latest_summary.get("total", 0),
+                "passed": ci_latest_summary.get("passed", 0),
+                "failed": ci_latest_summary.get("failed", 0),
+                "pass_rate": ci_latest_summary.get("pass_rate", 0.0),
                 "latest": ts_ci,
                 "commit": ci_commit,
             },
             "on_device": {
                 "count": len(od_recs),
-                **od_summary,
+                "total": od_latest_summary.get("total", 0),
+                "passed": od_latest_summary.get("passed", 0),
+                "failed": od_latest_summary.get("failed", 0),
+                "pass_rate": od_latest_summary.get("pass_rate", 0.0),
                 "latest": ts_od,
                 "commit": od_commit,
             },
             "has_mixed_commits": has_mixed_commits,
+            "aggregate_summary": {
+                "ci": ci_merged,
+                "on_device": od_merged,
+            },
         })
 
     # Per-release aggregates
