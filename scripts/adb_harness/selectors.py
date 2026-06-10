@@ -2,7 +2,7 @@
 ADB Skill Harness — selector helpers for composable test filtering.
 
 Provides ``_select_tests()`` used by both ``--dry-run`` and real execution,
-and ``_annotate_phases()`` that applies phase-level metadata defaults.
+and ``annotate_phases()`` that applies phase-level metadata defaults.
 """
 
 from __future__ import annotations

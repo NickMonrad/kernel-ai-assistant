@@ -18,9 +18,12 @@ import time
 from adb_harness.config import (
     ACTIVITY,
     ADB,
-    NATIVE_INTENT_PATTERN,
-    PARAM_EXTRACT_PATTERN,
     DIRECT_REPLY_PATTERN,
+    LOGCAT_TAG,
+    NATIVE_INTENT_NAME_PATTERN,
+    NATIVE_INTENT_PATTERN,
+    PROFILE_FALLBACK_PATTERN,
+    PROFILE_LLM_PATTERN,
     WAIT_SECONDS,
     PACKAGE,
 )
@@ -28,7 +31,9 @@ from adb_harness.config import (
 
 # ── Module-level logcat streaming state ──
 _STREAM_PROC: subprocess.Popen | None = None
-_STREAM_PID: int | None = None
+_STREAM_READER: threading.Thread | None = None
+_STREAM_BUFFER: list[str] = []
+_STREAM_LOCK = threading.Lock()
 
 # ── Keepalive state ──
 _KEEPALIVE_THREAD: threading.Thread | None = None
@@ -48,16 +53,34 @@ def run_adb(*args: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Logcat streaming (#1102)
+# Logcat streaming (#1102 / #1162)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def _logcat_reader() -> None:
-    """Background thread: continuously drains adb logcat stdout into a buffer."""
-    global _STREAM_PROC, _STREAM_PID
+    """Read lines from the persistent logcat subprocess and buffer them."""
+    global _STREAM_PROC
+    assert _STREAM_PROC is not None
+    assert _STREAM_PROC.stdout is not None
+    try:
+        for line in _STREAM_PROC.stdout:
+            with _STREAM_LOCK:
+                _STREAM_BUFFER.append(line.rstrip("\n"))
+    except ValueError:
+        pass
+
+
+def logcat_start() -> None:
+    """Start the persistent host-buffered logcat stream."""
+    global _STREAM_PROC, _STREAM_READER
+    if _STREAM_PROC is not None and _STREAM_PROC.poll() is None:
+        return
+    if _STREAM_PROC is not None:
+        logcat_stop()
+    run_adb("logcat", "-c")
     try:
         _STREAM_PROC = subprocess.Popen(
-            [ADB, "logcat", "-s", "KernelAI:D", "MiniLMIntentClassifier:I", "-v", "brief"],
+            [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "MiniLMIntentClassifier:I", "-v", "brief"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -65,81 +88,76 @@ def _logcat_reader() -> None:
         )
     except FileNotFoundError:
         print(f"ERROR: ADB binary not found at {ADB}", file=sys.stderr)
+        _STREAM_PROC = None
         return
-    _STREAM_PID = _STREAM_PROC.pid
-    # Read and discard — the subprocess's stdout pipe keeps the ADB
-    # transport alive so that logcat_snapshot()/read_logcat() work.
-    # If the pipe breaks (device disconnect), the loop exits naturally.
-    try:
-        while _STREAM_PROC.poll() is None:
-            _STREAM_PROC.stdout.readline()  # type: ignore[union-attr]
-    except ValueError:
-        pass  # pipe closed during shutdown
-
-
-def logcat_start() -> None:
-    """Start host-side logcat streaming subprocess (#1102).
-
-    The streaming subprocess keeps an open ADB transport so that
-    logcat_snapshot() via ``adb logcat -d`` returns fresh output
-    without needing to reopen a connection each time.
-    """
-    t = threading.Thread(target=_logcat_reader, daemon=True)
-    t.start()
-    time.sleep(2)  # Give the subprocess time to open the transport
+    _STREAM_READER = threading.Thread(target=_logcat_reader, daemon=True)
+    _STREAM_READER.start()
+    time.sleep(0.5)
+    logcat_snapshot()
 
 
 def logcat_stop() -> None:
-    """Kill the background logcat subprocess."""
-    global _STREAM_PROC, _STREAM_PID
+    """Stop the persistent logcat stream and clear buffered output."""
+    global _STREAM_PROC, _STREAM_READER
     if _STREAM_PROC is not None:
         try:
             _STREAM_PROC.terminate()
             _STREAM_PROC.wait(timeout=5)
         except Exception:
             _STREAM_PROC.kill()
+            _STREAM_PROC.wait(timeout=5)
         _STREAM_PROC = None
-        _STREAM_PID = None
+    _STREAM_READER = None
+    with _STREAM_LOCK:
+        _STREAM_BUFFER.clear()
 
 
 def logcat_snapshot() -> str:
-    """Return current device logcat buffer (``adb logcat -d``)."""
-    return run_adb("logcat", "-d", "-s", "KernelAI:D", "MiniLMIntentClassifier:I", "-v", "brief")
+    """Atomically drain the accumulated host-side logcat buffer."""
+    with _STREAM_LOCK:
+        snapshot = "\n".join(_STREAM_BUFFER)
+        _STREAM_BUFFER.clear()
+    return snapshot
 
 
 def logcat_wait(expected: str, timeout: float = WAIT_SECONDS) -> str:
-    """Poll ``logcat_snapshot()`` until *expected* substring appears.
-
-    Returns the full logcat output once found, or after *timeout* seconds
-    even if not found.
-    """
+    """Poll the buffered logcat stream until *expected* appears or *timeout* elapses."""
     deadline = time.time() + timeout
-    last = ""
+    seen: set[str] = set()
+    accumulated: list[str] = []
     while time.time() < deadline:
-        last = logcat_snapshot()
-        if expected in last:
-            return last
+        snapshot = logcat_snapshot()
+        if not snapshot:
+            time.sleep(0.5)
+            continue
+        for line in snapshot.split("\n"):
+            line = line.strip()
+            if line and line not in seen:
+                seen.add(line)
+                accumulated.append(line)
+        combined = "\n".join(accumulated)
+        if expected in combined:
+            return combined
         time.sleep(0.5)
-    return last
+    return "\n".join(accumulated)
 
 
 def clear_logcat() -> None:
-    """Clear the logcat buffer by draining the streaming buffer only.
-
-    Skips device ring-buffer clear (``adb logcat -c``) which blocks on
-    ADB-over-TCP while streaming is active (#1162).
-    """
-    logcat_snapshot()  # Drain
+    """Clear the host-side buffer without touching the device ring buffer."""
+    logcat_snapshot()
 
 
 def read_logcat() -> str:
-    """Return current logcat snapshot (shortcut)."""
+    """Return accumulated KernelAI logcat output since the last drain."""
     return logcat_snapshot()
 
 
 def read_logcat_all() -> str:
-    """Return full buffered logcat content (same as snapshot)."""
+    """Return accumulated KernelAI + inference logcat output since the last drain."""
     return logcat_snapshot()
+
+
+atexit.register(logcat_stop)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -193,8 +211,16 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
     run_adb(
-        "shell", "am", "start", "-n", ACTIVITY,
-        "--es", "chat_input", shlex.quote(text),
+        "shell",
+        "am",
+        "start",
+        "--activity-clear-top",
+        "--activity-single-top",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "chat_input",
+        shlex.quote(text),
     )
     if wait_for_inference:
         _keep_foreground_until_inference_starts()
@@ -209,8 +235,16 @@ def send_quick_action(text: str) -> None:
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
     run_adb(
-        "shell", "am", "start", "-n", ACTIVITY,
-        "--es", "quick_action_input", shlex.quote(text),
+        "shell",
+        "am",
+        "start",
+        "--activity-clear-top",
+        "--activity-single-top",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "quick_action_input",
+        shlex.quote(text),
     )
 
 
@@ -224,9 +258,19 @@ def send_slot_reply(text: str) -> None:
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
     run_adb(
-        "shell", "am", "start", "-n", ACTIVITY,
-        "--es", "slot_reply_input", shlex.quote(text),
+        "shell",
+        "am",
+        "start",
+        "--activity-clear-top",
+        "--activity-single-top",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "slot_reply_input",
+        shlex.quote(text),
     )
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -282,17 +326,19 @@ def cleanup_side_effects(wait_for_inference: bool = False) -> None:
 
 
 def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
-    """Extract the latest NativeIntentHandler intent + params from logcat.
+    """Extract the latest native intent name + params from logcat output."""
+    matches = list(NATIVE_INTENT_PATTERN.finditer(logcat_output))
+    if matches:
+        match = matches[-1]
+        intent_name = match.group(1)
+        raw_params = match.group(2)
+        params = {kv.group(1): kv.group(2).strip() for kv in re.finditer(r"(\w+)=([^,}]+)", raw_params)}
+        return intent_name, params
 
-    Returns ``(intent_name, param_dict)``.
-    """
-    intents = NATIVE_INTENT_PATTERN.findall(logcat_output)
-    if not intents:
+    fallback = list(NATIVE_INTENT_NAME_PATTERN.finditer(logcat_output))
+    if not fallback:
         return None, {}
-    actual_intent = intents[-1]
-    param_matches = PARAM_EXTRACT_PATTERN.findall(logcat_output)
-    params = {k: v.strip("[]") for k, v in param_matches}
-    return actual_intent, params
+    return fallback[-1].group(1), {}
 
 
 def extract_reply(logcat_output: str) -> str | None:
@@ -327,23 +373,32 @@ def check_params(
 
 
 def send_profile(profile_text: str) -> None:
-    """Deliver a profile query (llm_tools skill with profile mode)."""
+    """Deliver ``profile_text`` via onNewIntent to trigger profile extraction."""
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
+    single_line = profile_text.replace("\n", "\\n")
     run_adb(
-        "shell", "am", "start", "-n", ACTIVITY,
-        "--es", "chat_input", shlex.quote(profile_text),
+        "shell",
+        "am",
+        "start",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "profile_text",
+        shlex.quote(single_line),
     )
 
 
 def extract_profile_result(logcat_output: str) -> dict[str, str | None]:
-    """Extract structured profile fields from logcat."""
-    from adb_harness.config import PROFILE_RESULT_PATTERN
-    match = PROFILE_RESULT_PATTERN.search(logcat_output)
-    if not match:
-        return {}
-    try:
-        import json
-        return json.loads(match.group(1))
-    except (json.JSONDecodeError, KeyError):
-        return {}
+    """Parse profile extraction method and structured fields from logcat."""
+    used_llm = bool(PROFILE_LLM_PATTERN.search(logcat_output))
+    used_fallback = bool(PROFILE_FALLBACK_PATTERN.search(logcat_output))
+    name_match = re.search(r"KernelAI: name:\s*(.+)", logcat_output)
+    role_match = re.search(r"KernelAI: role:\s*(.+)", logcat_output)
+    location_match = re.search(r"KernelAI: location:\s*(.+)", logcat_output)
+    return {
+        "method": "llm" if used_llm else ("regex" if used_fallback else None),
+        "name": name_match.group(1).strip() if name_match else None,
+        "role": role_match.group(1).strip() if role_match else None,
+        "location": location_match.group(1).strip() if location_match else None,
+    }

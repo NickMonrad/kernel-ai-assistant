@@ -446,77 +446,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
 ]
 
 # ── Phase-level metadata defaults (issue #1163) ─────────────────────────
-# TestCase entries can override any of these; the defaults fill in
-# automatically for entries that don't specify non-default values.
 
-
-def _annotate_phases() -> None:
-    """Apply default category/tag metadata to test cases based on phase and intent."""
-    _PHASE_DEFAULTS: dict[str, dict | None] = {
-        "alarm_timer": {"tags": ["deterministic_core"]},
-        "weather": {"tags": ["deterministic_core"]},
-        "media": None,
-        "lists": {"tags": ["deterministic_core"]},
-        "smart_home": {"tags": ["deterministic_core"]},
-        "memory": {"tags": ["deterministic_core"]},
-        "navigation": None,
-        "system": None,
-        "misc": None,
-        "slot_fill": {"category": "slot_fill", "tags": ["safe_smoke"]},
-        "orchestrator_recovery": {"category": "recovery"},
-    }
-    _INTENT_OVERRIDES: dict[str, dict] = {
-        "pause_media":    {"tags": ["media_context"]},
-        "stop_media":     {"tags": ["media_context"]},
-        "next_track":     {"tags": ["media_context"]},
-        "previous_track": {"tags": ["media_context"]},
-        "podcast_skip_forward": {"tags": ["media_context"]},
-        "podcast_skip_back":    {"tags": ["media_context"]},
-        "podcast_speed":        {"tags": ["media_context"]},
-        "set_volume":     {"category": "device_state", "tags": ["device_state"]},
-        "toggle_wifi":    {"category": "device_state", "tags": ["device_state", "destructive"]},
-        "toggle_hotspot": {"category": "device_state", "tags": ["device_state", "destructive"]},
-        "toggle_airplane_mode": {"category": "device_state", "tags": ["device_state", "destructive"]},
-        "toggle_dnd_on":  {"category": "device_state", "tags": ["device_state"]},
-        "toggle_dnd_off": {"category": "device_state", "tags": ["device_state"]},
-        "set_brightness": {"category": "device_state", "tags": ["device_state"]},
-        "toggle_flashlight_on":  {"category": "device_state", "tags": ["device_state"]},
-        "toggle_flashlight_off": {"category": "device_state", "tags": ["device_state"]},
-        "make_call": {"tags": ["contact_fixture_required"], "fixture": "contacts:zippy_alias"},
-        "send_sms":  {"tags": ["contact_fixture_required"]},
-        "send_email":{"tags": ["contact_fixture_required"]},
-        "get_weather": {"tags": ["location_context"]},
-        "find_nearby": {"tags": ["location_context"]},
-        "navigate_to": {"fixture": "location:home_or_gps_required"},
-    }
-
-    for phase_name, phase_cases in PHASES:
-        defaults = _PHASE_DEFAULTS.get(phase_name)
-        for tc in phase_cases:
-            intent_ov = _INTENT_OVERRIDES.get(tc.expect_intent) or {}
-            if defaults:
-                for key, val in defaults.items():
-                    current = getattr(tc, key, None)
-                    if key == "tags" and (current == [] or not current):
-                        setattr(tc, key, val)
-                    elif key == "category" and (current == "deterministic" or current is None):
-                        setattr(tc, key, val)
-                    elif current is None:
-                        setattr(tc, key, val)
-            if intent_ov:
-                for key, val in intent_ov.items():
-                    if key == "tags":
-                        existing = list(tc.tags)
-                        for t in val:
-                            if t not in existing:
-                                existing.append(t)
-                        setattr(tc, key, existing)
-                    else:
-                        setattr(tc, key, val)
-
-
-
-_annotate_phases()
+annotate_phases(PHASES)
 
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
@@ -581,48 +512,5 @@ PROFILE_TEST_CASES: list[ProfileTestCase] = [
         # "based in"/"located in"/etc. pattern. Name extraction is the key assertion here.
     ),
 ]
-
-
-def send_profile(profile_text: str) -> None:
-    """Deliver profile_text extra via onNewIntent — triggers UserProfileRepository.save()."""
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-    time.sleep(0.3)
-    # Split multi-line profile into a single escaped string passed as extra
-    # ADB intent extras cannot contain newlines; replace with \n literal that Kotlin will handle
-    single_line = profile_text.replace("\n", "\\n")
-    run_adb(
-        "shell",
-        "am",
-        "start",
-        "-n",
-        ACTIVITY,
-        "--es",
-        "profile_text",
-        shlex.quote(single_line),
-    )
-
-
-def extract_profile_result(logcat_output: str) -> dict[str, str | None]:
-    """Parse logcat for profile extraction result (LLM or regex) and key fields.
-
-    Logcat lines look like:
-      D KernelAI: Profile regex fallback:
-      D KernelAI: name: Sam
-      D KernelAI: role: designer
-    """
-    used_llm = bool(PROFILE_LLM_PATTERN.search(logcat_output))
-    used_fallback = bool(PROFILE_FALLBACK_PATTERN.search(logcat_output))
-
-    # Anchor to the KernelAI tag prefix so we don't accidentally match other log lines
-    name_match = re.search(r"KernelAI: name:\s*(.+)", logcat_output)
-    role_match = re.search(r"KernelAI: role:\s*(.+)", logcat_output)
-    location_match = re.search(r"KernelAI: location:\s*(.+)", logcat_output)
-
-    return {
-        "method": "llm" if used_llm else ("regex" if used_fallback else None),
-        "name": name_match.group(1).strip() if name_match else None,
-        "role": role_match.group(1).strip() if role_match else None,
-        "location": location_match.group(1).strip() if location_match else None,
-    }
 
 
