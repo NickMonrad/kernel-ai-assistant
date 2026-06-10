@@ -332,9 +332,11 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("put eggs on the grocery list", "add_to_list",
                  expect_params={"item": "eggs", "list_name": "grocery"}),
         TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True,
-                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+                 id="add_bread_and_butter_v1"),
         TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True,
-                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+                 id="add_bread_and_butter_v2"),
         # Kiwi/Aus colloquial usage: "chuck X on the list" means add/put X on the list.
         TestCase("chuck milk on the list", "add_to_list",
                  expect_params={"item": "milk"}),
@@ -480,13 +482,13 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("skip forward 2 minutes", "podcast_skip_forward"),
         TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
         TestCase("skip the intro", "podcast_skip_forward"),
-        TestCase("forward 30 seconds", "podcast_skip_forward"),
-        # podcast_skip_back (#524)
         TestCase("I missed that, go back", "podcast_skip_back", xfail=True,
-                 xfail_reason="context_missing: 'go back' requires active podcast playback context"),
-        TestCase("rewind 10 seconds", "podcast_skip_back"),
+                 xfail_reason="context_missing: 'go back' requires active podcast playback context",
+                 id="i_missed_that_go_back_v1"),
+        TestCase("I missed that, go back", "podcast_skip_back", xfail=True,
+                 xfail_reason="context_missing: 'go back' requires active podcast playback context",
+                 id="i_missed_that_go_back_v2"),
         TestCase("back 15 seconds", "podcast_skip_back"),
-        TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
         # podcast_speed (#524)
         TestCase("play at 1.5x speed", "podcast_speed"),
         TestCase("set playback speed to 2x", "podcast_speed"),
@@ -1980,29 +1982,49 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
               f" ({PHASES[start_phase_idx][0]}) — skipping first {skipped} tests ──")
         print()
 
+    # Build the filtered test list using _select_tests for composable selectors.
+    # The phase filter is built from --phases (if given) or --start-phase (if given).
+    run_phase_filter: list[str] | None = None
+    if phases is not None:
+        run_phase_filter = [phase_names[i] for i in sorted(selected_phase_indices)]  # type: ignore[union-attr]
+    elif start_phase is not None:
+        run_phase_filter = phase_names[start_phase_idx:]
+
+    selected_tests = _select_tests(
+        phase_filter=run_phase_filter,
+        categories=categories,
+        tags=tags,
+        exclude_tags=exclude_tags,
+        case_ids=case_ids,
+    )
+
+    # Print filter summary if any non-phase filter is active
+    filter_parts: list[str] = []
+    if categories:   filter_parts.append(f"categories={','.join(categories)}")
+    if tags:         filter_parts.append(f"tags={','.join(tags)}")
+    if exclude_tags: filter_parts.append(f"exclude_tags={','.join(exclude_tags)}")
+    if case_ids:     filter_parts.append(f"case_ids={','.join(case_ids)}")
+    if filter_parts:
+        print(f"  Filters: {' | '.join(filter_parts)}")
+        print()
 
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
-    # global_index counts only the tests that will actually run.
-    # For a full run it starts at 1; for --start-phase it starts after skipped tests.
-    global_index = sum(len(cases) for _, cases in PHASES[:start_phase_idx]) + 1
-    total_tests = (
-        sum(len(cases) for i, (_, cases) in enumerate(PHASES) if i in selected_phase_indices)
-        if selected_phase_indices is not None
-        else len(TEST_CASES)
-    )
 
-    for phase_num, (phase_name, phase_cases) in enumerate(PHASES, 1):
-        if phase_num <= start_phase_idx:
-            continue  # skip phases before the requested start
-        if selected_phase_indices is not None and (phase_num - 1) not in selected_phase_indices:
-            continue  # skip phases not in --phases selection
+    total_tests = len(selected_tests)
 
+    # Group selected tests by phase for the phase-results loop
+    from itertools import groupby
+    from operator import itemgetter
+    for phase_idx, phase_group_iter in groupby(selected_tests, key=itemgetter(0)):
+        phase_name = PHASES[phase_idx][0]
+        phase_group = list(phase_group_iter)
         phase_start = time.time()
         phase_results: list[TestResult] = []
 
-        for tc in phase_cases:
+        for _phase_idx, _case_idx, tc in phase_group:
+            global_index = len(results) + 1  # 1-based, runs only over selected tests
             print(f"  [{global_index:3d}/{total_tests}] \"{tc.message}\" ...", end=" ", flush=True)
 
             clear_logcat()
@@ -2086,6 +2108,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 xfail=tc.xfail,
                 reply_warn=reply_warn,
                 log_check_warn=log_check_warn,
+                first_turn_warn=first_turn_warn,
                 phase=phase_name,
             )
             phase_results.append(result)
@@ -2163,8 +2186,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             detail = f"{actual_str} [param fail]"
         else:
             detail = actual_str
-        print(f"  {r.index:3d}  {icon:>6}  {r.expect_intent:<24}  {detail:<24}  \"{r.message}\"{suffix}")
-        if not r.xfail and (not r.intent_passed or not r.params_passed):
+        if not r.xfail and (not r.intent_passed or not r.params_passed or r.log_check_warn is not None):
             failures += 1
         elif r.xfail and not r.intent_passed:
             xfails += 1
