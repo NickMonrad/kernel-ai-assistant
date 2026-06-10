@@ -48,8 +48,18 @@ LLM_TOOLS_SKILL_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*(.+)")
 LLM_TOOLS_MESSAGE_SAVED_PATTERN = re.compile(r"llm_tools_message_toolcall_saved:\s*(.+)")
 LLM_TOOLS_RETRY_PATTERN = re.compile(r"raw_tool_call_retry_succeeded|hallucination_retry_succeeded")
 LLM_TOOLS_SLOT_FILL_PATTERN = re.compile(r"NeedsSlot|ConfirmationFastPath:")
-WAIT_SECONDS = 8
-PROFILE_WAIT_SECONDS = 20
+
+# WAIT_SECONDS and PROFILE_WAIT_SECONDS can be overridden via environment variables:
+#   ADB_WAIT_SECONDS         (default: 8)  — test execution poll timeout and inter-test delay
+#   ADB_PROFILE_WAIT_SECONDS  (default: 20) — profile extraction fixed delay
+#
+# These are per-device/per-run adjustable — S23U TCP/TLS runs at ~8 tok/s can use tighter
+# waits (8s/20s) while S21 Exynos USB runs may need larger values (20s/45s) for longer
+# inference times. Set before each run:
+#   export ADB_WAIT_SECONDS=20
+#   export ADB_PROFILE_WAIT_SECONDS=45
+WAIT_SECONDS = int(os.environ.get("ADB_WAIT_SECONDS", "8"))
+PROFILE_WAIT_SECONDS = int(os.environ.get("ADB_PROFILE_WAIT_SECONDS", "20"))
 REPORTS_DIR = Path(__file__).parent / "test-reports"
 
 
