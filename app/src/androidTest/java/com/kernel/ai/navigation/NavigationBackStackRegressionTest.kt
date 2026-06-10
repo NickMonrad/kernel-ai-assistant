@@ -50,6 +50,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
@@ -675,11 +676,12 @@ class NavigationBackStackRegressionTest {
             harnessNavController?.navigate("actions?openSheet=true&draftQuery=TestQuery")
         }
         composeTestRule.waitForIdle()
-        // Verify quick action sheet opens
+        // Verify quick action sheet opens with the draft prefilled
         composeTestRule.onNodeWithTag("actions_bottom_sheet").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quick_action_input").assertIsDisplayed()
+        composeTestRule.onNodeWithText("TestQuery").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quick_action_submit_button").assertIsDisplayed()
-        // Dismiss the sheet via submit button
+        // Dismiss the sheet via the test close/submit affordance
         composeTestRule.onNodeWithTag("quick_action_submit_button").performClick()
         composeTestRule.waitForIdle()
         // Verify back on actions screen, sheet dismissed
@@ -703,6 +705,7 @@ class NavigationBackStackRegressionTest {
         // Verify sheet opens with prefilled input
         composeTestRule.onNodeWithTag("actions_bottom_sheet").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quick_action_input").assertIsDisplayed()
+        composeTestRule.onNodeWithText("TestQuery").assertIsDisplayed()
         // Dismiss the sheet
         composeTestRule.onNodeWithTag("quick_action_submit_button").performClick()
         composeTestRule.waitForIdle()
@@ -1010,9 +1013,11 @@ class NavigationBackStackRegressionTest {
         composeTestRule.onNodeWithTag("actions_bottom_sheet").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quick_action_input").assertIsDisplayed()
         composeTestRule.onNodeWithTag("draft_query_text").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Set a timer for 10 minutes").assertIsDisplayed()
         // Dismiss the sheet
         composeTestRule.onNodeWithTag("quick_action_submit_button").performClick()
         composeTestRule.waitForIdle()
+        assertScreenNotPresent("actions_bottom_sheet")
         composeTestRule.onNodeWithTag("actions_screen").assertIsDisplayed()
         // Navigate back to Tools
         composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()

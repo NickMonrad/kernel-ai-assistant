@@ -224,14 +224,36 @@ def _parse_test_results(xml_paths: list[Path]) -> dict[str, dict[str, Any]]:
     return results
 
 
+_SCHEMA_FAILURE_CATEGORIES = {
+    "harness_error",
+    "missing_marker",
+    "model_tool_generation_miss",
+    "wrong_tool",
+    "wrong_result_mode",
+    "field_mismatch",
+    "conversational_fallback",
+    "retry_seen",
+    "slot_fill_seen",
+    "device_environment_error",
+    "timeout",
+}
+
 _FAILURE_CATEGORY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"timed?[- ]?out", re.IGNORECASE), "timeout"),
     (re.compile(r"TimeoutException", re.IGNORECASE), "timeout"),
     (re.compile(r"assertion.*failed|expected.*but was|expected.*true|expected.*false",
-                re.IGNORECASE), "navigation_state_mismatch"),
+                re.IGNORECASE), "harness_error"),
     (re.compile(r"Device.*not found|No such device|adb|device.*unavailable",
-                re.IGNORECASE), "device_unavailable"),
+                re.IGNORECASE), "device_environment_error"),
 ]
+
+
+def _categorize_failure(message: str) -> str:
+    """Map a raw JUnit failure message to a schema-compatible failure category."""
+    for pattern, category in _FAILURE_CATEGORY_PATTERNS:
+        if pattern.search(message):
+            return category
+    return "harness_error"
 def _build_case(
     case_def: dict[str, Any],
     result: dict[str, Any] | None,
@@ -250,7 +272,7 @@ def _build_case(
     category = case_def.get("category", "other")
     passed = result["passed"] if result else False
     failures = result.get("failures", []) if result else ["not run"]
-    failure_category: str | None = result.get("failure_category") if result else ("no_run" if not result else None)
+    failure_category: str | None = result.get("failure_category") if result else "harness_error"
     time_sec = result.get("time") if result else None
     # Normalise failure_category: null for passing, string for failing
     if passed:
@@ -278,22 +300,42 @@ def _build_case(
 
     return case
 
+def _schema_failure_category(case: dict[str, Any]) -> str | None:
+    """Return a schema-compatible failure category for a case."""
+    if case.get("passed"):
+        return None
+
+    category = case.get("failure_category")
+    if category in _SCHEMA_FAILURE_CATEGORIES:
+        return category
+    return "harness_error"
+
+
+def to_schema_evidence(normalised: dict[str, Any]) -> dict[str, Any]:
+    """Return the schema-compatible JSON shape written/published for evidence.
+
+    Local-only metadata such as `category` and `duration_seconds` is kept in the
+    in-memory `normalised` dict for Markdown/CSV output, but stripped from the
+    published JSON shape.
+    """
+    published = json.loads(json.dumps(normalised))
+    cases: list[dict[str, Any]] = []
+    for case in published.get("cases", []):
+        schema_case = dict(case)
+        schema_case.pop("category", None)
+        schema_case.pop("duration_seconds", None)
+        schema_case["failure_category"] = _schema_failure_category(schema_case)
+        cases.append(schema_case)
+    published["cases"] = cases
+    return published
+
 
 # ── Output writers ─────────────────────────────────────────────────────────
 
 
 def _write_json(normalised: dict, path: Path) -> None:
-    """Write the normalised evidence as pretty-printed JSON.
-
-    Strips `category` and `duration_seconds` from cases before writing to
-    comply with the schema (additionalProperties: false).
-    """
-    # Deep copy to avoid mutating the original
-    published = json.loads(json.dumps(normalised))
-    for case in published.get("cases", []):
-        case.pop("category", None)
-        case.pop("duration_seconds", None)
-    path.write_text(json.dumps(published, indent=2) + "\n")
+    """Write the schema-compatible evidence JSON that will be published."""
+    path.write_text(json.dumps(to_schema_evidence(normalised), indent=2) + "\n")
     print(f"Evidence JSON: {path}")
 
 def _write_csv(normalised: dict, path: Path) -> None:
@@ -358,8 +400,8 @@ def _write_markdown(normalised: dict, path: Path) -> None:
         "parameterised_route": "Parameterised Routes",
         "drawer": "Drawer Transitions",
         "repeated_tap": "Repeated-Tap / Duplicate Stack",
-        "real_composable": "Real Composable Integration Tests",
-        "screenshot": "Screenshot Capture Tests",
+        "real_composable": "Real Composable",
+        "screenshot": "Screenshot Evidence",
     }
 
     by_category: dict[str, list[dict]] = {}
@@ -406,25 +448,37 @@ def _write_markdown(normalised: dict, path: Path) -> None:
 
 
 def _validate_schema_compliance(normalised: dict) -> list[str]:
-    """Check basic schema invariants for the normalised evidence shape."""
+    """Check basic schema invariants for the schema-compatible evidence shape."""
     errors: list[str] = []
+    schema_data = to_schema_evidence(normalised)
     required_top = [
         "schema_version", "source", "suite", "timestamp",
         "repo", "branch", "commit", "pr", "release",
         "run_id", "device", "model", "summary", "cases",
     ]
     for field in required_top:
-        if field not in normalised:
+        if field not in schema_data:
             errors.append(f"Missing top-level field: {field}")
 
-    if "cases" in normalised:
-        for i, case in enumerate(normalised["cases"]):
-            for field in ("name", "passed", "failure_category", "failures"):
-                if field not in case:
-                    errors.append(f"cases[{i}]: missing '{field}'")
+    allowed_case_fields = {
+        "name", "passed", "expected_tool", "actual_tool",
+        "expected_result_mode", "actual_result_mode",
+        "chip_present", "skill_result_present", "message_saved",
+        "retry_seen", "slot_fill_seen", "failure_category", "failures",
+    }
+    for i, case in enumerate(schema_data.get("cases", [])):
+        for field in allowed_case_fields:
+            if field not in case:
+                errors.append(f"cases[{i}]: missing '{field}'")
+        extra = sorted(set(case.keys()) - allowed_case_fields)
+        for field in extra:
+            errors.append(f"cases[{i}]: unexpected '{field}'")
+        failure_category = case.get("failure_category")
+        if failure_category is not None and failure_category not in _SCHEMA_FAILURE_CATEGORIES:
+            errors.append(f"cases[{i}]: invalid failure_category '{failure_category}'")
 
-    if "summary" in normalised:
-        s = normalised["summary"]
+    if "summary" in schema_data:
+        s = schema_data["summary"]
         for field in ("total", "passed", "failed", "pass_rate"):
             if field not in s:
                 errors.append(f"summary: missing '{field}'")
@@ -435,10 +489,9 @@ def _validate_schema_compliance(normalised: dict) -> list[str]:
                 f"passed ({s.get('passed')}) + failed ({s.get('failed')})"
             )
 
-    # Validate pass_rate consistency
-    total = normalised.get("summary", {}).get("total", 0)
-    passed = normalised.get("summary", {}).get("passed", 0)
-    pass_rate = normalised.get("summary", {}).get("pass_rate")
+    total = schema_data.get("summary", {}).get("total", 0)
+    passed = schema_data.get("summary", {}).get("passed", 0)
+    pass_rate = schema_data.get("summary", {}).get("pass_rate")
     if total > 0 and pass_rate is not None:
         expected = round(passed / total, 4)
         if abs(expected - pass_rate) > 0.001:
@@ -450,26 +503,23 @@ def _validate_schema_compliance(normalised: dict) -> list[str]:
 
 
 def _validate_against_schema(data: dict, schema_path: Path) -> list[str]:
-    """Validate the evidence dict against the JSON Schema document.
-
-    Uses jsonschema when available; falls back to basic structure checks.
-    """
+    """Validate the same schema-compatible evidence shape that will be written."""
     errors: list[str] = []
+    schema_data = to_schema_evidence(data)
     try:
         import jsonschema  # type: ignore[import-untyped]
         with open(schema_path) as f:
             schema = json.load(f)
         validator = jsonschema.Draft7Validator(schema)
-        for ve in validator.iter_errors(data):
+        for ve in validator.iter_errors(schema_data):
             errors.append(f"schema: {'/'.join(str(p) for p in ve.path)}: {ve.message}")
         return errors
     except ImportError:
-        print("  (jsonschema not installed — skipping full schema validation)", file=sys.stderr)
-        return _validate_schema_compliance(data)
+        print("  (jsonschema not installed — using built-in schema-shape validation)", file=sys.stderr)
+        return _validate_schema_compliance(schema_data)
     except Exception as e:
         print(f"  (schema validation error: {e})", file=sys.stderr)
-        return _validate_schema_compliance(data)
-
+        return _validate_schema_compliance(schema_data)
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
