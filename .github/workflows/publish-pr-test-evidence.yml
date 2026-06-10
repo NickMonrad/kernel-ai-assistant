@@ -24,9 +24,10 @@ on:
         required: false
         default: false
         type: boolean
-
 permissions:
   contents: write
+  actions: read
+  pull-requests: read
 
 jobs:
   publish-pr-evidence:
@@ -95,13 +96,31 @@ jobs:
             RUN_ID=$(echo "${RUN_JSON}" | jq -r '.[0].databaseId // empty' 2>/dev/null)
 
             if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
-              echo "::error::No successful CI run found for PR #${{ inputs.pr }} on branch '${BRANCH}'." >>&2
+              echo "::error::No successful CI run found for PR #${{ inputs.pr }} on branch '${BRANCH}'." >&2
               echo "" >> "${GITHUB_STEP_SUMMARY}"
               echo "### ❌ No successful CI run found" >> "${GITHUB_STEP_SUMMARY}"
               echo "" >> "${GITHUB_STEP_SUMMARY}"
               echo "CI evidence requires a completed \`pull_request\` CI run with **success** conclusion." >> "${GITHUB_STEP_SUMMARY}"
               echo "" >> "${GITHUB_STEP_SUMMARY}"
               echo "To use an override, provide \`run_id\` and \`commit\` inputs manually." >> "${GITHUB_STEP_SUMMARY}"
+              exit 1
+            fi
+
+            # ── Stale-run guard: check latest run on this branch ──
+            LATEST_RUN_JSON=$(gh run list --workflow CI --branch "${BRANCH}" \
+              --limit 1 --json databaseId,conclusion,createdAt \
+              --repo "${{ github.repository }}" 2>&1)
+            LATEST_RUN_ID=$(echo "${LATEST_RUN_JSON}" | jq -r '.[0].databaseId // empty' 2>/dev/null)
+            LATEST_CONCLUSION=$(echo "${LATEST_RUN_JSON}" | jq -r '.[0].conclusion // "unknown"' 2>/dev/null)
+
+            if [ -n "${LATEST_RUN_ID}" ] && [ "${LATEST_RUN_ID}" != "${RUN_ID}" ] && [ "${LATEST_CONCLUSION}" != "success" ]; then
+              echo "::error::Stale CI run detected: latest run #${LATEST_RUN_ID} for branch '${BRANCH}' is '${LATEST_CONCLUSION}', not successful. Selected run #${RUN_ID} pre-dates this. Provide an explicit \`run_id\` override to publish stale evidence." >&2
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "### ❌ Stale CI run" >> "${GITHUB_STEP_SUMMARY}"
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "Latest run for branch \`${BRANCH}\` is **#${LATEST_RUN_ID}** (${LATEST_CONCLUSION}), but the selected successful run is **#${RUN_ID}**." >> "${GITHUB_STEP_SUMMARY}"
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "To publish evidence from an older run anyway, provide \`run_id\` override." >> "${GITHUB_STEP_SUMMARY}"
               exit 1
             fi
 
@@ -139,11 +158,13 @@ jobs:
 
           else
             # ── Auto-resolve path: find ci-test-evidence artifact from the run ──
-            ARTIFACT_NAME=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("ci-test-evidence")) | .name] | .[0] // empty' 2>/dev/null)
+            ARTIFACT_NAMES=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("ci-test-evidence")) | .name]' 2>/dev/null)
 
-            if [ -z "${ARTIFACT_NAME}" ]; then
-              echo "::error::No ci-test-evidence-* artifact found in run ${RUN_ID}. The CI run may not have generated evidence, or the artifact may have expired (retention: 30 days)." >>&2
+            ARTIFACT_COUNT=$(echo "${ARTIFACT_NAMES}" | jq 'length')
+
+            if [ -z "${ARTIFACT_NAMES}" ] || [ "${ARTIFACT_COUNT}" = "0" ]; then
+              echo "::error::No ci-test-evidence-* artifact found in run ${RUN_ID}. The CI run may not have generated evidence, or the artifact may have expired (retention: 30 days)." >&2
               echo "" >> "${GITHUB_STEP_SUMMARY}"
               echo "### ❌ No evidence artifact found" >> "${GITHUB_STEP_SUMMARY}"
               echo "" >> "${GITHUB_STEP_SUMMARY}"
@@ -151,6 +172,27 @@ jobs:
               echo "Trigger a new CI run, then retry." >> "${GITHUB_STEP_SUMMARY}"
               exit 1
             fi
+
+            if [ "${ARTIFACT_COUNT}" -gt 1 ]; then
+              # Check whether multiple artifacts share the same SHA
+              UNIQUE_SHAS=$(echo "${ARTIFACT_NAMES}" | jq -r '.[] | sub("^ci-test-evidence-"; "")' | sort -u | wc -l)
+              if [ "${UNIQUE_SHAS}" -gt 1 ]; then
+                echo "::error::Ambiguous: ${ARTIFACT_COUNT} ci-test-evidence-* artifacts with distinct SHAs in run ${RUN_ID}. Use \`run_id\` and \`commit\` overrides to select the correct one." >&2
+                echo "" >> "${GITHUB_STEP_SUMMARY}"
+                echo "### ❌ Ambiguous evidence artifacts" >> "${GITHUB_STEP_SUMMARY}"
+                echo "" >> "${GITHUB_STEP_SUMMARY}"
+                echo "Run \`${RUN_ID}\` has ${ARTIFACT_COUNT} \`ci-test-evidence-*\` artifacts with different SHAs:" >> "${GITHUB_STEP_SUMMARY}"
+                echo "${ARTIFACT_NAMES}" | jq -r '.[]' | while read -r name; do
+                  echo "  - \`${name}\`" >> "${GITHUB_STEP_SUMMARY}"
+                done
+                echo "" >> "${GITHUB_STEP_SUMMARY}"
+                echo "Provide explicit \`run_id\` and \`commit\` overrides to disambiguate." >> "${GITHUB_STEP_SUMMARY}"
+                exit 1
+              fi
+            fi
+
+            # Safe: either exactly one artifact, or multiple with the same SHA
+            ARTIFACT_NAME=$(echo "${ARTIFACT_NAMES}" | jq -r '.[0]')
 
             # Extract SHA from artifact name: ci-test-evidence-<sha>
             COMMIT=$(echo "${ARTIFACT_NAME}" | sed 's/^ci-test-evidence-//')

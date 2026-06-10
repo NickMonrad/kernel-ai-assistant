@@ -97,6 +97,113 @@ def _get_remote_url() -> str:
         _DEFAULT_REMOTE_URL = f"https://github.com/{REPO}.git"
     return _DEFAULT_REMOTE_URL
 
+def _detect_current_pr_number() -> int | None:
+    """Detect the current GitHub PR number for the active branch.
+
+    Uses ``gh pr view`` on the repository checkout. Returns None when:
+    - ``gh`` is not installed
+    - The current branch has no open PR
+    - The command times out or fails for any other reason
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", "--json", "number", "--jq", ".number"],
+            capture_output=True, text=True, timeout=5,
+            cwd=HERE,
+        )
+        if result.returncode == 0:
+            text = result.stdout.strip()
+            if text:
+                return int(text)
+    except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+
+def _check_pr_mismatches(
+    cli_pr: int | None,
+    evidence_prs: set[int | None],
+    detected_pr: int | None,
+) -> list[str]:
+    """Check for PR number mismatches.
+
+    Pure function with no side effects — testable directly. Returns a list of
+    human-readable mismatch descriptions. An empty list means no problems.
+
+    * Always compares CLI ``--pr`` against each evidence JSON ``pr`` field.
+    * When ``detected_pr`` is provided (from ``gh pr view``), also checks
+      CLI ``--pr`` against the live PR as an additional safety measure.
+    * ``None`` evidence PRs (unset or null ``pr`` field) are treated as a
+      mismatch when ``cli_pr`` is set — evidence without a PR number should
+      not be published under a PR scope.
+    * ``cli_pr is None`` means release-scoped — no PR validation needed.
+    """
+    if cli_pr is None:
+        return []
+
+    mismatches: list[str] = []
+
+    # 1. Direct comparison: CLI --pr vs each evidence JSON pr field
+    #    Including None — evidence without a pr field cannot go under PR scope
+    if None in evidence_prs:
+        mismatches.append(
+            f"Evidence JSON pr field is null/missing but CLI --pr={cli_pr}. "
+            f"All evidence files must have a 'pr' field matching the PR being published."
+        )
+    for evidence_pr in sorted(p for p in evidence_prs if p is not None):
+        if evidence_pr != cli_pr:
+            mismatches.append(
+                f"Evidence JSON pr={evidence_pr} does not match CLI --pr={cli_pr}. "
+                f"The evidence 'pr' field must match the PR number being published."
+            )
+
+    # 2. Additional local safety: detected PR from gh (when available)
+    if detected_pr is not None and cli_pr != detected_pr:
+        mismatches.append(
+            f"CLI --pr={cli_pr} does not match current GitHub PR #{detected_pr}. "
+            f"The --pr argument must be the actual Pull Request number, "
+            f"not a related issue number from Closes #N."
+        )
+
+    return mismatches
+
+
+
+def _validate_pr_number(cli_pr: int | None, evidence_prs: set[int | None], allow_mismatch: bool) -> None:
+    """Validate PR number consistency.
+
+    Checks that CLI ``--pr`` matches the evidence JSON ``pr`` field(s) from
+    **all** files — this guardrail always runs, even when ``gh pr view`` is
+    unavailable (e.g. GitHub Actions merge checkout).
+
+    When ``gh`` is available *and* the current branch has an open PR, also
+    checks against the detected PR number as an additional safety measure.
+
+    Exits with a clear error on mismatch unless ``allow_mismatch`` is set.
+    """
+    if cli_pr is None:
+        return
+
+    detected = _detect_current_pr_number()
+    mismatches = _check_pr_mismatches(cli_pr, evidence_prs, detected)
+
+    if not mismatches:
+        return
+
+    if allow_mismatch:
+        for msg in mismatches:
+            print(f"WARNING: PR number mismatch (allowed by --allow-pr-mismatch): {msg}")
+        return
+
+    print("ERROR: PR number mismatch detected:", file=sys.stderr)
+    for msg in mismatches:
+        print(f"  {msg}", file=sys.stderr)
+    print(
+        "Use '--allow-pr-mismatch' only for recovery cases "
+        "(e.g. re-publishing evidence after a PR is closed).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 
 # ── Schema validation (lightweight, no external deps) ──────────────────────────
 
@@ -336,6 +443,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow-commit-mismatch",
         action="store_true",
         help="Skip commit SHA consistency check",
+    )
+    parser.add_argument(
+        "--allow-pr-mismatch",
+        action="store_true",
+        help=(
+            "Skip PR number consistency check with current GitHub PR. "
+            "Only use this for recovery cases (e.g. re-publishing evidence "
+            "after a PR is closed)."
+        ),
     )
 
     args = parser.parse_args(argv)
@@ -613,11 +729,21 @@ def main() -> None:
     # Collect and validate input files
     files = _collect_input_files(args)
 
-    # Find JSON evidence file for validation
+    # Find JSON evidence files for validation
     json_files: list[Path] = [f for f in files if f.suffix == ".json"]
     data: dict | None = None
+    evidence_prs: set[int | None] = set()
     for json_file in json_files:
-        data = _validate_evidence_file(json_file, args)
+        ev_data = _validate_evidence_file(json_file, args)
+        evidence_prs.add(ev_data.get("pr") if ev_data else None)
+        data = ev_data  # Keep last for output path building
+
+    # Validate PR number consistency (guard against issue vs PR number confusion)
+    _validate_pr_number(
+        cli_pr=args.pr,
+        evidence_prs=evidence_prs,
+        allow_mismatch=args.allow_pr_mismatch,
+    )
 
     # Build output path mapping
     mapping = _build_output_paths(files, args, data)

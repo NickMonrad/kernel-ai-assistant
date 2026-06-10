@@ -46,7 +46,17 @@ The [PR-number-first workflow](#pr-number-first-ci-evidence-publishing) resolves
 
 The reviewer/user decides whether a given CI snapshot is worth publishing. A simple note is sufficient:
 
-> CI: ✅ passed — evidence artifacts available. Run `Publish PR test evidence` workflow with PR number only to publish.
+
+When evidence has been published, the PR notes should include a metadata checklist:
+
+> **Evidence metadata:**
+> 
+> - GitHub PR number used for evidence: #1160
+> - Closing issue: #1154
+> - Evidence path: `results/pr/1160/...`
+> - Verified evidence JSON \`pr\` field matches GitHub PR number: yes
+
+> CI: ✅ passed — evidence artifacts available. Run \`Publish PR test evidence\` workflow with PR number only to publish.
 
 > **Note on commit SHA:** CI evidence artifacts use the **merge commit SHA**, not the PR head SHA.
 GitHub Actions sets `github.sha` to a merge commit for `pull_request` events. The evidence artifact
@@ -116,6 +126,46 @@ The workflow summary will mark overrides with ⚠️.
 - **Default path for routine CI evidence:** PR number only. Do not ask the user for run IDs or commit SHAs.
 - **Fallback:** Use the [manual publish](#manual-fallback-publish-test-evidence) workflow or the Python script directly, explaining why.
 - **On-device evidence:** Never through this workflow. See [On-device / physical evidence](#on-device--physical-evidence).
+- **PR number is the GitHub PR number, not the issue number:** Before generating or publishing evidence,
+  mechanically discover the PR number with \`gh pr view --json number --jq .number\`.
+  See [PR number vs issue number](#pr-number-vs-issue-number) below.
+
+### PR number vs issue number
+
+For all evidence generation and publishing, **\`pr\` means the actual GitHub Pull Request number**,
+not the GitHub Issue number from \`Closes #N\`, parent issue, child issue, or epic issue.
+
+| Context | Correct | Incorrect |
+|---------|---------|-----------|
+| PR URL | \`/pull/1160\` | \`/pull/1154\` (issue number) |
+| Closing reference | \`Closes #1154\` | (not relevant to evidence) |
+| Evidence JSON \`pr\` field | \`"pr": 1160\` | \`"pr": 1154\` |
+| Publish path | \`results/pr/1160/...\` | \`results/pr/1154/...\` |
+| Dashboard PR grouping | grouped under #1160 | grouped under #1154 |
+
+**Mechanical discovery — always derive the PR number, never copy it:**
+
+\`\`\`bash
+PR_NUMBER="$(gh pr view --json number --jq .number)"
+PR_HEAD_SHA="$(gh pr view --json headRefOid --jq .headRefOid)"
+\`\`\`
+
+Use \`$PR_NUMBER\` for:
+- \`--pr\` argument to evidence generation and publishing commands.
+- Evidence JSON \`pr\` field.
+- Publish path \`results/pr/<PR_NUMBER>/...\`.
+- PR summary grouping and dashboard grouping.
+
+Use the issue number only in:
+- \`Closes #<issue>\` in PR bodies.
+- Related issue references and prose describing scope.
+
+**The story behind this rule:** PR #1160 exposed the gap — it closed issue #1154, and an agent
+confused the issue number with the actual PR number, publishing evidence under \`results/pr/1154/\`
+instead of \`results/pr/1160/\`. The publisher now includes a guardrail (\`_validate_pr_number()\`)
+that compares \`--pr\` against the current branch's open PR when \`gh\` is available.
+Pass \`--allow-pr-mismatch\` only for exceptional recovery cases (re-publishing evidence
+after a PR is closed).
 
 ## Evidence publishing
 
@@ -125,7 +175,7 @@ The default path is the [PR-number-first workflow](#pr-number-first-ci-evidence-
 ### Default path: PR-number-first workflow (CI evidence)
 
 For routine CI evidence publishing, use the
-[Publish PR test evidence](.github/workflows/publish-pr-test-evidence.yml) workflow:
+[Publish PR test evidence](../../.github/workflows/publish-pr-test-evidence.yml) workflow:
 
 1. Navigate to **Actions → Publish PR test evidence → Run workflow**.
 2. Enter the **PR number** only.
@@ -141,7 +191,7 @@ If the PR-number-first workflow fails, escalate to the manual fallback and expla
 
 For advanced cases (release-scoped evidence, on-device evidence, or when the PR-number-first workflow
 cannot resolve the CI run), use the lower-level
-[publish-test-evidence.yml](.github/workflows/publish-test-evidence.yml) workflow.
+[publish-test-evidence.yml](../../.github/workflows/publish-test-evidence.yml) workflow:
 
 1. Navigate to **Actions → Publish test evidence → Run workflow**.
 2. Provide: `source` (`ci` or `on_device`), PR number or release, commit SHA, and CI run ID (for CI).
