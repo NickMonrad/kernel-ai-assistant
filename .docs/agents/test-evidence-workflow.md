@@ -8,13 +8,19 @@ Feature PRs in this repo follow a **generate → report → decide → publish**
 
 ```text
 PR CI generates normalised evidence artifacts
-  → agent reports PR number, commit SHA, CI run ID in PR notes
+  → agent reports PR number in PR notes
   → reviewer/user decides whether to publish a durable snapshot
-  → if yes: run Publish test evidence workflow → evidence lands on test-results branch
+  → if yes: run Publish PR test evidence workflow → evidence lands on test-results branch
   → dashboard auto-refreshes via repository_dispatch
 ```
 
+The **PR-number-first** workflow (`publish-pr-test-evidence.yml`) is the default path for CI evidence.
+It requires only a PR number — the workflow resolves the CI run, artifact, and commit SHA automatically.
+
 **Key principle:** Agents generate evidence metadata and ensure CI produces artifacts. They do **not** publish durable evidence unless explicitly instructed by the reviewer or issue.
+
+> **Reminder:** On-device evidence (physical device runs) is a separate path. See [On-device / physical evidence](#on-device--physical-evidence).
+
 
 ## Feature PR lifecycle
 
@@ -29,36 +35,127 @@ While implementing a feature, ensure:
 - For on-device features, ensure the `adb_skill_test.py` harness run is documented so manual validation can be reproduced.
 
 ### 2. PR notes / summary
+In the PR description or final summary comment, agents should:
 
-In the PR description or final summary comment, agents **must mechanically discover and report:**
+- Report the **PR number** — e.g. `#1234`
+- Confirm whether CI test evidence artifacts were generated (CI runs this automatically)
+- Note whether CI passed or had failures
 
-- **PR number** — e.g. `#1234`
-- **PR head commit SHA** — the full SHA of the latest commit on the PR branch
-- **CI run ID** — the GitHub Actions run ID that generated the evidence artifacts
-- **CI status** — passed, failed, or in progress
-- **Whether CI evidence artifact exists** — `ci-test-evidence-<sha>` in the run's artifact list
-- **The exact artifact name and commit SHA** — used by the publish workflow to download evidence; the commit SHA in the artifact name is the **merge commit SHA** (`github.sha` for `pull_request` events), not the PR head SHA
+**Do not** manually hunt for run IDs, commit SHAs, or artifact names for routine CI evidence publishing.
+The [PR-number-first workflow](#pr-number-first-ci-evidence-publishing) resolves these automatically from the PR number.
 
-The reviewer/user decides whether a given CI snapshot is worth publishing. Gather all the metadata so they can act without hunting across GitHub's UI.
+The reviewer/user decides whether a given CI snapshot is worth publishing. A simple note is sufficient:
 
-> **Note on commit SHA:** CI evidence artifacts use the **merge commit SHA**, not the PR head SHA. GitHub Actions sets `github.sha` to a merge commit for `pull_request` events. The evidence artifact `ci-test-evidence-<sha>` and the evidence JSON's `commit` field both contain this merge SHA. Always report both SHAs and pass the **merge SHA** as `inputs.commit` to the publish workflow. The publisher validates `--commit` against the evidence JSON's `commit` field; use `--allow-commit-mismatch` only for manually-created evidence.
->
-> **Future improvement:** [#1153](https://github.com/NickMonrad/kernel-ai-assistant/issues/1153) will add a PR-aware publishing workflow so the normal CI path becomes "provide PR number only", removing the need to fill in run IDs and commit SHAs manually.
+> CI: ✅ passed — evidence artifacts available. Run `Publish PR test evidence` workflow with PR number only to publish.
+
+> **Note on commit SHA:** CI evidence artifacts use the **merge commit SHA**, not the PR head SHA.
+GitHub Actions sets `github.sha` to a merge commit for `pull_request` events. The evidence artifact
+`ci-test-evidence-<sha>` and the evidence JSON's `commit` field both contain this merge SHA.
+The PR-number-first workflow resolves the correct SHA automatically from the artifact name.
+The lower-level `publish-test-evidence.yml` workflow still requires passing this SHA manually.
+
 ### 3. Stop for review
 
 After opening or updating the PR, **stop** unless explicitly instructed to publish evidence. The reviewer or user decides whether the current test results are meaningful enough to warrant a durable published snapshot on the `test-results` branch.
 
+## PR-number-first CI evidence publishing
+
+The **default path** for publishing CI test evidence is the
+[`publish-pr-test-evidence.yml`](../../.github/workflows/publish-pr-test-evidence.yml) workflow.
+It resolves the CI run, artifact, and commit SHA from the PR number automatically.
+
+### How to use
+
+1. Go to **Actions → Publish PR test evidence → Run workflow**.
+2. Enter the **PR number** (required). Optionally provide overrides if auto-resolution fails.
+3. Run the workflow.
+4. Check the workflow summary for what was published and where.
+
+### Inputs
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `pr` | Yes | PR number to publish latest CI evidence for |
+| `run_id` | No | Override — CI run ID (auto-resolved if omitted) |
+| `commit` | No | Override — commit SHA (auto-resolved from artifact name) |
+| `allow_commit_mismatch` | No | Skip commit SHA consistency check (default: false) |
+
+### What the workflow does
+
+1. Resolves PR metadata (branch, head SHA, title) via `gh pr view`.
+2. Finds the latest successful CI run for the PR branch (`gh run list --workflow CI --branch <branch> --status success`).
+3. Finds the `ci-test-evidence-<sha>` artifact in that run.
+4. Extracts the evidence commit SHA from the artifact name (the merge check SHA, not the PR head SHA).
+5. Downloads the artifact and publishes via `scripts/publish_test_evidence.py`.
+6. Triggers a `test-evidence-published` `repository_dispatch` to rebuild the dashboard.
+7. Emits a step summary showing PR number, head SHA, CI run ID, artifact name, evidence commit, and published path.
+
+### Override usage
+
+If auto-resolution fails (no successful CI run, no artifact, artifact expired), provide overrides:
+
+```yaml
+run_id: 27204003987      # from a CI run URL
+commit: 2798a1dd0a08...  # from the artifact name ci-test-evidence-<sha>
+```
+
+The workflow summary will mark overrides with ⚠️.
+
+### Failure modes
+
+| Scenario | Behaviour |
+|----------|-----------|
+| PR number invalid | Step 1 fails with clear error |
+| No successful CI run for branch | Step 2 fails: "No successful CI run found" |
+| No `ci-test-evidence-*` artifact | Step 3 fails: "No evidence artifact found" |
+| Artifact expired | Step 3 fails: "artifact has expired" (retention: 30 days) |
+| Commit mismatch (override only) | Validated by `publish_test_evidence.py`; use `allow_commit_mismatch` to bypass |
+
+### Agent guidance
+
+- **Default path for routine CI evidence:** PR number only. Do not ask the user for run IDs or commit SHAs.
+- **Fallback:** Use the [manual publish](#manual-fallback-publish-test-evidence) workflow or the Python script directly, explaining why.
+- **On-device evidence:** Never through this workflow. See [On-device / physical evidence](#on-device--physical-evidence).
+
 ## Evidence publishing
 
-Durable publishing is currently **reviewer/user-controlled**:
+Durable publishing is **reviewer/user-controlled**.
+The default path is the [PR-number-first workflow](#pr-number-first-ci-evidence-publishing).
 
-For **CI evidence**, the reviewer or user:
+### Default path: PR-number-first workflow (CI evidence)
 
-1. Navigates to the "Publish test evidence" workflow in GitHub Actions.
-2. Provides: source (`ci`), PR number, commit SHA, CI run ID.
-3. Workflow downloads the CI evidence artifact by run ID, validates, and publishes to the `test-results` branch.
-4. The dashboard auto-refreshes via `repository_dispatch` after a successful publish.
+For routine CI evidence publishing, use the
+[Publish PR test evidence](.github/workflows/publish-pr-test-evidence.yml) workflow:
 
+1. Navigate to **Actions → Publish PR test evidence → Run workflow**.
+2. Enter the **PR number** only.
+3. Run the workflow.
+4. Check the workflow summary — it reports what was published, the commit SHA, artifact name, and run ID.
+
+The dashboard auto-refreshes via `repository_dispatch` on success.
+
+**Agents:** Do not ask the reviewer for run IDs, artifact names, or commit SHAs for routine CI evidence.
+If the PR-number-first workflow fails, escalate to the manual fallback and explain why.
+
+### Manual fallback: publish-test-evidence workflow
+
+For advanced cases (release-scoped evidence, on-device evidence, or when the PR-number-first workflow
+cannot resolve the CI run), use the lower-level
+[publish-test-evidence.yml](.github/workflows/publish-test-evidence.yml) workflow.
+
+1. Navigate to **Actions → Publish test evidence → Run workflow**.
+2. Provide: `source` (`ci` or `on_device`), PR number or release, commit SHA, and CI run ID (for CI).
+3. Workflow downloads the CI evidence artifact by run ID, validates, and publishes to `test-results`.
+4. Dashboard auto-refreshes on success.
+
+**When to use fallback:**
+
+- Release-scoped evidence (requires `--release` flag).
+- The PR-number-first workflow cannot find a successful CI run or artifact.
+- The user explicitly provides a run ID or commit override.
+- On-device evidence (must be published locally — the workflow prints the command to run).
+
+### On-device evidence (local/manual)
 For **on-device evidence**, the agent (when explicitly instructed):
 
 1. Checks `adb devices` and confirms `ANDROID_SERIAL`.
@@ -69,6 +166,18 @@ For **on-device evidence**, the agent (when explicitly instructed):
 6. Publishes locally with `scripts/publish_test_evidence.py` using appropriate flags.
 7. Optionally triggers dashboard refresh — if `gh` auth is available and the user has explicitly instructed publication, the agent may manually trigger the "Publish test dashboard" workflow after local publish.
 8. Reports the commands used, report path, published path, and dashboard outcome.
+
+**Agent guidance for on-device evidence:**
+
+- Before starting on-device work, **ask whether on-device testing is required** if it is not already explicit
+  in the issue or user request. On-device testing requires a physical device, USB/wireless ADB connection,
+  and the app to be installed — it is not a CI step.
+- **Ask which device tier** is relevant: S21 (tracked/exynos signal device) or S23U (reference/flagship device).
+- If on-device testing is required, **ask whether the resulting evidence should also be published** to
+  `test-results` for dashboard visibility.
+- **Do not imply** on-device evidence is covered by CI or the PR-number-first workflow.
+- **Do not publish** on-device evidence without a real physical-device run and explicit scope, commit,
+  and release metadata.
 
 **User responsibilities for on-device evidence:**
 - Connect and unlock the physical device.
@@ -126,15 +235,19 @@ Generated by running the ADB harness against a physical device:
 - Decide whether a given snapshot is worth publishing as durable dashboard evidence.
 
 ### CI vs on-device distinction
-
 The schema (`docs/testing/test-evidence-schema.md`) distinguishes `ci` from `on_device` evidence via the `source` field in the evidence metadata. Agents must:
 
 - Keep them separate in documentation and reporting.
 - Never conflate CI pass rates (build + lint + unit tests) with on-device pass rates (model inference on physical hardware).
 - Note that dashboard filtering by source device/tier is planned but not yet implemented.
 
-## Dashboard and test-results branch
+**Evidence reporting guidance:**
 
+- Distinguish "CI evidence published" from "on-device evidence published" in summaries.
+- Call out missing on-device evidence **neutrally** when it was not requested.
+- Call out required-but-missing on-device evidence as **incomplete work**.
+
+## Dashboard and test-results branch
 | Component | Location | Purpose |
 |-----------|----------|---------|
 | Evidence storage | `test-results` branch | Durable evidence snapshots, organised by source/PR/release |
@@ -142,6 +255,7 @@ The schema (`docs/testing/test-evidence-schema.md`) distinguishes `ci` from `on_
 | Dashboard deployment | GitHub Pages (`github-pages` env) | Published via `publish-test-dashboard.yml` workflow |
 | Evidence publisher | `scripts/publish_test_evidence.py` | Validates and writes evidence to `test-results` |
 | Evidence publishing workflow | `.github/workflows/publish-test-evidence.yml` | Manual dispatch → publish → trigger dashboard rebuild |
+| PR-number-first workflow | `.github/workflows/publish-pr-test-evidence.yml` | PR-number-only dispatch → resolve run/artifact → publish → dashboard rebuild |
 | Dashboard publishing workflow | `.github/workflows/publish-test-dashboard.yml` | Manual dispatch OR push to main OR repository_dispatch |
 
 ## Current non-goals

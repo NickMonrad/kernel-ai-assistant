@@ -155,7 +155,15 @@ Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` on
 
 ### Test evidence workflow
 
-Feature PRs should let normal CI generate test evidence artifacts. Do not publish durable evidence unless explicitly instructed. In PR notes or final summary, report the PR number, head commit SHA, and CI run ID so the reviewer can decide whether to publish a durable snapshot to `test-results`. Keep CI/static evidence distinct from physical on-device evidence.
+Feature PRs let normal CI generate test evidence artifacts. Do not publish durable evidence unless explicitly instructed.
+
+**For CI evidence:** Use the "Publish PR test evidence" workflow — requires only the PR number.
+The workflow resolves the CI run, artifact, and commit SHA automatically.
+See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallback.
+
+**For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
+If on-device testing is needed, ask which device tier is required (S21 tracked signal or S23U reference signal)
+and whether the results should be published to `test-results`.
 
 Details: `.docs/agents/test-evidence-workflow.md`.
 
