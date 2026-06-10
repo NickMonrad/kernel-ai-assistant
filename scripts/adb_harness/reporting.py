@@ -8,6 +8,8 @@ and PR comment markdown builders.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -206,8 +208,6 @@ def analyse_results(results: list[TestResult]) -> None:
 
 
 # Minimum consecutive same-actual-intent results required to trigger the OOM warning.
-
-_OOM_RUN_THRESHOLD = 5
 
 _OOM_RUN_THRESHOLD = 5
 
