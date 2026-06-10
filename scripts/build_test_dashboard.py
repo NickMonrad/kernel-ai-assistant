@@ -192,6 +192,24 @@ def _evidence_scope(rec: dict) -> str:
     if isinstance(release, str) and release:
         return release
     return "baseline"
+def _scope_info(rec: dict) -> tuple[str, int | str | None, str]:
+    """Return normalized scope metadata for grouping and display."""
+    pr = rec.get("pr")
+    if isinstance(pr, int):
+        return ("pr", pr, _pr_label(pr))
+    release = rec.get("release")
+    if isinstance(release, str) and release:
+        return ("release", release, f"Release {release}")
+    return ("unscoped", None, "Unscoped evidence")
+
+
+def _scope_sort_key(scope_type: str, scope_value: int | str | None, scope_label: str) -> tuple[int, int, str]:
+    """Sort PR scopes first, then releases, then unscoped."""
+    if scope_type == "pr":
+        return (0, -scope_value if isinstance(scope_value, int) else 0, scope_label)
+    if scope_type == "release":
+        return (1, 0, scope_label)
+    return (2, 0, scope_label)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +356,88 @@ def _build_aggregates(evidence: list[dict]) -> dict:
                 cat = c.get("failure_category")
                 if cat:
                     failures_by_cat[cat] = failures_by_cat.get(cat, 0) + 1
+
+        suite_scope_map: dict[tuple[str, str, int | str | None, str], list[dict]] = {}
+        for r in recs:
+            scope_type, scope_value, scope_label = _scope_info(r)
+            suite_scope_key = (_suite_name(r), scope_type, scope_value, scope_label)
+            suite_scope_map.setdefault(suite_scope_key, []).append(r)
+
+        suite_breakdown: list[dict] = []
+        for (suite_name, scope_type, scope_value, scope_label), group_recs in suite_scope_map.items():
+            latest_group_rec = max(group_recs, key=lambda r: r.get("timestamp", ""))
+            latest_summary = latest_group_rec.get("summary", {})
+            if not isinstance(latest_summary, dict):
+                latest_summary = {}
+            historical_summary = _merge_summaries(group_recs)
+            suite_breakdown.append({
+                "suite": suite_name,
+                "source": latest_group_rec.get("source", "unknown"),
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+                "scope_label": scope_label,
+                "timestamp": latest_group_rec.get("timestamp", ""),
+                "commit": latest_group_rec.get("commit", ""),
+                "record_count": len(group_recs),
+                "total": _safe_int(latest_summary.get("total")),
+                "passed": _safe_int(latest_summary.get("passed")),
+                "failed": _safe_int(latest_summary.get("failed")),
+                "pass_rate": _safe_float(latest_summary.get("pass_rate")),
+                "historical_total": historical_summary["total"],
+                "historical_passed": historical_summary["passed"],
+                "historical_failed": historical_summary["failed"],
+                "historical_pass_rate": historical_summary["pass_rate"],
+            })
+        suite_breakdown.sort(
+            key=lambda row: (
+                *_scope_sort_key(
+                    str(row["scope_type"]),
+                    row.get("scope_value"),
+                    str(row["scope_label"]),
+                ),
+                -_safe_int(row.get("total")),
+                str(row["suite"]),
+            )
+        )
+
+        scope_map: dict[tuple[str, int | str | None, str], list[dict]] = {}
+        for row in suite_breakdown:
+            scope_key = (
+                str(row["scope_type"]),
+                row.get("scope_value"),
+                str(row["scope_label"]),
+            )
+            scope_map.setdefault(scope_key, []).append(row)
+
+        scope_breakdown: list[dict] = []
+        for (scope_type, scope_value, scope_label), suite_rows in scope_map.items():
+            latest_suite_row = max(suite_rows, key=lambda row: str(row.get("timestamp", "")))
+            total = sum(_safe_int(row.get("total")) for row in suite_rows)
+            passed = sum(_safe_int(row.get("passed")) for row in suite_rows)
+            failed = sum(_safe_int(row.get("failed")) for row in suite_rows)
+            pass_rate = (passed / total) if total > 0 else 0.0
+            scope_breakdown.append({
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+                "scope_label": scope_label,
+                "latest_timestamp": latest_suite_row.get("timestamp", ""),
+                "latest_commit": latest_suite_row.get("commit", ""),
+                "sources": sorted({str(row.get("source", "unknown")) for row in suite_rows}),
+                "suite_rows": suite_rows,
+                "suites": [str(row["suite"]) for row in suite_rows],
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "pass_rate": round(pass_rate, 4),
+            })
+        scope_breakdown.sort(
+            key=lambda row: _scope_sort_key(
+                str(row["scope_type"]),
+                row.get("scope_value"),
+                str(row["scope_label"]),
+            )
+        )
+
         devices_data.append({
             "device_id": did,
             "label": dev_info.get("label", did),
@@ -351,6 +451,9 @@ def _build_aggregates(evidence: list[dict]) -> dict:
             "failed": merge["failed"],
             "pass_rate": merge["pass_rate"],
             "failures_by_category": failures_by_cat,
+            "suite_breakdown": suite_breakdown,
+            "scope_breakdown": scope_breakdown,
+            "has_unscoped": any(str(row["scope_type"]) == "unscoped" for row in suite_breakdown),
         })
 
     return {
@@ -415,12 +518,28 @@ tr:hover td { background: #1c2128; }
 .mixed-note code { font-size: 0.75rem; }
 footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-size: 0.85rem; color: #8b949e; }
 
+.device-note { margin: 0.8em 0 1.2em; color: #8b949e; font-size: 0.9rem; }
+.warning-panel { margin: 1em 0; padding: 12px 14px; border: 1px solid #d29922; border-radius: 8px; background: rgba(210, 153, 34, 0.12); color: #f2cc60; }
+.scope-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.scope-pr { background: #0d4194; color: #79c0ff; }
+.scope-release { background: #1b4332; color: #7ee787; }
+.scope-unscoped { background: #5a1e02; color: #ffa657; }
+.table-note { margin-top: 4px; font-size: 0.8rem; color: #8b949e; }
+.scope-breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 1em 0 1.5em; }
+.scope-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
+.scope-card.unscoped-card { border-color: #d29922; }
+.scope-card-header { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.scope-card h4 { margin: 0; font-size: 1rem; }
+.scope-meta { margin-top: 8px; color: #c9d1d9; font-size: 0.88rem; }
+.suite-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.suite-pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #21262d; color: #c9d1d9; font-size: 0.8rem; }
 /* Responsive: scrollable tables on narrow screens */
 @media (max-width: 720px) {
   .pr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { font-size: 0.85rem; }
   th, td { padding: 6px 8px; }
   .summary-grid { grid-template-columns: 1fr; }
+  .scope-breakdown { grid-template-columns: 1fr; }
   body { padding: 12px; }
   h1 { font-size: 1.3rem; }
   h2 { font-size: 1.1rem; }
@@ -431,6 +550,7 @@ footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-
   th, td { padding: 4px 6px; }
   th { white-space: normal; }
   .badge { font-size: 0.7rem; padding: 1px 6px; }
+  .scope-card-header { align-items: flex-start; flex-direction: column; }
 }
 """
 
@@ -634,6 +754,70 @@ def _render_devices(data: dict) -> str:
         else:
             fail_rows = '<tr><td colspan="2" class="empty">No failures recorded</td></tr>'
 
+        suite_rows = ""
+        for row in dev["suite_breakdown"]:
+            history_note = ""
+            if row["record_count"] > 1:
+                history_note = (
+                    f'<div class="table-note">'
+                    f'Latest of {row["record_count"]} records · '
+                    f'historical merged {row["historical_passed"]}/{row["historical_total"]}'
+                    f"</div>"
+                )
+            suite_rows += f"""<tr>
+  <td><div>{row['suite']}</div>{history_note}</td>
+  <td><span class="source-tag source-{"ci" if row['source']=='ci' else 'od'}">{_source_label(str(row['source']))}</span></td>
+  <td><span class="scope-chip scope-{row['scope_type']}">{row['scope_label']}</span></td>
+  <td>{_iso_short(str(row['timestamp']))}</td>
+  <td><code>{_truncate_sha(str(row['commit']))}</code></td>
+  <td>{row['passed']}</td>
+  <td>{row['failed']}</td>
+  <td>{row['total']}</td>
+  <td>{row['pass_rate']:.1%}</td>
+  <td>{_status_badge(row['pass_rate'], row['total'])}</td>
+</tr>"""
+        if not suite_rows:
+            suite_rows = '<tr><td colspan="10" class="empty">No suite evidence available</td></tr>'
+
+        scope_cards = ""
+        for scope in dev["scope_breakdown"]:
+            suite_pills = "".join(
+                f'<span class="suite-pill">{suite_row["suite"]}</span>'
+                for suite_row in scope["suite_rows"]
+            )
+            sources = ", ".join(_source_label(str(source)) for source in scope["sources"])
+            warning_note = ""
+            extra_class = ""
+            if scope["scope_type"] == "unscoped":
+                extra_class = " unscoped-card"
+                warning_note = (
+                    '<div class="table-note">'
+                    'Unscoped evidence is a data-quality warning. '
+                    'Backfill PR or release metadata if possible.'
+                    '</div>'
+                )
+            scope_cards += f"""<div class="scope-card{extra_class}">
+  <div class="scope-card-header">
+    <h4>{scope['scope_label']}</h4>
+    {_status_badge(scope['pass_rate'], scope['total'])}
+  </div>
+  <div class="scope-meta">{scope['passed']}/{scope['total']} across {len(scope['suite_rows'])} suite(s)</div>
+  <div class="scope-meta">Latest {_iso_short(str(scope['latest_timestamp']))} · Sources: {sources}</div>
+  <div class="scope-meta">Latest commit <code>{_truncate_sha(str(scope['latest_commit']))}</code></div>
+  <div class="suite-pills">{suite_pills}</div>
+  {warning_note}
+</div>"""
+        if not scope_cards:
+            scope_cards = '<p class="empty">No scope breakdown available.</p>'
+
+        unscoped_warning = ""
+        if dev["has_unscoped"]:
+            unscoped_warning = (
+                '<div class="warning-panel">'
+                'This device includes unscoped evidence. It is shown separately below so it does not silently blend into PR or release health signals.'
+                '</div>'
+            )
+
         sections += f"""<h2 id="device-{dev['device_id']}">{dev['label']} <code>{dev['device_id']}</code></h2>
 <div class="pr-table-wrap">
 <table>
@@ -642,13 +826,26 @@ def _render_devices(data: dict) -> str:
 <tr><td>Tier</td><td>{dev['tier']}</td></tr>
 <tr><td>Source</td><td><span class="source-tag source-{"ci" if dev['source']=='ci' else 'od'}">{_source_label(dev['source'])}</span></td></tr>
 <tr><td>Suites</td><td>{', '.join(dev['suites'])}</td></tr>
-<tr><td>Total Runs</td><td>{dev['total']}</td></tr>
-<tr><td>Pass Rate</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']})</td></tr>
+<tr><td>Total Runs (merged)</td><td>{dev['total']}</td></tr>
+<tr><td>Pass Rate (merged)</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']})</td></tr>
 <tr><td>Latest Run</td><td>{_iso_short(dev['latest'])}</td></tr>
 <tr><td>Latest Commit</td><td><code>{_truncate_sha(dev['latest_commit'])}</code></td></tr>
 </tbody>
 </table>
 </div>
+<div class="device-note">Overall totals merge all evidence found for this device. Use the suite and scope breakdowns below to distinguish PR-scoped runs, release baselines, and unscoped evidence.</div>
+{unscoped_warning}
+
+<h3>By suite</h3>
+<div class="pr-table-wrap">
+<table>
+<thead><tr><th>Suite</th><th>Source</th><th>Scope</th><th>Latest</th><th>Commit</th><th>Passed</th><th>Failed</th><th>Total</th><th>Pass Rate</th><th>Status</th></tr></thead>
+<tbody>{suite_rows}</tbody>
+</table>
+</div>
+
+<h3>By scope</h3>
+<div class="scope-breakdown">{scope_cards}</div>
 
 <h3>Failure Categories</h3>
 <div class="pr-table-wrap">
