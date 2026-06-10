@@ -1,0 +1,244 @@
+name: Publish PR test evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to publish latest CI evidence for
+        required: true
+        type: string
+      run_id:
+        description: >
+          Override — CI run ID containing the evidence artifact.
+          Omit to auto-resolve the latest successful CI run for the PR.
+        required: false
+        type: string
+      commit:
+        description: >
+          Override — commit SHA for the evidence artifact.
+          Omit to auto-resolve from the artifact name.
+        required: false
+        type: string
+      allow_commit_mismatch:
+        description: Allow publishing evidence whose commit field does not match the --commit arg
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish-pr-evidence:
+    name: Publish PR test evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          fetch-depth: 0
+
+      # ── Step 1: Resolve PR metadata ──────────────────────────────────
+      - name: Resolve PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ inputs.pr }}"
+          echo "pr=${PR}" >> "${GITHUB_OUTPUT}"
+
+          # Fetch PR metadata via gh
+          PR_JSON=$(gh pr view "${PR}" --json headRefName,headRefOid,title,state \
+            --repo "${{ github.repository }}" 2>&1)
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to resolve PR #${PR}: ${PR_JSON}"
+            exit 1
+          fi
+
+          HEAD_BRANCH=$(echo "${PR_JSON}" | jq -r '.headRefName')
+          HEAD_SHA=$(echo "${PR_JSON}" | jq -r '.headRefOid')
+          PR_TITLE=$(echo "${PR_JSON}" | jq -r '.title')
+          PR_STATE=$(echo "${PR_JSON}" | jq -r '.state')
+
+          echo "head_branch=${HEAD_BRANCH}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "pr_title=${PR_TITLE}" >> "${GITHUB_OUTPUT}"
+          echo "pr_state=${PR_STATE}" >> "${GITHUB_OUTPUT}"
+
+      # ── Step 2: Resolve CI run ───────────────────────────────────────
+      - name: Resolve CI run
+        id: run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.run_id }}" ]; then
+            # ── Override path: use provided run_id ──
+            RUN_ID="${{ inputs.run_id }}"
+
+            CONCLUSION=$(gh run view "${RUN_ID}" --json conclusion \
+              --repo "${{ github.repository }}" -q '.conclusion' 2>/dev/null || echo "not_found")
+
+            if [ "${CONCLUSION}" = "not_found" ]; then
+              echo "::error::Run ${RUN_ID} not found. Verify the run ID and try again."
+              exit 1
+            fi
+
+            echo "run_id=${RUN_ID}" >> "${GITHUB_OUTPUT}"
+            echo "run_conclusion=${CONCLUSION}" >> "${GITHUB_OUTPUT}"
+          else
+            # ── Auto-resolve path: latest successful CI run for PR branch ──
+            BRANCH="${{ steps.pr.outputs.head_branch }}"
+
+            RUN_JSON=$(gh run list --workflow CI --branch "${BRANCH}" --status success \
+              --limit 1 --json databaseId,displayTitle,createdAt \
+              --repo "${{ github.repository }}" 2>&1)
+
+            RUN_ID=$(echo "${RUN_JSON}" | jq -r '.[0].databaseId // empty' 2>/dev/null)
+
+            if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+              echo "::error::No successful CI run found for PR #${{ inputs.pr }} on branch '${BRANCH}'." >>&2
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "### ❌ No successful CI run found" >> "${GITHUB_STEP_SUMMARY}"
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "CI evidence requires a completed \`pull_request\` CI run with **success** conclusion." >> "${GITHUB_STEP_SUMMARY}"
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "To use an override, provide \`run_id\` and \`commit\` inputs manually." >> "${GITHUB_STEP_SUMMARY}"
+              exit 1
+            fi
+
+            echo "run_id=${RUN_ID}" >> "${GITHUB_OUTPUT}"
+            echo "run_conclusion=success" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # ── Step 3: Resolve evidence artifact and commit ─────────────────
+      - name: Resolve evidence artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+
+          if [ -n "${{ inputs.commit }}" ]; then
+            # ── Override path: use provided commit ──
+            COMMIT="${{ inputs.commit }}"
+            ARTIFACT_NAME="ci-test-evidence-${COMMIT}"
+
+            # Check artifact exists and is not expired
+            ARTIFACT_JSON=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              --jq "[.artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | {name, expired, expires_at}] | .[0] // empty" 2>/dev/null)
+
+            if [ -z "${ARTIFACT_JSON}" ] || [ "${ARTIFACT_JSON}" = "null" ]; then
+              echo "::error::Artifact '${ARTIFACT_NAME}' not found in run ${RUN_ID}. Verify the commit SHA matches the ci-test-evidence-* artifact name in that run."
+              exit 1
+            fi
+
+            EXPIRED=$(echo "${ARTIFACT_JSON}" | jq -r '.expired // false')
+            if [ "${EXPIRED}" = "true" ]; then
+              echo "::error::Artifact '${ARTIFACT_NAME}' has expired. Trigger a new CI run or use a more recent commit."
+              exit 1
+            fi
+
+          else
+            # ── Auto-resolve path: find ci-test-evidence artifact from the run ──
+            ARTIFACT_NAME=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("ci-test-evidence")) | .name] | .[0] // empty' 2>/dev/null)
+
+            if [ -z "${ARTIFACT_NAME}" ]; then
+              echo "::error::No ci-test-evidence-* artifact found in run ${RUN_ID}. The CI run may not have generated evidence, or the artifact may have expired (retention: 30 days)." >>&2
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "### ❌ No evidence artifact found" >> "${GITHUB_STEP_SUMMARY}"
+              echo "" >> "${GITHUB_STEP_SUMMARY}"
+              echo "Run \`${RUN_ID}\` has no \`ci-test-evidence-*\` artifact available." >> "${GITHUB_STEP_SUMMARY}"
+              echo "Trigger a new CI run, then retry." >> "${GITHUB_STEP_SUMMARY}"
+              exit 1
+            fi
+
+            # Extract SHA from artifact name: ci-test-evidence-<sha>
+            COMMIT=$(echo "${ARTIFACT_NAME}" | sed 's/^ci-test-evidence-//')
+          fi
+
+          echo "commit=${COMMIT}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
+
+      # ── Step 4: Download artifact ────────────────────────────────────
+      - name: Download CI test evidence artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/ci-evidence
+          gh run download "${{ steps.run.outputs.run_id }}" \
+            -n "${{ steps.artifact.outputs.artifact_name }}" \
+            -D /tmp/ci-evidence \
+            --repo "${{ github.repository }}"
+
+      # ── Step 5: Publish ──────────────────────────────────────────────
+      - name: Publish test evidence
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Configure git auth for pushing to test-results branch.
+          # The Python script creates a temp repo and pushes from there,
+          # which doesn't inherit actions/checkout's credential helper.
+          git config --global credential.helper \
+            "!f() { echo username=x-access-token; echo password=\${GITHUB_TOKEN}; }; f"
+
+          ALLOW_MISMATCH="${{ inputs.allow_commit_mismatch && '--allow-commit-mismatch' || '' }}"
+
+          python3 scripts/publish_test_evidence.py \
+            --input-dir /tmp/ci-evidence \
+            --source ci \
+            --pr "${{ steps.pr.outputs.pr }}" \
+            --commit "${{ steps.artifact.outputs.commit }}" \
+            ${ALLOW_MISMATCH}
+
+      # ── Step 6: Trigger dashboard rebuild ────────────────────────────
+      - name: Trigger dashboard rebuild
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/dispatches \
+            -f event_type=test-evidence-published \
+            -f client_payload[source]=ci \
+            -f client_payload[pr]="${{ steps.pr.outputs.pr }}" \
+            -f client_payload[commit]="${{ steps.artifact.outputs.commit }}"
+
+      # ── Step 7: Summary ──────────────────────────────────────────────
+      - name: Workflow summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.pr.outputs.pr }}"
+          PR_TITLE="${{ steps.pr.outputs.pr_title }}"
+          HEAD_SHA="${{ steps.pr.outputs.head_sha }}"
+          HEAD_BRANCH="${{ steps.pr.outputs.head_branch }}"
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          RUN_CONCLUSION="${{ steps.run.outputs.run_conclusion }}"
+          COMMIT="${{ steps.artifact.outputs.commit }}"
+          ARTIFACT_NAME="${{ steps.artifact.outputs.artifact_name }}"
+
+          cat >> "${GITHUB_STEP_SUMMARY}" << SUMMARYEOF
+          ## Publish PR test evidence — summary
+
+          | Field | Value |
+          |-------|-------|
+          | **PR** | [#${PR_NUM}](${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUM}) |
+          | **PR title** | ${PR_TITLE} |
+          | **Branch** | \`${HEAD_BRANCH}\` |
+          | **PR head SHA** | \`${HEAD_SHA}\` |
+          | **CI run** | [${RUN_ID}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${RUN_ID}) |
+          | **Run conclusion** | ${RUN_CONCLUSION} |
+          | **Evidence commit** | \`${COMMIT}\` |
+          | **Artifact** | \`${ARTIFACT_NAME}\` |
+          | **Published path** | \`results/pr/${PR_NUM}/ci/\` |
+          | **Dashboard refresh** | Triggered via \`repository_dispatch\` |
+
+          SUMMARYEOF
+
+          # Override annotations
+          if [ -n "${{ inputs.run_id }}" ]; then
+            echo "> ⚠️ Run ID was provided as an override. Auto-resolution was bypassed." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          if [ -n "${{ inputs.commit }}" ]; then
+            echo "> ⚠️ Commit SHA was provided as an override. Auto-resolution was bypassed." >> "${GITHUB_STEP_SUMMARY}"
+          fi
