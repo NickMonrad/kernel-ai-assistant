@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "profile",
+  "timestamp": "2026-06-10T14:15:28Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "issue/1162-s23u-baseline",
+  "commit": "750702792074367a6800df6079c968fdb9149539",
+  "pr": null,
+  "release": "adb-baseline-s23u-2026-06-10",
+  "run_id": "on_device-2026-06-10T14-15-28Z-s23-ultra",
+  "device": {
+    "id": "s23-ultra",
+    "serial": null,
+    "label": "S23 Ultra",
+    "manufacturer": "Samsung",
+    "model": "SM-S918B",
+    "soc": "Snapdragon 8 Gen 2",
+    "tier": "reference",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma-4 E4B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 3,
+    "passed": 0,
+    "failed": 3,
+    "pass_rate": 0.0
+  },
+  "cases": [
+    {
+      "name": "nick_509_full",
+      "passed": false,
+      "expected_tool": "nick_509_full",
+      "actual_tool": "regex",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "wrong_tool",
+      "failures": [
+        "intent: expected 'nick_509_full', got 'regex'"
+      ]
+    },
+    {
+      "name": "simple_alex",
+      "passed": false,
+      "expected_tool": "simple_alex",
+      "actual_tool": "regex",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "wrong_tool",
+      "failures": [
+        "intent: expected 'simple_alex', got 'regex'"
+      ]
+    },
+    {
+      "name": "minimal_sam",
+      "passed": false,
+      "expected_tool": "minimal_sam",
+      "actual_tool": "regex",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "wrong_tool",
+      "failures": [
+        "intent: expected 'minimal_sam', got 'regex'"
+      ]
+    }
+  ]
+}
