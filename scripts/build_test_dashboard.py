@@ -1,33 +1,19 @@
 #!/usr/bin/env python3
 """Static test-evidence dashboard builder.
 
-Reads normalised test evidence from a local checkout of the ``test-results``
-branch and generates a static HTML/CSS dashboard + JSON data files into ``_site/``.
+Scans a checkout of the ``test-results`` branch, aggregates evidence, and
+generates a static HTML dashboard + JSON data files.
 
 Usage::
 
-    python3 scripts/build_test_dashboard.py --results-dir ../test-results/results
-
-Output::
-
-    _site/
-      index.html        (overview — latest CI + on-device, recent PRs/releases)
-      prs.html          (per-PR tables)
-      devices.html      (per-device tables)
-      releases.html     (per-release tables)
-      data/
-        latest.json
-        history.json
-        prs.json
-        devices.json
-        releases.json
+    git clone --branch test-results git@github.com:NickMonrad/kernel-ai-assistant.git /tmp/test-results
+    ./scripts/build_test_dashboard.py --results-dir /tmp/test-results/results --out-dir _site
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -61,7 +47,7 @@ PASSTHROUGH = {"source", "suite", "timestamp", "commit", "pr", "release", "run_i
 
 def _load_evidence(path: Path) -> dict | None:
     """Load and validate a single evidence JSON file.  Returns ``None`` on
-    any structural or required-field violation (warning is printed)."""
+    any structural or required-field violation (warning printed to stderr)."""
     try:
         raw = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError) as exc:
@@ -90,13 +76,11 @@ def _load_evidence(path: Path) -> dict | None:
 
 def _discover_results(results_dir: Path) -> list[dict]:
     """Walk ``results_dir`` and return a list of parsed evidence dicts."""
-    if not results_dir.is_dir():
-        return []
     evidence: list[dict] = []
-    for fpath in sorted(results_dir.rglob("*.json")):
-        parsed = _load_evidence(fpath)
-        if parsed is not None:
-            evidence.append(parsed)
+    for json_path in sorted(results_dir.rglob("*.json")):
+        rec = _load_evidence(json_path)
+        if rec is not None:
+            evidence.append(rec)
     return evidence
 
 
@@ -124,9 +108,9 @@ def _pr_label(pr_val: int | None) -> str:
 
 def _device_id(rec: dict) -> str:
     """Extract device id, falling back to a safe default."""
-    dev = rec.get("device")
-    if isinstance(dev, dict):
-        return str(dev.get("id", "unknown"))
+    device = rec.get("device")
+    if isinstance(device, dict):
+        return str(device.get("id", "unknown"))
     return "unknown"
 
 
@@ -136,14 +120,6 @@ def _suite_name(rec: dict) -> str:
 
 def _source_label(source: str) -> str:
     return SOURCE_LABELS.get(source, source)
-
-
-def _status_badge(pass_rate: float) -> str:
-    if pass_rate >= 1.0:
-        return '<span class="badge pass">PASS</span>'
-    if pass_rate >= 0.8:
-        return '<span class="badge warn">WARN</span>'
-    return '<span class="badge fail">FAIL</span>'
 
 
 def _truncate_sha(sha: str, length: int = 12) -> str:
@@ -157,6 +133,65 @@ def _iso_short(ts: str) -> str:
     # Keep date + hour
     m = re.match(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})", ts)
     return m.group(1) if m else ts[:16]
+
+
+# ---------------------------------------------------------------------------
+# Rendering helpers
+# ---------------------------------------------------------------------------
+
+def _status_badge(pass_rate: float, total: int) -> str:
+    """Render a badge for a known evidence run.
+
+    ``total=0`` returns a neutral badge (no evidence).
+    """
+    if total == 0:
+        return '<span class="badge neutral">No evidence</span>'
+    if pass_rate >= 1.0:
+        return '<span class="badge pass">PASS</span>'
+    if pass_rate >= 0.8:
+        return '<span class="badge warn">WARN</span>'
+    return '<span class="badge fail">FAIL</span>'
+
+
+def _result_cell(summary: dict) -> str:
+    """Render a result table cell from an evidence summary.
+
+    Handles empty (no evidence), full pass, and fail states.
+    """
+    total = _safe_int(summary.get("total"))
+    passed = _safe_int(summary.get("passed"))
+    if total == 0:
+        return '<span class="badge neutral">No evidence</span>'
+    badge = _status_badge(summary.get("pass_rate", 0.0), total)
+    return f"{badge} {passed}/{total}"
+
+
+def _scope_label(rec: dict) -> str:
+    """Return a human-readable scope label for a latest-result card.
+
+    Priority order: PR number, release/baseline name, 'Unscoped evidence'.
+    """
+    pr = rec.get("pr")
+    if isinstance(pr, int):
+        return _pr_label(pr)
+    release = rec.get("release")
+    if isinstance(release, str) and release:
+        return release
+    return "Unscoped evidence"
+
+
+def _evidence_scope(rec: dict) -> str:
+    """Return a short scope tag for display on cards and headers.
+
+    Returns one of: 'PR #N', the release name, 'baseline', or 'unscoped'.
+    """
+    pr = rec.get("pr")
+    if isinstance(pr, int):
+        return _pr_label(pr)
+    release = rec.get("release")
+    if isinstance(release, str) and release:
+        return release
+    return "baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -200,24 +235,67 @@ def _build_aggregates(evidence: list[dict]) -> dict:
     sorted_prs = sorted(pr_map.items(), key=lambda x: x[0], reverse=True)
     sorted_releases = sorted(release_map.items(), key=lambda x: x[0], reverse=True)
 
-    # Per-PR aggregates
     prs_data: list[dict] = []
     for pr_num, recs in sorted_prs:
         ci_recs = [r for r in recs if r.get("source") == "ci"]
         od_recs = [r for r in recs if r.get("source") == "on_device"]
-        ci_summary = _merge_summaries(ci_recs)
-        od_summary = _merge_summaries(od_recs)
-        ts_ci = max((r.get("timestamp", "") for r in ci_recs), default="")
-        ts_od = max((r.get("timestamp", "") for r in od_recs), default="")
-        latest_commit = max(
-            (r.get("commit", "") for r in recs if r.get("commit")),
-            default="",
+
+        # Latest evidence record per source (by timestamp)
+        ci_latest = max(ci_recs, key=lambda r: r.get("timestamp", "")) if ci_recs else None
+        od_latest = max(od_recs, key=lambda r: r.get("timestamp", "")) if od_recs else None
+
+        # Use the latest record's summary for the main result (not merged across all records)
+        ci_latest_summary = ci_latest.get("summary", {}) if ci_latest else {}
+        od_latest_summary = od_latest.get("summary", {}) if od_latest else {}
+
+        ci_commit = str(ci_latest.get("commit", "")) if ci_latest else ""
+        od_commit = str(od_latest.get("commit", "")) if od_latest else ""
+        ts_ci = ci_latest.get("timestamp", "") if ci_latest else ""
+        ts_od = od_latest.get("timestamp", "") if od_latest else ""
+
+        # Merged summary kept as separate aggregate field for reference
+        ci_merged = _merge_summaries(ci_recs)
+        od_merged = _merge_summaries(od_recs)
+
+        # Determine mixed-commit status
+        has_mixed_commits = (
+            bool(ci_recs) and bool(od_recs)
+            and ci_commit and od_commit
+            and ci_commit != od_commit
         )
+        if has_mixed_commits:
+            pr_commit = ""
+        elif ci_latest:
+            pr_commit = ci_commit
+        else:
+            pr_commit = od_commit
+
         prs_data.append({
             "pr": pr_num,
-            "commit": latest_commit,
-            "ci": {"count": len(ci_recs), **ci_summary, "latest": ts_ci},
-            "on_device": {"count": len(od_recs), **od_summary, "latest": ts_od},
+            "commit": pr_commit,
+            "ci": {
+                "count": len(ci_recs),
+                "total": ci_latest_summary.get("total", 0),
+                "passed": ci_latest_summary.get("passed", 0),
+                "failed": ci_latest_summary.get("failed", 0),
+                "pass_rate": ci_latest_summary.get("pass_rate", 0.0),
+                "latest": ts_ci,
+                "commit": ci_commit,
+            },
+            "on_device": {
+                "count": len(od_recs),
+                "total": od_latest_summary.get("total", 0),
+                "passed": od_latest_summary.get("passed", 0),
+                "failed": od_latest_summary.get("failed", 0),
+                "pass_rate": od_latest_summary.get("pass_rate", 0.0),
+                "latest": ts_od,
+                "commit": od_commit,
+            },
+            "has_mixed_commits": has_mixed_commits,
+            "aggregate_summary": {
+                "ci": ci_merged,
+                "on_device": od_merged,
+            },
         })
 
     # Per-release aggregates
@@ -225,12 +303,16 @@ def _build_aggregates(evidence: list[dict]) -> dict:
     for rel, recs in sorted_releases:
         ci_recs = [r for r in recs if r.get("source") == "ci"]
         od_recs = [r for r in recs if r.get("source") == "on_device"]
-        ts_all = max((r.get("timestamp", "") for r in recs), default="")
+        ci_latest_ts = max((r.get("timestamp", "") for r in ci_recs), default="") if ci_recs else ""
+        od_latest_ts = max((r.get("timestamp", "") for r in od_recs), default="") if od_recs else ""
+        ts_all = max(ci_latest_ts, od_latest_ts)
         releases_data.append({
             "release": rel,
             "ci_count": len(ci_recs),
             "on_device_count": len(od_recs),
             "latest": ts_all,
+            "ci_latest": ci_latest_ts,
+            "od_latest": od_latest_ts,
             "ci_summary": _merge_summaries(ci_recs),
             "od_summary": _merge_summaries(od_recs),
         })
@@ -314,6 +396,7 @@ tr:hover td { background: #1c2128; }
 .pass { background: #1b3a2d; color: #3fb950; }
 .warn { background: #3d2e00; color: #d29922; }
 .fail { background: #3d1b1b; color: #f85149; }
+.neutral { background: #21262d; color: #8b949e; }
 .source-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
 .source-ci { background: #0d4194; color: #79c0ff; }
 .source-od { background: #3d1b6e; color: #d2a8ff; }
@@ -321,12 +404,34 @@ tr:hover td { background: #1c2128; }
 .nav { margin: 1em 0; display: flex; gap: 12px; flex-wrap: wrap; }
 .nav a { padding: 6px 16px; background: #21262d; border-radius: 6px; font-weight: 500; }
 .nav a:hover { background: #30363d; }
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 1em 0; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 1em 0; }
 .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
 .card .label { font-size: 0.8rem; color: #8b949e; }
 .card .value { font-size: 1.4rem; font-weight: 700; margin-top: 4px; }
+.card .meta { margin-top: 6px; font-size: 0.85rem; color: #c9d1d9; }
+.card .scope-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #1c2128; color: #8b949e; }
 .section { margin: 2em 0; }
+.mixed-note { font-size: 0.8rem; color: #d29922; margin-top: 4px; }
+.mixed-note code { font-size: 0.75rem; }
 footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-size: 0.85rem; color: #8b949e; }
+
+/* Responsive: scrollable tables on narrow screens */
+@media (max-width: 720px) {
+  .pr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { font-size: 0.85rem; }
+  th, td { padding: 6px 8px; }
+  .summary-grid { grid-template-columns: 1fr; }
+  body { padding: 12px; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.1rem; }
+}
+
+@media (max-width: 480px) {
+  table { font-size: 0.8rem; }
+  th, td { padding: 4px 6px; }
+  th { white-space: normal; }
+  .badge { font-size: 0.7rem; padding: 1px 6px; }
+}
 """
 
 
@@ -337,7 +442,9 @@ def _page(title: str, body: str, extra_head: str = "") -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Test Evidence Dashboard</title>
-<style>{_CSS}</style>
+<style>
+{_CSS}
+</style>
 {extra_head}
 </head>
 <body>
@@ -362,21 +469,22 @@ def _render_overview(data: dict) -> str:
         label = SOURCE_LABELS.get(src_key, src_key)
         if rec:
             s = rec.get("summary", {})
-            pr = _pr_label(rec.get("pr"))
+            scope = _evidence_scope(rec)
+            device_label = rec.get("device", {}).get("label", "")
             cards += f"""<div class="card">
   <div class="label">{label} <span class="source-tag source-{"ci" if src_key=="ci" else "od"}">{src_key}</span></div>
   <div class="value">{_safe_int(s.get("passed"))}/{_safe_int(s.get("total"))} passed</div>
-  <div style="margin-top:6px;font-size:0.85rem;">
-    {_status_badge(_safe_float(s.get("pass_rate")))} &nbsp;
-    {rec.get("suite","")} &nbsp;
-    {pr} &nbsp;
+  <div class="meta">
+    {_status_badge(_safe_float(s.get("pass_rate")), _safe_int(s.get("total")))} &nbsp;
+    <span class="scope-badge">{scope}</span> &nbsp;
+    {rec.get("suite","")}{" · " + device_label if device_label else ""} &nbsp;
     {_iso_short(rec.get("timestamp",""))}
   </div>
 </div>"""
         else:
             cards += f"""<div class="card">
   <div class="label">{label}</div>
-  <div class="value empty">No evidence yet</div>
+  <div class="value empty">No evidence</div>
 </div>"""
 
     # Recent PRs
@@ -384,12 +492,20 @@ def _render_overview(data: dict) -> str:
     for pr in data["prs"][:10]:
         ci = pr["ci"]
         od = pr["on_device"]
+        mixed_note = ""
+        commit_cell = f'<code>{_truncate_sha(pr["commit"])}</code>' if pr["commit"] else ""
+        if pr["has_mixed_commits"]:
+            mixed_note = (
+                f'<div class="mixed-note">Mixed evidence commits · '
+                f'CI <code>{_truncate_sha(ci["commit"])}</code> '
+                f'On-device <code>{_truncate_sha(od["commit"])}</code></div>'
+            )
         pr_rows += f"""<tr>
   <td><a href="prs.html#pr-{pr['pr']}">PR #{pr['pr']}</a></td>
-  <td><code>{_truncate_sha(pr['commit'])}</code></td>
-  <td>{_status_badge(ci['pass_rate'])} {ci['passed']}/{ci['total']}</td>
-  <td>{_status_badge(od['pass_rate'])} {od['passed']}/{od['total']}</td>
-  <td>{_iso_short(ci['latest'] or od['latest'])}</td>
+  <td>{commit_cell}</td>
+  <td>{_result_cell(ci)}</td>
+  <td>{_result_cell(od)}</td>
+  <td>{_iso_short(max(ci['latest'], od['latest']))}{mixed_note}</td>
 </tr>"""
     if not pr_rows:
         pr_rows = '<tr><td colspan="5" class="empty">No PR evidence yet</td></tr>'
@@ -399,8 +515,8 @@ def _render_overview(data: dict) -> str:
     for rel in data["releases"][:10]:
         rel_rows += f"""<tr>
   <td><a href="releases.html#release-{rel['release']}">{rel['release']}</a></td>
-  <td>{_status_badge(rel['ci_summary']['pass_rate'])} {rel['ci_summary']['passed']}/{rel['ci_summary']['total']}</td>
-  <td>{_status_badge(rel['od_summary']['pass_rate'])} {rel['od_summary']['passed']}/{rel['od_summary']['total']}</td>
+  <td>{_result_cell(rel['ci_summary'])}</td>
+  <td>{_result_cell(rel['od_summary'])}</td>
   <td>{_iso_short(rel['latest'])}</td>
 </tr>"""
     if not rel_rows:
@@ -413,7 +529,7 @@ def _render_overview(data: dict) -> str:
   <td><a href="devices.html#device-{dev['device_id']}">{dev['label']}</a></td>
   <td>{dev['tier']}</td>
   <td>{', '.join(dev['suites'])}</td>
-  <td>{_status_badge(dev['pass_rate'])} {dev['passed']}/{dev['total']}</td>
+  <td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['passed']}/{dev['total']}</td>
   <td>{_iso_short(dev['latest'])}</td>
 </tr>"""
     if not dev_rows:
@@ -426,26 +542,32 @@ def _render_overview(data: dict) -> str:
 
 <div class="section">
 <h2>Recent Pull Requests</h2>
+<div class="pr-table-wrap">
 <table>
 <thead><tr><th>PR</th><th>Commit</th><th>CI</th><th>On-device</th><th>Latest</th></tr></thead>
 <tbody>{pr_rows}</tbody>
 </table>
 </div>
+</div>
 
 <div class="section">
 <h2>Recent Releases</h2>
+<div class="pr-table-wrap">
 <table>
 <thead><tr><th>Release</th><th>CI</th><th>On-device</th><th>Latest</th></tr></thead>
 <tbody>{rel_rows}</tbody>
 </table>
 </div>
+</div>
 
 <div class="section">
 <h2>Devices</h2>
+<div class="pr-table-wrap">
 <table>
 <thead><tr><th>Device</th><th>Tier</th><th>Suites</th><th>Pass Rate</th><th>Latest</th></tr></thead>
 <tbody>{dev_rows}</tbody>
 </table>
+</div>
 </div>
 """
     return _page("Overview", body)
@@ -456,9 +578,22 @@ def _render_prs(data: dict) -> str:
     for pr in data["prs"]:
         ci = pr["ci"]
         od = pr["on_device"]
-        sections += f"""<h2 id="pr-{pr['pr']}">PR #{pr['pr']} <code>{_truncate_sha(pr['commit'])}</code></h2>
+
+        # Build header with commit info
+        commit_part = ""
+        if pr["has_mixed_commits"]:
+            commit_part = f"""  <div class="mixed-note">Mixed evidence commits ·
+    CI <code>{_truncate_sha(ci["commit"])}</code> ·
+    On-device <code>{_truncate_sha(od["commit"])}</code></div>
+  <div class="mixed-note">Evidence from different commits</div>"""
+        elif pr["commit"]:
+            commit_part = f"""  <div><code>{_truncate_sha(pr["commit"])}</code></div>"""
+
+        sections += f"""<h2 id="pr-{pr['pr']}">PR #{pr['pr']}</h2>
+{commit_part}
+<div class="pr-table-wrap">
 <table>
-<thead><tr><th>Source</th><th>Run Count</th><th>Passed</th><th>Failed</th><th>Total</th><th>Pass Rate</th><th>Latest</th></tr></thead>
+<thead><tr><th>Source</th><th>Runs</th><th>Passed</th><th>Failed</th><th>Total</th><th>Result</th><th>Latest</th></tr></thead>
 <tbody>
 <tr>
   <td><span class="source-tag source-ci">ci</span> {CI_LABEL}</td>
@@ -466,7 +601,7 @@ def _render_prs(data: dict) -> str:
   <td>{ci['passed']}</td>
   <td>{ci['failed']}</td>
   <td>{ci['total']}</td>
-  <td>{_status_badge(ci['pass_rate'])} {ci['pass_rate']:.1%}</td>
+  <td>{_result_cell(ci)}</td>
   <td>{_iso_short(ci['latest'])}</td>
 </tr>
 <tr>
@@ -475,11 +610,12 @@ def _render_prs(data: dict) -> str:
   <td>{od['passed']}</td>
   <td>{od['failed']}</td>
   <td>{od['total']}</td>
-  <td>{_status_badge(od['pass_rate'])} {od['pass_rate']:.1%}</td>
+  <td>{_result_cell(od)}</td>
   <td>{_iso_short(od['latest'])}</td>
 </tr>
 </tbody>
-</table>"""
+</table>
+</div>"""
 
     if not sections:
         sections = '<p class="empty">No PR evidence yet.</p>'
@@ -499,6 +635,7 @@ def _render_devices(data: dict) -> str:
             fail_rows = '<tr><td colspan="2" class="empty">No failures recorded</td></tr>'
 
         sections += f"""<h2 id="device-{dev['device_id']}">{dev['label']} <code>{dev['device_id']}</code></h2>
+<div class="pr-table-wrap">
 <table>
 <thead><tr><th>Property</th><th>Value</th></tr></thead>
 <tbody>
@@ -506,17 +643,20 @@ def _render_devices(data: dict) -> str:
 <tr><td>Source</td><td><span class="source-tag source-{"ci" if dev['source']=='ci' else 'od'}">{_source_label(dev['source'])}</span></td></tr>
 <tr><td>Suites</td><td>{', '.join(dev['suites'])}</td></tr>
 <tr><td>Total Runs</td><td>{dev['total']}</td></tr>
-<tr><td>Pass Rate</td><td>{_status_badge(dev['pass_rate'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']})</td></tr>
+<tr><td>Pass Rate</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']})</td></tr>
 <tr><td>Latest Run</td><td>{_iso_short(dev['latest'])}</td></tr>
 <tr><td>Latest Commit</td><td><code>{_truncate_sha(dev['latest_commit'])}</code></td></tr>
 </tbody>
 </table>
+</div>
 
 <h3>Failure Categories</h3>
+<div class="pr-table-wrap">
 <table>
 <thead><tr><th>Category</th><th>Count</th></tr></thead>
 <tbody>{fail_rows}</tbody>
-</table>"""
+</table>
+</div>"""
 
     if not sections:
         sections = '<p class="empty">No device evidence yet.</p>'
@@ -530,8 +670,9 @@ def _render_releases(data: dict) -> str:
         ci = rel["ci_summary"]
         od = rel["od_summary"]
         sections += f"""<h2 id="release-{rel['release']}">{rel['release']}</h2>
+<div class="pr-table-wrap">
 <table>
-<thead><tr><th>Source</th><th>Runs</th><th>Passed</th><th>Failed</th><th>Total</th><th>Pass Rate</th><th>Latest</th></tr></thead>
+<thead><tr><th>Source</th><th>Runs</th><th>Passed</th><th>Failed</th><th>Total</th><th>Result</th><th>Latest</th></tr></thead>
 <tbody>
 <tr>
   <td><span class="source-tag source-ci">ci</span> {CI_LABEL}</td>
@@ -539,8 +680,8 @@ def _render_releases(data: dict) -> str:
   <td>{ci['passed']}</td>
   <td>{ci['failed']}</td>
   <td>{ci['total']}</td>
-  <td>{_status_badge(ci['pass_rate'])} {ci['pass_rate']:.1%}</td>
-  <td>{_iso_short(rel['latest'])}</td>
+  <td>{_result_cell(ci)}</td>
+  <td>{_iso_short(rel['ci_latest']) if rel['ci_count'] > 0 else '—'}</td>
 </tr>
 <tr>
   <td><span class="source-tag source-od">on_device</span> {ON_DEVICE_LABEL}</td>
@@ -548,11 +689,12 @@ def _render_releases(data: dict) -> str:
   <td>{od['passed']}</td>
   <td>{od['failed']}</td>
   <td>{od['total']}</td>
-  <td>{_status_badge(od['pass_rate'])} {od['pass_rate']:.1%}</td>
-  <td>{_iso_short(rel['latest'])}</td>
+  <td>{_result_cell(od)}</td>
+  <td>{_iso_short(rel['od_latest']) if rel['on_device_count'] > 0 else '—'}</td>
 </tr>
 </tbody>
-</table>"""
+</table>
+</div>"""
 
     if not sections:
         sections = '<p class="empty">No release evidence yet.</p>'
