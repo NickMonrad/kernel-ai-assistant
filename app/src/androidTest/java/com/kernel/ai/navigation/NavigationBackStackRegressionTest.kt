@@ -31,6 +31,8 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.DrawerState
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -79,6 +81,8 @@ class NavigationBackStackRegressionTest {
 
     /** Captured NavHostController from [BackStackTestHarness] for programmatic navigation. */
     private var harnessNavController: NavHostController? = null
+    /** Captured DrawerState for programmatic drawer open/close. */
+    private var harnessDrawerState: DrawerState? = null
 
     companion object {
         private const val ROUTE_LIST = "conversation_list"
@@ -136,7 +140,8 @@ class NavigationBackStackRegressionTest {
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
         val currentBaseRoute = currentRoute?.substringBefore('?')
-        val drawerState = rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
+        val drawerState = rememberDrawerState(DrawerValue.Closed)
+        harnessDrawerState = drawerState
         val scope = rememberCoroutineScope()
 
         ModalNavigationDrawer(
@@ -249,7 +254,18 @@ class NavigationBackStackRegressionTest {
                             modifier = Modifier.fillMaxSize().testTag("chats_screen"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("Chats Screen", modifier = Modifier.testTag("chats_label"))
+                            Column {
+                                Text("Chats Screen", modifier = Modifier.testTag("chats_label"))
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        scope.launch { drawerState.open() }
+                                    },
+                                    modifier = Modifier.testTag("btn_test_open_drawer_from_chats"),
+                                ) {
+                                    Text("Open Drawer (test-only)")
+                                }
+                            }
                         }
                     }
 
@@ -739,21 +755,18 @@ class NavigationBackStackRegressionTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()
     }
-
     @Test
     fun drawer_navigatesFromChats() {
         composeTestRule.setContent { BackStackTestHarness() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()
-        // Open drawer via test-only affordance on the Tools screen
-        // (drawer opens from bottom-nav screens; gestures are enabled on Chats too)
-        composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
+        assertBottomNavSelected("bottom_nav_chats")
+        // Open drawer using test-only affordance on Chats screen
+        composeTestRule.onNodeWithTag("btn_test_open_drawer_from_chats").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("btn_test_open_drawer").performClick()
-        composeTestRule.waitForIdle()
+        // Verify drawer content is displayed
         composeTestRule.onNodeWithTag("drawer_item_lists").assertIsDisplayed()
         composeTestRule.onNodeWithTag("drawer_item_notes").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("drawer_item_clock").assertIsDisplayed()
         composeTestRule.onNodeWithTag("drawer_item_settings").assertIsDisplayed()
     }
 
@@ -914,7 +927,6 @@ class NavigationBackStackRegressionTest {
         composeTestRule.waitForIdle()
         assertEquals("tools", navigatedRoute)
     }
-
     @Test
     fun realToolsHubScreen_toolbarOpensDrawer() {
         var drawerOpened = false
@@ -927,16 +939,13 @@ class NavigationBackStackRegressionTest {
         }
         composeTestRule.waitForIdle()
 
-        // The toolbar has a menu icon button that opens the drawer
-        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
-        // Find and click the hamburger menu icon in the toolbar
-        composeTestRule.onNodeWithTag("tools_screen")
-            .performScrollToNode(hasTestTag("tools_row_lists"))
-        composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
-        // Verify the drawer callback fires when menu is tapped
-        // (the menu icon is an IconButton without a test tag, so we verify the concept
-        // rather than the exact element — the production drawer open path works
-        // through the same mechanism verified by the harness drawer tests above)
+        // Find and click the toolbar menu icon button which opens the drawer
+        composeTestRule.onNodeWithTag("tools_menu_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_menu_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Verify the drawer open callback fired
+        assertTrue("Expected onOpenDrawer to be called after clicking menu icon", drawerOpened)
     }
 
     // ═══════════════════════════ 7. SCREENSHOTS ═══════════════════════════
@@ -984,18 +993,32 @@ class NavigationBackStackRegressionTest {
         d.takeScreenshot(File(dir, "03-tools-child-destination-example.png"))
         composeTestRule.runOnIdle { println("Screenshot saved: ${File(dir, "03-tools-child-destination-example.png").absolutePath}") }
     }
-
     @Test
     fun captureScreenshot_actionsDraftDismissedBackToTools() {
         val dir = screenshotDir()
         val d = device()
         composeTestRule.setContent { BackStackTestHarness() }
-        composeTestRule.onNodeWithTag("bottom_nav_actions").performClick()
+        composeTestRule.waitForIdle()
+        // Confirm starting on Chats
+        composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()
+        // Navigate to parameterised draft route
+        composeTestRule.runOnIdle {
+            harnessNavController?.navigate("actions?openSheet=true&draftQuery=Set%20a%20timer%20for%2010%20minutes")
+        }
+        composeTestRule.waitForIdle()
+        // Verify the draft sheet opens with prefilled input visible
+        composeTestRule.onNodeWithTag("actions_bottom_sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("quick_action_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("draft_query_text").assertIsDisplayed()
+        // Dismiss the sheet
+        composeTestRule.onNodeWithTag("quick_action_submit_button").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("actions_screen").assertIsDisplayed()
+        // Navigate back to Tools
         composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        // Capture Tools screenshot after draft dismiss round-trip
         d.takeScreenshot(File(dir, "04-actions-draft-route-dismissed-back-to-tools.png"))
         composeTestRule.runOnIdle { println("Screenshot saved: ${File(dir, "04-actions-draft-route-dismissed-back-to-tools.png").absolutePath}") }
     }

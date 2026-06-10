@@ -236,41 +236,25 @@ def _build_case(
     case_def: dict[str, Any],
     result: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Build a schema-compliant case dict.
+    """Build a schema-compliant case dict with category and duration metadata.
+
+    The returned dict includes `category` and `duration_seconds` for local
+    Markdown/CSV output; these are stripped before writing published JSON
+    to comply with the schema (additionalProperties: false).
 
     Args:
         case_def: Case definition from NAVIGATION_CASES
         result: Parsed test result, or None if the test was not run
     """
     name = case_def["name"]
+    category = case_def.get("category", "other")
     passed = result["passed"] if result else False
     failures = result.get("failures", []) if result else ["not run"]
     failure_category: str | None = result.get("failure_category") if result else ("no_run" if not result else None)
+    time_sec = result.get("time") if result else None
     # Normalise failure_category: null for passing, string for failing
     if passed:
         failure_category = None
-
-    case: dict[str, Any] = {
-        "name": name,
-        "passed": passed,
-        "expected_tool": None,
-        "actual_tool": None,
-        "expected_result_mode": "success",
-        "actual_result_mode": "success" if passed else "unknown",
-        "chip_present": False,
-        "skill_result_present": False,
-        "message_saved": False,
-        "retry_seen": False,
-        "slot_fill_seen": False,
-        "failure_category": failure_category,
-        "failures": failures,
-    }
-    return case
-
-    passed = result["passed"] if result else False
-    failures = result.get("failures", []) if result else ["not run"]
-    failure_category = result.get("failure_category") if result else "no_run"
-    time_sec = result.get("time") if result else None
 
     case: dict[str, Any] = {
         "name": name,
@@ -299,10 +283,18 @@ def _build_case(
 
 
 def _write_json(normalised: dict, path: Path) -> None:
-    """Write the normalised evidence as pretty-printed JSON."""
-    path.write_text(json.dumps(normalised, indent=2) + "\n")
-    print(f"Evidence JSON: {path}")
+    """Write the normalised evidence as pretty-printed JSON.
 
+    Strips `category` and `duration_seconds` from cases before writing to
+    comply with the schema (additionalProperties: false).
+    """
+    # Deep copy to avoid mutating the original
+    published = json.loads(json.dumps(normalised))
+    for case in published.get("cases", []):
+        case.pop("category", None)
+        case.pop("duration_seconds", None)
+    path.write_text(json.dumps(published, indent=2) + "\n")
+    print(f"Evidence JSON: {path}")
 
 def _write_csv(normalised: dict, path: Path) -> None:
     """Write a case-level CSV report."""
@@ -357,6 +349,8 @@ def _write_markdown(normalised: dict, path: Path) -> None:
         "parameterised_route",
         "drawer",
         "repeated_tap",
+        "real_composable",
+        "screenshot",
     ]
     cat_labels = {
         "tools_row_navigation": "Tools Row Navigation",
@@ -364,6 +358,8 @@ def _write_markdown(normalised: dict, path: Path) -> None:
         "parameterised_route": "Parameterised Routes",
         "drawer": "Drawer Transitions",
         "repeated_tap": "Repeated-Tap / Duplicate Stack",
+        "real_composable": "Real Composable Integration Tests",
+        "screenshot": "Screenshot Capture Tests",
     }
 
     by_category: dict[str, list[dict]] = {}
