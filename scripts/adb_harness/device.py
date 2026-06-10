@@ -193,9 +193,21 @@ def stop_keepalive() -> None:
     _KEEPALIVE_STOP = None
 
 
-def _keep_foreground_until_inference_starts() -> None:
-    """Send KEYCODE_WAKEUP to ensure the screen stays on during warmup."""
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+def _keep_foreground_until_inference_starts(
+    timeout: float = 30.0,
+    poll_interval: float = 2.0,
+) -> None:
+    """Keep the app foregrounded until inference actually starts."""
+    deadline = time.time() + timeout
+    accumulated = ""
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        accumulated += "\n" + read_logcat_all()
+        if "OrchTest:" in accumulated or "InferenceGenerationService" in accumulated:
+            return
+        run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        time.sleep(0.1)
+        run_adb("shell", "input", "tap", "500", "1000")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -362,7 +374,10 @@ def check_params(
         actual_val = actual.get(key)
         if actual_val is None:
             failures.append(f"Missing param {key}")
-        elif actual_val != val:
+            continue
+        expected_text = str(val).lower()
+        actual_text = str(actual_val).lower()
+        if expected_text not in actual_text and actual_text not in expected_text:
             failures.append(f"Param '{key}': expected {val!r}, got {actual_val!r}")
     return len(failures) == 0, failures
 

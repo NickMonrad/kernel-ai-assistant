@@ -36,6 +36,7 @@ from adb_harness.config import (
     REPORTS_DIR,
 )
 from adb_harness.device import (
+    _keep_foreground_until_inference_starts,
     cleanup_side_effects,
     clear_logcat,
     dismiss_notifications,
