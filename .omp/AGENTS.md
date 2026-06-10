@@ -159,7 +159,11 @@ Feature PRs let normal CI generate test evidence artifacts. Do not publish durab
 
 **For CI evidence:** Use the "Publish PR test evidence" workflow — requires only the PR number.
 The workflow resolves the CI run, artifact, and commit SHA automatically.
-See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallback.
+See \`.docs/agents/test-evidence-workflow.md\` for the full flow and manual fallback.
+
+> **⚠️ PR number, not issue number:** For evidence publishing, \`--pr\` is always the GitHub Pull Request number,
+> not the issue number from \`Closes #N\`. Derive it mechanically: \`gh pr view --json number --jq .number\`.
+> Publishing under the wrong number misroutes dashboard evidence to the wrong PR.
 
 **For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
 If on-device testing is needed, ask which device tier is required (S21 tracked signal or S23U reference signal)

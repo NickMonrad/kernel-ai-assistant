@@ -97,6 +97,80 @@ def _get_remote_url() -> str:
         _DEFAULT_REMOTE_URL = f"https://github.com/{REPO}.git"
     return _DEFAULT_REMOTE_URL
 
+def _detect_current_pr_number() -> int | None:
+    """Detect the current GitHub PR number for the active branch.
+
+    Uses ``gh pr view`` on the repository checkout. Returns None when:
+    - ``gh`` is not installed
+    - The current branch has no open PR
+    - The command times out or fails for any other reason
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", "--json", "number", "--jq", ".number"],
+            capture_output=True, text=True, timeout=5,
+            cwd=HERE,
+        )
+        if result.returncode == 0:
+            text = result.stdout.strip()
+            if text:
+                return int(text)
+    except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+
+def _validate_pr_number(cli_pr: int | None, evidence_pr: int | None, allow_mismatch: bool) -> None:
+    """Validate PR number consistency.
+
+    When ``gh`` is available and the current branch has an open PR, checks that
+    the CLI ``--pr`` matches both the detected PR number and the evidence JSON
+    ``pr`` field. Exits with a clear error on mismatch unless ``allow_mismatch``
+    is set.
+    """
+    if cli_pr is None:
+        # Release-scoped evidence — no PR validation needed
+        return
+
+    detected = _detect_current_pr_number()
+    if detected is None:
+        # Cannot detect a PR for the current branch — skip validation
+        # (e.g. main branch, no gh available, or no open PR)
+        return
+
+    mismatches: list[str] = []
+
+    # Compare CLI --pr against detected current PR
+    if cli_pr != detected:
+        mismatches.append(
+            f"CLI --pr={cli_pr} does not match current GitHub PR #{detected}. "
+            f"The --pr argument must be the actual Pull Request number, "
+            f"not a related issue number from Closes #N."
+        )
+
+    # Compare evidence JSON pr against detected current PR
+    if evidence_pr is not None and evidence_pr != detected:
+        mismatches.append(
+            f"Evidence JSON pr={evidence_pr} does not match current GitHub PR #{detected}. "
+            f"The evidence 'pr' field must be the actual Pull Request number."
+        )
+
+    if mismatches:
+        if allow_mismatch:
+            for msg in mismatches:
+                print(f"WARNING: PR number mismatch (allowed by --allow-pr-mismatch): {msg}")
+            return
+
+        print("ERROR: PR number mismatch detected:", file=sys.stderr)
+        for msg in mismatches:
+            print(f"  {msg}", file=sys.stderr)
+        print(
+            "Use '--allow-pr-mismatch' only for recovery cases "
+            "(e.g. re-publishing evidence after a PR is closed).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return None
+
 
 # ── Schema validation (lightweight, no external deps) ──────────────────────────
 
@@ -336,6 +410,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow-commit-mismatch",
         action="store_true",
         help="Skip commit SHA consistency check",
+    )
+    parser.add_argument(
+        "--allow-pr-mismatch",
+        action="store_true",
+        help=(
+            "Skip PR number consistency check with current GitHub PR. "
+            "Only use this for recovery cases (e.g. re-publishing evidence "
+            "after a PR is closed)."
+        ),
     )
 
     args = parser.parse_args(argv)
@@ -618,6 +701,14 @@ def main() -> None:
     data: dict | None = None
     for json_file in json_files:
         data = _validate_evidence_file(json_file, args)
+
+    # Validate PR number consistency (guard against issue vs PR number confusion)
+    evidence_pr = data.get("pr") if data else None
+    _validate_pr_number(
+        cli_pr=args.pr,
+        evidence_pr=evidence_pr,
+        allow_mismatch=args.allow_pr_mismatch,
+    )
 
     # Build output path mapping
     mapping = _build_output_paths(files, args, data)
