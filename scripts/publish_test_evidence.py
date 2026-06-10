@@ -119,57 +119,84 @@ def _detect_current_pr_number() -> int | None:
         pass
 
 
-def _validate_pr_number(cli_pr: int | None, evidence_pr: int | None, allow_mismatch: bool) -> None:
-    """Validate PR number consistency.
+def _check_pr_mismatches(
+    cli_pr: int | None,
+    evidence_prs: set[int | None],
+    detected_pr: int | None,
+) -> list[str]:
+    """Check for PR number mismatches.
 
-    When ``gh`` is available and the current branch has an open PR, checks that
-    the CLI ``--pr`` matches both the detected PR number and the evidence JSON
-    ``pr`` field. Exits with a clear error on mismatch unless ``allow_mismatch``
-    is set.
+    Pure function with no side effects — testable directly. Returns a list of
+    human-readable mismatch descriptions. An empty list means no problems.
+
+    * Always compares CLI ``--pr`` against each evidence JSON ``pr`` field.
+    * When ``detected_pr`` is provided (from ``gh pr view``), also checks
+      CLI ``--pr`` against the live PR as an additional safety measure.
+    * ``None`` evidence PRs (unset field) are ignored — not every evidence
+      file carries a ``pr`` field.
+    * ``cli_pr is None`` means release-scoped — no PR validation needed.
     """
     if cli_pr is None:
-        # Release-scoped evidence — no PR validation needed
-        return
-
-    detected = _detect_current_pr_number()
-    if detected is None:
-        # Cannot detect a PR for the current branch — skip validation
-        # (e.g. main branch, no gh available, or no open PR)
-        return
+        return []
 
     mismatches: list[str] = []
 
-    # Compare CLI --pr against detected current PR
-    if cli_pr != detected:
+    # 1. Direct comparison: CLI --pr vs each evidence JSON pr field
+    known_evidence_prs = {p for p in evidence_prs if p is not None}
+    for evidence_pr in sorted(known_evidence_prs):
+        if evidence_pr != cli_pr:
+            mismatches.append(
+                f"Evidence JSON pr={evidence_pr} does not match CLI --pr={cli_pr}. "
+                f"The evidence 'pr' field must match the PR number being published."
+            )
+
+    # 2. Additional local safety: detected PR from gh (when available)
+    if detected_pr is not None and cli_pr != detected_pr:
         mismatches.append(
-            f"CLI --pr={cli_pr} does not match current GitHub PR #{detected}. "
+            f"CLI --pr={cli_pr} does not match current GitHub PR #{detected_pr}. "
             f"The --pr argument must be the actual Pull Request number, "
             f"not a related issue number from Closes #N."
         )
 
-    # Compare evidence JSON pr against detected current PR
-    if evidence_pr is not None and evidence_pr != detected:
-        mismatches.append(
-            f"Evidence JSON pr={evidence_pr} does not match current GitHub PR #{detected}. "
-            f"The evidence 'pr' field must be the actual Pull Request number."
-        )
+    return mismatches
 
-    if mismatches:
-        if allow_mismatch:
-            for msg in mismatches:
-                print(f"WARNING: PR number mismatch (allowed by --allow-pr-mismatch): {msg}")
-            return
 
-        print("ERROR: PR number mismatch detected:", file=sys.stderr)
+
+def _validate_pr_number(cli_pr: int | None, evidence_prs: set[int | None], allow_mismatch: bool) -> None:
+    """Validate PR number consistency.
+
+    Checks that CLI ``--pr`` matches the evidence JSON ``pr`` field(s) from
+    **all** files — this guardrail always runs, even when ``gh pr view`` is
+    unavailable (e.g. GitHub Actions merge checkout).
+
+    When ``gh`` is available *and* the current branch has an open PR, also
+    checks against the detected PR number as an additional safety measure.
+
+    Exits with a clear error on mismatch unless ``allow_mismatch`` is set.
+    """
+    if cli_pr is None:
+        return
+
+    detected = _detect_current_pr_number()
+    mismatches = _check_pr_mismatches(cli_pr, evidence_prs, detected)
+
+    if not mismatches:
+        return
+
+    if allow_mismatch:
         for msg in mismatches:
-            print(f"  {msg}", file=sys.stderr)
-        print(
-            "Use '--allow-pr-mismatch' only for recovery cases "
-            "(e.g. re-publishing evidence after a PR is closed).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    return None
+            print(f"WARNING: PR number mismatch (allowed by --allow-pr-mismatch): {msg}")
+        return
+
+    print("ERROR: PR number mismatch detected:", file=sys.stderr)
+    for msg in mismatches:
+        print(f"  {msg}", file=sys.stderr)
+    print(
+        "Use '--allow-pr-mismatch' only for recovery cases "
+        "(e.g. re-publishing evidence after a PR is closed).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 # ── Schema validation (lightweight, no external deps) ──────────────────────────
@@ -696,17 +723,19 @@ def main() -> None:
     # Collect and validate input files
     files = _collect_input_files(args)
 
-    # Find JSON evidence file for validation
+    # Find JSON evidence files for validation
     json_files: list[Path] = [f for f in files if f.suffix == ".json"]
     data: dict | None = None
+    evidence_prs: set[int | None] = set()
     for json_file in json_files:
-        data = _validate_evidence_file(json_file, args)
+        ev_data = _validate_evidence_file(json_file, args)
+        evidence_prs.add(ev_data.get("pr") if ev_data else None)
+        data = ev_data  # Keep last for output path building
 
     # Validate PR number consistency (guard against issue vs PR number confusion)
-    evidence_pr = data.get("pr") if data else None
     _validate_pr_number(
         cli_pr=args.pr,
-        evidence_pr=evidence_pr,
+        evidence_prs=evidence_prs,
         allow_mismatch=args.allow_pr_mismatch,
     )
 
