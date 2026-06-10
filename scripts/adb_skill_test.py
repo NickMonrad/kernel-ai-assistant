@@ -97,6 +97,18 @@ class ProfileTestCase:
     expect_location_contains: str | None = None
 
 
+def _slugify(text: str, max_len: int = 50) -> str:
+    """Create a short stable identifier from a test message.
+
+    Strips punctuation, lowercases, collapses whitespace to underscores,
+    truncates to ``max_len`` characters, and strips trailing underscores.
+    """
+    slug = re.sub(r"[^\w\s]", "", text).strip().lower()
+    slug = re.sub(r"\s+", "_", slug)
+    slug = slug[:max_len].rstrip("_")
+    return slug if slug else "unnamed"
+
+
 @dataclass
 class TestCase:
     message: str
@@ -109,13 +121,39 @@ class TestCase:
     # intent is verified after. (Pre-#589: slot_reply was delivered via chat_input — now uses
     # the dedicated slot_reply_input extra so it stays in the Actions tab.)
     slot_reply: str | None = None
-    # New: orchestrator-aware fields
+    # Orchestrator-aware fields
     # If set, verify logcat contains this substring (best-effort). Use for orchestrator
     # AskConfirmation/AskSlot/AskClarification paths that don't dispatch a NativeIntentHandler.
     expect_log_contains: str | None = None
     # If set, after the initial message is sent (and an AskConfirmation is expected),
     # send this reply as a chat_input to confirm and trigger execution.
     confirm_reply: str | None = None
+    # ── Audit metadata (issue #1163) ──────────────────────────────────
+    # Stable test identifier. Auto-generated from message if left empty.
+    id: str = ""
+    # Primary test category: deterministic | slot_fill | recovery | ambiguous
+    #                        | negative | fixture | device_state
+    category: str = "deterministic"
+    # Zero or more tags for composable filtering. Common tags:
+    #   deterministic_core, safe_smoke, slot_fill_invalid_answer,
+    #   ambiguous_app_or_place, contact_fixture_required, media_context,
+    #   device_state, destructive, s21_usb_safe, s23u_tcp_safe
+    tags: list[str] = field(default_factory=list)
+    # Named fixture/precondition (e.g. "contacts:mum", "active_playback",
+    # "location_permission"). None = no special precondition.
+    fixture: str | None = None
+    # Required when xfail=True. Explains why failure is expected.
+    xfail_reason: str | None = None
+    # Slot-fill first-turn assertion: if set, the initial prompt's logcat
+    # output must contain this substring (e.g. "NeedsSlot", a slot key).
+    expect_initial_log_contains: str | None = None
+
+    def __post_init__(self) -> None:
+        """Auto-generate stable ID from message if not explicitly set."""
+        if not self.id:
+            self.id = _slugify(self.message)
+        if self.xfail and not self.xfail_reason:
+            self.xfail_reason = "(no reason given)"
 
 @dataclass
 class LLMToolsTestCase:
@@ -147,6 +185,7 @@ class TestResult:
     xfail: bool
     reply_warn: str | None
     log_check_warn: str | None
+    first_turn_warn: str | None = None  # set when expect_initial_log_contains not found
     phase: str = ""
 
 @dataclass
@@ -268,7 +307,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         # pause_media (#521)
         TestCase("hold on, pause the music", "pause_media"),
         TestCase("pause playback", "pause_media"),
-        TestCase("hold on", "pause_media", xfail=True),  # standalone "hold on" requires active media context per semantic routing guidelines
+        TestCase("hold on", "pause_media", xfail=True,
+                 xfail_reason="context_missing: standalone 'hold on' needs active media context per semantic routing guidelines"),
         # stop_media (#521)
         TestCase("stop playing", "stop_media"),
         TestCase("stop playback", "stop_media"),
@@ -291,8 +331,10 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"item": "milk", "list_name": "shopping"}),
         TestCase("put eggs on the grocery list", "add_to_list",
                  expect_params={"item": "eggs", "list_name": "grocery"}),
-        # "add bread and butter" is a multi-item request → bulk_add_to_list (xfail)
-        TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True),
+        TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
+        TestCase("add bread and butter to my shopping list", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
         # Kiwi/Aus colloquial usage: "chuck X on the list" means add/put X on the list.
         TestCase("chuck milk on the list", "add_to_list",
                  expect_params={"item": "milk"}),
@@ -324,13 +366,17 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"list_name": "groceries"}),
         TestCase("make a new list called holiday packing", "create_list",
                  expect_params={"list_name": "holiday packing"}),
-        TestCase("add eggs, milk, and bread to my shopping list", "bulk_add_to_list", xfail=True),
+        TestCase("add eggs, milk, and bread to my shopping list", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
         TestCase("make me a list for camping", "create_list"),
         TestCase("create a new list called work tasks", "create_list"),
         # bulk_add_to_list (#529 — LLM-routed, xfail until verified)
-        TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True),
-        TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True),
-        TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True),
+        TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
+        TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
+        TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True,
+                 xfail_reason="unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)"),
     ]),
     ("smart_home", [
         TestCase("turn on the living room lights", "smart_home_on"),
@@ -436,7 +482,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("skip the intro", "podcast_skip_forward"),
         TestCase("forward 30 seconds", "podcast_skip_forward"),
         # podcast_skip_back (#524)
-        TestCase("go back 30 seconds", "podcast_skip_back"),
+        TestCase("I missed that, go back", "podcast_skip_back", xfail=True,
+                 xfail_reason="context_missing: 'go back' requires active podcast playback context"),
         TestCase("rewind 10 seconds", "podcast_skip_back"),
         TestCase("back 15 seconds", "podcast_skip_back"),
         TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
@@ -447,66 +494,85 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("slow down the podcast", "podcast_speed"),
     ]),
     ("slot_fill", [
-        # set_alarm — bare query (no time) → slot asks for time → user provides time
+        # ── Positive slot-fill: bare query → NeedsSlot → valid reply → dispatch ──
         TestCase(
             "set an alarm",
             "set_alarm",
             slot_reply="7am",
             expect_params={"hours": "7", "minutes": "0"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # set_timer — bare query (no duration) → slot asks how long → user provides duration
         TestCase(
             "set a timer",
             "set_timer",
             slot_reply="5 minutes",
             expect_params={"duration_seconds": "300"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # open_app — bare query (no app name) → slot asks which app → user provides name
         TestCase(
             "open an app",
             "open_app",
             slot_reply="Spotify",
             expect_params={"app_name": "Spotify"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # navigate_to — bare query (no destination) → slot asks where → user provides destination
         TestCase(
             "navigate",
             "navigate_to",
             slot_reply="Auckland Airport",
             expect_params={"destination": "Auckland Airport"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # find_nearby — bare query (no query) → slot asks what → user provides query
         TestCase(
             "find nearby",
             "find_nearby",
             slot_reply="coffee",
             expect_params={"query": "coffee"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # send_sms — no contact → slot asks who → user provides contact
         TestCase(
             "send a message",
             "send_sms",
             slot_reply="Mum",
             expect_params={"contact": "Mum"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # send_email — no contact → slot asks who → user provides contact
         TestCase(
             "send an email",
             "send_email",
             slot_reply="Nick",
             expect_params={"contact": "Nick"},
+            expect_initial_log_contains="NeedsSlot",
         ),
-        # add_to_list — no item → slot asks what → user provides item
         TestCase(
             "add to my list",
             "add_to_list",
             slot_reply="eggs",
             expect_params={"item": "eggs"},
+            expect_initial_log_contains="NeedsSlot",
+        ),
+        # ── Negative slot-fill: invalid slot value → should NOT dispatch ──
+        TestCase(
+            "set a timer",
+            expect_intent="",
+            slot_reply="donuts",
+            expect_initial_log_contains="NeedsSlot",
+            category="negative",
+            tags=["slot_fill_invalid_answer"],
+            id="slot_fill_timer_invalid_reply",
+        ),
+        TestCase(
+            "set an alarm",
+            expect_intent="",
+            slot_reply="later",
+            expect_initial_log_contains="NeedsSlot",
+            category="negative",
+            tags=["slot_fill_invalid_answer"],
+            id="slot_fill_alarm_invalid_reply",
         ),
     ]),
     ("orchestrator_recovery", [
         # ── Scenario 1: FallThrough → AskConfirmation (medium risk, date extracted) ──
-        # __orchtest:<intent>:<real_input> forces orchestrator in debug builds
         TestCase(
             "__orchtest:create_calendar_event:schedule a dentist visit next Thursday at 2pm",
             expect_intent="",
@@ -524,12 +590,13 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             expect_intent="",
             expect_log_contains="RecoveryOrchestrator.NotActionable",
         ),
-        # ── Scenario 6: High-risk intent → AskConfirmation ──
+        # ── Scenario 6: High-risk intent → AskConfirmation (xfail, no extractor) ──
         TestCase(
             "__orchtest:send_sms:tell Sarah I am running late",
             expect_intent="",
             expect_log_contains="RecoveryOrchestrator.NotActionable",
-            xfail=True,  # No send_sms extractor yet
+            xfail=True,
+            xfail_reason="missing_extractor: No send_sms orchestrator extractor implemented yet",
         ),
         # ── Scenario 7: Unknown intent → NotActionable ──
         TestCase(
@@ -561,15 +628,90 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             expect_intent="",
             expect_log_contains="RecoveryOrchestrator.NotActionable",
             xfail=True,
+            xfail_reason="missing_extractor: No send_sms orchestrator extractor implemented yet",
         ),
+        # ── Scenario (xfail): High-risk save_memory (no extractor) ──
         TestCase(
             "__orchtest:save_memory:remember that I parked on level 3",
             expect_intent="",
             expect_log_contains="RecoveryOrchestrator.NotActionable",
             xfail=True,
+            xfail_reason="missing_extractor: No save_memory orchestrator extractor implemented yet",
         ),
     ]),
 ]
+
+# ── Phase-level metadata defaults (issue #1163) ─────────────────────────
+# TestCase entries can override any of these; the defaults fill in
+# automatically for entries that don't specify non-default values.
+
+
+def _annotate_phases() -> None:
+    """Apply default category/tag metadata to test cases based on phase and intent."""
+    _PHASE_DEFAULTS: dict[str, dict | None] = {
+        "alarm_timer": {"tags": ["deterministic_core"]},
+        "weather": {"tags": ["deterministic_core"]},
+        "media": None,
+        "lists": {"tags": ["deterministic_core"]},
+        "smart_home": {"tags": ["deterministic_core"]},
+        "memory": {"tags": ["deterministic_core"]},
+        "navigation": None,
+        "system": None,
+        "misc": None,
+        "slot_fill": {"category": "slot_fill", "tags": ["safe_smoke"]},
+        "orchestrator_recovery": {"category": "recovery"},
+    }
+    _INTENT_OVERRIDES: dict[str, dict] = {
+        "pause_media":    {"tags": ["media_context"]},
+        "stop_media":     {"tags": ["media_context"]},
+        "next_track":     {"tags": ["media_context"]},
+        "previous_track": {"tags": ["media_context"]},
+        "podcast_skip_forward": {"tags": ["media_context"]},
+        "podcast_skip_back":    {"tags": ["media_context"]},
+        "podcast_speed":        {"tags": ["media_context"]},
+        "set_volume":     {"category": "device_state", "tags": ["device_state"]},
+        "toggle_wifi":    {"category": "device_state", "tags": ["device_state", "destructive"]},
+        "toggle_hotspot": {"category": "device_state", "tags": ["device_state", "destructive"]},
+        "toggle_airplane_mode": {"category": "device_state", "tags": ["device_state", "destructive"]},
+        "toggle_dnd_on":  {"category": "device_state", "tags": ["device_state"]},
+        "toggle_dnd_off": {"category": "device_state", "tags": ["device_state"]},
+        "set_brightness": {"category": "device_state", "tags": ["device_state"]},
+        "toggle_flashlight_on":  {"category": "device_state", "tags": ["device_state"]},
+        "toggle_flashlight_off": {"category": "device_state", "tags": ["device_state"]},
+        "make_call": {"tags": ["contact_fixture_required"], "fixture": "contacts:zippy_alias"},
+        "send_sms":  {"tags": ["contact_fixture_required"]},
+        "send_email":{"tags": ["contact_fixture_required"]},
+        "get_weather": {"tags": ["location_context"]},
+        "find_nearby": {"tags": ["location_context"]},
+        "navigate_to": {"fixture": "location:home_or_gps_required"},
+    }
+
+    for phase_name, phase_cases in PHASES:
+        defaults = _PHASE_DEFAULTS.get(phase_name)
+        for tc in phase_cases:
+            intent_ov = _INTENT_OVERRIDES.get(tc.expect_intent) or {}
+            if defaults:
+                for key, val in defaults.items():
+                    current = getattr(tc, key, None)
+                    if key == "tags" and (current == [] or not current):
+                        setattr(tc, key, val)
+                    elif key == "category" and (current == "deterministic" or current is None):
+                        setattr(tc, key, val)
+                    elif current is None:
+                        setattr(tc, key, val)
+            if intent_ov:
+                for key, val in intent_ov.items():
+                    if key == "tags":
+                        existing = list(tc.tags)
+                        for t in val:
+                            if t not in existing:
+                                existing.append(t)
+                        setattr(tc, key, existing)
+                    else:
+                        setattr(tc, key, val)
+
+
+_annotate_phases()
 # Flat list built from phases — preserves backward compatibility with any code
 # that iterates TEST_CASES directly (dry-run, summary table, etc.)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
@@ -614,6 +756,54 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expected_result_mode="direct_reply",
     ),
 ]
+
+# ── Selector helpers (issue #1163) ──────────────────────────────────────
+
+
+def _parse_arg_list(val: str | None) -> list[str] | None:
+    """Parse a comma-separated CLI argument into a list, or return None."""
+    if val is None:
+        return None
+    return [v.strip() for v in val.split(",") if v.strip()]
+
+
+def _select_tests(
+    phase_filter: list[str] | None = None,
+    categories: list[str] | None = None,
+    tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    case_ids: list[str] | None = None,
+) -> list[tuple[int, int, TestCase]]:
+    """Filter ``PHASES`` by phase name and metadata selectors.
+
+    Returns a list of ``(phase_idx, case_idx, test_case)`` tuples matching
+    all active filters (logical AND across filter groups).
+    """
+    phase_names = [name for name, _ in PHASES]
+    result: list[tuple[int, int, TestCase]] = []
+
+    for phase_idx, (phase_name, cases) in enumerate(PHASES):
+        # Phase filter
+        if phase_filter is not None and phase_name not in phase_filter:
+            continue
+
+        for case_idx, tc in enumerate(cases):
+            # Category filter
+            if categories is not None and tc.category not in categories:
+                continue
+            # Include-tags filter (test must match AT LEAST ONE tag)
+            if tags is not None and not any(t in tc.tags for t in tags):
+                continue
+            # Exclude-tags filter (test must NOT have ANY excluded tag)
+            if exclude_tags is not None and any(t in tc.tags for t in exclude_tags):
+                continue
+            # Specific case IDs
+            if case_ids is not None and tc.id not in case_ids:
+                continue
+
+            result.append((phase_idx, case_idx, tc))
+
+    return result
 
 
 
@@ -1425,6 +1615,7 @@ def save_report(
                 "xfail": r.xfail,
                 "reply_warn": r.reply_warn,
                 "log_check_warn": r.log_check_warn,
+                "first_turn_warn": r.first_turn_warn,
                 "phase": r.phase,
                 "status": (
                     "xfail" if r.xfail and not r.intent_passed
@@ -1500,6 +1691,12 @@ def analyse_results(results: list[TestResult]) -> None:
 _OOM_RUN_THRESHOLD = 5
 
 
+
+
+# Minimum consecutive same-actual-intent results required to trigger the OOM warning.
+_OOM_RUN_THRESHOLD = 5
+
+
 def check_oom_sanity(results: list[TestResult]) -> None:
     """Warn if a long consecutive run of tests all return the same actual intent while their
     *expected* intents differ — a strong signal that the model has hung or OOM'd and is
@@ -1538,21 +1735,23 @@ def check_oom_sanity(results: list[TestResult]) -> None:
         print()
 
 
-def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None, phases: list[str] | None = None) -> int:
+def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None,
+              phases: list[str] | None = None, categories: list[str] | None = None,
+              tags: list[str] | None = None, exclude_tags: list[str] | None = None,
+              case_ids: list[str] | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
-    # NB: logcat_start() is deliberately after the dry-run / ADB-existence checks below,
-    # because it touches the device — --dry-run must be a pure no-op without a device.
 
     if dry_run:
-        print("=" * 70)
+        print("=" * 80)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
-        print("=" * 70)
+        print("=" * 80)
         print()
-        # Resolve which test cases to show — respects --phases filter.
+
+        # Resolve phase names for display — preserve existing --phases behaviour
         phase_names_dr = [name for name, _ in PHASES]
-        selected_dr: set[int] | None = None
+        selected_phase_names: list[str] | None = None
         if phases is not None:
-            selected_dr = set()
+            selected_phases_set: set[int] = set()
             for token in phases:
                 token = token.strip()
                 if token.isdigit():
@@ -1560,38 +1759,77 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     if not (1 <= n <= len(PHASES)):
                         print(f"ERROR: --phases {token!r} out of range (1–{len(PHASES)}).", file=sys.stderr)
                         return 1
-                    selected_dr.add(n - 1)
+                    selected_phases_set.add(n - 1)
                 else:
                     if token not in phase_names_dr:
                         print(f"ERROR: --phases {token!r} not recognised. Valid: {', '.join(phase_names_dr)}", file=sys.stderr)
                         return 1
-                    selected_dr.add(phase_names_dr.index(token))
-            selected_names_dr = [phase_names_dr[i] for i in sorted(selected_dr)]
-            print(f"  ── Showing phases: {', '.join(selected_names_dr)} ──")
+                    selected_phases_set.add(phase_names_dr.index(token))
+            selected_phase_names = [phase_names_dr[i] for i in sorted(selected_phases_set)]
+        else:
+            selected_phase_names = phase_names_dr
+
+        # Use _select_tests for composable filtering
+        selected_tests = _select_tests(
+            phase_filter=selected_phase_names,
+            categories=categories,
+            tags=tags,
+            exclude_tags=exclude_tags,
+            case_ids=case_ids,
+        )
+
+        # Print filter summary
+        filter_parts: list[str] = []
+        if selected_phase_names:
+            filter_parts.append(f"phases={','.join(selected_phase_names)}")
+        if categories:
+            filter_parts.append(f"categories={','.join(categories)}")
+        if tags:
+            filter_parts.append(f"tags={','.join(tags)}")
+        if exclude_tags:
+            filter_parts.append(f"exclude_tags={','.join(exclude_tags)}")
+        if case_ids:
+            filter_parts.append(f"case_ids={','.join(case_ids)}")
+        if filter_parts:
+            print(f"  Filters: {' | '.join(filter_parts)}")
             print()
-        dry_cases = [
-            tc for phase_idx, (_, phase_cases) in enumerate(PHASES)
-            for tc in phase_cases
-            if selected_dr is None or phase_idx in selected_dr
-        ]
-        for i, tc in enumerate(dry_cases, 1):
-            print(f"  [{i:2d}] \"{tc.message}\"")
-            suffix_parts: list[str] = []
+
+        # Print selected tests with metadata
+        xfail_count = 0
+        for i, (phase_idx, case_idx, tc) in enumerate(selected_tests, 1):
+            phase_name = PHASES[phase_idx][0]
+            xfail_marker = "~" if tc.xfail else " "
+            print(f"  [{xfail_marker}{i:2d}] {phase_name:22s} [{tc.category:14s}] id:{tc.id}")
+            print(f"       \"{tc.message}\"", end="")
             if tc.expect_intent:
-                suffix_parts.append(f"expect → {tc.expect_intent}")
-            if tc.expect_reply_contains:
-                suffix_parts.append(f"reply_contains={tc.expect_reply_contains!r}")
-            if tc.expect_log_contains:
-                suffix_parts.append(f"log_contains={tc.expect_log_contains!r}")
+                print(f" → {tc.expect_intent}", end="")
+            if tc.xfail:
+                print(f"  (xfail: {tc.xfail_reason})", end="")
+            print()
+            # Extra metadata on third line if non-empty
+            extra: list[str] = []
+            if tc.tags:
+                extra.append(f"tags=[{','.join(tc.tags)}]")
+            if tc.fixture:
+                extra.append(f"fixture={tc.fixture}")
             if tc.slot_reply:
-                suffix_parts.append(f"slot_reply={tc.slot_reply!r}")
+                extra.append(f"slot_reply={tc.slot_reply!r}")
             if tc.confirm_reply:
-                suffix_parts.append(f"confirm_reply={tc.confirm_reply!r}")
-            if suffix_parts:
-                print(f"       {' | '.join(suffix_parts)}")
+                extra.append(f"confirm_reply={tc.confirm_reply!r}")
+            if tc.expect_initial_log_contains:
+                extra.append(f"init_log={tc.expect_initial_log_contains!r}")
+            if tc.expect_log_contains:
+                extra.append(f"log_contains={tc.expect_log_contains!r}")
+            if tc.expect_reply_contains:
+                extra.append(f"reply_contains={tc.expect_reply_contains!r}")
+            if extra:
+                print(f"       {' | '.join(extra)}")
+            if tc.xfail:
+                xfail_count += 1
         print()
-        print(f"  Total: {len(dry_cases)} test cases")
-        print("=" * 70)
+        print(f"  Total: {len(selected_tests)} test cases"
+              + (f" ({xfail_count} xfail)" if xfail_count else ""))
+        print("=" * 80)
         return 0
 
     if not os.path.isfile(ADB):
@@ -1770,12 +2008,20 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             clear_logcat()
             time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
             first_turn_warn: str | None = None
-
             if tc.slot_reply is not None:
                 # Slot-fill test: two-turn flow
                 # Turn 1: bare query via quick_action_input → NeedsSlot → ModalBottomSheet
                 send_quick_action(tc.message)
                 time.sleep(WAIT_SECONDS)
+                # Capture first-turn logcat BEFORE clearing — check for NeedsSlot
+                if tc.expect_initial_log_contains is not None:
+                    logcat1 = read_logcat()
+                    first_turn_ok = tc.expect_initial_log_contains in logcat1
+                    if not first_turn_ok:
+                        first_turn_warn = (
+                            f"initial slot prompt '{tc.expect_initial_log_contains}' "
+                            f"not found in first-turn logcat"
+                        )
                 # Turn 2: slot reply via slot_reply_input → ActionsViewModel.onSlotReply() → intent fires
                 clear_logcat()
                 time.sleep(0.5)
@@ -2282,19 +2528,60 @@ def main() -> None:
             f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))} + llm_tools."
         ),
     )
+    parser.add_argument(
+        "--categories",
+        metavar="CATS",
+        default=None,
+        help="Filter by comma-separated categories (e.g. slot_fill,deterministic). "
+             f"Valid: deterministic, slot_fill, recovery, ambiguous, negative, fixture, device_state",
+    )
+    parser.add_argument(
+        "--tags",
+        metavar="TAGS",
+        default=None,
+        help="Include only tests matching at least one tag (comma-separated). "
+             "e.g. --tags deterministic_core  or  --tags safe_smoke,fixture_required",
+    )
+    parser.add_argument(
+        "--exclude-tags",
+        metavar="TAGS",
+        default=None,
+        help="Exclude tests matching any of these tags (comma-separated). "
+             "e.g. --exclude-tags device_state,destructive",
+    )
+    parser.add_argument(
+        "--case",
+        metavar="IDS",
+        default=None,
+        help="Run only specific test case IDs (comma-separated). "
+             "Use --dry-run to discover available IDs.",
+    )
     args = parser.parse_args()
 
     if args.start_phase and args.phases:
         parser.error("--start-phase and --phases are mutually exclusive. Use one or the other.")
 
     phases_list = [p.strip() for p in args.phases.split(",")] if args.phases else None
+    categories_list = _parse_arg_list(args.categories)
+    tags_list = _parse_arg_list(args.tags)
+    exclude_tags_list = _parse_arg_list(args.exclude_tags)
+    case_ids_list = _parse_arg_list(args.case)
 
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     elif phases_list == ["llm_tools"]:
         sys.exit(run_llm_tools(dry_run=args.dry_run))
     else:
-        sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase, phases=phases_list))
+        sys.exit(run_tests(
+            dry_run=args.dry_run,
+            post_pr=args.post_pr,
+            start_phase=args.start_phase,
+            phases=phases_list,
+            categories=categories_list,
+            tags=tags_list,
+            exclude_tags=exclude_tags_list,
+            case_ids=case_ids_list,
+        ))
 
 
 if __name__ == "__main__":
