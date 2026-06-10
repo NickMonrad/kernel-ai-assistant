@@ -17,28 +17,34 @@ Usage (connected device):
 
 ::
 
+    PR_NUMBER="$(gh pr view --json number --jq .number)"
+    PR_HEAD_SHA="$(gh pr view --json headRefOid --jq .headRefOid)"
+    
     python3 scripts/generate_navigation_test_evidence.py \\
         --source on_device \\
         --suite navigation_backstack \\
-        --pr 1154 \\
-        --commit \"$(git rev-parse HEAD)\" \\
-        --branch \"$(git branch --show-current)\" \\
+        --pr "$PR_NUMBER" \\
+        --commit "$PR_HEAD_SHA" \\
+        --branch "$(git branch --show-current)" \\
         --device-id s23-ultra \\
         --results-dir app/build/outputs/androidTest-results/connected/ \\
-        --out-dir scripts/test-reports/normalised/pr-1154
+        --out-dir "scripts/test-reports/normalised/pr-$PR_NUMBER/"
 
 Usage (standalone / pre-run):
 
 ::
 
+    PR_NUMBER="$(gh pr view --json number --jq .number)"
+    PR_HEAD_SHA="$(gh pr view --json headRefOid --jq .headRefOid)"
+    
     python3 scripts/generate_navigation_test_evidence.py \\
         --source on_device \\
         --suite navigation_backstack \\
-        --pr 1154 \\
-        --commit \"$(git rev-parse HEAD)\" \\
-        --branch \"$(git branch --show-current)\" \\
+        --pr "$PR_NUMBER" \\
+        --commit "$PR_HEAD_SHA" \\
+        --branch "$(git branch --show-current)" \\
         --device-id s23-ultra \\
-        --out-dir scripts/test-reports/normalised/pr-1154
+        --out-dir "scripts/test-reports/normalised/pr-$PR_NUMBER/"
 """
 
 from __future__ import annotations
@@ -556,14 +562,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "(e.g. app/build/outputs/androidTest-results/connected/)",
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("scripts/test-reports/normalised/pr-1154"),
-        help="Output directory for generated evidence files",
+        "--out-dir", type=Path, default=None,
+        help="Output directory for generated evidence files "
+             "(default: scripts/test-reports/normalised/pr-<pr>)",
     )
     parser.add_argument(
         "--adb-serial", default=None,
         help="ADB device serial (for device metadata)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.out_dir is None:
+        args.out_dir = Path(f"scripts/test-reports/normalised/pr-{args.pr}")
+    return args
 
 
 def main() -> None:
