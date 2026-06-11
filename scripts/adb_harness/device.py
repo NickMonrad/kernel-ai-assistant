@@ -11,50 +11,43 @@ import atexit
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
 import time
-from adb_harness.config import (
-    ACTIVITY,
-    ADB,
-    DIRECT_REPLY_PATTERN,
-    LOGCAT_TAG,
-    NATIVE_INTENT_NAME_PATTERN,
-    NATIVE_INTENT_PATTERN,
-    PROFILE_FALLBACK_PATTERN,
-    PROFILE_LLM_PATTERN,
-    WAIT_SECONDS,
-    PACKAGE,
-)
 
+# ═══════════════════════════════════════════════════════════════════════
+# Configuration
+# ═══════════════════════════════════════════════════════════════════════
 
-# ── Module-level logcat streaming state ──
-_STREAM_PROC: subprocess.Popen | None = None
+ACTIVITY = "com.kernel.ai.debug/com.kernel.ai.MainActivity"
+LOGCAT_TAG = "KernelAI"
+WAIT_SECONDS = float(os.environ.get("ADB_WAIT_SECONDS", "15"))
+ADB = os.environ.get("ADB_PATH") or shutil.which("adb") or "/usr/bin/adb"
+ANDROID_SERIAL = os.environ.get("ANDROID_SERIAL", "") or os.environ.get("ADB_SERIAL", "")
+
+# ═══════════════════════════════════════════════════════════════════════
+# Host-buffered logcat
+# ═══════════════════════════════════════════════════════════════════════
+
+_STREAM_PROC: subprocess.Popen[str] | None = None
 _STREAM_READER: threading.Thread | None = None
-_STREAM_BUFFER: list[str] = []
 _STREAM_LOCK = threading.Lock()
-
-# ── Keepalive state ──
-_KEEPALIVE_THREAD: threading.Thread | None = None
-_KEEPALIVE_STOP: threading.Event | None = None
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# ADB primitives
-# ═══════════════════════════════════════════════════════════════════════
+_STREAM_BUFFER: list[str] = []
 
 
 def run_adb(*args: str) -> str:
     """Run ``adb <args>`` and return stdout.  Stderr is discarded."""
-    cmd = [ADB, *args]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    cmd = [ADB]
+    if ANDROID_SERIAL:
+        cmd.extend(["-s", ANDROID_SERIAL])
+    cmd.extend(args)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout.strip()
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Logcat streaming (#1102 / #1162)
-# ═══════════════════════════════════════════════════════════════════════
 
 
 def _logcat_reader() -> None:
@@ -166,17 +159,11 @@ def read_logcat_all() -> str:
     return logcat_snapshot()
 
 
-atexit.register(logcat_stop)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Oracle preflight check
 # ═══════════════════════════════════════════════════════════════════════
 
-# Known-good oracle probes: non-destructive prompts the harness can
-# reliably detect to confirm the observability pipeline is healthy.
 _ORACLE_PROBES: list[tuple[str, str, str, str]] = [
-    # (label, prompt, expected_intent, expected_log_marker)
     ("get_time", "what time is it", "get_time", "NativeIntentHandler.handle: intent=get_time"),
 ]
 
@@ -225,8 +212,12 @@ def check_oracle(
     accumulated: list[str] = []
     while time.time() < deadline:
         try:
+            cmd = [ADB]
+            if ANDROID_SERIAL:
+                cmd.extend(["-s", ANDROID_SERIAL])
+            cmd.extend(["logcat", "-v", "brief", "-t", "100", "-s", f"{LOGCAT_TAG}:D"])
             output = subprocess.check_output(
-                [ADB, "logcat", "-v", "brief", "-t", "100", "-s", f"{LOGCAT_TAG}:D"],
+                cmd,
                 text=True, stderr=subprocess.DEVNULL, timeout=10,
             ).strip()
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
@@ -241,7 +232,6 @@ def check_oracle(
             break
         time.sleep(1)
 
-    # Build the accumulated lines for diagnostics
     accumulated_str = "\n".join(accumulated)
 
     if found:
@@ -254,17 +244,17 @@ def check_oracle(
     for l in lines[-10:]:
         print(f"              {l}")
     print(f"  [oracle]     Possible causes (check oracle lines above to distinguish):")
-    print(f"              [LOG STREAM]: No logcat lines at all — streaming subprocess broken")
-    print(f"              [LOG STREAM]:   • `adb logcat -c` was called (removed in host-buffer fix)")
-    print(f"              [LOG STREAM]:   • ADB-TLS transport failure")
-    print(f"              [APP CRASH]:  Log lines present but no NativeIntentHandler — app or model issue")
-    print(f"              [APP CRASH]:   • Model not loaded (warmup timed out)")
-    print(f"              [APP CRASH]:   • Inference too slow for timeout window")
-    print(f"              [ROUTING]:    Log lines show fallthrough — QIR/MiniLM didn't match")
-    print(f"              [ROUTING]:    • Intent not in QIR regex set")
-    print(f"              [ROUTING]:    • MiniLM classifier below threshold")
-    print(f"              [TIMEOUT]:    • Timeout too short for this device")
-    print(f"  [oracle]     ABORTING \u2014 all further test results would be untrustworthy")
+    print(f"              [LOG STREAM]: No logcat lines at all -- streaming subprocess broken")
+    print(f"              [LOG STREAM]:   - `adb logcat -c` was called (removed in host-buffer fix)")
+    print(f"              [LOG STREAM]:   - ADB-TLS transport failure")
+    print(f"              [APP CRASH]:  Log lines present but no NativeIntentHandler -- app or model issue")
+    print(f"              [APP CRASH]:   - Model not loaded (warmup timed out)")
+    print(f"              [APP CRASH]:   - Inference too slow for timeout window")
+    print(f"              [ROUTING]:    Log lines show fallthrough -- QIR/MiniLM didn't match")
+    print(f"              [ROUTING]:    - Intent not in QIR regex set")
+    print(f"              [ROUTING]:    - MiniLM classifier below threshold")
+    print(f"              [TIMEOUT]:    - Timeout too short for this device")
+    print(f"  [oracle]     ABORTING - all further test results would be untrustworthy")
     return False
 
 
@@ -276,6 +266,10 @@ atexit.register(logcat_stop)
 # ═══════════════════════════════════════════════════════════════════════
 
 
+_KEEPALIVE_STOP: threading.Event | None = None
+_KEEPALIVE_THREAD: threading.Thread | None = None
+
+
 def _keepalive_worker(stop_event: threading.Event) -> None:
     """Background thread: press KEYCODE_WAKEUP every ~25 s to keep screen on."""
     while not stop_event.is_set():
@@ -284,13 +278,16 @@ def _keepalive_worker(stop_event: threading.Event) -> None:
             run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 
 
-def start_keepalive() -> threading.Thread:
+def start_keepalive() -> None:
     """Start the keepalive background thread."""
-    global _KEEPALIVE_THREAD, _KEEPALIVE_STOP
+    global _KEEPALIVE_STOP, _KEEPALIVE_THREAD
+    if _KEEPALIVE_THREAD is not None:
+        return
     _KEEPALIVE_STOP = threading.Event()
-    _KEEPALIVE_THREAD = threading.Thread(target=_keepalive_worker, args=(_KEEPALIVE_STOP,), daemon=True)
+    _KEEPALIVE_THREAD = threading.Thread(
+        target=_keepalive_worker, args=(_KEEPALIVE_STOP,), daemon=True
+    )
     _KEEPALIVE_THREAD.start()
-    return _KEEPALIVE_THREAD
 
 
 def stop_keepalive() -> None:
@@ -319,9 +316,10 @@ def _keep_foreground_until_inference_starts(
         run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         time.sleep(0.1)
         run_adb("shell", "input", "tap", "500", "1000")
+
+
 def send_text(text: str, wait_for_inference: bool = True) -> None:
     """Deliver *text* via ``chat_input`` extra to ChatViewModel.
-
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
     """
@@ -336,7 +334,6 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
 
 def send_quick_action(text: str) -> None:
     """Deliver *text* via ``quick_action_input`` extra to ActionsViewModel.
-
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
     """
@@ -349,7 +346,6 @@ def send_quick_action(text: str) -> None:
 
 def send_slot_reply(text: str) -> None:
     """Deliver a slot reply via ``slot_reply_input`` extra to ActionsViewModel.onSlotReply().
-
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
     """
@@ -358,8 +354,6 @@ def send_slot_reply(text: str) -> None:
         "--activity-clear-top", "--activity-single-top",
         "--es", "slot_reply_input", shlex.quote(text),
     )
-
-
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -397,7 +391,7 @@ def teardown_contact_alias_fixture() -> None:
 
 def dismiss_notifications() -> None:
     """Dismiss all system notifications via ADB."""
-    run_adb("shell", "cmd", "notification", "dismiss_all")
+    run_adb("shell", "cmd", "notification", "dismiss", "--all")
 
 
 def cleanup_side_effects(wait_for_inference: bool = False) -> None:
@@ -412,6 +406,12 @@ def cleanup_side_effects(wait_for_inference: bool = False) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 # Result extraction helpers
 # ═══════════════════════════════════════════════════════════════════════
+
+NATIVE_INTENT_PATTERN = re.compile(
+    r"NativeIntentHandler\.handle: intent=([^\s]+)\s+params=\{(.*?)\}"
+)
+NATIVE_INTENT_NAME_PATTERN = re.compile(r"NativeIntentHandler\.handle: intent=(\S+)")
+DIRECT_REPLY_PATTERN = re.compile(r"DirectReply:\s*(.*)")
 
 
 def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
@@ -432,52 +432,57 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
 
 def extract_reply(logcat_output: str) -> str | None:
     """Extract the latest DirectReply text from logcat, if any."""
-    matches = DIRECT_REPLY_PATTERN.findall(logcat_output)
-    return matches[-1] if matches else None
+    matches = list(DIRECT_REPLY_PATTERN.finditer(logcat_output))
+    return matches[-1].group(1) if matches else None
 
 
-def check_params(
-    expected: dict[str, str] | None,
+def compare_params(
+    expected: dict[str, str],
     actual: dict[str, str],
+    ignored_params: frozenset[str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Compare expected vs actual parameter dicts.
 
-    Returns ``(passed, failure_messages)``.
+    Returns (matched: bool, list of mismatch descriptions).
     """
-    if not expected:
-        return True, []
-    failures: list[str] = []
-    for key, val in expected.items():
+    if ignored_params is None:
+        ignored_params = frozenset()
+    mismatches: list[str] = []
+    for key, expected_val in expected.items():
+        if key in ignored_params:
+            continue
         actual_val = actual.get(key)
         if actual_val is None:
-            failures.append(f"Missing param {key}")
-            continue
-        expected_text = str(val).lower()
-        actual_text = str(actual_val).lower()
-        if expected_text not in actual_text and actual_text not in expected_text:
-            failures.append(f"Param '{key}': expected {val!r}, got {actual_val!r}")
-    return len(failures) == 0, failures
+            mismatches.append(f"missing key '{key}'")
+        elif actual_val != expected_val:
+            mismatches.append(f"'{key}' expected={expected_val!r} actual={actual_val!r}")
+    for key in actual:
+        if key not in expected and key not in ignored_params:
+            mismatches.append(f"unexpected key '{key}'={actual[key]!r}")
+    return len(mismatches) == 0, mismatches
+
+
+check_params = compare_params  # backward-compat alias
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Profile helper
+# Profile extraction helpers
 # ═══════════════════════════════════════════════════════════════════════
+
+PROFILE_LLM_PATTERN = re.compile(r"ProfileExtraction\s+method=llm")
+PROFILE_FALLBACK_PATTERN = re.compile(
+    r"ProfileExtraction\s+method=regex|"
+    r"ProfileExtraction\s+method=fallback"
+)
 
 
 def send_profile(profile_text: str) -> None:
     """Deliver ``profile_text`` via onNewIntent to trigger profile extraction."""
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-    time.sleep(0.3)
-    single_line = profile_text.replace("\n", "\\n")
+    single_line = profile_text.replace("\n", " ")
     run_adb(
-        "shell",
-        "am",
-        "start",
-        "-n",
-        ACTIVITY,
-        "--es",
-        "profile_text",
-        shlex.quote(single_line),
+        "shell", "am", "start", "-n", ACTIVITY,
+        "--activity-clear-top", "--activity-single-top",
+        "--es", "profile_text", shlex.quote(single_line),
     )
 
 
