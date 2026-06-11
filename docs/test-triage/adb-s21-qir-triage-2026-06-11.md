@@ -25,7 +25,7 @@
 | Date | 2026-06-11 |
 | Base commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
 | Branch | `issue/1186-s21-qir-triage` |
-| Latest commit | `d83080f8` — report + harness crash fix |
+| Latest commit | `dbb0d53b` — triage evidence + review fixes applied |
 
 ## Device Preconditions
 
