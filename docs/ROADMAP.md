@@ -184,7 +184,7 @@ Active follow-on model/runtime investigations now live under
 
 | Sub-Issue | Title | Status | Notes |
 |-----------|-------|--------|-------|
-| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | Jandal visual identity — Fern Green palette, Paua loading shimmer, 🩴 UI | ⬜ Pending | Dynamic Colour fallback |
+| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | Jandal visual identity — Fern Green palette, Paua loading shimmer, 🩴 UI | 🟡 In progress | Theme foundation (palette + fallback schemes + launcher icon) done in #1185. Paua shimmer & full UI remaining. |
 | [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns across the app | ⬜ Pending | Material 3 audit |
 
 **Already completed:**
