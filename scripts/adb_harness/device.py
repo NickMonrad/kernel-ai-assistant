@@ -193,7 +193,8 @@ def check_oracle(
 
     On failure, prints diagnostic guidance and returns False.  Callers
     should abort the test suite when this returns False.
-    """
+    global _STREAM_PROC, _STREAM_READER
+
     label, prompt, expected_intent, expected_marker = _ORACLE_PROBES[probe_idx]
 
     clear_logcat()
@@ -215,14 +216,38 @@ def check_oracle(
         "--es", "chat_input", shlex.quote(prompt),
     )
 
-    accumulated = logcat_wait(expected_marker, timeout)
-    found = expected_marker in accumulated
+    # Use a FRESH adb logcat -t call for the oracle instead of the long-running
+    # streaming subprocess.  After model warmup (~300s) the pipe buffer may stall,
+    # so reading directly from the device is more reliable.
+    deadline = time.time() + timeout
+    found = False
+    accumulated: list[str] = []
+    while time.time() < deadline:
+        try:
+            output = subprocess.check_output(
+                [ADB, "logcat", "-v", "brief", "-t", "100", "-s", f"{LOGCAT_TAG}:D"],
+                text=True, stderr=subprocess.DEVNULL, timeout=10,
+            ).strip()
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            time.sleep(1)
+            continue
+        for line in output.split("\n"):
+            if line not in accumulated:
+                accumulated.append(line)
+        combined = "\n".join(accumulated)
+        if expected_marker in combined:
+            found = True
+            break
+        time.sleep(1)
+
+    # Build the accumulated lines for diagnostics
+    accumulated_str = "\n".join(accumulated)
 
     if found:
         print(f"  [oracle] \u2705  marker found \u2014 observability pipeline healthy")
         return True
 
-    lines = accumulated.strip().split("\n") if accumulated.strip() else []
+    lines = accumulated_str.strip().split("\n") if accumulated_str.strip() else []
     print(f"  [oracle] \u274c  marker NOT found in {len(lines)} logcat line(s) within {timeout:.0f}s")
     print(f"  [oracle]     Last 10 logcat lines:")
     for l in lines[-10:]:
