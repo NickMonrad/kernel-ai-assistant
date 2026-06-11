@@ -195,6 +195,8 @@ def run_llm_tools(dry_run: bool = False) -> int:
     print("=" * 70)
     # Start host-side logcat streaming (required for all read_logcat_all() calls below)
     logcat_start()
+    # Keep screen on (30 min timeout) so the device doesn't lock mid-test
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "1800000")
 
     # Preflight: prove model stack ready and MiniLM ready.
     # Dismiss any notification overlays first (Samsung Calendar, etc.)

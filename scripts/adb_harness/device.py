@@ -215,7 +215,7 @@ def check_oracle(
             cmd = [ADB]
             if ANDROID_SERIAL:
                 cmd.extend(["-s", ANDROID_SERIAL])
-            cmd.extend(["logcat", "-v", "brief", "-t", "100", "-s", f"{LOGCAT_TAG}:D"])
+            cmd.extend(["logcat", "-d", "-s", f"{LOGCAT_TAG}:D"])
             output = subprocess.check_output(
                 cmd,
                 text=True, stderr=subprocess.DEVNULL, timeout=10,
@@ -231,6 +231,23 @@ def check_oracle(
             found = True
             break
         time.sleep(1)
+    else:
+        # One more attempt after timeout
+        try:
+            cmd = [ADB]
+            if ANDROID_SERIAL:
+                cmd.extend(["-s", ANDROID_SERIAL])
+            cmd.extend(["logcat", "-d", "-s", f"{LOGCAT_TAG}:D"])
+            output = subprocess.check_output(
+                cmd, text=True, stderr=subprocess.DEVNULL, timeout=10,
+            ).strip()
+            for line in output.split("\n"):
+                if line not in accumulated:
+                    accumulated.append(line)
+            if expected_marker in "\n".join(accumulated):
+                found = True
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            pass
 
     accumulated_str = "\n".join(accumulated)
 
@@ -246,7 +263,6 @@ def check_oracle(
     print(f"  [oracle]     Possible causes (check oracle lines above to distinguish):")
     print(f"              [LOG STREAM]: No logcat lines at all -- streaming subprocess broken")
     print(f"              [LOG STREAM]:   - `adb logcat -c` was called (removed in host-buffer fix)")
-    print(f"              [LOG STREAM]:   - ADB-TLS transport failure")
     print(f"              [APP CRASH]:  Log lines present but no NativeIntentHandler -- app or model issue")
     print(f"              [APP CRASH]:   - Model not loaded (warmup timed out)")
     print(f"              [APP CRASH]:   - Inference too slow for timeout window")
