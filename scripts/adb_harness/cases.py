@@ -36,7 +36,8 @@ MINIMAL_PROFILE = "Sam here, I'm a designer in London. Keep it brief."
 PHASES: list[tuple[str, list[TestCase]]] = [
     ("alarm_timer", [
         # set_alarm
-        TestCase("set an alarm for 11pm", "set_alarm"),
+        TestCase("set an alarm for 11pm", "set_alarm",
+                 tags=["deterministic_core", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]),
         TestCase("wake me up at 11:30", "set_alarm"),
         TestCase("set an alarm for tomorrow at 9am", "set_alarm"),
         TestCase("alarm 11:30pm", "set_alarm"),
@@ -52,7 +53,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("delete my alarm", "cancel_alarm"),
         TestCase("get rid of all alarms", "cancel_alarm"),
         # set_timer
-        TestCase("set a timer for 2 hours", "set_timer"),
+        TestCase("set a timer for 2 hours", "set_timer",
+                 tags=["deterministic_core", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]),
         TestCase("start a 2 hour timer", "set_timer"),
         TestCase("timer 2 hours", "set_timer"),
         TestCase("start a 3 hour timer", "set_timer"),
@@ -116,6 +118,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("hold on, pause the music", "pause_media"),
         TestCase("pause playback", "pause_media"),
         TestCase("hold on", "pause_media", xfail=True,
+                 tags=["ambiguous", "fixture_required", "media_context"],
+                 category="ambiguous",
                  xfail_reason="context_missing: standalone 'hold on' needs active media context per semantic routing guidelines"),
         # stop_media (#521)
         TestCase("stop playing", "stop_media"),
@@ -126,7 +130,9 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("next track", "next_track"),
         TestCase("play the next one", "next_track"),
         TestCase("next song", "next_track"),
-        TestCase("skip", "next_track"),
+        TestCase("skip", "next_track",
+                 tags=["ambiguous", "media_context"],
+                 category="ambiguous"),
         # previous_track (#521)
         TestCase("previous song", "previous_track"),
         TestCase("last song", "previous_track"),
@@ -198,10 +204,12 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         # "note to self <memo>" => save_memory (until a dedicated notes skill exists)
         # "remind me to <task>" => add_reminder (not save_memory)
         TestCase("remember that I usually meet Sarah on Tuesdays", "save_memory"),
-        TestCase("remember that I prefer dark mode", "save_memory"),
+        TestCase("remember that I prefer dark mode", "save_memory",
+                 tags=["deterministic_core", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]),
         # Memo/note capture — no alert implied. If a dedicated notes skill is added,
         # this should move from save_memory to that note/memo intent, not add_reminder.
-        TestCase("note to self call the dentist Monday", "save_memory"),
+        TestCase("note to self call the dentist Monday", "save_memory",
+                 tags=["ambiguous"], category="ambiguous"),
         # Ephemeral memo capture — no alert implied.
         TestCase("remember that I parked on level 3", "save_memory"),
     ]),
@@ -212,30 +220,59 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("take me to the airport", "navigate_to"),
         TestCase("directions home", "navigate_to"),
         # open_app
-        TestCase("open Spotify", "open_app"),
-        TestCase("launch Google Maps", "open_app"),
+        TestCase("open Spotify", "open_app",
+                 category="fixture",
+                 tags=["fixture_required"],
+                 fixture="apps:spotify_installed"),
+        TestCase("launch Google Maps", "open_app",
+                 category="fixture",
+                 tags=["fixture_required"],
+                 fixture="apps:google_maps_installed"),
         # make_call
         # make_call
         TestCase("call voicemail", "make_call"),
         TestCase("call my voicemail", "make_call"),
-        TestCase("ring mum", "make_call"),
-        TestCase("give Sarah a call", "make_call"),
+        TestCase("ring mum", "make_call",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:family_seed"),
+        TestCase("give Sarah a call", "make_call",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:family_seed"),
         # Contact alias resolution (fixture: 'zippy' → Voicemail / 121)
-        TestCase("call zippy", "make_call"),
-        TestCase("ring zippy", "make_call"),
+        TestCase("call zippy", "make_call",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:zippy_alias"),
+        TestCase("ring zippy", "make_call",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:zippy_alias"),
         # send_sms
         TestCase("text myself a reminder to buy groceries", "send_sms",
                  expect_params={"contact": "myself", "message": "buy groceries"}),
-        TestCase("send a message to myself saying call the plumber", "send_sms"),
-        TestCase("text John saying I'll be 10 minutes late", "send_sms"),
-        TestCase("message mum that I'm on my way", "send_sms"),
+        TestCase("send a message to myself saying call the plumber", "send_sms",
+                 category="fixture",
+                 tags=["fixture_required"],
+                 fixture="contacts:self_number_known"),
+        TestCase("text John saying I'll be 10 minutes late", "send_sms",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:family_seed"),
+        TestCase("message mum that I'm on my way", "send_sms",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:family_seed"),
     ]),
     ("system", [
         # get_time — DirectReply assertions
-        TestCase("what time is it", "get_time", expect_reply_contains=r"\d+:\d+"),
+        TestCase("what time is it", "get_time", expect_reply_contains=r"\d+:\d+",
+                 tags=["safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]),
         TestCase("what's today's date", "get_time", expect_reply_contains=r"202[4-9]|20[3-9]\d"),
         # get_battery — DirectReply assertion on first case
-        TestCase("what's my battery level", "get_battery", expect_reply_contains=r"\d+%"),
+        TestCase("what's my battery level", "get_battery", expect_reply_contains=r"\d+%",
+                 tags=["safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]),
         TestCase("how much battery do I have", "get_battery"),
         TestCase("battery", "get_battery"),
         TestCase("am I running low on battery", "get_battery"),
@@ -271,8 +308,14 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("book a dentist appointment for next Thursday at 2pm", "create_calendar_event"),
         TestCase("add a meeting to my calendar for Friday at 3pm", "create_calendar_event"),
         # email
-        TestCase("send an email to John about the project update", "send_email"),
-        TestCase("email Sarah the meeting notes", "send_email"),
+        TestCase("send an email to John about the project update", "send_email",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:email_contact_seed"),
+        TestCase("email Sarah the meeting notes", "send_email",
+                 category="fixture",
+                 tags=["fixture_required", "contact_fixture_required"],
+                 fixture="contacts:email_contact_seed"),
         # nearby
         TestCase("find a coffee shop near me", "find_nearby"),
         TestCase("what restaurants are nearby", "find_nearby"),
@@ -305,6 +348,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="7am",
             expect_params={"hours": "7", "minutes": "0"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"],
         ),
         TestCase(
             "set a timer",
@@ -312,6 +356,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="5 minutes",
             expect_params={"duration_seconds": "300"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"],
         ),
         TestCase(
             "open an app",
@@ -319,6 +364,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="Spotify",
             expect_params={"app_name": "Spotify"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "fixture_required"],
+            fixture="apps:spotify_installed",
         ),
         TestCase(
             "navigate",
@@ -326,6 +373,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="Auckland Airport",
             expect_params={"destination": "Auckland Airport"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "fixture_required", "location_context"],
+            fixture="location:maps_or_gps_required",
         ),
         TestCase(
             "find nearby",
@@ -333,6 +382,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="coffee",
             expect_params={"query": "coffee"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "fixture_required", "location_context"],
+            fixture="location:nearby_or_gps_required",
         ),
         TestCase(
             "send a message",
@@ -340,6 +391,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="Mum",
             expect_params={"contact": "Mum"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "fixture_required", "contact_fixture_required", "ambiguous"],
+            fixture="contacts:family_seed",
         ),
         TestCase(
             "send an email",
@@ -347,6 +400,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="Nick",
             expect_params={"contact": "Nick"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "fixture_required", "contact_fixture_required", "ambiguous"],
+            fixture="contacts:email_contact_seed",
         ),
         TestCase(
             "add to my list",
@@ -354,6 +409,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="eggs",
             expect_params={"item": "eggs"},
             expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill"],
         ),
         # ── Negative slot-fill: invalid slot value → should NOT dispatch ──
         TestCase(
@@ -362,7 +418,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="donuts",
             expect_initial_log_contains="NeedsSlot",
             category="negative",
-            tags=["slot_fill_invalid_answer"],
+            tags=["slot_fill", "slot_fill_invalid_answer"],
             id="slot_fill_timer_invalid_reply",
         ),
         TestCase(
@@ -371,7 +427,7 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             slot_reply="later",
             expect_initial_log_contains="NeedsSlot",
             category="negative",
-            tags=["slot_fill_invalid_answer"],
+            tags=["slot_fill", "slot_fill_invalid_answer"],
             id="slot_fill_alarm_invalid_reply",
         ),
     ]),

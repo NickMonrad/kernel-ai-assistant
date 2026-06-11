@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from adb_harness.config import REPORTS_DIR
-from adb_harness.models import LLMToolsResult, TestResult
+from adb_harness.models import TestResult, LLMToolsResult, derive_failure_bucket, derive_status
 
 def save_llm_tools_report(
     results: list[LLMToolsResult],
@@ -104,10 +104,19 @@ def save_report(
             partial_file = REPORTS_DIR / f"{run_ts}_{suite}_partial.json"
             partial_file.unlink(missing_ok=True)
 
-    total = len(results)
-    passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail and not r.log_check_warn)
-    xfails = sum(1 for r in results if r.xfail and not r.intent_passed)
-    failures = total - passed - xfails
+    prepared: list[TestResult] = []
+    for r in results:
+        if not r.status:
+            r.status = derive_status(r)
+        if r.failure_bucket is None:
+            r.failure_bucket = derive_failure_bucket(r)
+        prepared.append(r)
+
+    total = len(prepared)
+    passed = sum(1 for r in prepared if r.status == "pass")
+    xfails = sum(1 for r in prepared if r.status == "xfail")
+    xpasses = sum(1 for r in prepared if r.status == "xpass")
+    failures = sum(1 for r in prepared if r.status == "fail")
 
     report = {
         "suite": suite,
@@ -118,12 +127,17 @@ def save_report(
             "total": total,
             "passed": passed,
             "xfail": xfails,
+            "xpass": xpasses,
             "failed": failures,
         },
         "results": [
             {
                 "index": r.index,
+                "case_id": r.case_id,
                 "message": r.message,
+                "category": r.category,
+                "tags": r.tags,
+                "fixture": r.fixture,
                 "expect_intent": r.expect_intent,
                 "actual_intent": r.actual_intent,
                 "expect_params": r.expect_params,
@@ -132,17 +146,15 @@ def save_report(
                 "params_passed": r.params_passed,
                 "param_failures": r.param_failures,
                 "xfail": r.xfail,
+                "xfail_reason": r.xfail_reason,
                 "reply_warn": r.reply_warn,
                 "log_check_warn": r.log_check_warn,
                 "first_turn_warn": r.first_turn_warn,
                 "phase": r.phase,
-                "status": (
-                    "xfail" if r.xfail and not r.intent_passed
-                    else "pass" if r.intent_passed and r.params_passed and not r.log_check_warn
-                    else "fail"
-                ),
+                "status": r.status,
+                "failure_bucket": r.failure_bucket,
             }
-            for r in results
+            for r in prepared
         ],
     }
     report_path.write_text(json.dumps(report, indent=2))
@@ -158,51 +170,74 @@ def save_report(
 
 def analyse_results(results: list[TestResult]) -> None:
     """Print a pattern analysis section after the summary table."""
-    failures = [r for r in results if not r.xfail and (not r.intent_passed or not r.params_passed)]
-    if not failures:
+    prepared: list[TestResult] = []
+    for r in results:
+        if not r.status:
+            r.status = derive_status(r)
+        if r.failure_bucket is None:
+            r.failure_bucket = derive_failure_bucket(r)
+        prepared.append(r)
+
+    failures = [r for r in prepared if r.status == "fail"]
+    xpasses = [r for r in prepared if r.status == "xpass"]
+    if not failures and not xpasses:
         print("\n  ✅ No failures to analyse.")
         return
 
     print("\n  FAILURE ANALYSIS")
     print("  " + "-" * 68)
 
-    # Group intent routing failures by actual (mis-routed) intent
-    intent_failures = [r for r in failures if not r.intent_passed]
-    param_failures  = [r for r in failures if r.intent_passed and not r.params_passed]
+    if failures:
+        by_bucket: dict[str, list[TestResult]] = {}
+        for r in failures:
+            by_bucket.setdefault(r.failure_bucket or "unclassified", []).append(r)
+        print(f"\n  Failure buckets ({len(failures)}):")
+        for bucket, group in sorted(by_bucket.items(), key=lambda x: (-len(x[1]), x[0])):
+            print(f"    {bucket}: {len(group)}")
 
-    if intent_failures:
-        by_actual: dict[str, list[TestResult]] = {}
-        for r in intent_failures:
-            key = r.actual_intent or "NO_MATCH"
-            by_actual.setdefault(key, []).append(r)
-        print(f"\n  Intent routing failures ({len(intent_failures)}):")
-        for actual, group in sorted(by_actual.items(), key=lambda x: -len(x[1])):
-            expected_intents = sorted({r.expect_intent for r in group})
-            print(f"    → routed as {actual!r} instead of {expected_intents}:")
-            for r in group:
-                print(f"       [{r.index:3d}] \"{r.message}\"")
+        intent_failures = [r for r in failures if not r.intent_passed]
+        param_failures = [r for r in failures if r.intent_passed and not r.params_passed]
 
-    if param_failures:
-        print(f"\n  Param extraction failures ({len(param_failures)}):")
-        for r in param_failures:
-            print(f"    [{r.index:3d}] \"{r.message}\"  (intent={r.expect_intent})")
-            for pf in r.param_failures:
-                print(f"           ✗ {pf}")
+        if intent_failures:
+            by_actual: dict[str, list[TestResult]] = {}
+            for r in intent_failures:
+                key = r.actual_intent or "NO_MATCH"
+                by_actual.setdefault(key, []).append(r)
+            print(f"\n  Intent routing failures ({len(intent_failures)}):")
+            for actual, group in sorted(by_actual.items(), key=lambda x: -len(x[1])):
+                expected_intents = sorted({r.expect_intent for r in group})
+                print(f"    → routed as {actual!r} instead of {expected_intents}:")
+                for r in group[:5]:
+                    bucket = f" [{r.failure_bucket}]" if r.failure_bucket else ""
+                    print(f"       [{r.index:3d}] \"{r.message}\"{bucket}")
 
-    # Highlight intents with high failure rates
-    by_intent: dict[str, list[TestResult]] = {}
-    for r in results:
-        by_intent.setdefault(r.expect_intent, []).append(r)
-    hot = [
-        (intent, grp)
-        for intent, grp in by_intent.items()
-        if len(grp) >= 2 and sum(1 for r in grp if not r.intent_passed and not r.xfail) / len(grp) >= 0.5
-    ]
-    if hot:
-        print(f"\n  ⚠️  High-failure-rate intents (≥50% of cases failing):")
-        for intent, grp in sorted(hot, key=lambda x: -len(x[1])):
-            n_fail = sum(1 for r in grp if not r.intent_passed and not r.xfail)
-            print(f"    {intent}: {n_fail}/{len(grp)} failing")
+        if param_failures:
+            print(f"\n  Param extraction failures ({len(param_failures)}):")
+            for r in param_failures:
+                bucket = f" [{r.failure_bucket}]" if r.failure_bucket else ""
+                print(f"    [{r.index:3d}] \"{r.message}\"  (intent={r.expect_intent}){bucket}")
+                for pf in r.param_failures:
+                    print(f"           ✗ {pf}")
+
+        by_intent: dict[str, list[TestResult]] = {}
+        for r in prepared:
+            by_intent.setdefault(r.expect_intent, []).append(r)
+        hot = [
+            (intent, grp)
+            for intent, grp in by_intent.items()
+            if len(grp) >= 2 and sum(1 for r in grp if r.status == "fail") / len(grp) >= 0.5
+        ]
+        if hot:
+            print(f"\n  ⚠️  High-failure-rate intents (≥50% of cases failing):")
+            for intent, grp in sorted(hot, key=lambda x: -len(x[1])):
+                n_fail = sum(1 for r in grp if r.status == "fail")
+                print(f"    {intent}: {n_fail}/{len(grp)} failing")
+
+    if xpasses:
+        print(f"\n  Unexpected passes ({len(xpasses)}):")
+        for r in xpasses:
+            reason = f" — {r.xfail_reason}" if r.xfail_reason else ""
+            print(f"    [{r.index:3d}] \"{r.message}\"{reason}")
 
     print()
 
@@ -263,10 +298,19 @@ def build_comment_markdown(
     report_path: Path,
 ) -> str:
     """Build a GitHub-flavoured markdown PR comment summarising the run."""
-    total = len(results)
-    passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail)
-    xfails = sum(1 for r in results if r.xfail and not r.intent_passed)
-    failed = total - passed - xfails
+    prepared: list[TestResult] = []
+    for r in results:
+        if not r.status:
+            r.status = derive_status(r)
+        if r.failure_bucket is None:
+            r.failure_bucket = derive_failure_bucket(r)
+        prepared.append(r)
+
+    total = len(prepared)
+    passed = sum(1 for r in prepared if r.status == "pass")
+    xfails = sum(1 for r in prepared if r.status == "xfail")
+    xpasses = sum(1 for r in prepared if r.status == "xpass")
+    failed = sum(1 for r in prepared if r.status == "fail")
     pass_rate = passed / max(total - xfails, 1) * 100
 
     lines: list[str] = [
@@ -277,57 +321,61 @@ def build_comment_markdown(
         f"| ✅ Passed | {passed} |",
         f"| ❌ Failed | {failed} |",
         f"| ⚠️ Expected failures | {xfails} |",
+        f"| 🟡 Unexpected passes | {xpasses} |",
         f"| **Total** | **{total}** |",
         "",
         f"**Pass rate: {pass_rate:.1f}%** • Run time: {_fmt_elapsed(elapsed)}",
     ]
 
-    # Failed tests table (max 10 rows)
-    failures = [
-        r for r in results
-        if not r.xfail and (not r.intent_passed or not r.params_passed)
-    ]
+    failures = [r for r in prepared if r.status == "fail"]
     if failures:
         lines += [
             "",
             "### Failed tests",
-            "| # | Input | Expected | Actual |",
-            "|---|---|---|---|",
+            "| # | Input | Expected | Actual | Bucket |",
+            "|---|---|---|---|---|",
         ]
         for r in failures[:10]:
             actual = r.actual_intent or "NO_MATCH"
-            lines.append(f"| {r.index} | {r.message} | `{r.expect_intent}` | `{actual}` |")
+            lines.append(
+                f"| {r.index} | {r.message} | `{r.expect_intent}` | `{actual}` | `{r.failure_bucket or 'unclassified'}` |"
+            )
         if len(failures) > 10:
-            lines.append(f"| … | *and {len(failures) - 10} more* | | |")
+            lines.append(f"| … | *and {len(failures) - 10} more* | | | |")
 
-    # Phase breakdown (only when phase info is populated)
-    phases_present = [r.phase for r in results if r.phase]
+        from collections import Counter
+        bucket_counts = Counter(r.failure_bucket or "unclassified" for r in failures)
+        lines += [
+            "",
+            "### Failure buckets",
+            "| Bucket | Count |",
+            "|---|---|",
+        ]
+        for bucket, count in bucket_counts.most_common():
+            lines.append(f"| `{bucket}` | {count} |")
+
+    phases_present = [r.phase for r in prepared if r.phase]
     if phases_present:
         from collections import defaultdict
         phase_data: dict[str, dict[str, float]] = defaultdict(
-            lambda: {"pass": 0, "fail": 0, "xfail": 0, "time": 0.0}
+            lambda: {"pass": 0, "fail": 0, "xfail": 0, "xpass": 0, "time": 0.0}
         )
-        for r in results:
+        for r in prepared:
             key = r.phase or "unknown"
-            if r.xfail and not r.intent_passed:
-                phase_data[key]["xfail"] += 1
-            elif r.intent_passed and r.params_passed:
-                phase_data[key]["pass"] += 1
-            else:
-                phase_data[key]["fail"] += 1
+            phase_data[key][r.status] += 1
 
         lines += [
             "",
             "<details>",
             "<summary>Phase breakdown</summary>",
             "",
-            "| Phase | Pass | Fail | XFail |",
-            "|---|---|---|---|",
+            "| Phase | Pass | Fail | XFail | XPass |",
+            "|---|---|---|---|---|",
         ]
-        for phase_name in dict.fromkeys(r.phase for r in results if r.phase):
+        for phase_name in dict.fromkeys(r.phase for r in prepared if r.phase):
             d = phase_data[phase_name]
             lines.append(
-                f"| {phase_name} | {int(d['pass'])} | {int(d['fail'])} | {int(d['xfail'])} |"
+                f"| {phase_name} | {int(d['pass'])} | {int(d['fail'])} | {int(d['xfail'])} | {int(d['xpass'])} |"
             )
         lines += ["", "</details>"]
 
