@@ -4,35 +4,40 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Jandal sole outline
-         A foot-shaped sole showing through as Fern Green interior
-         with a white 4dp outline for clear recognition at icon size. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="
-            M 54,28
-            C 59,28 66,30 70,37
-            C 74,44 74,52 71,59
-            C 68,66 62,73 56,81
-            C 52,86 47,86 44,81
-            C 40,76 39,69 39,59
-            C 37,49 37,40 42,34
-            C 47,30 54,28 54,28 Z" />
-    <!-- V-strap (thong)
-         White filled strap spanning from the toe post (between
-         big toe and second toe) to both sides of the sole. -->
+
+    <!-- Filled top-down jandal sole.
+         Keep the shape simple and high-contrast so it reads at launcher size. -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="
-            M 47,34
-            L 37,51
-            L 40,57
-            L 51,42
-            L 71,49
-            L 68,56
-            L 49,40 Z" />
+            M 53,18
+            C 64,18 73,25 76,37
+            C 80,52 75,68 67,80
+            C 61,89 56,94 49,94
+            C 42,94 38,89 36,80
+            C 32,66 31,49 34,36
+            C 37,25 44,18 53,18 Z" />
+
+    <!-- Toe post and V-straps cut back to the Fern Green background colour. -->
+    <path
+        android:strokeColor="#4F7942"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M 53,38 L 43,64" />
+    <path
+        android:strokeColor="#4F7942"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M 53,38 L 66,62" />
+    <path
+        android:fillColor="#4F7942"
+        android:pathData="
+            M 53,34
+            m -4,0
+            a 4,4 0,1 0,8 0
+            a 4,4 0,1 0,-8 0" />
 </vector>
