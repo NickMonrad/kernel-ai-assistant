@@ -80,6 +80,7 @@ def _discover_results(results_dir: Path) -> list[dict]:
     for json_path in sorted(results_dir.rglob("*.json")):
         rec = _load_evidence(json_path)
         if rec is not None:
+            rec["_source_relpath"] = str(json_path.relative_to(results_dir))
             evidence.append(rec)
     return evidence
 
@@ -210,6 +211,28 @@ def _scope_sort_key(scope_type: str, scope_value: int | str | None, scope_label:
     if scope_type == "release":
         return (1, 0, scope_label)
     return (2, 0, scope_label)
+def _source_links(results_url_base: str, latest_relpath: str, all_relpaths: list[str], record_count: int) -> str:
+    """Render source evidence file links for a suite/scope row.
+
+    Single-record rows get a direct link. Multi-record rows get a ``<details>``
+    element listing all contributing files.
+    """
+    if not results_url_base or not latest_relpath:
+        return ""
+    latest_url = f"{results_url_base}/{latest_relpath}"
+    if record_count <= 1:
+        return f'<a href="{latest_url}" target="_blank" rel="noopener" class="source-link">View JSON</a>'
+    # Multi-record: show all source files
+    files_html = "".join(
+        f'<li><a href="{results_url_base}/{p}" target="_blank" rel="noopener" class="source-link">{p}</a></li>'
+        for p in all_relpaths
+    )
+    return (
+        f'<details class="source-details">'
+        f'<summary class="source-summary">View JSON · {record_count} source files</summary>'
+        f'<ol class="source-file-list">{files_html}</ol>'
+        f'</details>'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +393,9 @@ def _build_aggregates(evidence: list[dict]) -> dict:
             if not isinstance(latest_summary, dict):
                 latest_summary = {}
             historical_summary = _merge_summaries(group_recs)
+            all_source_paths = sorted(set(
+                r.get("_source_relpath", "") for r in group_recs if r.get("_source_relpath")
+            ))
             suite_breakdown.append({
                 "suite": suite_name,
                 "source": latest_group_rec.get("source", "unknown"),
@@ -387,6 +413,8 @@ def _build_aggregates(evidence: list[dict]) -> dict:
                 "historical_passed": historical_summary["passed"],
                 "historical_failed": historical_summary["failed"],
                 "historical_pass_rate": historical_summary["pass_rate"],
+                "latest_source_path": latest_group_rec.get("_source_relpath", ""),
+                "all_source_paths": all_source_paths,
             })
         suite_breakdown.sort(
             key=lambda row: (
@@ -423,6 +451,9 @@ def _build_aggregates(evidence: list[dict]) -> dict:
                 "latest_timestamp": latest_suite_row.get("timestamp", ""),
                 "latest_commit": latest_suite_row.get("commit", ""),
                 "sources": sorted({str(row.get("source", "unknown")) for row in suite_rows}),
+                "all_source_paths": sorted(set(
+                    p for row in suite_rows for p in row.get("all_source_paths", [])
+                )),
                 "suite_rows": suite_rows,
                 "suites": [str(row["suite"]) for row in suite_rows],
                 "total": total,
@@ -495,12 +526,12 @@ table { width: 100%; border-collapse: collapse; margin: 1em 0; }
 th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #21262d; }
 th { background: #161b22; font-weight: 600; white-space: nowrap; }
 tr:hover td { background: #1c2128; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
 .pass { background: #1b3a2d; color: #3fb950; }
 .warn { background: #3d2e00; color: #d29922; }
 .fail { background: #3d1b1b; color: #f85149; }
 .neutral { background: #21262d; color: #8b949e; }
-.source-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.source-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.73rem; font-weight: 600; white-space: nowrap; }
 .source-ci { background: #0d4194; color: #79c0ff; }
 .source-od { background: #3d1b6e; color: #d2a8ff; }
 .empty { color: #8b949e; font-style: italic; padding: 2em 0; }
@@ -512,7 +543,7 @@ tr:hover td { background: #1c2128; }
 .card .label { font-size: 0.8rem; color: #8b949e; }
 .card .value { font-size: 1.4rem; font-weight: 700; margin-top: 4px; }
 .card .meta { margin-top: 6px; font-size: 0.85rem; color: #c9d1d9; }
-.card .scope-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #1c2128; color: #8b949e; }
+.card .scope-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #1c2128; color: #8b949e; white-space: nowrap; }
 .section { margin: 2em 0; }
 .mixed-note { font-size: 0.8rem; color: #d29922; margin-top: 4px; }
 .mixed-note code { font-size: 0.75rem; }
@@ -520,19 +551,30 @@ footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-
 
 .device-note { margin: 0.8em 0 1.2em; color: #8b949e; font-size: 0.9rem; }
 .warning-panel { margin: 1em 0; padding: 12px 14px; border: 1px solid #d29922; border-radius: 8px; background: rgba(210, 153, 34, 0.12); color: #f2cc60; }
-.scope-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.scope-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.73rem; font-weight: 600; white-space: nowrap; }
 .scope-pr { background: #0d4194; color: #79c0ff; }
 .scope-release { background: #1b4332; color: #7ee787; }
 .scope-unscoped { background: #5a1e02; color: #ffa657; }
 .table-note { margin-top: 4px; font-size: 0.8rem; color: #8b949e; }
+.suite-name { font-weight: 500; }
 .scope-breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 1em 0 1.5em; }
 .scope-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
 .scope-card.unscoped-card { border-color: #d29922; }
 .scope-card-header { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-.scope-card h4 { margin: 0; font-size: 1rem; }
+.scope-card h4 { margin: 0; font-size: 1rem; word-break: break-word; }
 .scope-meta { margin-top: 8px; color: #c9d1d9; font-size: 0.88rem; }
 .suite-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .suite-pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #21262d; color: #c9d1d9; font-size: 0.8rem; }
+
+/* Source evidence file links */
+.source-link { font-size: 0.8rem; font-weight: 500; white-space: nowrap; }
+.source-details { font-size: 0.8rem; }
+.source-summary { cursor: pointer; color: #58a6ff; font-weight: 500; white-space: nowrap; }
+.source-summary:hover { text-decoration: underline; }
+.source-file-list { margin: 6px 0 0 20px; font-size: 0.78rem; }
+.source-file-list li { margin: 3px 0; word-break: break-all; }
+.evidence-cell { min-width: 110px; vertical-align: middle; }
+
 /* Responsive: scrollable tables on narrow screens */
 @media (max-width: 720px) {
   .pr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -543,14 +585,21 @@ footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-
   body { padding: 12px; }
   h1 { font-size: 1.3rem; }
   h2 { font-size: 1.1rem; }
+  .source-tag { font-size: 0.68rem; padding: 1px 6px; }
+  .scope-chip { font-size: 0.68rem; padding: 1px 6px; }
+  .badge { font-size: 0.7rem; padding: 1px 6px; }
+  .source-file-list { font-size: 0.72rem; }
 }
 
 @media (max-width: 480px) {
-  table { font-size: 0.8rem; }
-  th, td { padding: 4px 6px; }
+  table { font-size: 0.78rem; }
+  th, td { padding: 4px 5px; }
   th { white-space: normal; }
-  .badge { font-size: 0.7rem; padding: 1px 6px; }
+  .badge { font-size: 0.65rem; padding: 1px 5px; }
+  .source-tag { font-size: 0.63rem; padding: 1px 4px; }
+  .scope-chip { font-size: 0.65rem; padding: 1px 4px; }
   .scope-card-header { align-items: flex-start; flex-direction: column; }
+  .evidence-cell { min-width: 90px; }
 }
 """
 
@@ -745,6 +794,7 @@ def _render_prs(data: dict) -> str:
 
 def _render_devices(data: dict) -> str:
     sections = ""
+    results_url_base = data.get("results_url_base", "")
     for dev in data["devices"]:
         # Failure breakdown
         fail_rows = ""
@@ -764,8 +814,14 @@ def _render_devices(data: dict) -> str:
                     f'historical merged {row["historical_passed"]}/{row["historical_total"]}'
                     f"</div>"
                 )
+            evidence_links = _source_links(
+                results_url_base,
+                str(row.get("latest_source_path", "")),
+                [str(p) for p in row.get("all_source_paths", [])],
+                row["record_count"],
+            )
             suite_rows += f"""<tr>
-  <td><div>{row['suite']}</div>{history_note}</td>
+  <td><div class="suite-name">{row['suite']}</div>{history_note}</td>
   <td><span class="source-tag source-{"ci" if row['source']=='ci' else 'od'}">{_source_label(str(row['source']))}</span></td>
   <td><span class="scope-chip scope-{row['scope_type']}">{row['scope_label']}</span></td>
   <td>{_iso_short(str(row['timestamp']))}</td>
@@ -775,9 +831,10 @@ def _render_devices(data: dict) -> str:
   <td>{row['total']}</td>
   <td>{row['pass_rate']:.1%}</td>
   <td>{_status_badge(row['pass_rate'], row['total'])}</td>
+  <td class="evidence-cell">{evidence_links}</td>
 </tr>"""
         if not suite_rows:
-            suite_rows = '<tr><td colspan="10" class="empty">No suite evidence available</td></tr>'
+            suite_rows = '<tr><td colspan="11" class="empty">No suite evidence available</td></tr>'
 
         scope_cards = ""
         for scope in dev["scope_breakdown"]:
@@ -796,6 +853,12 @@ def _render_devices(data: dict) -> str:
                     'Backfill PR or release metadata if possible.'
                     '</div>'
                 )
+            scope_links = _source_links(
+                results_url_base,
+                str(scope.get("all_source_paths", [""])[0]) if scope.get("all_source_paths") else "",
+                [str(p) for p in scope.get("all_source_paths", [])],
+                len(scope["all_source_paths"]),
+            )
             scope_cards += f"""<div class="scope-card{extra_class}">
   <div class="scope-card-header">
     <h4>{scope['scope_label']}</h4>
@@ -804,6 +867,7 @@ def _render_devices(data: dict) -> str:
   <div class="scope-meta">{scope['passed']}/{scope['total']} across {len(scope['suite_rows'])} suite(s)</div>
   <div class="scope-meta">Latest {_iso_short(str(scope['latest_timestamp']))} · Sources: {sources}</div>
   <div class="scope-meta">Latest commit <code>{_truncate_sha(str(scope['latest_commit']))}</code></div>
+  <div class="scope-meta">{scope_links}</div>
   <div class="suite-pills">{suite_pills}</div>
   {warning_note}
 </div>"""
@@ -826,20 +890,20 @@ def _render_devices(data: dict) -> str:
 <tr><td>Tier</td><td>{dev['tier']}</td></tr>
 <tr><td>Source</td><td><span class="source-tag source-{"ci" if dev['source']=='ci' else 'od'}">{_source_label(dev['source'])}</span></td></tr>
 <tr><td>Suites</td><td>{', '.join(dev['suites'])}</td></tr>
-<tr><td>Total Runs (merged)</td><td>{dev['total']}</td></tr>
-<tr><td>Pass Rate (merged)</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']})</td></tr>
+<tr><td>Merged Test Cases</td><td>{dev['total']} <span class="table-note">(total across all evidence, including historical)</span></td></tr>
+<tr><td>Pass Rate (merged)</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']}) <span class="table-note">(see suite/scope breakdown below)</span></td></tr>
 <tr><td>Latest Run</td><td>{_iso_short(dev['latest'])}</td></tr>
 <tr><td>Latest Commit</td><td><code>{_truncate_sha(dev['latest_commit'])}</code></td></tr>
 </tbody>
 </table>
 </div>
-<div class="device-note">Overall totals merge all evidence found for this device. Use the suite and scope breakdowns below to distinguish PR-scoped runs, release baselines, and unscoped evidence.</div>
+<div class="device-note">The merged totals above aggregate all evidence for this device. Use the suite and scope breakdowns below to distinguish PR-scoped runs, release baselines, and unscoped evidence. Each suite row links to the source evidence JSON file(s) for drilldown.</div>
 {unscoped_warning}
 
 <h3>By suite</h3>
 <div class="pr-table-wrap">
 <table>
-<thead><tr><th>Suite</th><th>Source</th><th>Scope</th><th>Latest</th><th>Commit</th><th>Passed</th><th>Failed</th><th>Total</th><th>Pass Rate</th><th>Status</th></tr></thead>
+<thead><tr><th>Suite</th><th>Source</th><th>Scope</th><th>Latest</th><th>Commit</th><th>Passed</th><th>Failed</th><th>Total</th><th>Pass Rate</th><th>Status</th><th>Evidence</th></tr></thead>
 <tbody>{suite_rows}</tbody>
 </table>
 </div>
@@ -971,6 +1035,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="_site",
         help="Output directory for generated dashboard (default: _site)",
     )
+    parser.add_argument(
+        "--results-url",
+        type=str,
+        default="",
+        help="Base URL for source evidence files (e.g. https://github.com/owner/repo/blob/test-results/results). Auto-derived from evidence repo field if omitted.",
+    )
     return parser.parse_args(argv)
 
 
@@ -991,8 +1061,18 @@ def main() -> None:
     evidence = _discover_results(results_dir)
     print(f"Loaded {len(evidence)} evidence record(s)")
 
+    # Derive results URL base for source file links
+    if args.results_url:
+        results_url_base = args.results_url.rstrip("/")
+    elif evidence:
+        repo = evidence[0].get("repo", "NickMonrad/kernel-ai-assistant")
+        results_url_base = f"https://github.com/{repo}/blob/test-results/results"
+    else:
+        results_url_base = ""
+
     # Aggregate
     aggregates = _build_aggregates(evidence)
+    aggregates["results_url_base"] = results_url_base
     print(
         f"  {len(aggregates['prs'])} PR(s), "
         f"{len(aggregates['devices'])} device(s), "
