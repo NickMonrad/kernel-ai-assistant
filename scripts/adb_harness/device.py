@@ -193,6 +193,7 @@ def check_oracle(
 
     On failure, prints diagnostic guidance and returns False.  Callers
     should abort the test suite when this returns False.
+    """
     global _STREAM_PROC, _STREAM_READER
 
     label, prompt, expected_intent, expected_marker = _ORACLE_PROBES[probe_idx]
@@ -319,7 +320,7 @@ def _keep_foreground_until_inference_starts(
         time.sleep(0.1)
         run_adb("shell", "input", "tap", "500", "1000")
 def send_text(text: str, wait_for_inference: bool = True) -> None:
-    """Deliver *text* via ``chat_input`` extra → ChatViewModel.
+    """Deliver *text* via ``chat_input`` extra to ChatViewModel.
 
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
@@ -334,7 +335,7 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
 
 
 def send_quick_action(text: str) -> None:
-    """Deliver *text* via ``quick_action_input`` extra → ActionsViewModel.
+    """Deliver *text* via ``quick_action_input`` extra to ActionsViewModel.
 
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
@@ -347,7 +348,7 @@ def send_quick_action(text: str) -> None:
 
 
 def send_slot_reply(text: str) -> None:
-    """Deliver a slot reply via ``slot_reply_input`` extra → ActionsViewModel.onSlotReply().
+    """Deliver a slot reply via ``slot_reply_input`` extra to ActionsViewModel.onSlotReply().
 
     Uses ``shlex.quote()`` so multi-word text survives re-interpretation
     by the device shell through ``adb shell am start ...``.
