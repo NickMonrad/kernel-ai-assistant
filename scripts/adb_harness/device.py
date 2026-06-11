@@ -212,7 +212,7 @@ def check_oracle(
     run_adb(
         "shell", "am", "start", "-n", f"{ACTIVITY}",
         "--activity-clear-top", "--activity-single-top",
-        "--es", "chat_input", prompt,
+        "--es", "chat_input", shlex.quote(prompt),
     )
 
     accumulated = logcat_wait(expected_marker, timeout)
@@ -293,31 +293,16 @@ def _keep_foreground_until_inference_starts(
         run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         time.sleep(0.1)
         run_adb("shell", "input", "tap", "500", "1000")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Input helpers
-# ═══════════════════════════════════════════════════════════════════════
-
-
 def send_text(text: str, wait_for_inference: bool = True) -> None:
     """Deliver *text* via ``chat_input`` extra → ChatViewModel.
 
-    This is the main input path for most tests (non-slot-fill).
+    Uses ``shlex.quote()`` so multi-word text survives re-interpretation
+    by the device shell through ``adb shell am start ...``.
     """
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-    time.sleep(0.3)
     run_adb(
-        "shell",
-        "am",
-        "start",
-        "--activity-clear-top",
-        "--activity-single-top",
-        "-n",
-        ACTIVITY,
-        "--es",
-        "chat_input",
-        shlex.quote(text),
+        "shell", "am", "start", "-n", f"{ACTIVITY}",
+        "--activity-clear-top", "--activity-single-top",
+        "--es", "chat_input", shlex.quote(text),
     )
     if wait_for_inference:
         _keep_foreground_until_inference_starts()
@@ -326,45 +311,26 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
 def send_quick_action(text: str) -> None:
     """Deliver *text* via ``quick_action_input`` extra → ActionsViewModel.
 
-    Used to drive slot-fill tests: bare queries (e.g. "set an alarm") route
-    through ActionsViewModel → QIR → NeedsSlot → navigate to Chat with slot prompt.
+    Uses ``shlex.quote()`` so multi-word text survives re-interpretation
+    by the device shell through ``adb shell am start ...``.
     """
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-    time.sleep(0.3)
     run_adb(
-        "shell",
-        "am",
-        "start",
-        "--activity-clear-top",
-        "--activity-single-top",
-        "-n",
-        ACTIVITY,
-        "--es",
-        "quick_action_input",
-        shlex.quote(text),
+        "shell", "am", "start", "-n", f"{ACTIVITY}",
+        "--activity-clear-top", "--activity-single-top",
+        "--es", "quick_action_input", shlex.quote(text),
     )
 
 
 def send_slot_reply(text: str) -> None:
     """Deliver a slot reply via ``slot_reply_input`` extra → ActionsViewModel.onSlotReply().
 
-    Used for the second turn of a slot-fill test: after send_quick_action triggers
-    NeedsSlot and the ModalBottomSheet is shown, this delivers the user's answer
-    directly to the ActionsViewModel without navigating away from the Actions tab.
+    Uses ``shlex.quote()`` so multi-word text survives re-interpretation
+    by the device shell through ``adb shell am start ...``.
     """
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-    time.sleep(0.3)
     run_adb(
-        "shell",
-        "am",
-        "start",
-        "--activity-clear-top",
-        "--activity-single-top",
-        "-n",
-        ACTIVITY,
-        "--es",
-        "slot_reply_input",
-        shlex.quote(text),
+        "shell", "am", "start", "-n", f"{ACTIVITY}",
+        "--activity-clear-top", "--activity-single-top",
+        "--es", "slot_reply_input", shlex.quote(text),
     )
 
 
