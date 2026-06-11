@@ -619,7 +619,15 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     # will not stall after warmup.
     print("  [stream] Verifying host-side logcat stream ...", end=" ", flush=True)
     healthy = check_logcat_stream(timeout=5.0)
-    print("healthy" if healthy else "UNHEALTHY (proceeding anyway)")
+    print("healthy" if healthy else "STREAM_UNHEALTHY")
+    if not healthy:
+        print("  [stream] Persistent logcat stream did not deliver current lines.")
+        print("  [stream] Aborting test suite to avoid false NO_MATCH evidence.")
+        print("=" * 70)
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return 43  # STREAM_UNHEALTHY exit code
     print("ready" if warmed_ml else "timeout (proceeding anyway)")
 
     # Flush any logcat residue from the cleanup intents before starting tests.
