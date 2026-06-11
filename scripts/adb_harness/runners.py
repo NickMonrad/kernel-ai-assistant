@@ -37,6 +37,7 @@ from adb_harness.config import (
 )
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
+    check_oracle,
     cleanup_side_effects,
     clear_logcat,
     dismiss_notifications,
@@ -590,6 +591,22 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         if "Ready:" in log:
             warmed_ml = True
             break
+
+    # ── Oracle preflight: confirm logcat observability is healthy ──
+    # If the streaming logcat pipeline is broken (e.g. from adb logcat -c
+    # on ADB-TLS), all test results would be untrustworthy false negatives.
+    # This requires a clean pass before proceeding.
+    if not check_oracle(timeout=30.0):
+        print()
+        print("  [oracle] ORACLE_UNHEALTHY — aborting test suite")
+        print("  [oracle] All NO_MATCH/regex_or_qir_miss failures from earlier runs")
+        print("  [oracle] are INVALID when the oracle is broken.")
+        print("  [oracle] Fix the logcat pipeline and re-run.")
+        print("=" * 70)
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return 42  # ORACLE_UNHEALTHY exit code
     print("ready" if warmed_ml else "timeout (proceeding anyway)")
 
     # Flush any logcat residue from the cleanup intents before starting tests.

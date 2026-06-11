@@ -71,13 +71,22 @@ def _logcat_reader() -> None:
 
 
 def logcat_start() -> None:
-    """Start the persistent host-buffered logcat stream."""
+    """Start the persistent host-buffered logcat stream.
+
+    NOTE: ``adb logcat -c`` (clear device ring buffer) is deliberately
+    NOT called here.  On ADB-over-TLS (adb-tls-connect) the ``-c`` flag
+    exits 0 but leaves the ring buffer in a state where subsequent reads
+    produce no output, causing all tests to return NO_MATCH.
+
+    Per-test isolation is handled entirely via the host-side buffer:
+    ``clear_logcat()`` drains ``_STREAM_BUFFER`` before each case without
+    touching the device ring.
+    """
     global _STREAM_PROC, _STREAM_READER
     if _STREAM_PROC is not None and _STREAM_PROC.poll() is None:
         return
     if _STREAM_PROC is not None:
         logcat_stop()
-    run_adb("logcat", "-c")
     try:
         _STREAM_PROC = subprocess.Popen(
             [ADB, "logcat", "-s", f"{LOGCAT_TAG}:D", "LiteRtInferenceEngine:I", "MiniLMIntentClassifier:I", "-v", "brief"],
@@ -155,6 +164,82 @@ def read_logcat() -> str:
 def read_logcat_all() -> str:
     """Return accumulated KernelAI + inference logcat output since the last drain."""
     return logcat_snapshot()
+
+
+atexit.register(logcat_stop)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Oracle preflight check
+# ═══════════════════════════════════════════════════════════════════════
+
+# Known-good oracle probes: non-destructive prompts the harness can
+# reliably detect to confirm the observability pipeline is healthy.
+_ORACLE_PROBES: list[tuple[str, str, str, str]] = [
+    # (label, prompt, expected_intent, expected_log_marker)
+    ("get_time", "what time is it", "get_time", "NativeIntentHandler.handle: intent=get_time"),
+]
+
+
+def check_oracle(
+    timeout: float = 30.0,
+    probe_idx: int = 0,
+) -> bool:
+    """Run a single oracle probe to confirm logcat observability is healthy.
+
+    Sends a known-good prompt, waits for the expected NativeIntentHandler
+    marker in the host-side logcat buffer, and returns True iff the marker
+    is observed within *timeout* seconds.
+
+    On failure, prints diagnostic guidance and returns False.  Callers
+    should abort the test suite when this returns False.
+    """
+    label, prompt, expected_intent, expected_marker = _ORACLE_PROBES[probe_idx]
+
+    clear_logcat()
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "input", "swipe", "540", "2000", "540", "500", "200")
+    time.sleep(1)
+    run_adb(
+        "shell", "am", "start", "-n", f"{ACTIVITY}",
+        "--activity-clear-top", "--activity-single-top",
+    )
+    time.sleep(2)
+
+    clear_logcat()
+    print(f"  [oracle] probe=\"{prompt}\"  expect={expected_marker!r}  timeout={timeout:.0f}s")
+
+    run_adb(
+        "shell", "am", "start", "-n", f"{ACTIVITY}",
+        "--activity-clear-top", "--activity-single-top",
+        "--es", "chat_input", prompt,
+    )
+
+    accumulated = logcat_wait(expected_marker, timeout)
+    found = expected_marker in accumulated
+
+    if found:
+        print(f"  [oracle] \u2705  marker found \u2014 observability pipeline healthy")
+        return True
+
+    lines = accumulated.strip().split("\n") if accumulated.strip() else []
+    print(f"  [oracle] \u274c  marker NOT found in {len(lines)} logcat line(s) within {timeout:.0f}s")
+    print(f"  [oracle]     Last 10 logcat lines:")
+    for l in lines[-10:]:
+        print(f"              {l}")
+    print(f"  [oracle]     Possible causes (check oracle lines above to distinguish):")
+    print(f"              [LOG STREAM]: No logcat lines at all — streaming subprocess broken")
+    print(f"              [LOG STREAM]:   • `adb logcat -c` was called (removed in host-buffer fix)")
+    print(f"              [LOG STREAM]:   • ADB-TLS transport failure")
+    print(f"              [APP CRASH]:  Log lines present but no NativeIntentHandler — app or model issue")
+    print(f"              [APP CRASH]:   • Model not loaded (warmup timed out)")
+    print(f"              [APP CRASH]:   • Inference too slow for timeout window")
+    print(f"              [ROUTING]:    Log lines show fallthrough — QIR/MiniLM didn't match")
+    print(f"              [ROUTING]:    • Intent not in QIR regex set")
+    print(f"              [ROUTING]:    • MiniLM classifier below threshold")
+    print(f"              [TIMEOUT]:    • Timeout too short for this device")
+    print(f"  [oracle]     ABORTING \u2014 all further test results would be untrustworthy")
+    return False
 
 
 atexit.register(logcat_stop)
