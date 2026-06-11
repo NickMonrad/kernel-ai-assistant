@@ -47,8 +47,8 @@ private fun KernelWidgetContent(packageName: String) {
                 .wrapContentHeight()
                 .background(
                     DayNightColorProvider(
-                        day = Color(0xCCFFFFFF),
-                        night = Color(0xCC000000),
+                        day = Color(0xD9F5F0E8),
+                        night = Color(0xD9111111),
                     )
                 )
                 .cornerRadius(24.dp)
@@ -57,11 +57,10 @@ private fun KernelWidgetContent(packageName: String) {
         ) {
             Box(
                 modifier = GlanceModifier
-                    .defaultWeight()
                     .background(
                         DayNightColorProvider(
-                            day = Color(0x1A000000),
-                            night = Color(0x1AFFFFFF),
+                            day = Color(0x1A4F7942),
+                            night = Color(0x1A7AAD6A),
                         )
                     )
                     .cornerRadius(16.dp)
@@ -73,8 +72,8 @@ private fun KernelWidgetContent(packageName: String) {
                     text = "Ask Jandal…",
                     style = TextStyle(
                         color = DayNightColorProvider(
-                            day = Color(0x99000000),
-                            night = Color(0x99FFFFFF),
+                            day = Color(0xDE111111),
+                            night = Color(0xDEF5F0E8),
                         )
                     ),
                 )
@@ -85,8 +84,8 @@ private fun KernelWidgetContent(packageName: String) {
                     .size(48.dp)
                     .background(
                         DayNightColorProvider(
-                            day = Color(0xFF6750A4),
-                            night = Color(0xFFD0BCFF),
+                            day = Color(0xFF4F7942),
+                            night = Color(0xFF7AAD6A),
                         )
                     )
                     .cornerRadius(24.dp)
