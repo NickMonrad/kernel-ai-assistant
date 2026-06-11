@@ -829,9 +829,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         n_xfail = sum(1 for r in phase_results if r.status == "xfail")
         n_xpass = sum(1 for r in phase_results if r.status == "xpass")
         n_fail  = sum(1 for r in phase_results if r.status == "fail")
+        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass
         xpass_suffix = f"  {n_xpass} xpass" if n_xpass else ""
         print(
-            f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}"
+            f"  \u2192 {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}"
             f"  ({phase_elapsed:.1f}s)"
         )
 
@@ -927,7 +928,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")  # restore 60s
     print("done")
 
-    return 1 if failures > 0 else 0
+    xpass_is_failure = os.environ.get("XPASS_IS_FAILURE", "").strip() in ("1", "true", "yes")
+    effective_exit = 1 if (failures > 0 or (xpass_is_failure and xpasses > 0)) else 0
+    return effective_exit
 
 
 

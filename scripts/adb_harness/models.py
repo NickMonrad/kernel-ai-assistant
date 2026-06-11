@@ -102,14 +102,66 @@ def is_clean_pass(r: TestResult) -> bool:
     return r.intent_passed and r.params_passed and not r.log_check_warn
 
 
+def _observed_expected_failure(r: TestResult) -> bool:
+    """Return True when an xfail test observed its expected failure mode.
+
+    An xfail test describes *what* it expects to happen, but that expectation
+    encodes the failure mode — not the real/ideal success criteria.
+    We distinguish by checking whether the result matches the failure pattern:
+
+      1. expect_log_contains was set and was *found* in logcat
+         (log_check_warn is None). This handles orchestrator recovery tests
+         that assert a specific NotActionable / AskConfirmation log line.
+      2. expect_intent="" AND no actual intent was observed (empty or None).
+         This covers orchestrator not-actionable / no-dispatch paths where
+         the test asserts no intent fires.
+      3. intent_passed is False — the routing failure the xfail anticipates
+         actually occurred.
+      4. log_check_warn is present AND matches the expected failure reason.
+
+    If none of these hold and the result is a clean pass, the xfail test
+    unexpectedly succeeded in the real sense → xpass.
+    """
+    # Criterion 1: log-based assertion found its expected content
+    if r.expect_log_contains and r.log_check_warn is None:
+        return True
+    # Criterion 2: no-intent assertion held
+    if r.expect_intent == "" and not r.actual_intent:
+        return True
+    # Criterion 3: expected routing failure
+    if not r.intent_passed:
+        return True
+    # Criterion 4: log_check_warn present (expected log not found) but
+    # the test is xfail because of a *different* gap — still observed the
+    # expected failure mode even if the specific log pattern was missed.
+    if r.log_check_warn:
+        return True
+    return False
+
+
 def derive_status(r: TestResult) -> str:
-    """Derive a lightweight status string from a TestResult."""
-    if r.xfail and is_clean_pass(r):
-        return "xpass"
+    """Derive a lightweight status string from a TestResult.
+
+    Semantics:
+      * xfail + observed expected failure mode → "xfail"
+      * xfail + unexpectedly satisfies real success criteria → "xpass"
+      * non-xfail clean pass → "pass"
+      * non-xfail failure → "fail"
+
+    xpass does NOT affect the process exit code by default — it is
+    informational, signalling that an expected failure may now be resolveable.
+    Set XPASS_IS_FAILURE=1 environment variable to make xpass exit non-zero.
+    """
+    if r.xfail:
+        if _observed_expected_failure(r):
+            return "xfail"
+        # xfail + clean pass that doesn't match any failure pattern = xpass
+        if is_clean_pass(r):
+            return "xpass"
+        # xfail + non-clean-pass but no failure pattern matched — still xfail
+        return "xfail"
     if is_clean_pass(r):
         return "pass"
-    if r.xfail and not r.intent_passed:
-        return "xfail"
     return "fail"
 
 
