@@ -67,7 +67,7 @@ fun ModelSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Model Settings") },
+                title = { Text("🩴 Model Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

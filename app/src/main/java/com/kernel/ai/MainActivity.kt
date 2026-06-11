@@ -12,8 +12,10 @@ import androidx.core.content.ContextCompat
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.navigation.KernelNavHost
 import dagger.hilt.android.AndroidEntryPoint
@@ -38,6 +40,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var wakeWordPreferences: WakeWordPreferences
 
     @Inject lateinit var userProfileRepository: UserProfileRepository
+
+    @Inject lateinit var chatPreferences: ChatPreferences
 
     /** Bridges ADB `--es chat_input` extras (onCreate + onNewIntent) into the nav graph. */
     private val adbChatInput = mutableStateOf<String?>(null)
@@ -81,7 +85,9 @@ class MainActivity : ComponentActivity() {
         handleAdbProfileText(intent)
         requestStartupPermissionsIfNeeded()
         setContent {
-            KernelAITheme {
+            val useSystemColorsState = chatPreferences.useSystemColors
+                .collectAsState(initial = true)
+            KernelAITheme(dynamicColor = useSystemColorsState.value) {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,
                     initialQuickActionQuery = adbQuickActionInput.value?.query,

@@ -88,4 +88,13 @@ class ChatPreferencesViewModel @Inject constructor(
     fun setCopyThinking(enabled: Boolean) {
         viewModelScope.launch { chatPreferences.setCopyThinking(enabled) }
     }
+
+    // ---- Dynamic Colour (#1183) ----
+
+    val useSystemColors: StateFlow<Boolean> = chatPreferences.useSystemColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    fun setUseSystemColors(enabled: Boolean) {
+        viewModelScope.launch { chatPreferences.setUseSystemColors(enabled) }
+    }
 }
