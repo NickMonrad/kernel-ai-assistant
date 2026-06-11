@@ -57,7 +57,10 @@ from adb_harness.device import (
     stop_keepalive,
     teardown_contact_alias_fixture,
 )
-from adb_harness.models import LLMToolsResult, LLMToolsTestCase, ProfileTestCase, TestCase, TestResult
+from adb_harness.models import (
+    LLMToolsResult, LLMToolsTestCase, ProfileTestCase, TestCase, TestResult,
+    derive_failure_bucket, derive_status, is_clean_pass,
+)
 from adb_harness.selectors import _select_tests
 from adb_harness.reporting import (
     analyse_results,
@@ -497,6 +500,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.xfail:
                 xfail_count += 1
         print()
+        total_tests = len(TEST_CASES)
+        not_selected = total_tests - len(selected_tests)
+        print(f"  Selected: {len(selected_tests)} / {total_tests}")
+        print(f"  Not selected: {not_selected}")
         print(f"  Total: {len(selected_tests)} test cases"
               + (f" ({xfail_count} xfail)" if xfail_count else ""))
         print("=" * 80)
@@ -777,7 +784,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 log_check_warn=log_check_warn,
                 first_turn_warn=first_turn_warn,
                 phase=phase_name,
+                case_id=tc.id,
+                category=tc.category,
+                tags=list(tc.tags),
+                fixture=tc.fixture,
+                xfail_reason=tc.xfail_reason,
             )
+            result.status = derive_status(result)
+            result.failure_bucket = derive_failure_bucket(result)
             phase_results.append(result)
             results.append(result)
             global_index += 1
@@ -788,27 +802,36 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if log_check_warn: warnings.append(log_check_warn)
             warn_suffix = f" [{'; '.join(warnings)}]" if warnings else ""
 
-            if intent_passed and not log_check_warn:
+            status = result.status
+            if status == "pass":
                 print("✓" + warn_suffix)
-            elif tc.xfail:
-                print("✗ (xfail — not yet implemented)")
-            elif not intent_passed:
-                print(f"✗ (got {actual_intent or 'NO_MATCH'})" + warn_suffix)
+            elif status == "xpass":
+                reason = f": {result.xfail_reason}" if result.xfail_reason else ""
+                print(f"✗ (unexpected pass — expected to fail{reason})")
+            elif status == "xfail":
+                bucket = result.failure_bucket
+                bucket_suffix = f" [{bucket}]" if bucket else ""
+                print(f"✗ (xfail — not yet implemented){bucket_suffix}")
+            elif not result.intent_passed:
+                bucket = result.failure_bucket
+                bucket_suffix = f" [{bucket}]" if bucket else ""
+                print(f"✗ (got {result.actual_intent or 'NO_MATCH'})" + warn_suffix + bucket_suffix)
             else:
-                print(f"✗ (params: {'; '.join(param_failures)})")
+                bucket = result.failure_bucket
+                bucket_suffix = f" [{bucket}]" if bucket else ""
+                print(f"✗ (params: {'; '.join(result.param_failures)})" + bucket_suffix)
 
             # Hang up after call tests so they don't stay open
             if tc.expect_intent == "make_call":
                 time.sleep(2)
                 run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
-
-        # ── Phase summary ──────────────────────────────────────────────────
         phase_elapsed = time.time() - phase_start
-        n_pass  = sum(1 for r in phase_results if r.intent_passed and r.params_passed and not r.xfail and not r.log_check_warn)
-        n_xfail = sum(1 for r in phase_results if r.xfail and not r.intent_passed)
-        n_fail  = sum(1 for r in phase_results if not r.xfail and (not r.intent_passed or not r.params_passed or r.log_check_warn is not None))
+        n_xfail = sum(1 for r in phase_results if r.status == "xfail")
+        n_xpass = sum(1 for r in phase_results if r.status == "xpass")
+        n_fail  = sum(1 for r in phase_results if r.status == "fail")
+        xpass_suffix = f"  {n_xpass} xpass" if n_xpass else ""
         print(
-            f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail"
+            f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}"
             f"  ({phase_elapsed:.1f}s)"
         )
 
@@ -838,31 +861,41 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
     failures = 0
     xfails = 0
+    xpasses = 0
     for r in results:
-        if r.intent_passed and r.params_passed:
+        status = r.status
+        if status == "pass":
             icon = "  ✓"
-        elif r.xfail:
-            icon = "  ✗"
         else:
             icon = "  ✗"
         actual_str = r.actual_intent or "NO_MATCH"
-        suffix = " (xfail)" if not r.intent_passed and r.xfail else ""
-        if not r.intent_passed and not r.xfail:
+        if status == "xfail":
+            suffix = " (xfail)"
             detail = actual_str
-        elif not r.params_passed and not r.xfail:
-            detail = f"{actual_str} [param fail]"
-        else:
+            xfails += 1
+        elif status == "xpass":
+            suffix = " (xpass)"
+            detail = actual_str
+            xpasses += 1
+        elif status == "fail":
+            suffix = ""
+            if not r.intent_passed:
+                detail = actual_str
+            elif not r.params_passed:
+                detail = f"{actual_str} [param fail]"
+            else:
+                detail = actual_str
+            failures += 1
+        else:  # pass
+            suffix = ""
             detail = actual_str
         print(f"  {r.index:3d}  {icon:>6}  {r.expect_intent:<24}  {detail:<24}  \"{r.message}\"{suffix}")
-        if not r.xfail and (not r.intent_passed or not r.params_passed or r.log_check_warn is not None):
-            failures += 1
-        elif r.xfail and not r.intent_passed:
-            xfails += 1
 
     print("-" * 70)
     total = len(results)
-    passed_count = total - failures - xfails
-    print(f"  PASSED: {passed_count}/{total}  XFAIL: {xfails}/{total}  FAILED: {failures}/{total}")
+    n_pass = total - failures - xfails - xpasses
+    print(f"  PASSED: {n_pass}/{total}  XFAIL: {xfails}/{total}  XPASS: {xpasses}/{total}  FAILED: {failures}/{total}")
+    print("=" * 70)
     print("=" * 70)
 
     analyse_results(results)
