@@ -460,7 +460,14 @@ def compare_params(
     """Compare expected vs actual parameter dicts.
 
     Returns (matched: bool, list of mismatch descriptions).
+    Handles None inputs gracefully.
     """
+    if expected is None and actual is None:
+        return True, []
+    if expected is None:
+        return False, [f"expected is None but actual={actual!r}"]
+    if actual is None:
+        return False, [f"actual is None but expected={expected!r}"]
     if ignored_params is None:
         ignored_params = frozenset()
     mismatches: list[str] = []
@@ -476,13 +483,6 @@ def compare_params(
         if key not in expected and key not in ignored_params:
             mismatches.append(f"unexpected key '{key}'={actual[key]!r}")
     return len(mismatches) == 0, mismatches
-
-
-check_params = compare_params  # backward-compat alias
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Profile extraction helpers
 # ═══════════════════════════════════════════════════════════════════════
 
 PROFILE_LLM_PATTERN = re.compile(r"ProfileExtraction\s+method=llm")
