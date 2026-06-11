@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Sole outline -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,34
+            C64,34 72,38 74,46
+            C76,54 76,62 74,70
+            C72,76 64,78 54,78
+            C44,78 36,76 34,70
+            C32,62 32,54 34,46
+            C36,38 44,34 54,34Z"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- V-strap outline -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M38,38 L54,58 L70,38"
+        android:strokeWidth="2.5"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
