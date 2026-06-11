@@ -483,6 +483,9 @@ def compare_params(
         if key not in expected and key not in ignored_params:
             mismatches.append(f"unexpected key '{key}'={actual[key]!r}")
     return len(mismatches) == 0, mismatches
+
+
+check_params = compare_params  # backward-compat alias
 # ═══════════════════════════════════════════════════════════════════════
 
 PROFILE_LLM_PATTERN = re.compile(r"ProfileExtraction\s+method=llm")
