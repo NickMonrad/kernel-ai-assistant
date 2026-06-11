@@ -175,16 +175,6 @@ def logcat_wait(expected: str, timeout: float = WAIT_SECONDS) -> str:
     return "\n".join(accumulated)
 
 
-def check_logcat_stream(timeout: float = 5.0) -> bool:
-    """Best-effort health check for the persistent host-side logcat stream."""
-    if _STREAM_PROC is None or _STREAM_PROC.poll() is not None:
-        return False
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if logcat_snapshot():
-            return True
-        time.sleep(0.25)
-    return _STREAM_PROC.poll() is None
 
 
 def clear_logcat() -> None:
