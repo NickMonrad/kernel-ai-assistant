@@ -42,6 +42,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +90,7 @@ import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import com.kernel.ai.core.ui.theme.FernGreen
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -615,6 +617,11 @@ private fun ClockSurfaceTabChip(
         modifier = modifier.heightIn(min = 56.dp),
         label = { Text(option.label, maxLines = 1) },
         leadingIcon = { Icon(option.icon, contentDescription = null) },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = FernGreen,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+        ),
     )
 }
 
