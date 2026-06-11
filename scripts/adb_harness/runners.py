@@ -32,11 +32,15 @@ from adb_harness.config import (
     MARKER_TIMEOUT_PATTERN,
     SLOT_FILL_MARKERS,
     WAIT_SECONDS,
+    LOGCAT_TAG,
     PROFILE_WAIT_SECONDS,
     REPORTS_DIR,
 )
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
+    capture_fresh_logcat,
+    check_oracle,
+    check_logcat_stream,
     cleanup_side_effects,
     clear_logcat,
     dismiss_notifications,
@@ -44,7 +48,6 @@ from adb_harness.device import (
     extract_reply,
     check_params,
     logcat_start,
-    logcat_wait,
     read_logcat,
     read_logcat_all,
     run_adb,
@@ -194,6 +197,8 @@ def run_llm_tools(dry_run: bool = False) -> int:
     print("=" * 70)
     # Start host-side logcat streaming (required for all read_logcat_all() calls below)
     logcat_start()
+    # Keep screen on (30 min timeout) so the device doesn't lock mid-test
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "1800000")
 
     # Preflight: prove model stack ready and MiniLM ready.
     # Dismiss any notification overlays first (Samsung Calendar, etc.)
@@ -590,6 +595,39 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         if "Ready:" in log:
             warmed_ml = True
             break
+
+    # ── Oracle preflight: confirm logcat observability is healthy ──
+    # If the streaming logcat pipeline is broken (e.g. from adb logcat -c
+    # on ADB-TLS), all test results would be untrustworthy false negatives.
+    # This requires a clean pass before proceeding.
+    if not check_oracle(timeout=30.0):
+        print()
+        print("  [oracle] ORACLE_UNHEALTHY — aborting test suite")
+        print("  [oracle] All NO_MATCH/regex_or_qir_miss failures from earlier runs")
+        print("  [oracle] are INVALID when the oracle is broken.")
+        print("  [oracle] Fix the logcat pipeline and re-run.")
+        print("=" * 70)
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return 42  # ORACLE_UNHEALTHY exit code
+
+    # ── Streaming logcat health check ──
+    # The oracle above proved fresh ``adb logcat -d`` works.  This proves
+    # the persistent host-side streaming subprocess is also delivering new
+    # lines, so the per-case ``logcat_wait()`` / ``read_logcat()`` path
+    # will not stall after warmup.
+    print("  [stream] Verifying host-side logcat stream ...", end=" ", flush=True)
+    healthy = check_logcat_stream(timeout=5.0)
+    print("healthy" if healthy else "STREAM_UNHEALTHY")
+    if not healthy:
+        print("  [stream] Persistent logcat stream did not deliver current lines.")
+        print("  [stream] Aborting test suite to avoid false NO_MATCH evidence.")
+        print("=" * 70)
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return 43  # STREAM_UNHEALTHY exit code
     print("ready" if warmed_ml else "timeout (proceeding anyway)")
 
     # Flush any logcat residue from the cleanup intents before starting tests.
@@ -701,49 +739,62 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             global_index = len(results) + 1  # 1-based, runs only over selected tests
             print(f"  [{global_index:3d}/{total_tests}] \"{tc.message}\" ...", end=" ", flush=True)
 
-            clear_logcat()
-            time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
             first_turn_warn: str | None = None
+            logcat = ""
+            intent_signal = (
+                f"NativeIntentHandler.handle: intent={tc.expect_intent}"
+                if tc.expect_intent
+                else None
+            )
+            final_signal = tc.expect_log_contains or intent_signal
             if tc.slot_reply is not None:
-                # Slot-fill test: two-turn flow
-                # Turn 1: bare query via quick_action_input → NeedsSlot → ModalBottomSheet
-                send_quick_action(tc.message)
-                time.sleep(WAIT_SECONDS)
-                # Capture first-turn logcat BEFORE clearing — check for NeedsSlot
+                # Slot-fill test: two-turn flow.
+                logcat1 = capture_fresh_logcat(
+                    lambda: send_quick_action(tc.message),
+                    timeout=WAIT_SECONDS,
+                    expected=tc.expect_initial_log_contains,
+                    keep_foreground=True,
+                )
                 if tc.expect_initial_log_contains is not None:
-                    logcat1 = read_logcat()
                     first_turn_ok = tc.expect_initial_log_contains in logcat1
                     if not first_turn_ok:
                         first_turn_warn = (
                             f"initial slot prompt '{tc.expect_initial_log_contains}' "
                             f"not found in first-turn logcat"
                         )
-                # Turn 2: slot reply via slot_reply_input → ActionsViewModel.onSlotReply() → intent fires
-                clear_logcat()
-                time.sleep(0.5)
-                send_slot_reply(tc.slot_reply)
+                logcat = capture_fresh_logcat(
+                    lambda: send_slot_reply(tc.slot_reply),
+                    timeout=WAIT_SECONDS,
+                    expected=final_signal,
+                    keep_foreground=True,
+                )
             elif tc.confirm_reply is not None:
-                # Confirmation test: two-turn flow (orchestrator AskConfirmation → user confirms)
-                # Turn 1: query via chat_input → ChatViewModel → OrchTest override → orchestrator AskConfirmation
-                clear_logcat()
-                time.sleep(0.5)
-                send_text(tc.message)
-                time.sleep(WAIT_SECONDS)
+                # Confirmation test: AskConfirmation on turn 1, skill execution on turn 2.
+                logcat1 = capture_fresh_logcat(
+                    lambda: send_text(tc.message),
+                    timeout=WAIT_SECONDS,
+                    expected=tc.expect_log_contains,
+                    keep_foreground=True,
+                )
                 if tc.expect_log_contains is not None:
-                    logcat1 = read_logcat()
                     log1_found = tc.expect_log_contains in logcat1
                     if not log1_found:
-                        first_turn_warn = f"AskConfirmation not found (expected {tc.expect_log_contains!r})"
-                # Turn 2: confirmation reply via chat_input → pending confirmation → skill executes
-                clear_logcat()
-                time.sleep(0.5)
-                send_text(tc.confirm_reply)
+                        first_turn_warn = (
+                            f"AskConfirmation not found (expected {tc.expect_log_contains!r})"
+                        )
+                logcat = capture_fresh_logcat(
+                    lambda: send_text(tc.confirm_reply),
+                    timeout=WAIT_SECONDS,
+                    expected=final_signal,
+                    keep_foreground=True,
+                )
             else:
-                send_text(tc.message)
-
-            # Early-exit wait: poll for expected signal instead of fixed WAIT_SECONDS (#1102)
-            signal = tc.expect_log_contains or tc.expect_intent
-            logcat = logcat_wait(signal, WAIT_SECONDS) if signal else (time.sleep(WAIT_SECONDS) or read_logcat())
+                logcat = capture_fresh_logcat(
+                    lambda: send_text(tc.message),
+                    timeout=WAIT_SECONDS,
+                    expected=final_signal,
+                    keep_foreground=True,
+                )
             actual_intent, actual_params = extract_intent(logcat)
             intent_passed = (actual_intent or "") == tc.expect_intent
             params_ok, param_failures = check_params(tc.expect_params, actual_params)
