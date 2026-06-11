@@ -1,0 +1,215 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-11T22-17-41Z",
+  "elapsed_seconds": 59.5,
+  "summary": {
+    "total": 6,
+    "passed": 0,
+    "xfail": 0,
+    "xpass": 0,
+    "failed": 6
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "set_an_alarm",
+      "message": "set an alarm",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": {
+        "hours": "7",
+        "minutes": "0"
+      },
+      "actual_params": {
+        "time": "5 minutes"
+      },
+      "intent_passed": true,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param hours",
+        "Missing param minutes"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 2,
+      "case_id": "set_a_timer",
+      "message": "set a timer",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "cancel_timer",
+      "expect_params": {
+        "duration_seconds": "300"
+      },
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param duration_seconds"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 3,
+      "case_id": "open_an_app",
+      "message": "open an app",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "fixture_required"
+      ],
+      "fixture": "apps:spotify_installed",
+      "expect_intent": "open_app",
+      "actual_intent": "open_app",
+      "expect_params": {
+        "app_name": "Spotify"
+      },
+      "actual_params": {
+        "app_name": "5 minutes"
+      },
+      "intent_passed": true,
+      "params_passed": false,
+      "param_failures": [
+        "Param 'app_name': expected 'Spotify', got '5 minutes'"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 4,
+      "case_id": "send_a_message",
+      "message": "send a message",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "fixture_required",
+        "contact_fixture_required",
+        "ambiguous"
+      ],
+      "fixture": "contacts:family_seed",
+      "expect_intent": "send_sms",
+      "actual_intent": "open_app",
+      "expect_params": {
+        "contact": "Mum"
+      },
+      "actual_params": {
+        "app_name": "5 minutes"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param contact"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 5,
+      "case_id": "send_an_email",
+      "message": "send an email",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "fixture_required",
+        "contact_fixture_required",
+        "ambiguous"
+      ],
+      "fixture": "contacts:email_contact_seed",
+      "expect_intent": "send_email",
+      "actual_intent": "open_app",
+      "expect_params": {
+        "contact": "Nick"
+      },
+      "actual_params": {
+        "app_name": "5 minutes"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param contact"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 6,
+      "case_id": "add_to_my_list",
+      "message": "add to my list",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "add_to_list",
+      "expect_params": {
+        "item": "eggs"
+      },
+      "actual_params": {
+        "item": "sunscreen",
+        "list_name": "holiday"
+      },
+      "intent_passed": true,
+      "params_passed": false,
+      "param_failures": [
+        "Param 'item': expected 'eggs', got 'sunscreen'"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    }
+  ]
+}

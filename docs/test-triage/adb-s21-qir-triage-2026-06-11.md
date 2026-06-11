@@ -2,13 +2,30 @@
 
 ## Meta
 
+### Issue lineage
+
+| Stage | Link |
+|---|---|
+| Originating triage issue | [#1180 — Targeted ADB failure triage and root-cause follow-ups](https://github.com/NickMonrad/kernel-ai-assistant/issues/1180) |
+| Continuation issue | [#1186 — Continue/Prioritise S21 QIR triage after harness observability fix](https://github.com/NickMonrad/kernel-ai-assistant/issues/1186) |
+| Harness fix | [#1181](https://github.com/NickMonrad/kernel-ai-assistant/pull/1181) — merged |
+| This PR (evidence/report) | [#1188](https://github.com/NickMonrad/kernel-ai-assistant/pull/1188) |
+
+**Lineage in prose:**
+
+#1180 created the need for targeted root-cause triage.
+#1181 fixed the harness observability blocker that made earlier evidence untrustworthy.
+#1186 carries the remaining S21-first triage workflow forward.
+#1188 records the first S21-focused triage evidence/report.
+
+### Test metadata
+
 | Field | Value |
 |---|---|
-| Issue | [#1186 — Prioritise S21 QIR triage after harness observability fix](https://github.com/NickMonrad/kernel-ai-assistant/issues/1186) |
-| PR | [docs(#1186): add S21-first ADB QIR triage report](https://github.com/NickMonrad/kernel-ai-assistant/pull/1187) |
 | Date | 2026-06-11 |
-| Commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
-| Harness fix | PR [#1181](https://github.com/NickMonrad/kernel-ai-assistant/pull/1181) — merged, fixed ADB-TLS logcat corruption and multi-word shell quoting |
+| Base commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
+| Branch | `issue/1186-s21-qir-triage` |
+| Latest commit | `d83080f8` — report + harness crash fix |
 
 ## Device Preconditions
 
@@ -25,42 +42,29 @@
 | Model warmup | ✅ `ready` (one run), ⚠ `timeout` (other runs — model not ready within 120s) |
 | Pre-#1181 evidence | 🚫 **All invalid** — universal false NO_MATCH from broken logcat pipeline |
 
-## Commands Run
+## Harness Trustworthiness vs S21 Model Reliability
 
-```bash
-# Phase 0 — dry-run selectors
-python3 scripts/adb_skill_test.py --dry-run --tags safe_smoke --exclude-tags destructive,device_state
-python3 scripts/adb_skill_test.py --dry-run --tags deterministic_core --exclude-tags destructive,device_state
-python3 scripts/adb_skill_test.py --dry-run --categories slot_fill --exclude-tags destructive,device_state
+**Important distinction:**
 
-# Phase 1 — device metadata
-adb -s R5CR605B71K shell getprop ro.product.model
-adb -s R5CR605B71K shell getprop ro.build.version.release
-adb -s R5CR605B71K shell dumpsys package com.kernel.ai.debug | grep -E "versionName|versionCode|debuggable"
+- **Harness observability is fixed.** Oracle and stream health checks pass consistently. All failures carry concrete intent/param mismatch labels — no universal NO_MATCH.
+- **S21 model readiness is still a confounder.** Model warmup times out in some runs. The inference engine exhibits stuck-mode behaviour during long sequential test runs.
 
-# Phase 2 — harness trust check (safe_smoke)
-ANDROID_SERIAL=R5CR605B71K ADB_WAIT_SECONDS=15 \
-  python3 scripts/adb_skill_test.py --tags safe_smoke --exclude-tags destructive,device_state
+This means: the harness can be trusted to *report accurately*. But failures observed during a stuck-mode cascade or warmup timeout should not automatically be treated as QIR/router bugs without a clean rerun.
 
-# Phase 3a — deterministic core
-ANDROID_SERIAL=R5CR605B71K ADB_WAIT_SECONDS=15 \
-  python3 scripts/adb_skill_test.py --tags deterministic_core --exclude-tags destructive,device_state
-
-# Phase 3b — slot_fill
-ANDROID_SERIAL=R5CR605B71K ADB_WAIT_SECONDS=15 \
-  python3 scripts/adb_skill_test.py --categories slot_fill --exclude-tags destructive,device_state
-```
+Only failures observed during a known-clean model state (fresh warmup, correct intent returned for surrounding cases) should be used to raise product-routing issues.
 
 ## Bug Fix Applied During Triage
 
-During the deterministic_core run, the harness crashed at case 43 (xfail `bulk_add_to_list`) due to an `AttributeError` in `models.py: _observed_expected_failure()` — the function referenced `r.expect_log_contains` which was not a field on `TestResult`. Fixed in:
+During the deterministic_core run, the harness crashed at case 43 (xfail `bulk_add_to_list`) with an `AttributeError` in `models.py: _observed_expected_failure()` — the function referenced `r.expect_log_contains` which was not a field on `TestResult`. Fixed in commit `d83080f8`:
 
 - Added `expect_log_contains: str | None = None` to `TestResult` dataclass (models.py)
 - Added `expect_log_contains=tc.expect_log_contains` to TestResult construction (runners.py)
 
+**Validation:** `python3 -m py_compile scripts/adb_skill_test.py scripts/adb_harness/*.py` — clean.
+
 ## Results Summary
 
-### safe_smoke (7 tests)
+### safe_smoke — 7 tests (fresh warmup, straightforward prompts)
 
 | Result | Count |
 |---|---|
@@ -68,19 +72,19 @@ During the deterministic_core run, the harness crashed at case 43 (xfail `bulk_a
 | ❌ Fail | 3 |
 | ⏭ Xfail | 0 |
 
-**Evidence:** `scripts/test-reports/2026-06-11T20-55-18Z_skills.json`
+**Evidence:** [`docs/test-triage/evidence/2026-06-11/s21-safe-smoke-skills.json`](evidence/2026-06-11/s21-safe-smoke-skills.json)
 
-| # | Prompt | Expected | Actual | Bucket |
-|---|---|---|---|---|
-| 1 | "set an alarm for 11pm" | set_alarm | set_alarm ✅ | — |
-| 2 | "set a timer for 2 hours" | set_timer | set_timer ✅ | — |
-| 3 | "remember that I prefer dark mode" | save_memory | save_memory ✅ | — |
-| 4 | "what time is it" | get_time | **save_memory** ❌ | wrong_tool |
-| 5 | "what's my battery level" | get_battery | get_battery ✅ | — |
-| 6 | "set an alarm" | set_alarm | **get_battery** ❌ | wrong_tool |
-| 7 | "set a timer" | set_timer | set_timer (params: got '7am') ❌ | slot_fill_issue |
+| # | Prompt | Expected | Actual | Failure | Notes |
+|---|---|---|---|---|---|
+| 1 | "set an alarm for 11pm" | `set_alarm` | `set_alarm` ✅ | — | |
+| 2 | "set a timer for 2 hours" | `set_timer` | `set_timer` ✅ | — | |
+| 3 | "remember that I prefer dark mode" | `save_memory` | `save_memory` ✅ | — | |
+| 4 | "what time is it" | `get_time` | `save_memory` | `wrong_tool` | actual params = `{content: "I prefer dark mode"}` — **case 3 content leaked into case 4** |
+| 5 | "what's my battery level" | `get_battery` | `get_battery` ✅ | — | |
+| 6 | "set an alarm" | `set_alarm` | `get_battery` | `field_mismatch` | wrong intent at slot_fill phase start |
+| 7 | "set a timer" | `set_timer` | `set_timer` (params: `7am`) | `field_mismatch` | correct intent, wrong duration param |
 
-### deterministic_core (76 tests)
+### deterministic_core — 76 tests (sequential, 4 phases)
 
 | Result | Count |
 |---|---|
@@ -88,9 +92,27 @@ During the deterministic_core run, the harness crashed at case 43 (xfail `bulk_a
 | ❌ Fail | 46 |
 | ⏭ Xfail | 5 |
 
-**Evidence:** `scripts/test-reports/2026-06-11T22-11-20Z_skills.json`
+**Evidence:** [`docs/test-triage/evidence/2026-06-11/s21-deterministic-core-skills.json`](evidence/2026-06-11/s21-deterministic-core-skills.json)
 
-### slot_fill (6 tests)
+**Per-phase breakdown:**
+
+| Phase | Pass | Fail | Xfail | Total | Notes |
+|---|---|---|---|---|---|
+| alarm_timer | 0 | 33 | 0 | 33 | All stuck-mode cascade |
+| weather | 0 | 7 | 0 | 7 | All stuck-mode cascade (see below) |
+| lists | 18 | 5 | 5 | 28 | 4 wrong_tool, 5 field_mismatch, 5 xfail |
+| smart_home | 5 | 0 | 0 | 5 | Perfect pass |
+| memory | 2 | 1 | 0 | 3 | 1 wrong_tool (save_important_date) |
+
+**Failure buckets:**
+
+| Bucket | Count | Where |
+|---|---|---|
+| `wrong_tool` | 35 | alarm_timer (33), lists (1), memory (1) |
+| `location_or_permission_missing` | 7 | weather (all — tag-based, see analysis below) |
+| `field_mismatch` | 4 | lists (all — correct intent, wrong params) |
+
+### slot_fill — 6 tests (slot-fill conversation flow)
 
 | Result | Count |
 |---|---|
@@ -98,177 +120,186 @@ During the deterministic_core run, the harness crashed at case 43 (xfail `bulk_a
 | ❌ Fail | 6 |
 | ⏭ Xfail | 0 |
 
-**Evidence:** `scripts/test-reports/2026-06-11T22-17-41Z_skills.json`
+**Evidence:** [`docs/test-triage/evidence/2026-06-11/s21-slot-fill-skills.json`](evidence/2026-06-11/s21-slot-fill-skills.json)
+
+| # | Prompt | Expected | Actual | Failure | Notes |
+|---|---|---|---|---|---|
+| 1 | "set an alarm" | `set_alarm` | `set_alarm` ✅ (params: `time=5 minutes`) | `field_mismatch` | Correct intent, wrong param value from prior context |
+| 2 | "set a timer" | `set_timer` | `cancel_timer` | `field_mismatch` | Wrong intent at slot-fill phase start |
+| 3 | "open an app" | `open_app` | `open_app` ✅ (params: `Spotify → 5 minutes`) | `field_mismatch` | Param value from case 1 ("5 minutes") leaked in |
+| 4 | "send a message" | `send_sms` | `open_app` | `field_mismatch` | Wrong intent + leaked params from case 3 |
+| 5 | "send an email" | `send_email` | `open_app` | `field_mismatch` | Wrong intent + leaked params from case 3 |
+| 6 | "add to my list" | `add_to_list` | `add_to_list` ✅ (params: `eggs → sunscreen`) | `field_mismatch` | Correct intent, param value from prior case context |
 
 ## Failure Classification by Root-Cause Bucket
 
-### 1. Model "Stuck Mode" / Inference Cascade Failure — 38/46 core fails
+### 1. Model State Carryover / "Stuck Mode" — 38/46 core fails + confounds others
 
 The deterministic_core run reveals the model returns the **same intent** for long consecutive blocks:
 
-| Block | Tests | Dominant Intent | Expected Intents | Count |
-|---|---|---|---|---|
-| 1–7 | alarm set/reminder | `add_to_list` | set_alarm, add_reminder | 7 |
-| 8–27 | alarm/timer/cancel | `set_alarm` | add_reminder, cancel_alarm, set_timer, cancel_timer, list_timers, cancel_timer_named | 20 |
-| 28–32 | timer named/remaining | `cancel_alarm` | cancel_timer_named, get_timer_remaining | 5 |
-| 33–39 | timer remaining/weather | `set_timer` | get_timer_remaining, get_weather | 7 |
-| 40–44 | lists/weather | `cancel_timer` | add_to_list, bulk_add_to_list, get_weather | 5 |
-
-After test 46 (45 minutes into the run), the lists phase from case 47 onward mostly passes (18/23 pass) and smart_home passes perfectly (5/5), memory mostly passes (2/3).
-
-**Assessment:** The model appears to require a clean cold-start inference per test or a model-reset between phases. When tests run back-to-back, the inference engine enters a stuck state where it returns the last-used or an incorrect dominant intent. This is likely a model inference reliability / session management issue rather than a routing logic bug.
-
-**Bucket:** `android_platform_constraint` (inference stall) / `unknown_needs_manual_review`
-
-### 2. Location permission not configured — 7/46 core fails
-
-All 7 weather tests fail with `location_or_permission_missing`:
-
-| # | Prompt | Expected | Actual |
+| Cases | Time | Dominant Intent | Expected Intents |
 |---|---|---|---|
-| 34–40 | "what's the weather in Auckland" etc | get_weather | set_timer / cancel_timer |
+| 1–7 | ~0–4 min | `add_to_list` | set_alarm, add_reminder |
+| 8–27 | ~4–13 min | `set_alarm` | add_reminder, cancel_alarm, set_timer, cancel_timer, list_timers |
+| 28–32 | ~13–19 min | `cancel_alarm` | cancel_timer_named, get_timer_remaining |
+| 33–39 | ~19–25 min | `set_timer` | get_timer_remaining, get_weather |
+| 40–44 | ~25–30 min | `cancel_timer` | add_to_list, bulk_add_to_list, get_weather |
+| 45–46 | ~30–32 min | `cancel_timer_named` | add_to_list, get_weather |
 
-**Assessment:** Location permission needs to be granted or mock location provider configured on the device. These are not QIR issues.
+After case 46 (~32 min), the model recovered and the lists phase mostly passed (18/23 pass including 5 xfail), and smart_home passed perfectly (5/5).
 
-**Bucket:** `device_precondition_issue`
+**Key finding:** safe_smoke case 4 also shows state carryover: "what time is it" returned `save_memory` with the *literal content* `{content: "I prefer dark mode"}` — which was the memory content from case 3. This occurred during a **fresh app warmup**, not a long run. This means the LiteRT session/KV cache is persisting inference results across test cases even on a short run.
 
-### 3. Slot-fill extraction failures — 6/6 slot_fill fails
+**Assessment:** The model inference state is not being properly isolated between sequential invocations. This is the highest-priority issue — it conflates ~80% of observed failures.
 
-All 6 slot_fill tests fail. Key observations:
+**Bucket:** `model_state_carryover` / `liteRt_session_isolation`
 
-- "set an alarm" → correct intent `set_alarm` but **empty** params (missing hours, minutes)
-- "set a timer" → **wrong intent** `cancel_timer`
-- "open an app" → correct intent `open_app` but param = `'5 minutes'` (pipelines slot-fill response from wrong context)
-- "send a message" → **wrong intent** `open_app`
-- "send an email" → **wrong intent** `open_app`
-- "add to my list" → correct intent `add_to_list` but param = `'sunscreen'` (from previous test context)
+**Evidence line:** safe_smoke case 4 actual params show case 3's memory content leaked into a `get_time` query.
 
-**Assessment:** The slot-fill conversation flow appears contaminated by prior test context. When the app asks "Which app?" and user responds "Spotify", the slot extractor returns values from unrelated earlier conversations. This may be a model session persistence issue (KV cache not cleared between tests) or a slot-fill pipeline bug.
+### 2. Slot-fill Context Contamination — 6/6 slot_fill fails + 2/3 safe_smoke fails
 
-**Bucket:** `slot_fill_issue` / `native_tool_handler_issue`
+All 6 slot_fill tests fail with clear evidence of cross-test context leakage:
 
-### 4. Wrong tool on first test after phase change — 3/76 safe_smoke fails
+- Cases 1→3→4→5: param value `'5 minutes'` from case 1's time input propagates through cases 3, 4, and 5 as `app_name`.
+- Case 6: param value `'sunscreen'` comes from prior test context, not the current prompt.
+- Cases 2, 4, 5: wrong intent at phase start, suggesting even the classifier is affected by accumulated state.
 
-In the safe_smoke run (which had fresh app warmup), case 4 "what time is it" → `save_memory` and case 6 "set an alarm" (slot fill) → `get_battery`. These are not consecutive-context contamination since the run starts fresh.
+**Assessment:** The slot-fill conversation flow carries state across ADB test invocations. When the app asks "Which app?" and the harness types "Spotify", the slot extractor returns values from unrelated earlier conversations. This may be a model session persistence issue (KV cache not cleared between slot-fill turns) or a slot-fill pipeline bug.
 
-**Assessment:** Real QIR router misclassifications on the S21.
+**Bucket:** `slot_fill_context_leak`
 
-**Bucket:** `minilm_classifier_miss` / `qir_regex_miss`
+### 3. Weather failures — confounded by stuck-mode cascade (needs clean rerun)
 
-### 5. Param extraction: "set a timer" → expects '300' but got '7am' — appearing in multiple runs
+All 7 weather tests occurred during the stuck-mode cascade (cases 33–40, actual intents `set_timer`/`cancel_timer`). The harness tags these with `location_or_permission_missing` because the test case fixture metadata includes `location_context`, but **no runtime log evidence from this run proves a permission denial**.
 
-In both safe_smoke (case 7) and slot_fill (case 2), the prompt "set a timer" with slot reply "5 minutes" produces `duration_seconds='7am'` instead of `'300'`. The value '7am' appears repeatedly, suggesting alarm context contamination.
+The observed actual intents (`set_timer`/`cancel_timer`) are consistent with the stuck-mode cascade active at that point in the run (cases 33–39 were in the `set_timer` block, case 40 was `cancel_timer`).
 
-**Bucket:** `slot_fill_issue`
+**Assessment:** These failures should NOT yet be classified as location-permission issues. A clean focused weather-only rerun (single phase, known-clean model state) is required before raising a location-permission follow-up issue.
 
-### 6. save_memory → save_important_date — 1/76 core fail
+**Reclassification:** `confounded_by_stuck_mode` — not yet `device_precondition_issue`.
 
-Case 76 "remember that I parked on level 3" → `save_important_date` (expected `save_memory`). This is a novel intent classifier routing that treats location-specific memory as an important date.
+### 4. QIR: save_memory → save_important_date — 1/76 isolated failure
 
-**Bucket:** `qir_regex_miss` (QIR regex for save_memory didn't match, MiniLM classified as save_important_date)
+Case 76 "remember that I parked on level 3" → `save_important_date` (expected `save_memory`). This occurred during a known-clean model state (after the stuck-mode resolved), and the intent is plausible — the model treated location-specific memory as an important date event.
+
+**Assessment:** Appears to be a real QIR routing gap. The MiniLM classifier may be choosing `save_important_date` over `save_memory` when the prompt contains location nouns.
+
+**Bucket:** `qir_gap`
+
+### 5. Lists field_mismatch — 4/76 param extraction failures
+
+Cases 63, 65, 66, 68 in the lists phase (known-clean model state) have correct intents but wrong/missing params. These are real extraction failures after the stuck-mode resolved.
+
+**Assessment:** Real param extraction gaps in the lists phase, but affected by context contamination.
+
+**Bucket:** `param_extraction_gap`
 
 ## Standing
 
 ### Invalidated pre-#1181 evidence
-
 All `NO_MATCH` / `regex_or_qir_miss` failures from earlier S21 and S23U runs (before PR #1181 merge at commit `13833fac`) are **invalid**. The logcat pipeline corruption (`adb logcat -c` on ADB-TLS) caused universal false negatives.
 
 ### Harness trustworthiness
-
-The harness is now trustworthy:
 - ✅ Oracle uses fresh-probe-bounded logcat capture
 - ✅ Stream health check verifies persistent stream delivers lines
-- ✅ All failures carry concrete intent/param mismatch labels, not NO_MATCH
-- ✅ py_compile and dry-run selectors all pass
+- ✅ All failures carry concrete intent/param mismatch labels (0 NO_MATCH across 89 test cases)
+- ✅ `py_compile` and dry-run selectors all pass
+
+### S21 model readiness
+- Warmup `ready` in one run, `timeout` in others
+- Stuck-mode cascade observed in the first ~30 min of deterministic_core
+- State carryover observed even in safe_smoke (7-case fresh run)
 
 ### Harness bug found and fixed during triage
-
 - Fixed `AttributeError: 'TestResult' object has no attribute 'expect_log_contains'` in `models.py: _observed_expected_failure()`
 
-## Proposed Follow-Up Issues
+## Proposed Follow-Up Issues (Drafts for Review)
 
-### Draft 1: Model inference reliability — cascade failure under sequential test load
+### Draft 1: Investigate S21 model stuck-mode / state carryover during sequential ADB intent tests
 
-**Title:** Model returns same dominant intent for consecutive ADB harness test cases
-
-**Body:**
 ```
-The S21 Exynos inference engine exhibits a "stuck mode" behaviour where the same
-intent (e.g. `add_to_list` or `set_alarm`) is returned for 5–20 consecutive test
-cases regardless of the prompt. This occurs approximately 45 minutes into a
-deterministic_core run and eventually resolves after ~2 phases.
+Evidence: safe_smoke case 4 returns the literal memory content from case 3
+("I prefer dark mode") when asked "what time is it". Deterministic_core shows
+5-20 consecutive cases returning the same wrong intent.
 
-Affected: ~38/76 deterministic_core test cases
+The model inference state appears to persist across harness invocations.
+This is the highest-priority issue — it conflates ~80% of observed failures.
 
 Proposed investigation:
-1. Add a model-reset or per-test force-stop to the harness to test whether clean
-   inference state per case resolves the issue.
-2. Log LiteRT inference time per case to identify when the model is stalling.
-3. Check whether `InferenceLoadingService` `ForegroundServiceStartNotAllowedException`
+1. Check whether LiteRT session is created fresh per test or reused.
+2. Log LiteRT inference handles/session IDs per case to detect reuse.
+3. Add a force-stop or model-reset between test phases to test isolation.
+4. Check whether InferenceLoadingService ForegroundServiceStartNotAllowedException
    correlates with stuck-mode phases.
+5. Verify KV cache clearing between inference calls.
+
+Affects: ~38/76 deterministic_core cases, 2/3 safe_smoke failures, confounds weather/slot_fill results.
 ```
 
-### Draft 2: Slot-fill extraction contamination
+### Draft 2: Investigate slot-fill context contamination across ADB test cases
 
-**Title:** Slot-fill extractor returns values from unrelated prior context
-
-**Body:**
 ```
-When the slot-fill flow asks "Which app?" and user responds "Spotify", the
-parameter extractor sometimes returns '5 minutes' or '7am' instead of 'Spotify'.
+Evidence: "5 minutes" from slot_fill case 1 propagates as app_name into cases
+3, 4, and 5. Memory content from case 3 leaks into case 4 of safe_smoke.
+"sunscreen" from unknown prior context appears as the item in slot_fill case 6.
 
-Affected: all 6 slot_fill tests (including "set a timer" → duration '7am')
+The slot-fill conversation flow is not isolating state between test invocations.
 
 Proposed investigation:
-1. Check whether KV cache is cleared between slot-fill turns.
-2. Check whether the conversation history from prior test cases leaks into the
-   slot extractor prompt.
+1. Check KV cache state across slot-fill turns.
+2. Verify that the conversation history is reset between harness test cases.
+3. Check whether the slot extractor prompt includes stale prior turns.
+
+Affects: All 6 slot_fill tests.
 ```
 
-### Draft 3: Location permission not granted on S21
+### Draft 3: Validate S21 weather/location fixture with clean fixed-harness run
 
-**Title:** Weather tests fail with location_or_permission_missing on S21
-
-**Body:**
 ```
-All 7 weather tests fail with location_or_permission_missing because the S21
-device does not have location permission granted or a mock location provider
-configured.
+All 7 weather tests occurred during the stuck-mode cascade (actual intents:
+set_timer/cancel_timer). No runtime evidence of a permission denial was captured.
 
-Fix: Add location permission grant to device precondition setup, or configure
-a mock location provider for the weather fixture.
-```
+Run a focused weather-only test slice with model in a known-clean state
+to determine whether location permission is actually missing on S21.
 
-### Draft 4: save_memory → save_important_date QIR gap
+If location_or_permission_missing persists in a clean run with weather cases:
+- Add log excerpts showing the permission/location failure.
+- Create a fixture issue to grant location permission or configure mock location.
 
-**Title:** "remember that I parked on level 3" routes to save_important_date instead of save_memory
-
-**Body:**
-```
-When the prompt contains both a memory verb ("remember") and a location
-("level 3"), the QIR router selects save_important_date over save_memory.
-
-Affected: case id:remember_that_i_parked_on_level_3
-
-Proposed fix: Adjust QIR regex patterns to prefer save_memory when the prompt
-starts with "remember that I ..." regardless of location nouns.
+If weather tests pass in a clean run:
+- Close without action; the stuck-mode was the sole cause.
 ```
 
-## Recommended Next Action
+### Draft 4: QIR: remember parked location routes to save_important_date instead of save_memory
 
-1. **Fix the `models.py` harness crash** — ✅ already done in this session
-2. **Investigate model stuck-mode** — highest impact, affects 50%+ of deterministic tests on S21
-3. **Fix slot-fill contamination** — affects all slot-fill coverage
-4. **Configure location permission** — unblocks 7 weather tests
-5. **Do not create QIR/router issues from pre-#1181 data** — all that evidence is invalid
+```
+Prompt: "remember that I parked on level 3"
+Expected: save_memory
+Actual: save_important_date
 
-## Evidence Files
+The MiniLM classifier routes to save_important_date when the prompt contains
+both a memory verb ("remember") and a location noun ("level 3").
 
-| Path | Size | Description |
-|---|---|---|
-| `scripts/test-reports/2026-06-11T20-55-18Z_skills.json` | ~4 KB | safe_smoke results |
-| `scripts/test-reports/2026-06-11T22-11-20Z_skills.json` | ~12 KB | deterministic_core results |
-| `scripts/test-reports/2026-06-11T22-17-41Z_skills.json` | ~3 KB | slot_fill results |
-| `/home/lokhor/.local/share/rtk/tee/1781211323_test.log` | ~2 KB | safe_smoke raw log |
-| `/home/lokhor/.local/share/rtk/tee/1781215886_test.log` | ~9 KB | deterministic_core raw log |
-| `/home/lokhor/.local/share/rtk/tee/1781216267_test.log` | ~1 KB | slot_fill raw log |
+Proposed fix: Adjust QIR regex patterns or MiniLM training to prefer
+save_memory when the prompt starts with "remember that I ..."
+regardless of location nouns.
+
+Affected: case id: remember_that_i_parked_on_level_3
+```
+
+## Recommended Next Actions
+
+1. **Fix the harness crash** — ✅ `expect_log_contains` field added and committed.
+2. **Investigate model stuck-mode/state carryover** — highest impact, conflates ~80% of observed failures across every test slice.
+3. **Fix slot-fill context contamination** — blocks all slot-fill coverage.
+4. **Run weather-only validation** — determine whether location permission is actually missing before creating a fixture issue.
+5. **Do not create QIR/router issues from pre-#1181 data** — all that evidence is invalid.
+6. **Do not create QIR/router issues from stuck-mode-confounded failures** — only the `save_memory → save_important_date` case and lists `field_mismatch` cases occurred during known-clean model state.
+
+## Evidence Files (Committed)
+
+| Path | Description |
+|---|---|
+| `docs/test-triage/evidence/2026-06-11/s21-safe-smoke-skills.json` | safe_smoke 7-test results (raw JSON) |
+| `docs/test-triage/evidence/2026-06-11/s21-deterministic-core-skills.json` | deterministic_core 76-test results (raw JSON) |
+| `docs/test-triage/evidence/2026-06-11/s21-slot-fill-skills.json` | slot_fill 6-test results (raw JSON) |
