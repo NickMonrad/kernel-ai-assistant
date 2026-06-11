@@ -3,6 +3,10 @@ package com.kernel.ai.feature.widget
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.kernel.ai.core.ui.theme.CharcoalDark
+import com.kernel.ai.core.ui.theme.FernGreen
+import com.kernel.ai.core.ui.theme.FernGreenLight
+import com.kernel.ai.core.ui.theme.SandLight
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
@@ -47,8 +51,8 @@ private fun KernelWidgetContent(packageName: String) {
                 .wrapContentHeight()
                 .background(
                     DayNightColorProvider(
-                        day = Color(0xD9F5F0E8),
-                        night = Color(0xD9111111),
+                        day = SandLight.copy(alpha = 0.85f),
+                        night = CharcoalDark.copy(alpha = 0.85f),
                     )
                 )
                 .cornerRadius(24.dp)
@@ -57,10 +61,11 @@ private fun KernelWidgetContent(packageName: String) {
         ) {
             Box(
                 modifier = GlanceModifier
+                    .defaultWeight()
                     .background(
                         DayNightColorProvider(
-                            day = Color(0x1A4F7942),
-                            night = Color(0x1A7AAD6A),
+                            day = FernGreen.copy(alpha = 0.10f),
+                            night = FernGreenLight.copy(alpha = 0.10f),
                         )
                     )
                     .cornerRadius(16.dp)
@@ -72,8 +77,8 @@ private fun KernelWidgetContent(packageName: String) {
                     text = "Ask Jandal…",
                     style = TextStyle(
                         color = DayNightColorProvider(
-                            day = Color(0xDE111111),
-                            night = Color(0xDEF5F0E8),
+                            day = CharcoalDark.copy(alpha = 0.87f),
+                            night = SandLight.copy(alpha = 0.87f),
                         )
                     ),
                 )
@@ -84,8 +89,8 @@ private fun KernelWidgetContent(packageName: String) {
                     .size(48.dp)
                     .background(
                         DayNightColorProvider(
-                            day = Color(0xFF4F7942),
-                            night = Color(0xFF7AAD6A),
+                            day = FernGreen,
+                            night = FernGreenLight,
                         )
                     )
                     .cornerRadius(24.dp)

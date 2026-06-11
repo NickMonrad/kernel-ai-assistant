@@ -205,20 +205,20 @@ fun ChatPreferencesScreen(
                 supportingContent = { Text(themeLabel) },
             )
 
-            // Dynamic Colour toggle (#1183)
-            ListItem(
-                modifier = Modifier.fillMaxWidth(),
-                headlineContent = { Text("Use system colours") },
-                supportingContent = { Text("Use Android Dynamic Colour when available. Turn off to use the Jandal theme.") },
-                trailingContent = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Dynamic Colour toggle (#1183) — Android 12+ only
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    headlineContent = { Text("Use system colours") },
+                    supportingContent = { Text("Use Android Dynamic Colour when available. Turn off to use the Jandal theme.") },
+                    trailingContent = {
                         Switch(
                             checked = useSystemColors,
                             onCheckedChange = { viewModel.setUseSystemColors(it) },
                         )
-                    }
-                },
-            )
+                    },
+                )
+            }
 
             // Font colour — user bubbles
             val userColorLabel = if (userFontColor != null) {
