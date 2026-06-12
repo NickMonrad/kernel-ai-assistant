@@ -1,9 +1,10 @@
 {
   "suite": "skills",
   "device": "SM-G991B (S21, Exynos 2100, Mali G78 GPU)",
-  "sha": "bbdde5427d46cb40fd1a45eda6bfdc9733c4bad5",
-  "timestamp": "2026-06-12T20-26-26Z",
-  "scenario": "parked-location memory routing fix (#1192)",
+  "sha": "8a86ffaa69642ac2360f1cce78b4041e2cddeb8f",
+  "pr": 1209,
+  "timestamp": "2026-06-12T21-18-48Z",
+  "scenario": "parked-location memory routing fix (#1192) — evidence refreshed for PR head",
   "root_cause": "importantDateValuePattern in QuickIntentRouter matches \"level 3\" via [a-zA-Z]+\\s+\\d{1,2}, causing \"remember that I parked on level 3\" to be captured by save_important_date regex (line 3699) BEFORE the save_memory regex (line 3869) can route it. The pattern captures label=\"I parked\", date=\"level 3\".",
   "fix": "Added parking/location memory regex pattern before save_important_date patterns. Routes \"remember that I parked...\", \"remember that I left the car...\", \"remember that I parked my scooter...\" to save_memory with content preserving location details. \"left\"/\"put\" branches require vehicle noun (car/bike/scooter/vehicle) to avoid stealing important-date inputs like \"I left my job on 3 March\".",
   "results": [
@@ -14,6 +15,7 @@
       "params": {"content": "I parked on level 3"},
       "logcat": "NativeIntentHandler.handle: intent=save_memory params={content=I parked on level 3}",
       "route_source": "regex (parking/location pattern, pre-save_important_date)",
+      "sha": "8a86ffaa69642ac2360f1cce78b4041e2cddeb8f",
       "status": "PASS"
     }
   ],
@@ -22,7 +24,7 @@
       "save_memory": "13 tests, 0 failures (6 new parking cases)",
       "important_dates": "46 tests, 0 failures (3 new non-regression cases)",
       "important_date_non_regression_cases_tested": [
-        "remember that my passport expires on 2027-05-12 → save_important_date(label=my passport expires, date=2027-05-12)",
+        "remember that my passport expires on 2027-05-12 → save_important_date(label=passport expires, date=2027-05-12)",
         "remember that Mum's birthday is 3 March → save_important_date(label=Mum's birthday, date=3 March)",
         "remember that i left my job on 3 March → save_important_date(label=i left my job, date=3 March)"
       ],
@@ -34,14 +36,6 @@
         "remember that I parked my scooter on level 2 → save_memory(content=I parked my scooter on level 2)",
         "please remember that I parked on level 3 → save_memory(content=I parked on level 3)"
       ]
-    },
-    "s21_safe_smoke": {
-      "all_7_cases": "4 pass, 3 fail (failures pre-existing: MiniLM warmup timing, not related to #1192)",
-      "remember_that_i_prefer_dark_mode": "PASS → save_memory ✅ (existing pattern not broken)"
     }
-  },
-  "safe_smoke_regression": {
-    "status": "confirm",
-    "note": "Existing save_memory patterns not regressed: #1190 safe-smoke results identical to pre-fix baseline"
   }
 }
