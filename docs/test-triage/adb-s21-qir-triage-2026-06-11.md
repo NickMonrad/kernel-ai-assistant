@@ -25,7 +25,7 @@
 | Date | 2026-06-11 |
 | Base commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
 | Branch | `issue/1186-s21-qir-triage` |
-| Latest commit | `faad35eb` — add post-permission S21 rerun evidence, S23U comparison, follow-up issue tracking |
+| Latest commit | `5c1b205e` — add post-permission S21 rerun evidence, S23U comparison, follow-up issue tracking |
 
 ## Device Preconditions
 
@@ -230,22 +230,22 @@ ANDROID_SERIAL=100.76.134.49:36991 ADB_WAIT_SECONDS=20 python3 scripts/adb_skill
 | 1 | "set an alarm for 11pm" | `set_alarm` | `set_alarm` ✅ | |
 | 2 | "set a timer for 2 hours" | `set_timer` | `timer` (wrong tool) | `timer` is not a recognised intent |
 | 3 | "remember that I prefer dark mode" | `save_memory` | `save_memory` ✅ | |
-| 4 | "what time is it" | `get_time` | `save_memory` | No memory content leak — just wrong intent |
+| 4 | "what time is it" | `get_time` | `save_memory` | Content `I prefer dark mode` leaked from case 3 |
 | 5 | "what's my battery level" | `get_battery` | `get_battery` ✅ | |
 | 6 | "set an alarm" (slot) | `set_alarm` | `set_timer` | Slot-fill starts with wrong intent |
-| 7 | "set a timer" (slot) | `set_timer` | `save_memory` | Slot-fill cascade continues |
+| 7 | "set a timer" (slot) | `set_timer` | `save_memory` | Content `I prefer dark mode` leaked from case 3 persists |
 
 ### Key findings
 
 | Issue | S21 (USB, post-fix) | S23U (TCP) | Reproduces? |
 |---|---|---|---|
-| Stuck-mode / state carryover | 3-case blocks in alarm_timer | Cases 2→3→4 show intent drift but NOT the memory-content leak pattern | **Yes, different shape** |
-| Memory content leak (case 3→4) | Original: literal content leak. Post-fix: both stuck on `set_timer` | Case 4 → `save_memory` but **without** case 3's literal content | **Partially** — intent carryover yes, content leak not reproduced on S23U |
+| Stuck-mode / state carryover | 3-case blocks in alarm_timer | Cases 2→3→4 show intent drift with content carryover | **Yes** — same pattern, S23U also leaks content through multiple cases |
+| Memory content leak (case 3→4) | Original: literal content leak. Post-fix: both stuck on `set_timer` | Case 4 → `save_memory` **with** case 3's literal content (`I prefer dark mode`); case 7 also contaminated | **Yes** — fully reproducible on S23U |
 | Slot-fill contamination | All 6 fail, param values cross cases | Cases 6–7 wrong intent at phase start | **Yes** — wrong intent at slot-fill entry |
-| `save_memory → save_important_date` | Clean model state, confirmed QIR gap | Not tested (outside safe_smoke slice) | **Pending** — needs targeted case run |
+| `save_memory → save_important_date` | Clean model state, confirmed QIR gap | Not tested (outside safe_smoke slice) | **Confirmed on S21; not tested on S23U** |
 | Weather routing | ✅ 7/7 pass (clean weather-only) | Not tested | Not tested on S23U |
 
-The S23U failure distribution is different from the S21 (case 2 → `timer` instead of `set_alarm`, case 4 → `save_memory` without content leak), suggesting device/model warmup timing influences the exact stuck pattern. However, slot-fill entry failures reproduce the same cross-test contamination pattern.
+The S23U failure distribution is different from the S21 (case 2 → `timer` instead of `set_alarm`), but the memory content leak pattern is the same: case 3's `"I prefer dark mode"` spills into cases 4 and 7. Slot-fill entry failures reproduce the same cross-test contamination pattern. Device/model warmup timing influences the exact stuck intent but state carryover is cross-device.
 
 **Evidence:** [`docs/test-triage/evidence/2026-06-11/s23u-comparison-safe-smoke-skills.json`](evidence/2026-06-11/s23u-comparison-safe-smoke-skills.json)
 
@@ -421,7 +421,7 @@ All follow-up work from this triage is tracked under the [epic #1189](https://gi
 
 **Notes:**
 - #1190 and #1191 are the highest priority — they account for the majority of observed failures and block meaningful slot-fill coverage.
-- #1192 is a focused QIR/classifier routing fix for a single identifiable gap. Confirmed reproducible even in clean model state on both S21 and S23U.
+- #1192 is a focused QIR/classifier routing fix for a single identifiable gap. Confirmed reproducible on S21 in clean model state; not yet tested on S23U (outside safe_smoke slice).
 - #1193 was originally opened to determine whether weather failures were location-permission issues or stuck-mode confounders. The post-permission rerun (weather-only: 7/7 pass) confirms they are **not** a permission bug. Closing #1193 with no action needed.
 - #1194 tracks the evidence/report updates in this PR.
 
