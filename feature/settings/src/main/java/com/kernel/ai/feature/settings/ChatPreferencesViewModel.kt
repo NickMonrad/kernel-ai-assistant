@@ -67,7 +67,14 @@ class ChatPreferencesViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "none")
 
     fun setWallpaperType(type: String) {
-        viewModelScope.launch { chatPreferences.setWallpaperType(type) }
+        viewModelScope.launch {
+            chatPreferences.setWallpaperType(type)
+            // Clear the active image reference when switching away from image mode (#1206)
+            if (type != "image") {
+                chatPreferences.setWallpaperImageUri(null)
+            }
+            refreshImportedWallpapers()
+        }
     }
 
     val wallpaperColor: StateFlow<Long?> = chatPreferences.wallpaperColor
@@ -143,8 +150,10 @@ class ChatPreferencesViewModel @Inject constructor(
      */
     fun deleteUnusedWallpapers() {
         viewModelScope.launch {
+            val currentType = chatPreferences.wallpaperType.first()
             val currentUri = chatPreferences.wallpaperImageUri.first()
-            val active = if (currentUri != null) setOf(currentUri) else emptySet()
+            // Only treat the image as active when the mode is actually "image" (#1206)
+            val active = if (currentType == "image" && currentUri != null) setOf(currentUri) else emptySet()
             wallpaperManager.deleteUnusedWallpapers(active)
             refreshImportedWallpapers()
         }
@@ -156,13 +165,15 @@ class ChatPreferencesViewModel @Inject constructor(
 
     private fun refreshImportedWallpapers() {
         viewModelScope.launch {
+            val currentType = chatPreferences.wallpaperType.first()
             val currentUri = chatPreferences.wallpaperImageUri.first()
+            val activeUri = currentUri.takeIf { currentType == "image" }
             val files = wallpaperManager.getImportedWallpapers()
             _importedWallpapers.value = files.map { file ->
                 ImportedWallpaper(
                     path = file.absolutePath,
                     name = file.name,
-                    isActive = file.absolutePath == currentUri,
+                    isActive = file.absolutePath == activeUri,
                     lastModified = file.lastModified(),
                 )
             }

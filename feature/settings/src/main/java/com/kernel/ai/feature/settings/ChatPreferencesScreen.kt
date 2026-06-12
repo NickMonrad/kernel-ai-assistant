@@ -327,7 +327,7 @@ fun ChatPreferencesScreen(
                 "image" -> {
                     wallpaperImageUri?.let { uri ->
                         AsyncImage(
-                            model = toCoilUri(uri),
+                            model = if (uri.startsWith("/")) android.net.Uri.fromFile(java.io.File(uri)) else Uri.parse(uri),
                             contentDescription = "Wallpaper preview",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -369,42 +369,6 @@ fun ChatPreferencesScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                 ) {
                     Text("Delete unused image wallpapers (${importedWallpapers.count { !it.isActive }})")
-                }
-            }
-            if (importedWallpapers.size > 1) {
-                Text(
-                    text = "Previously used images",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).padding(top = 12.dp),
-                )
-                importedWallpapers.forEach { wallpaper ->
-                    val isActive = wallpaper.isActive
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .then(
-                                if (!isActive) Modifier.clickable { imagePicker.launch("image/*") } else Modifier
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        AsyncImage(
-                            model = toCoilUri(wallpaper.path),
-                            contentDescription = wallpaper.name,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Text(
-                            text = if (isActive) "${wallpaper.name} (current)" else wallpaper.name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isActive) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
                 }
             }
 
@@ -736,17 +700,6 @@ private fun ColorPickerDialog(
     )
 }
 
-/**
- * Convert a stored wallpaper reference (file path or content URI) to a Coil-compatible URI.
- * File paths are wrapped with [android.net.Uri.fromFile] for compatibility.
- */
-private fun toCoilUri(ref: String): Uri {
-    return if (ref.startsWith("/")) {
-        android.net.Uri.fromFile(java.io.File(ref))
-    } else {
-        Uri.parse(ref)
-    }
-}
 
 @Preview(showBackground = true)
 @Composable
