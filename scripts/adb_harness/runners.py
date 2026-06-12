@@ -840,6 +840,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 tags=list(tc.tags),
                 fixture=tc.fixture,
                 xfail_reason=tc.xfail_reason,
+                expect_log_contains=tc.expect_log_contains,
             )
             result.status = derive_status(result)
             result.failure_bucket = derive_failure_bucket(result)
