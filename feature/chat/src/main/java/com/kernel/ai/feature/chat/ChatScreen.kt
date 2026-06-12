@@ -1594,7 +1594,7 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
-                text = "Kia ora! What can I help with?",
+                text = "Kia ora. What can I do for ya?",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.padding(top = 8.dp),
             )

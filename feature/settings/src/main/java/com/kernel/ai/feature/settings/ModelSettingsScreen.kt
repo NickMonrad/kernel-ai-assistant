@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -67,7 +68,7 @@ fun ModelSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Model Settings") },
+                title = { Text("🩴 Model Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -352,6 +353,11 @@ private fun SliderRow(
                 valueRange = valueRange,
                 steps = steps,
                 modifier = Modifier.weight(1f),
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                ),
             )
             Spacer(modifier = Modifier.width(8.dp))
             OutlinedTextField(
