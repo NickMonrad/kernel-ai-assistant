@@ -1,0 +1,13 @@
+name,passed,category,failure_category,failures,duration_seconds
+primaryNavigation_chatsActionsToolsRoundTrip,True,primary_navigation,,,1.451
+primaryNavigation_actionsToolsActions,True,primary_navigation,,,1.33
+primaryNavigation_toolsChatsTools,True,primary_navigation,,,1.38
+primaryNavigation_repeatedTabTapStable,True,primary_navigation,,,1.153
+primaryNavigation_noStaleChildScreen,True,primary_navigation,,,1.606
+toolsRow_matrixNavigateAndBack,True,tools_row_navigation,,,5.991
+learnToActions_exampleOpensDraftPrefill,True,learn_to_actions_draft,,,1.38
+learnToActions_dismissDraftThenSwitchTabs,True,learn_to_actions_draft,,,1.882
+drawer_opensFromToolsViaMenuButton,True,drawer_entry_point,,,1.18
+drawer_opensFromChatsViaMenuButton,True,drawer_entry_point,,,0.93
+drawer_navigationBackToTools,True,drawer_entry_point,,,2.458
+drawer_bottomNavStateAfterDrawerNavigation,True,drawer_entry_point,,,1.306
