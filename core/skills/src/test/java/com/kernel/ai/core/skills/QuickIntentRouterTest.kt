@@ -3462,6 +3462,10 @@ class QuickIntentRouterTest {
             Arguments.of("add Emily's birthday as an important date on 19th of November", "Emily's birthday", "19th of November"),
             Arguments.of("remember my birthday is Third of April", "birthday", "Third of April"),
             Arguments.of("my birthday is on the third of april", "birthday", "third of april"),
+            // Non-regression: these must still route to save_important_date (not stolen by parking regex)
+            Arguments.of("remember that my passport expires on 2027-05-12", "passport expires", "2027-05-12"),
+            Arguments.of("remember that Mum's birthday is 3 March", "Mum's birthday", "3 March"),
+            Arguments.of("remember that i left my job on 3 March", "i left my job", "3 March"),
         )
 
         @JvmStatic
