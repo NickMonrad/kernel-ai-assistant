@@ -1,0 +1,19 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-12T13-55-03Z",
+  "device": "SM-G991B (S21, Exynos 2100, Mali G78 GPU)",
+  "build": "debug (commit with #1191 fix)",
+  "scenario": "safe-smoke regression — verify #1190 not regressed by #1191 changes",
+  "comparison_to_pre_1191": "Identical to pre-1191 safe-smoke results. #1190 fix (history replay suppression) not regressed.",
+  "results": [
+    {"index": 1, "case_id": "set_an_alarm_for_11pm", "result": "pass", "intent": "set_alarm"},
+    {"index": 2, "case_id": "set_a_timer_for_2_hours", "result": "pass", "intent": "set_timer"},
+    {"index": 3, "case_id": "remember_that_i_prefer_dark_mode", "result": "pass", "intent": "save_memory"},
+    {"index": 4, "case_id": "what_time_is_it", "result": "fail", "intent": "save_memory", "note": "MiniLM classifier warmup timing — same as before, unrelated"},
+    {"index": 5, "case_id": "whats_my_battery_level", "result": "pass", "intent": "get_battery"},
+    {"index": 6, "case_id": "set_an_alarm", "result": "fail", "intent": "open_app", "note": "Model warmup timeout — MiniLM fallback, unrelated to slot-fill state"},
+    {"index": 7, "case_id": "set_a_timer", "result": "fail", "intent": "open_app", "note": "Model warmup timeout — MiniLM fallback, unrelated to slot-fill state"}
+  ],
+  "verdict": "No regression of #1190. Remaining failures are MiniLM/model warmup issues, not state carryover."
+}

@@ -340,6 +340,38 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `sequential independent slot fills do not leak values`() = runTest(dispatcher) {
+        // Complete open_app with app_name=Spotify
+        viewModel.executeAction("open an app")
+        advanceUntilIdle()
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals("app_name", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        viewModel.onSlotReply("Spotify")
+        advanceUntilIdle()
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(1, insertedActions.size)
+        // Use the default run_intent skill (set up in setUp)
+        assertEquals("Spotify", CapturingRunIntentSkill.default.calls[0].arguments["app_name"])
+
+        // Then complete set_timer with duration_seconds
+        CapturingRunIntentSkill.default.reset()
+        insertedActions.clear()
+        viewModel.executeAction("set a timer")
+        advanceUntilIdle()
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals("duration_seconds", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        viewModel.onSlotReply("5 minutes")
+        advanceUntilIdle()
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(1, insertedActions.size)
+        // MUST NOT leak app_name from first slot fill
+        assertNull(CapturingRunIntentSkill.default.calls[0].arguments["app_name"])
+        assertEquals("5 minutes", CapturingRunIntentSkill.default.calls[0].arguments["duration_seconds"])
+    }
+
+    @Test
     fun `slot reply execution failure records truthful error state`() = runTest(dispatcher) {
         val failingSkill = CapturingRunIntentSkill { throw IllegalStateException("Dialer exploded") }
         every { skillRegistry.get(any()) } answers {

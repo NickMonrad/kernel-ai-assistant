@@ -337,4 +337,97 @@ class SlotFillerManagerTest {
         assertFalse(manager.hasPending)
         assertNull(manager.pendingRequest)
     }
+
+    @Test
+    fun `sequential slot completions do not leak values between independent requests`() {
+        // Simulate: complete open_app(app_name=Spotify), then new set_timer(duration_seconds=5min)
+        // The second completion must not inherit app_name from the first.
+
+        // First request: open_app → fill app_name=Spotify
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "open_app",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("app_name", "Which app?"),
+            ),
+        )
+        val firstResult = manager.onUserReply(conversationOne, "Spotify")
+        assertInstanceOf(SlotFillResult.Completed::class.java, firstResult)
+        val completed = firstResult as SlotFillResult.Completed
+        assertEquals("open_app", completed.intentName)
+        assertEquals("Spotify", completed.params["app_name"])
+        assertFalse(manager.hasPending)
+
+        // Second independent request: set_timer → fill duration_seconds=300
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long?"),
+            ),
+        )
+        val secondResult = manager.onUserReply(conversationOne, "5 minutes")
+        assertInstanceOf(SlotFillResult.Completed::class.java, secondResult)
+        val completed2 = secondResult as SlotFillResult.Completed
+        assertEquals("set_timer", completed2.intentName)
+        assertEquals("5 minutes", completed2.params["duration_seconds"])
+        // MUST NOT leak app_name from first request
+        assertNull(completed2.params["app_name"])
+    }
+
+    @Test
+    fun `current reply value wins over stale existing params`() {
+        // existingParams carries a stale value (e.g. app_name=5 minutes from a previous bug),
+        // but the current reply is "Spotify" — the current reply must win.
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "open_app",
+                existingParams = mapOf("app_name" to "5 minutes"),  // stale value
+                missingSlot = SlotSpec("app_name", "Which app?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "Spotify")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("Spotify", completed.params["app_name"])
+    }
+
+    @Test
+    fun `cancel clears all pending state for new independent requests`() {
+        // First: create a pending open_app request
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "open_app",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("app_name", "Which app?"),
+            ),
+        )
+        assertTrue(manager.hasPending)
+
+        // Simulate cancellation — new independent command clears incompatible pending slot state
+        manager.cancel()
+
+        assertFalse(manager.hasPending)
+        assertNull(manager.pendingRequest)
+
+        // New independent request must work fresh
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long?"),
+            ),
+        )
+        assertTrue(manager.hasPending)
+        val result = manager.onUserReply(conversationOne, "300")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("set_timer", completed.intentName)
+        assertEquals("300", completed.params["duration_seconds"])
+    }
 }
