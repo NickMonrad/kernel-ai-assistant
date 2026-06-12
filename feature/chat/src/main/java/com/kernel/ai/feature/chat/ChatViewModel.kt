@@ -104,6 +104,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -201,6 +202,20 @@ class ChatViewModel @Inject constructor(
      * See issue #621.
      */
     private var pendingConfirmationIntent: QuickIntentRouter.MatchedIntent? = null
+
+    /**
+     * Set true by [submitInitialQueryIfNeeded] to signal [sendMessage] that the upcoming
+     * command is an independent invocation (ADB test, widget, side-key) and the LiteRT
+     * conversation should be reset before processing, preventing stale KV-cache carryover.
+     * Reset to false after the reset is applied.
+     */
+    private var needsConversationReset = false
+
+    /**
+     * Monotonic counter for per-command correlation IDs. Combined with a UUID prefix to
+     * form a unique trace ID for each invocation through the route/dispatch lifecycle.
+     */
+    private var commandIdSequence = AtomicInteger(0)
 
     // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
     private var activeStreamingMsgId: String? = null
@@ -1267,14 +1282,13 @@ class ChatViewModel @Inject constructor(
         speakMessageJob?.cancel()
         speakMessageJob = null
         voiceOutputController.stop()
-        _speakingMessageId.value = null
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
         val normalized = initialQuery.trim()
         if (normalized.isBlank()) return
         val alreadyPresent = _messages.value.any {
-            it.role == ChatMessage.Role.USER && it.content == normalized
+            it.role == ChatMessage.Role.USER && it.content.trim() == normalized
         }
         if (alreadyPresent) {
             forceMinimalContextForNextMessage = false
@@ -1282,6 +1296,14 @@ class ChatViewModel @Inject constructor(
             Log.d("ChatViewModel", "Skipping duplicate initial query after restore: $normalized")
             return
         }
+        // Cancel any in-flight generation — don't silently drop the new command
+        if (inferenceEngine.isGenerating.value) {
+            inferenceEngine.cancelGeneration()
+            Log.d("KernelAI", "ADB_INTENT_TRACE cancel_generation=true input=$normalized")
+        }
+        // Signal sendMessage to reset the LiteRT conversation before processing,
+        // preventing stale KV-cache state from contaminating the new independent command (#1190)
+        needsConversationReset = true
         onInputChanged(normalized)
         sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
     }
@@ -1322,7 +1344,7 @@ class ChatViewModel @Inject constructor(
 
     private fun sendMessage(submitMode: SubmitMode) {
         val text = _inputText.value.trim()
-        if (text.isBlank() || inferenceEngine.isGenerating.value || _isLoadingModel.value) {
+        if (text.isBlank()) {
             if (submitMode == SubmitMode.Voice) {
                 _voiceMode.value = null
                 pendingVoiceReply = false
@@ -1330,7 +1352,12 @@ class ChatViewModel @Inject constructor(
             }
             return
         }
-
+        // Voice mode: if generating or loading, reset voice state and return (preserves original behaviour)
+        if (submitMode == SubmitMode.Voice && (inferenceEngine.isGenerating.value || _isLoadingModel.value)) {
+            _voiceMode.value = null
+            pendingVoiceReply = false
+            return
+        }
         stopVoicePlayback()
         suppressVoiceOutputForCurrentResponse = false
         _inputText.value = ""
@@ -1342,6 +1369,9 @@ class ChatViewModel @Inject constructor(
             _isLoadingModel.value = true
         }
 
+        val commandId = "${UUID.randomUUID().toString().take(8)}-${commandIdSequence.incrementAndGet()}"
+        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
+
         viewModelScope.launch {
             // Hoisted so the streaming section (outside the try/finally) can read them.
             var assistantMsgId = ""
@@ -1352,9 +1382,16 @@ class ChatViewModel @Inject constructor(
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
             var isToolQueryForTurn = false
-            // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
-            // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
-            // message and the LLM response to prevent stale device state in future RAG (#614).
+            // Reset LiteRT conversation for independent commands (ADB test, widget, side-key)
+            // to prevent stale KV-cache carryover between invocations (#1190)
+            if (needsConversationReset) {
+                needsConversationReset = false
+                slotFillerManager.cancel()
+                if (inferenceEngine.isReady.value) {
+                    inferenceEngine.resetConversation()
+                    Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")
+                }
+            }
             var isDeviceActionExchange = false
             // Actions-tab fallthroughs temporarily swap the system prompt to MINIMAL; mark the
             // next turn for a history replay so normal chat can restore the full prompt safely.
@@ -1695,11 +1732,15 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
-            // ── E2E marker: route decision (Gemma fallthrough) ──────────────
+            // ── E2E marker: route decision ────────────────────────────────
             // Emitted after QIR route decision so the harness can verify whether
             // the request was classified by Tier 2 or fell through to Gemma-4.
             when (routeResult) {
                 is QuickIntentRouter.RouteResult.FallThrough -> {
+                    Log.d(
+                        "KernelAI",
+                        "ADB_ROUTE_DECISION commandId=$commandId result=fallthrough best_guess=${routeResult.bestGuess?.intentName ?: "null"} confidence=${routeResult.bestConfidence}",
+                    )
                     Log.d(
                         "KernelAI",
                         "llm_tools_route: result=fallthrough best_guess=${routeResult.bestGuess?.intentName ?: "null"} confidence=${routeResult.bestConfidence}",
@@ -1709,11 +1750,15 @@ class ChatViewModel @Inject constructor(
                 is QuickIntentRouter.RouteResult.RegexMatch -> {
                     Log.d(
                         "KernelAI",
+                        "ADB_ROUTE_DECISION commandId=$commandId result=classified intent=${matchedIntent?.intentName ?: "null"}",
+                    )
+                    Log.d(
+                        "KernelAI",
                         "llm_tools_route: result=classified intent=${matchedIntent?.intentName ?: "null"}",
                     )
                 }
                 is QuickIntentRouter.RouteResult.NeedsSlot -> {
-                    // No route marker — slot-fill path, harness expects fallthrough
+                    Log.d("KernelAI", "ADB_ROUTE_DECISION commandId=$commandId result=needs_slot intent=${routeResult.intent.intentName}")
                 }
             }
             // ── Intent Recovery Orchestrator ───────────────────────────────────
@@ -1881,6 +1926,7 @@ class ChatViewModel @Inject constructor(
                                 presentation = skillResult.presentation,
                                 spokenSummary = spokenSummaryFrom(skillResult),
                             )
+                            Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=direct_reply")
                             return@launch
                         }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
@@ -1894,6 +1940,7 @@ class ChatViewModel @Inject constructor(
                                     presentation = skillResult.presentation,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success")
                                 return@launch
                             }
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
@@ -1905,6 +1952,7 @@ class ChatViewModel @Inject constructor(
                                     shouldIndex = false,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success_no_llm")
                                 return@launch
                             }
                         }
@@ -2008,6 +2056,7 @@ class ChatViewModel @Inject constructor(
             }
             // _isLoadingModel is always cleared by the outer finally block below.
 
+            Log.d("KernelAI", "ADB_MODEL_STATE commandId=$commandId status=generating route=llm_fallthrough")
             // 2. Gemma-4 streaming inference path.
             // Capture isFirstReply before adding the streaming placeholder — once the placeholder
             // is in _messages the ASSISTANT check would always return false.
