@@ -168,6 +168,9 @@ import com.kernel.ai.core.inference.ModelCapabilities
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
+import com.kernel.ai.core.ui.PauaDotsIndicator
+import com.kernel.ai.core.ui.PauaLoadingIndicator
+import com.kernel.ai.core.ui.theme.PauaPurple
 
 internal fun shouldKeepChatScreenAwake(
     uiState: ChatUiState,
@@ -596,10 +599,7 @@ private fun ChatContent(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                    )
+                                    PauaLoadingIndicator(size = 16.dp)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "Loading model… keeping this screen awake.",
@@ -617,10 +617,7 @@ private fun ChatContent(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                    )
+                                    PauaLoadingIndicator(size = 16.dp)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "Working on your reply… keeping this screen awake.",
@@ -837,15 +834,29 @@ private fun MessageBubble(
                                 imageVector = Icons.Outlined.Bolt,
                                 contentDescription = if (message.isStreaming) "Thinking" else "Thought",
                                 modifier = Modifier.size(AssistChipDefaults.IconSize),
+                                tint = if (message.isStreaming) PauaPurple else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         },
                         label = {
-                            Text(
-                                text = if (message.isStreaming) "Thinking…" else "Thinking",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
-                                ),
-                            )
+                            if (message.isStreaming) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text(
+                                        text = "Thinking…",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontStyle = FontStyle.Italic,
+                                        ),
+                                    )
+                                    PauaDotsIndicator(dotSize = 6.dp)
+                                }
+                            } else {
+                                Text(
+                                    text = "Thinking",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
                         },
                         trailingIcon = {
                             Icon(
@@ -854,6 +865,20 @@ private fun MessageBubble(
                                 modifier = Modifier.size(16.dp),
                             )
                         },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (message.isStreaming)
+                                PauaPurple.copy(alpha = 0.12f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                            labelColor = if (message.isStreaming)
+                                PauaPurple
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            leadingIconContentColor = if (message.isStreaming)
+                                PauaPurple
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
                         modifier = Modifier.testTag("thinking_chip"),
                     )
                     if (!message.isStreaming) {
@@ -872,7 +897,10 @@ private fun MessageBubble(
                 }
                 AnimatedVisibility(visible = expanded) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = if (message.isStreaming)
+                            PauaPurple.copy(alpha = 0.08f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .padding(top = 4.dp)
@@ -958,10 +986,7 @@ private fun MessageBubble(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 2.dp,
-                                    )
+                                    PauaDotsIndicator(dotSize = 6.dp)
                                     Text(
                                         text = generatingMessage,
                                         style = MaterialTheme.typography.labelSmall.copy(
