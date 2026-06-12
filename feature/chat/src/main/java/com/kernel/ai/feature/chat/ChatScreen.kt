@@ -168,7 +168,7 @@ import com.kernel.ai.core.inference.ModelCapabilities
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
-import com.kernel.ai.core.ui.PauaAnimatedRing
+import com.kernel.ai.core.ui.PauaLoadingRing
 import com.kernel.ai.core.ui.PauaDotsIndicator
 import com.kernel.ai.core.ui.PauaLoadingIndicator
 import com.kernel.ai.core.ui.PauaShimmerBar
@@ -596,55 +596,55 @@ private fun ChatContent(
                         }
                         if (state.isLoadingModel) {
                             item(key = "model-loading-indicator") {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(16.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    Row(
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        PauaLoadingIndicator(size = 20.dp)
-                                        PauaShimmerBar(
-                                            width = 40.dp,
-                                            height = 3.dp,
-                                            modifier = Modifier.padding(top = 4.dp),
+                                        PauaLoadingRing(size = 18.dp, strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "Loading model… keeping this screen awake.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "Loading model… keeping this screen awake.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    PauaShimmerBar(
+                                        width = 120.dp,
+                                        height = 3.dp,
+                                        modifier = Modifier.padding(top = 4.dp),
                                     )
                                 }
                             }
                         } else if (shouldShowInlineGenerationIndicator(state)) {
                             item(key = "direct-generation-indicator") {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(16.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    Row(
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        PauaLoadingIndicator(size = 20.dp)
-                                        PauaShimmerBar(
-                                            width = 40.dp,
-                                            height = 3.dp,
-                                            modifier = Modifier.padding(top = 4.dp),
+                                        PauaLoadingRing(size = 18.dp, strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "Working on your reply… keeping this screen awake.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "Working on your reply… keeping this screen awake.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    PauaShimmerBar(
+                                        width = 120.dp,
+                                        height = 3.dp,
+                                        modifier = Modifier.padding(top = 4.dp),
                                     )
                                 }
                             }
@@ -714,7 +714,7 @@ private fun ChatContent(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                                    PauaLoadingIndicator(size = 12.dp)
+                    PauaLoadingRing(size = 14.dp, strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Updating knowledge base…",
@@ -868,7 +868,7 @@ private fun MessageBubble(
                                             fontStyle = FontStyle.Italic,
                                         ),
                                     )
-                                    PauaDotsIndicator(dotSize = 6.dp)
+                                    PauaDotsIndicator(dotSize = 8.dp)
                                 }
                             } else {
                                 Text(
@@ -1005,7 +1005,7 @@ private fun MessageBubble(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    PauaDotsIndicator(dotSize = 6.dp)
+                                    PauaDotsIndicator(dotSize = 8.dp)
                                     Text(
                                         text = generatingMessage,
                                         style = MaterialTheme.typography.labelSmall.copy(
@@ -1676,7 +1676,7 @@ private fun LoadingContent() {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp),
         ) {
-            PauaAnimatedRing(size = 48.dp, strokeWidth = 4.dp)
+            PauaLoadingRing(size = 64.dp, strokeWidth = 5.dp)
             AnimatedContent(
                 targetState = step,
                 transitionSpec = {
@@ -1719,7 +1719,7 @@ private fun LoadingContent() {
                 modifier = Modifier.padding(top = 16.dp),
             )
             PauaShimmerBar(
-                width = 160.dp,
+                width = 220.dp,
                 height = 4.dp,
                 modifier = Modifier.padding(top = 24.dp),
             )

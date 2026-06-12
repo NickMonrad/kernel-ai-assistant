@@ -23,11 +23,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -74,10 +76,11 @@ fun PauaLoadingIndicator(
 }
 
 /**
- * A shimmer-animated Paua gradient bar.
+ * A shimmer-animated Paua gradient bar with a moving highlight sweep.
  *
- * Renders a thin rounded bar whose colour sweeps through the Paua palette.
- * Useful as a horizontal loading indicator beneath content or alongside text labels.
+ * Renders a thin rounded bar with a dim Paua base track and a bright animated
+ * gradient that sweeps left-to-right repeatedly. The sweep uses PauaTeal and
+ * PauaPurple for the bright highlight, creating a clearly visible shimmer effect.
  *
  * @param modifier Modifier for the bar.
  * @param width Width of the bar.
@@ -86,110 +89,118 @@ fun PauaLoadingIndicator(
 @Composable
 fun PauaShimmerBar(
     modifier: Modifier = Modifier,
-    width: Dp = 60.dp,
-    height: Dp = 4.dp,
+    width: Dp = 220.dp,
+    height: Dp = 5.dp,
 ) {
-    val infiniteTransition = rememberInfiniteTransition()
+    val infiniteTransition = rememberInfiniteTransition(label = "paua_shimmer")
     val phase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+        initialValue = -1f,
+        targetValue = 2f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
         ),
+        label = "paua_shimmer_phase",
     )
-
-    val color = when {
-        phase < 0.33f -> lerp(PauaDeep, PauaTeal, phase / 0.33f)
-        phase < 0.66f -> lerp(PauaTeal, PauaPurple, (phase - 0.33f) / 0.33f)
-        else -> lerp(PauaPurple, PauaDeep, (phase - 0.66f) / 0.33f)
-    }
 
     Box(
         modifier = modifier
             .width(width)
             .height(height)
             .clip(RoundedCornerShape(height / 2))
-            .background(color),
+            .background(PauaDeep.copy(alpha = 0.28f), RoundedCornerShape(height / 2))
+            .drawWithContent {
+                drawContent()
+
+                val barWidth = size.width
+                val sweepWidth = barWidth * 0.45f
+                val startX = (barWidth * phase) - sweepWidth
+                val endX = startX + sweepWidth
+
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(
+                            PauaDeep.copy(alpha = 0.0f),
+                            PauaTeal.copy(alpha = 0.95f),
+                            PauaPurple.copy(alpha = 0.95f),
+                            PauaDeep.copy(alpha = 0.0f),
+                        ),
+                        start = Offset(startX, 0f),
+                        end = Offset(endX, 0f),
+                    ),
+                )
+            },
     )
 }
 
 /**
- * A circular animated ring that sweeps through Paua colours.
+ * A circular animated loading ring with visible rotation.
  *
- * Draws a rotating arc whose colour cycles through PauaDeep → PauaTeal → PauaPurple.
- * Serves as a visually prominent Paua-branded replacement for [CircularProgressIndicator]
- * in full-screen loading states. The ring expands and contracts the visible arc while
- * rotating, similar to Material's indeterminate progress indicator but using Paua colours.
+ * Draws a rotating arc with a sweep gradient through PauaDeep → PauaTeal → PauaPurple.
+ * The canvas rotates continuously so motion is clearly visible even in screenshots.
+ * Serves as a prominent Paua-branded replacement for [CircularProgressIndicator]
+ * in full-screen loading states.
  *
  * @param modifier Modifier for the ring.
  * @param size Diameter of the ring in dp.
  * @param strokeWidth Thickness of the arc stroke in dp.
  */
 @Composable
-fun PauaAnimatedRing(
+fun PauaLoadingRing(
     modifier: Modifier = Modifier,
-    size: Dp = 48.dp,
-    strokeWidth: Dp = 4.dp,
+    size: Dp = 56.dp,
+    strokeWidth: Dp = 5.dp,
 ) {
-    val infiniteTransition = rememberInfiniteTransition()
+    val infiniteTransition = rememberInfiniteTransition(label = "paua_ring")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
+        label = "paua_ring_rotation",
     )
-    val phase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-    )
-    val sweepAngle by infiniteTransition.animateFloat(
-        initialValue = 40f,
-        targetValue = 320f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-    )
-
-    val color = when {
-        phase < 0.5f -> lerp(PauaDeep, PauaTeal, phase / 0.5f)
-        else -> lerp(PauaTeal, PauaPurple, (phase - 0.5f) / 0.5f)
-    }
 
     Canvas(modifier = modifier.size(size)) {
         val stroke = strokeWidth.toPx()
-        val arcSize = Size(size.toPx() - stroke, size.toPx() - stroke)
-        val arcOffset = Offset(stroke / 2f, stroke / 2f)
+        val diameter = size.toPx() - stroke
+        val topLeft = Offset(stroke / 2f, stroke / 2f)
+        val arcSize = Size(diameter, diameter)
 
-        // Track (faint full ring)
+        // Track ring (faint full circle)
         drawArc(
-            color = color.copy(alpha = 0.15f),
+            color = PauaDeep.copy(alpha = 0.15f),
             startAngle = 0f,
             sweepAngle = 360f,
             useCenter = false,
-            style = Stroke(width = stroke, cap = StrokeCap.Round),
+            topLeft = topLeft,
             size = arcSize,
-            topLeft = arcOffset,
-        )
-        // Sweeping arc (rotating + expanding/contracting)
-        drawArc(
-            color = color,
-            startAngle = rotation,
-            sweepAngle = sweepAngle,
-            useCenter = false,
             style = Stroke(width = stroke, cap = StrokeCap.Round),
-            size = arcSize,
-            topLeft = arcOffset,
         )
+
+        // Rotating arc with sweep gradient — canvas rotates so the gradient moves visibly
+        rotate(rotation, pivot = center) {
+            drawArc(
+                brush = androidx.compose.ui.graphics.Brush.sweepGradient(
+                    colors = listOf(
+                        PauaDeep,
+                        PauaTeal,
+                        PauaPurple,
+                        PauaDeep,
+                    ),
+                ),
+                startAngle = 0f,
+                sweepAngle = 280f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+        }
     }
 }
+
 
 /**
  * A row of three Paua dots that pulse sequentially, styled like a typing indicator.
@@ -203,7 +214,7 @@ fun PauaAnimatedRing(
 @Composable
 fun PauaDotsIndicator(
     modifier: Modifier = Modifier,
-    dotSize: Dp = 8.dp,
+    dotSize: Dp = 9.dp,
 ) {
     val infiniteTransition = rememberInfiniteTransition()
     val phase by infiniteTransition.animateFloat(
@@ -215,14 +226,16 @@ fun PauaDotsIndicator(
         ),
     )
 
+    // Dots never drop below 0.35 alpha so they never look broken/static
     fun dotAlpha(offset: Float): Float {
         val shifted = (phase - offset).coerceIn(0f, 1f)
-        return if (shifted < 0.5f) shifted * 2f else (1f - shifted) * 2f
+        val pulse = if (shifted < 0.5f) shifted * 2f else (1f - shifted) * 2f
+        return 0.35f + (pulse * 0.65f)
     }
 
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (i in 0..2) {
