@@ -391,8 +391,13 @@ def _write_markdown(normalised: dict, path: Path) -> None:
     device = normalised.get("device", {})
     cases = normalised.get("cases", [])
 
+    suite = normalised.get('suite', '')
+    if suite == "navigation_full_app_flow":
+        heading_title = "Navigation Full App Flow"
+    else:
+        heading_title = "Navigation Back-Stack Regression"
     lines: list[str] = [
-        f"# Navigation Back-Stack Regression — PR #{normalised.get('pr', '?')}",
+        f"# {heading_title} — PR #{normalised.get('pr', '?')}",
         "",
         f"**Suite:** `{normalised.get('suite', '')}`",
         f"**Source:** `{normalised.get('source', '')}`",
@@ -411,19 +416,31 @@ def _write_markdown(normalised: dict, path: Path) -> None:
 
     # Group by category
     cat_order = [
+        # Common categories (both suites)
         "tools_row_navigation",
         "tab_switching",
         "parameterised_route",
+        # navigation_full_app_flow categories
+        "primary_navigation",
+        "learn_to_actions_draft",
         "drawer",
+        "drawer_entry_point",
+        # navigation_backstack categories
         "repeated_tap",
         "real_composable",
         "screenshot",
     ]
     cat_labels = {
+        # Common categories (both suites)
         "tools_row_navigation": "Tools Row Navigation",
         "tab_switching": "Tab Switching",
         "parameterised_route": "Parameterised Routes",
+        # navigation_full_app_flow categories
+        "primary_navigation": "Primary Navigation",
+        "learn_to_actions_draft": "Tools Learn to Actions Draft",
         "drawer": "Drawer Transitions",
+        "drawer_entry_point": "Drawer Entry Points",
+        # navigation_backstack categories
         "repeated_tap": "Repeated-Tap / Duplicate Stack",
         "real_composable": "Real Composable",
         "screenshot": "Screenshot Evidence",

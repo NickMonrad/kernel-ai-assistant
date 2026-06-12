@@ -448,10 +448,14 @@ class NavigationFullAppFlowTest {
             selected = currentBaseRoute == route.substringBefore('?'),
             onClick = {
                 scope.launch { drawerState.close() }
+                // Matches production KernelNavHost.navigateToDrawerDestination():
+                //   popUpTo(ROUTE_LIST) { saveState = false }
+                //   launchSingleTop = true
+                //   restoreState = false
                 navController.navigate(route) {
-                    popUpTo(ROUTE_LIST) { saveState = true }
+                    popUpTo(ROUTE_LIST) { saveState = false }
                     launchSingleTop = true
-                    restoreState = true
+                    restoreState = false
                 }
             },
             modifier = Modifier.testTag("faf_drawer_item_${destTag.removePrefix("faf_dest_")}"),
