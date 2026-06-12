@@ -175,6 +175,47 @@ private fun NavHostController.navigateToToolsDestination(route: String) {
     }
 }
 
+/**
+ * Navigate to a drawer/menu destination safely.
+ *
+ * Unlike bottom-nav routes, drawer destinations:
+ * - Should NOT use [restoreState] — no stale transient state to restore.
+ * - Should NOT use [saveState] — drawer screens are not tabs.
+ * - Always pop to the Chats list to keep the back stack shallow and predictable.
+ */
+private fun NavHostController.navigateToDrawerDestination(route: String) {
+    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
+    val targetBaseRoute = route.substringBefore('?')
+    if (currentBaseRoute == targetBaseRoute) return
+
+    navigate(route) {
+        popUpTo(ROUTE_LIST) {
+            saveState = false
+        }
+        launchSingleTop = true
+        restoreState = false
+    }
+}
+
+/**
+ * Pop the back stack, or navigate to the Chats list if the stack is empty.
+ *
+ * Prevents the app from exiting unexpectedly when the back stack has been
+ * exhausted (e.g. Settings opened from the drawer is the only entry).
+ */
+private fun NavHostController.popBackOrNavigateHome() {
+    if (!popBackStack()) {
+        navigate(ROUTE_LIST) {
+            popUpTo(graph.findStartDestination().id) {
+                inclusive = false
+                saveState = false
+            }
+            launchSingleTop = true
+            restoreState = false
+        }
+    }
+}
+
 @Composable
 internal fun PrimaryBottomBar(
     currentBaseRoute: String?,
@@ -271,11 +312,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_LISTS,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_LISTS) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_LISTS)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -285,11 +322,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_NOTES,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_NOTES) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_NOTES)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -299,11 +332,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_SIDE_PANEL,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_SIDE_PANEL) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_SIDE_PANEL)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -313,11 +342,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_CONVERT,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_CONVERT) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_CONVERT)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -327,11 +352,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_IMPORTANT_DATES,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_IMPORTANT_DATES) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_IMPORTANT_DATES)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -341,11 +362,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_CONTACT_ALIASES,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_CONTACT_ALIASES) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_CONTACT_ALIASES)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -355,11 +372,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_MEAL_PLANS,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_MEAL_PLANS) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_MEAL_PLANS)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -370,11 +383,7 @@ fun KernelNavHost(
                     selected = currentBaseRoute == ROUTE_SETTINGS,
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_SETTINGS) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigateToDrawerDestination(ROUTE_SETTINGS)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
@@ -535,7 +544,7 @@ fun KernelNavHost(
                         conversationId = null,
                         initialQuery = initialQuery,
                         speakInitialResponse = speakResponse,
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNewConversation = {
                             navController.navigate(ROUTE_CHAT) {
                                 popUpTo(ROUTE_CHAT) { inclusive = true }
@@ -562,13 +571,11 @@ fun KernelNavHost(
                     val conversationId = backStackEntry.arguments?.getString(ARG_CONVERSATION_ID)
                     ChatScreen(
                         conversationId = conversationId,
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNewConversation = {
                             navController.navigate(ROUTE_CHAT)
                         },
-                        onNavigateToList = {
-                            navController.popBackStack()
-                        },
+                        onNavigateToList = { navController.popBackOrNavigateHome() },
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
@@ -580,7 +587,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_SETTINGS) {
                     SettingsScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToUserProfile = {
                             navController.navigate(ROUTE_USER_PROFILE)
                         },
@@ -611,25 +618,25 @@ fun KernelNavHost(
 
                 composable(ROUTE_USER_PROFILE) {
                     UserProfileScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_CHAT_PREFERENCES) {
                     ChatPreferencesScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_MEAL_PLANS) {
                     MealPlansScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onStartNewMealPlan = {
                             navController.navigate(buildNewMealPlanChatRoute())
                         },
@@ -637,7 +644,7 @@ fun KernelNavHost(
                 }
                 composable(ROUTE_NOTES) {
                     NotesScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onEditNote = { noteId ->
                             navController.navigate("$ROUTE_NOTES/$noteId")
                         },
@@ -656,13 +663,13 @@ fun KernelNavHost(
                     val noteId = backStackEntry.arguments?.getLong(ARG_NOTE_ID) ?: return@composable
                     NoteDetailScreen(
                         noteId = noteId,
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_IMPORTANT_DATES) {
                     ImportantDatesScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
@@ -674,7 +681,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_VOICE) {
                     VoiceScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
@@ -683,7 +690,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_MODEL_SETTINGS) {
                     ModelSettingsScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
@@ -696,14 +703,14 @@ fun KernelNavHost(
                 ) { backStackEntry ->
                     val scrollTo = backStackEntry.arguments?.getBoolean(ARG_SCROLL_TO) ?: false
                     ModelManagementScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         scrollToConversationModel = scrollTo,
                     )
                 }
 
                 composable(ROUTE_ABOUT) {
                     AboutScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         versionName = com.kernel.ai.BuildConfig.VERSION_NAME,
                         versionCode = com.kernel.ai.BuildConfig.VERSION_CODE,
                         buildType = com.kernel.ai.BuildConfig.BUILD_TYPE,
@@ -714,20 +721,20 @@ fun KernelNavHost(
 
                 composable(ROUTE_APP_PERMISSIONS) {
                     AppPermissionsScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_CONTACT_ALIASES) {
                     ContactAliasesScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
                 composable(ROUTE_SCHEDULED_ALARMS) {
                     // Redirected to the unified Clock screen (#574 / #742)
                     SidePanelScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
@@ -739,7 +746,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_SIDE_PANEL) {
                     SidePanelScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
@@ -751,7 +758,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_LISTS) {
                     ListsScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onOpenList = { listId ->
                             navController.navigate("lists/$listId")
                         },
@@ -772,7 +779,7 @@ fun KernelNavHost(
                         ?: return@composable
                     ListItemsScreen(
                         listId = listId,
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
@@ -784,7 +791,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_CONVERT) {
                     ConvertScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
@@ -809,7 +816,7 @@ fun KernelNavHost(
                 composable(ROUTE_TOOLS_LEARN) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ToolsLearnScreen(
-                            onBack = { navController.popBackStack() },
+                            onBack = { navController.popBackOrNavigateHome() },
                             onOpenPrompt = { prompt ->
                                 navController.navigate(buildActionsDraftRoute(prompt)) {
                                     launchSingleTop = true
