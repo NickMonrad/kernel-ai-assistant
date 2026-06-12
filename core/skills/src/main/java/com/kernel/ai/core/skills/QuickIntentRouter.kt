@@ -3687,6 +3687,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // ── Parking / location memories ──
+        // Pattern: "remember that I parked on level 3" / "remember that I left the car near the entrance"
+        // Must route to save_memory BEFORE save_important_date. The importantDateValuePattern
+        // matches "level 3", "row C", "basement level 2" etc. via [a-zA-Z]+\s+\d{1,2}, causing
+        // parking/location memories to be misrouted as important dates.
+        // The "left"/"put" branch requires a vehicle noun (car/bike/scooter/vehicle) to avoid
+        // stealing important-date inputs like "I left my job on 3 March".
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:remember|save|store|note|don't\s+forget)(?:\s+that)?\s+(I\s+(?:parked\s+.*|(?:left|put)\s+(?:my|the)\s+(?:car|bike|scooter|vehicle)\s+.*))$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
+        ),
         // ── Important Dates ──
         IntentPattern(
             intentName = "list_important_dates",
