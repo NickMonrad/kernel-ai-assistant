@@ -567,6 +567,7 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
     fun onSlotReply(text: String) {
         cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
+        Log.d(TAG, "ADB_SLOT_STATE action=reply intent=${pending.request.intentName} slot=${pending.request.missingSlot.name} reply=\"$text\"")
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
@@ -596,7 +597,7 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
             )
             return
         }
-
+        Log.d(TAG, "ADB_SLOT_STATE action=complete intent=${pending.request.intentName} finalSlots=${mergedParams.keys}")
         _pendingSlot.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
@@ -635,9 +636,10 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
             }
         }
     }
-
-    /** Silently dismiss the slot-fill sheet with no log entry. */
+    /** Silently dismiss the slot-fill sheet, logging the cancel reason. */
     fun cancelSlotFill() {
+        val pending = _pendingSlot.value
+        Log.d(TAG, "ADB_SLOT_STATE action=cancel intent=${pending?.request?.intentName} reason=cancelSlotFill")
         setSlotReplyAutoRearmArmed(false, "cancelSlotFill")
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
@@ -662,6 +664,11 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
         )
         // #790: Reset retry budget whenever a fresh slot is primed.
         slotReplyVoiceRetryCount = 0
+        Log.d(
+            TAG,
+            "ADB_SLOT_STATE action=create intent=$intentName missingSlot=${missingSlot.name}" +
+                " existingSlots=${existingParams.keys}",
+        )
         _pendingSlot.value = PendingSlotState(
             request = PendingSlotRequest(
                 intentName = intentName,

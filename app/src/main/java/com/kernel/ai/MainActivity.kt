@@ -125,6 +125,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // #1191: Clear one-shot ADB extras before reading new intent extras.
+        // When a new `quick_action_input` arrives without `slot_reply_input`, the stale
+        // slot reply value would persist and re-fire the LaunchedEffect in ActionsScreen
+        // if the composable re-enters between independent commands, causing the previous
+        // case's slot reply to overwrite the newly primed pending slot.
+        adbSlotReplyInput.value = null
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
         intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
             val voice = intent.getBooleanExtra("quick_action_is_voice", false)
