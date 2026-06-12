@@ -1382,6 +1382,10 @@ class ChatViewModel @Inject constructor(
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
             var isToolQueryForTurn = false
+            // Tracks whether this turn had a conversation reset (independent command).
+            // Used by the history replay section to exclude previous independent-command
+            // messages from the system prompt, preventing stale tool-bias carryover (#1190).
+            var wasConversationReset = false
             // Reset LiteRT conversation for independent commands (ADB test, widget, side-key)
             // to prevent stale KV-cache carryover between invocations (#1190).
             // Also clear all ViewModel-level mutable state that could leak:
@@ -1390,6 +1394,8 @@ class ChatViewModel @Inject constructor(
             // - estimatedTokensUsed / turnsSinceReset (token tracking from prior command)
             if (needsConversationReset) {
                 needsConversationReset = false
+                wasConversationReset = true
+                forceMinimalContextForNextMessage = false
                 slotFillerManager.cancel()
                 pendingConfirmationIntent = null
                 needsHistoryReplay = false
@@ -2176,7 +2182,15 @@ class ChatViewModel @Inject constructor(
 
             if (needsHistoryReplay || proactiveReset || turnCountReset) {
                 needsHistoryReplay = false
-                val allMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+                // Independent commands (conversation_reset) must NOT see previous independent
+                // commands' history — the injected tool calls bias the model toward the
+                // previously used tool (#1190).
+                val allMessages = if (wasConversationReset) {
+                    Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
+                    emptyList()
+                } else {
+                    _messages.value.dropLast(2) // exclude just-added user + placeholder
+                }
                 val rawTurns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
                 )
