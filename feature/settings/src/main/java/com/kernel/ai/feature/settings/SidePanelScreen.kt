@@ -90,7 +90,6 @@ import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
 import kotlinx.coroutines.delay
 import kotlin.math.abs
-import com.kernel.ai.core.ui.theme.FernGreen
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -618,7 +617,7 @@ private fun ClockSurfaceTabChip(
         label = { Text(option.label, maxLines = 1) },
         leadingIcon = { Icon(option.icon, contentDescription = null) },
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = FernGreen,
+            selectedContainerColor = MaterialTheme.colorScheme.primary,
             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
             selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
         ),

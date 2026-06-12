@@ -51,7 +51,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.capabilities
-import com.kernel.ai.core.ui.theme.FernGreen
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import kotlin.math.roundToInt
@@ -355,9 +354,9 @@ private fun SliderRow(
                 steps = steps,
                 modifier = Modifier.weight(1f),
                 colors = SliderDefaults.colors(
-                    activeTrackColor = FernGreen,
-                    inactiveTrackColor = FernGreen.copy(alpha = 0.24f),
-                    thumbColor = FernGreen,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                    thumbColor = MaterialTheme.colorScheme.primary,
                 ),
             )
             Spacer(modifier = Modifier.width(8.dp))
