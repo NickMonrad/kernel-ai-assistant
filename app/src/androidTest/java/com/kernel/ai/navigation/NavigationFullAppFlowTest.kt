@@ -58,6 +58,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -135,6 +136,7 @@ class NavigationFullAppFlowTest {
         private const val TAG_CHATS_MENU_BUTTON = "faf_chats_menu_button"
         private const val TAG_ACTIONS_SCREEN = "faf_actions_screen"
         private const val TAG_DRAFT_INPUT = "faf_draft_input"
+        private const val TAG_ACTIONS_MENU_BUTTON = "faf_actions_menu_button"
         private const val TAG_DRAFT_SUBMIT = "faf_draft_submit"
         private const val TAG_DRAFT_TEXT = "faf_draft_text"
 
@@ -323,7 +325,7 @@ class NavigationFullAppFlowTest {
                         @Suppress("UNUSED")
                         val openSheet = backStackEntry.arguments?.getBoolean(ARG_OPEN_SHEET) ?: false
                         val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY) ?: ""
-                        ActionsScreenStub(draftQuery = draftQuery)
+                        ActionsScreenStub(draftQuery = draftQuery, drawerState = drawerState, scope = scope)
                     }
 
                     // ── Tools (real production composable) ──
@@ -489,15 +491,28 @@ class NavigationFullAppFlowTest {
             }
         }
     }
-
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun ActionsScreenStub(draftQuery: String) {
+    private fun ActionsScreenStub(
+        draftQuery: String,
+        drawerState: DrawerState,
+        scope: CoroutineScope,
+    ) {
         val inputText = remember { mutableStateOf(draftQuery) }
         val showDraft = remember { mutableStateOf(draftQuery.isNotEmpty()) }
 
         Column(modifier = Modifier.fillMaxSize().testTag(TAG_ACTIONS_SCREEN)) {
-            TopAppBar(title = { Text("Actions") })
+            TopAppBar(
+                title = { Text("Actions") },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { scope.launch { drawerState.open() } },
+                        modifier = Modifier.testTag(TAG_ACTIONS_MENU_BUTTON),
+                    ) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                },
+            )
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -860,5 +875,20 @@ class NavigationFullAppFlowTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
         assertBottomNavSelected(BOTTOM_NAV_CHATS)
+    }
+
+    @Test
+    fun drawer_opensFromActionsViaMenuButton() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_ACTIONS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_ACTIONS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_ACTIONS)
+
+        // Use menu button on Actions stub (production ActionsScreen has a matching
+        // menu icon — our stub mirrors it with a stable test tag)
+        composeTestRule.onNodeWithTag(TAG_ACTIONS_MENU_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("faf_drawer_sheet").assertIsDisplayed()
     }
 }

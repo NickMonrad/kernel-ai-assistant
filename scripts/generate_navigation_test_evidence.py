@@ -116,6 +116,7 @@ NAVIGATION_CASES: list[dict[str, Any]] = [
     {"name": "drawer_opensFromChatsViaMenuButton", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
     {"name": "drawer_navigationBackToTools", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
     {"name": "drawer_bottomNavStateAfterDrawerNavigation", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
+    {"name": "drawer_opensFromActionsViaMenuButton", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
 ]
 
 
