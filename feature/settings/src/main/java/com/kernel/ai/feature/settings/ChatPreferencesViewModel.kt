@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import android.net.Uri
+import java.io.File
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.prefs.ChatPreferences
@@ -155,6 +156,24 @@ class ChatPreferencesViewModel @Inject constructor(
             // Only treat the image as active when the mode is actually "image" (#1206)
             val active = if (currentType == "image" && currentUri != null) setOf(currentUri) else emptySet()
             wallpaperManager.deleteUnusedWallpapers(active)
+            refreshImportedWallpapers()
+        }
+    }
+
+    /**
+     * Select an already-imported wallpaper from app-private storage and activate it.
+     * Does not launch Gallery/Files or re-import the file.
+     */
+    fun selectImportedWallpaper(path: String) {
+        viewModelScope.launch {
+            // Verify the file still exists before activating
+            if (!File(path).exists()) {
+                refreshImportedWallpapers()
+                _wallpaperImportError.value = "Selected wallpaper file was not found"
+                return@launch
+            }
+            chatPreferences.setWallpaperImageUri(path)
+            chatPreferences.setWallpaperType("image")
             refreshImportedWallpapers()
         }
     }

@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import java.io.File
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -372,6 +373,25 @@ fun ChatPreferencesScreen(
                 }
             }
 
+            // ─────── Saved image wallpapers ───────
+            if (importedWallpapers.isNotEmpty()) {
+                SectionHeader("Saved image wallpapers")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    importedWallpapers.forEach { wallpaper ->
+                        SavedWallpaperThumbnail(
+                            wallpaper = wallpaper,
+                            onClick = { viewModel.selectImportedWallpaper(wallpaper.path) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
             HorizontalDivider()
 
             // ─────── Conversation Copy (#1024) ───────
@@ -588,6 +608,51 @@ private fun WallpaperTypeButton(
             icon?.invoke()
             if (icon != null) Spacer(Modifier.width(4.dp))
             Text(label)
+        }
+    }
+}
+
+@Composable
+private fun SavedWallpaperThumbnail(
+    wallpaper: ImportedWallpaper,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .then(
+                if (wallpaper.isActive) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                } else {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                }
+            ),
+    ) {
+        AsyncImage(
+            model = Uri.fromFile(File(wallpaper.path)),
+            contentDescription = wallpaper.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        if (wallpaper.isActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Active wallpaper",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
         }
     }
 }
