@@ -2044,6 +2044,25 @@ class QuickIntentRouterTest {
             assertFallThrough(result, "What do you remember about me")
         }
 
+        @Test
+        fun `sequential route calls are independent — memory then time returns get_time, not save_memory`() {
+            val router = regexOnlyRouter
+            // First call: "remember that I prefer dark mode" → save_memory
+            val firstResult = router.route("remember that I prefer dark mode")
+            assertRegexMatch(firstResult, "save_memory", "remember that I prefer dark mode")
+            val firstIntent = (firstResult as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("I prefer dark mode", firstIntent.params["content"],
+                "content for first call")
+
+            // Second call: "what time is it" → must be get_time, NOT save_memory
+            val secondResult = router.route("what time is it")
+            assertRegexMatch(secondResult, "get_time", "what time is it")
+
+            // Third call: "what's my battery level" → must be get_battery, NOT save_memory or get_time
+            val thirdResult = router.route("what's my battery level")
+            assertRegexMatch(thirdResult, "get_battery", "what's my battery level")
+        }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // BRIGHTNESS TESTS
     // ═══════════════════════════════════════════════════════════════════════════

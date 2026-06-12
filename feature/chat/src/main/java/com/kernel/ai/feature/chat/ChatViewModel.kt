@@ -1383,10 +1383,18 @@ class ChatViewModel @Inject constructor(
             var systemContext: String? = null
             var isToolQueryForTurn = false
             // Reset LiteRT conversation for independent commands (ADB test, widget, side-key)
-            // to prevent stale KV-cache carryover between invocations (#1190)
+            // to prevent stale KV-cache carryover between invocations (#1190).
+            // Also clear all ViewModel-level mutable state that could leak:
+            // - pendingConfirmationIntent (#621 classifier confirmation)
+            // - needsHistoryReplay (GPU backend set-this flag per-turn)
+            // - estimatedTokensUsed / turnsSinceReset (token tracking from prior command)
             if (needsConversationReset) {
                 needsConversationReset = false
                 slotFillerManager.cancel()
+                pendingConfirmationIntent = null
+                needsHistoryReplay = false
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
                 if (inferenceEngine.isReady.value) {
                     inferenceEngine.resetConversation()
                     Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")

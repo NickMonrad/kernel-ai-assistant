@@ -33,6 +33,7 @@ import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
@@ -55,6 +56,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
+import io.mockk.clearMocks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -780,6 +782,86 @@ class ChatViewModelInitTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `submitInitialQueryIfNeeded resets state between independent commands`() = runTest(dispatcher) {
+        val systemPrompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("ok"), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            systemPrompts += firstArg<String>()
+        }
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-1", "assistant-msg-1", "user-msg-2", "assistant-msg-2",
+                    "user-msg-3", "assistant-msg-3")
+        every { quickIntentRouter.route("remember that I prefer dark mode") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "save_memory",
+                    params = mapOf("content" to "I prefer dark mode"),
+                    source = "regex",
+                ),
+            )
+        every { quickIntentRouter.route("what time is it") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_time",
+                    params = emptyMap(),
+                    source = "regex",
+                ),
+            )
+        every { skillRegistry.get("run_intent") } returns mockk(relaxed = true) {
+            coEvery { execute(any()) } returns SkillResult.Success("Done")
+        }
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        intentRecoveryOrchestrator = intentRecoveryOrchestrator,
+        intentContractRegistry = IntentContractRegistry(),
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
+
+        advanceUntilIdle()
+
+        // Command 1: "remember that I prefer dark mode" — triggers needsConversationReset
+        viewModel.submitInitialQueryIfNeeded("remember that I prefer dark mode")
+        advanceUntilIdle()
+        clearMocks(slotFillerManager, inferenceEngine)
+        // Re-stub after clear
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
+        coEvery { inferenceEngine.resetConversation() } just runs
+        coEvery { slotFillerManager.cancel() } just runs
+
+        // Command 2: "what time is it" — must also trigger conversation reset for independent command
+        viewModel.submitInitialQueryIfNeeded("what time is it")
+        advanceUntilIdle()
+        coVerify(atLeast = 1) { slotFillerManager.cancel() }
+        coVerify(atLeast = 1) { inferenceEngine.resetConversation() }
     }
 
     @Test
