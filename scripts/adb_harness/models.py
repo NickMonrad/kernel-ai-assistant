@@ -95,6 +95,7 @@ class TestResult:
     xfail_reason: str | None = None
     status: str = ""
     failure_bucket: str | None = None
+    expect_log_contains: str | None = None
 
 
 def is_clean_pass(r: TestResult) -> bool:
