@@ -1,11 +1,13 @@
 package com.kernel.ai.core.ui
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +23,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -106,6 +112,83 @@ fun PauaShimmerBar(
             .clip(RoundedCornerShape(height / 2))
             .background(color),
     )
+}
+
+/**
+ * A circular animated ring that sweeps through Paua colours.
+ *
+ * Draws a rotating arc whose colour cycles through PauaDeep → PauaTeal → PauaPurple.
+ * Serves as a visually prominent Paua-branded replacement for [CircularProgressIndicator]
+ * in full-screen loading states. The ring expands and contracts the visible arc while
+ * rotating, similar to Material's indeterminate progress indicator but using Paua colours.
+ *
+ * @param modifier Modifier for the ring.
+ * @param size Diameter of the ring in dp.
+ * @param strokeWidth Thickness of the arc stroke in dp.
+ */
+@Composable
+fun PauaAnimatedRing(
+    modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
+    strokeWidth: Dp = 4.dp,
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+    )
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+    )
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 40f,
+        targetValue = 320f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+    )
+
+    val color = when {
+        phase < 0.5f -> lerp(PauaDeep, PauaTeal, phase / 0.5f)
+        else -> lerp(PauaTeal, PauaPurple, (phase - 0.5f) / 0.5f)
+    }
+
+    Canvas(modifier = modifier.size(size)) {
+        val stroke = strokeWidth.toPx()
+        val arcSize = Size(size.toPx() - stroke, size.toPx() - stroke)
+        val arcOffset = Offset(stroke / 2f, stroke / 2f)
+
+        // Track (faint full ring)
+        drawArc(
+            color = color.copy(alpha = 0.15f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+            size = arcSize,
+            topLeft = arcOffset,
+        )
+        // Sweeping arc (rotating + expanding/contracting)
+        drawArc(
+            color = color,
+            startAngle = rotation,
+            sweepAngle = sweepAngle,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+            size = arcSize,
+            topLeft = arcOffset,
+        )
+    }
 }
 
 /**

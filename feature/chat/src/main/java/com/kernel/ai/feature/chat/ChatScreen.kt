@@ -73,7 +73,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -168,9 +168,13 @@ import com.kernel.ai.core.inference.ModelCapabilities
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
+import com.kernel.ai.core.ui.PauaAnimatedRing
 import com.kernel.ai.core.ui.PauaDotsIndicator
 import com.kernel.ai.core.ui.PauaLoadingIndicator
+import com.kernel.ai.core.ui.PauaShimmerBar
+import com.kernel.ai.core.ui.theme.PauaDeep
 import com.kernel.ai.core.ui.theme.PauaPurple
+import com.kernel.ai.core.ui.theme.PauaTeal
 
 internal fun shouldKeepChatScreenAwake(
     uiState: ChatUiState,
@@ -599,7 +603,16 @@ private fun ChatContent(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    PauaLoadingIndicator(size = 16.dp)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        PauaLoadingIndicator(size = 20.dp)
+                                        PauaShimmerBar(
+                                            width = 40.dp,
+                                            height = 3.dp,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "Loading model… keeping this screen awake.",
@@ -617,7 +630,16 @@ private fun ChatContent(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    PauaLoadingIndicator(size = 16.dp)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        PauaLoadingIndicator(size = 20.dp)
+                                        PauaShimmerBar(
+                                            width = 40.dp,
+                                            height = 3.dp,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "Working on your reply… keeping this screen awake.",
@@ -692,10 +714,7 @@ private fun ChatContent(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 1.5.dp,
-                    )
+                                    PauaLoadingIndicator(size = 12.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Updating knowledge base…",
@@ -1657,7 +1676,7 @@ private fun LoadingContent() {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp),
         ) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            PauaAnimatedRing(size = 48.dp, strokeWidth = 4.dp)
             AnimatedContent(
                 targetState = step,
                 transitionSpec = {
@@ -1676,7 +1695,7 @@ private fun LoadingContent() {
                         modifier = Modifier
                             .padding(bottom = 8.dp)
                             .size(32.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = PauaTeal,
                     )
                     Text(
                         text = steps[currentStep],
@@ -1698,6 +1717,11 @@ private fun LoadingContent() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 16.dp),
+            )
+            PauaShimmerBar(
+                width = 160.dp,
+                height = 4.dp,
+                modifier = Modifier.padding(top = 24.dp),
             )
         }
         }
@@ -1764,7 +1788,7 @@ private fun OnboardingContent(
                     Text("Manage models")
                 }
             } else if (isDownloading) {
-                CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
+                PauaLoadingIndicator(size = 24.dp)
             }
         }
     }
