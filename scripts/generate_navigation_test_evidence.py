@@ -65,38 +65,57 @@ REPO = "NickMonrad/kernel-ai-assistant"
 SCHEMA_VERSION = "1.0"
 
 NAVIGATION_CASES: list[dict[str, Any]] = [
+    # ═══════════ navigation_backstack (#1154 harness) ═══════════
     # ── Route matrix (combined test verifying all 16 Tools rows) ──
-    {"name": "toolsRouteMatrix_allRowsNavigateAndBack", "category": "tools_row_navigation"},
+    {"name": "toolsRouteMatrix_allRowsNavigateAndBack", "category": "tools_row_navigation", "suite": "navigation_backstack"},
     # ── Primary tab switching ──
-    {"name": "tabs_chatsActionsTools_roundTrip", "category": "tab_switching"},
-    {"name": "tools_childDestination_back_toTools", "category": "tab_switching"},
-    {"name": "tools_childDestination_actions_thenTools", "category": "tab_switching"},
-    {"name": "tools_childDestination_chats_thenTools", "category": "tab_switching"},
-    {"name": "actions_tools_switching", "category": "tab_switching"},
+    {"name": "tabs_chatsActionsTools_roundTrip", "category": "tab_switching", "suite": "navigation_backstack"},
+    {"name": "tools_childDestination_back_toTools", "category": "tab_switching", "suite": "navigation_backstack"},
+    {"name": "tools_childDestination_actions_thenTools", "category": "tab_switching", "suite": "navigation_backstack"},
+    {"name": "tools_childDestination_chats_thenTools", "category": "tab_switching", "suite": "navigation_backstack"},
+    {"name": "actions_tools_switching", "category": "tab_switching", "suite": "navigation_backstack"},
     # ── Parameterised / transient route tests ──
-    {"name": "actions_draftRoute_dismiss_back_toTools", "category": "parameterised_route"},
-    {"name": "actions_draftRoute_chats_then_tools", "category": "parameterised_route"},
+    {"name": "actions_draftRoute_dismiss_back_toTools", "category": "parameterised_route", "suite": "navigation_backstack"},
+    {"name": "actions_draftRoute_chats_then_tools", "category": "parameterised_route", "suite": "navigation_backstack"},
     # ── Drawer transition tests ──
-    {"name": "drawer_opens_fromTools", "category": "drawer"},
-    {"name": "drawer_navigatesFromTools_predictable_stack", "category": "drawer"},
-    {"name": "drawer_navigatesFromChats", "category": "drawer"},
+    {"name": "drawer_opens_fromTools", "category": "drawer", "suite": "navigation_backstack"},
+    {"name": "drawer_navigatesFromTools_predictable_stack", "category": "drawer", "suite": "navigation_backstack"},
+    {"name": "drawer_navigatesFromChats", "category": "drawer", "suite": "navigation_backstack"},
     # ── Duplicate-stack / repeated-tap tests ──
-    {"name": "repeatedToolsTab_noDuplicateStacks", "category": "repeated_tap"},
-    {"name": "repeatedTabSwitches_noStaleState", "category": "repeated_tap"},
-    {"name": "reopenSameChildDestination_noDuplicateStack", "category": "repeated_tap"},
-    {"name": "repeatedToolsRowTap_noDuplicateStacks", "category": "repeated_tap"},
-    {"name": "toolsLearn_example_dismissActions_returnToTools", "category": "repeated_tap"},
+    {"name": "repeatedToolsTab_noDuplicateStacks", "category": "repeated_tap", "suite": "navigation_backstack"},
+    {"name": "repeatedTabSwitches_noStaleState", "category": "repeated_tap", "suite": "navigation_backstack"},
+    {"name": "reopenSameChildDestination_noDuplicateStack", "category": "repeated_tap", "suite": "navigation_backstack"},
+    {"name": "repeatedToolsRowTap_noDuplicateStacks", "category": "repeated_tap", "suite": "navigation_backstack"},
+    {"name": "toolsLearn_example_dismissActions_returnToTools", "category": "repeated_tap", "suite": "navigation_backstack"},
     # ── Real composable tests ──
-    {"name": "realToolsHubScreen_rendersAllRows", "category": "real_composable"},
-    {"name": "realPrimaryBottomBar_rendersAndNavigates", "category": "real_composable"},
-    {"name": "realToolsHubScreen_toolbarOpensDrawer", "category": "real_composable"},
+    {"name": "realToolsHubScreen_rendersAllRows", "category": "real_composable", "suite": "navigation_backstack"},
+    {"name": "realPrimaryBottomBar_rendersAndNavigates", "category": "real_composable", "suite": "navigation_backstack"},
+    {"name": "realToolsHubScreen_toolbarOpensDrawer", "category": "real_composable", "suite": "navigation_backstack"},
     # ── Screenshot capture tests ──
-    {"name": "captureScreenshot_toolsHub", "category": "screenshot"},
-    {"name": "captureScreenshot_toolsLearnChild", "category": "screenshot"},
-    {"name": "captureScreenshot_toolsChildDestination", "category": "screenshot"},
-    {"name": "captureScreenshot_actionsDraftDismissedBackToTools", "category": "screenshot"},
-    {"name": "captureScreenshot_drawerOpenFromTools", "category": "screenshot"},
-    {"name": "captureScreenshot_afterTabSwitch", "category": "screenshot"},
+    {"name": "captureScreenshot_toolsHub", "category": "screenshot", "suite": "navigation_backstack"},
+    {"name": "captureScreenshot_toolsLearnChild", "category": "screenshot", "suite": "navigation_backstack"},
+    {"name": "captureScreenshot_toolsChildDestination", "category": "screenshot", "suite": "navigation_backstack"},
+    {"name": "captureScreenshot_actionsDraftDismissedBackToTools", "category": "screenshot", "suite": "navigation_backstack"},
+    {"name": "captureScreenshot_drawerOpenFromTools", "category": "screenshot", "suite": "navigation_backstack"},
+    {"name": "captureScreenshot_afterTabSwitch", "category": "screenshot", "suite": "navigation_backstack"},
+
+    # ═══════════ navigation_full_app_flow (#1167 full-app-flow) ═══════════
+    # ── Primary navigation ──
+    {"name": "primaryNavigation_chatsActionsToolsRoundTrip", "category": "primary_navigation", "suite": "navigation_full_app_flow"},
+    {"name": "primaryNavigation_actionsToolsActions", "category": "primary_navigation", "suite": "navigation_full_app_flow"},
+    {"name": "primaryNavigation_toolsChatsTools", "category": "primary_navigation", "suite": "navigation_full_app_flow"},
+    {"name": "primaryNavigation_repeatedTabTapStable", "category": "primary_navigation", "suite": "navigation_full_app_flow"},
+    {"name": "primaryNavigation_noStaleChildScreen", "category": "primary_navigation", "suite": "navigation_full_app_flow"},
+    # ── Tools row routing ──
+    {"name": "toolsRow_matrixNavigateAndBack", "category": "tools_row_navigation", "suite": "navigation_full_app_flow"},
+    # ── Learn → Actions draft prefill ──
+    {"name": "learnToActions_exampleOpensDraftPrefill", "category": "learn_to_actions_draft", "suite": "navigation_full_app_flow"},
+    {"name": "learnToActions_dismissDraftThenSwitchTabs", "category": "learn_to_actions_draft", "suite": "navigation_full_app_flow"},
+    # ── Drawer entry points ──
+    {"name": "drawer_opensFromToolsViaMenuButton", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
+    {"name": "drawer_opensFromChatsViaMenuButton", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
+    {"name": "drawer_navigationBackToTools", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
+    {"name": "drawer_bottomNavStateAfterDrawerNavigation", "category": "drawer_entry_point", "suite": "navigation_full_app_flow"},
 ]
 
 
@@ -596,9 +615,11 @@ def main() -> None:
         else:
             print(f"WARNING: no test result XMLs found in {args.results_dir}", file=sys.stderr)
 
-    # ── Build cases ──
+    # ── Build cases (filtered by suite) ──
     cases: list[dict[str, Any]] = []
     for case_def in NAVIGATION_CASES:
+        if case_def.get("suite", "navigation_backstack") != args.suite:
+            continue
         name = case_def["name"]
         result = test_results.get(name)
         case = _build_case(case_def, result)

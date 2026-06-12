@@ -215,7 +215,7 @@ fun ToolsLearnScreen(
             TopAppBar(
                 title = { Text("Learn what Jandal can do") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("back_from_tools_learn")) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
