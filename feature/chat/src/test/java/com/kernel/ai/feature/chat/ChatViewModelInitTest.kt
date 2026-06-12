@@ -71,6 +71,8 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -1113,6 +1115,47 @@ class ChatViewModelInitTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `independent commands do not leak previous message history into system prompt`() = runTest(dispatcher) {
+        val systemPrompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("ok"), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            systemPrompts += firstArg<String>()
+        }
+        coEvery { inferenceEngine.resetConversation() } just runs
+        // Force GPU backend so needsHistoryReplay is forced true every turn,
+        // testing that wasConversationReset correctly suppresses history replay.
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-1", "assistant-msg-1", "user-msg-2", "assistant-msg-2")
+        // Both inputs fall through to LLM (no QIR match) to trigger the history replay path
+        every { quickIntentRouter.route(any()) } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "ignored")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        // Command 1: independent command that goes through LLM
+        viewModel.submitInitialQueryIfNeeded("set a timer for 2 hours")
+        advanceUntilIdle()
+
+        // Command 2: independent command — must NOT leak Command 1's text into system prompt history
+        viewModel.submitInitialQueryIfNeeded("what time is it")
+        advanceUntilIdle()
+
+        // The last system prompt should be for Command 2
+        // It must NOT contain the first command's user text in the history turns
+        val lastSystemPrompt = systemPrompts.lastOrNull()
+        assertNotNull(lastSystemPrompt, "Expected at least one updateSystemPrompt call")
+        assertFalse(
+            lastSystemPrompt!!.contains("set a timer for 2 hours"),
+            "Independent command history replay must not leak previous commands into system prompt",
+        )
     }
 
     private fun createViewModel(
