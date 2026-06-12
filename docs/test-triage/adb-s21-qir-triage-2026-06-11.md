@@ -25,7 +25,7 @@
 | Date | 2026-06-11 |
 | Base commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
 | Branch | `issue/1186-s21-qir-triage` |
-| Evidence baseline commit | `d83080f8` — initial report + S21 evidence set (pre-permission safe_smoke, deterministic_core, slot_fill); subsequent evidence updates: `faad35eb` (post-permission rerun, S23U comparison) |
+| Evidence baseline commit | [`d83080f8`](https://github.com/NickMonrad/kernel-ai-assistant/tree/d83080f8) — initial report + S21 evidence set (pre-permission safe_smoke, deterministic_core, slot_fill); subsequent evidence updates: `faad35eb` (post-permission rerun, S23U comparison)
 
 ## Device Preconditions
 
