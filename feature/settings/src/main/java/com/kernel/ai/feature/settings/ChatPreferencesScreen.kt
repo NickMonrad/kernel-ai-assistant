@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -132,6 +135,9 @@ fun ChatPreferencesScreen(
     val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
     val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
     val useSystemColors by viewModel.useSystemColors.collectAsStateWithLifecycle()
+    val importedWallpapers by viewModel.importedWallpapers.collectAsStateWithLifecycle()
+    val wallpaperImportError by viewModel.wallpaperImportError.collectAsStateWithLifecycle()
+    val migrationRunning by viewModel.migrationRunning.collectAsStateWithLifecycle()
 
     var showRetentionPicker by remember { mutableStateOf(false) }
     var showFontSizePicker by remember { mutableStateOf(false) }
@@ -141,20 +147,21 @@ fun ChatPreferencesScreen(
     var showWallpaperColorPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable permission so the URI survives reboots
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-            scope.launch {
-                viewModel.setWallpaperType("image")
-                viewModel.setWallpaperImageUri(uri.toString())
-            }
+            viewModel.importWallpaper(uri)
+        }
+    }
+
+    // Show snackbar on wallpaper import errors
+    LaunchedEffect(wallpaperImportError) {
+        wallpaperImportError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearWallpaperImportError()
         }
     }
 
@@ -169,6 +176,7 @@ fun ChatPreferencesScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -319,7 +327,7 @@ fun ChatPreferencesScreen(
                 "image" -> {
                     wallpaperImageUri?.let { uri ->
                         AsyncImage(
-                            model = Uri.parse(uri),
+                            model = toCoilUri(uri),
                             contentDescription = "Wallpaper preview",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -330,7 +338,73 @@ fun ChatPreferencesScreen(
                             placeholder = null,
                             error = null,
                         )
+                    }
                 }
+            }
+
+            // Wallpaper management (#1206)
+            if (migrationRunning) {
+                Text(
+                    text = "Migrating existing wallpaper…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (wallpaperType == "image" && wallpaperImageUri != null) {
+                OutlinedButton(
+                    onClick = { viewModel.deleteCurrentWallpaper() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Delete current image wallpaper")
+                }
+            }
+            if (importedWallpapers.any { !it.isActive }) {
+                OutlinedButton(
+                    onClick = { viewModel.deleteUnusedWallpapers() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Delete unused image wallpapers (${importedWallpapers.count { !it.isActive }})")
+                }
+            }
+            if (importedWallpapers.size > 1) {
+                Text(
+                    text = "Previously used images",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).padding(top = 12.dp),
+                )
+                importedWallpapers.forEach { wallpaper ->
+                    val isActive = wallpaper.isActive
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .then(
+                                if (!isActive) Modifier.clickable { imagePicker.launch("image/*") } else Modifier
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AsyncImage(
+                            model = toCoilUri(wallpaper.path),
+                            contentDescription = wallpaper.name,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Text(
+                            text = if (isActive) "${wallpaper.name} (current)" else wallpaper.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
 
@@ -660,6 +734,18 @@ private fun ColorPickerDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * Convert a stored wallpaper reference (file path or content URI) to a Coil-compatible URI.
+ * File paths are wrapped with [android.net.Uri.fromFile] for compatibility.
+ */
+private fun toCoilUri(ref: String): Uri {
+    return if (ref.startsWith("/")) {
+        android.net.Uri.fromFile(java.io.File(ref))
+    } else {
+        Uri.parse(ref)
+    }
 }
 
 @Preview(showBackground = true)

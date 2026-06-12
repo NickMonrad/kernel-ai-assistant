@@ -477,13 +477,7 @@ private fun ChatContent(
         if (state.wallpaperType != "image") return@remember null
         val uriStr = state.wallpaperImageUri ?: return@remember null
         try {
-            val uri = Uri.parse(uriStr)
-            val bitmap = with(context.contentResolver) {
-                openInputStream(uri)?.use { stream ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    BitmapFactory.decodeStream(stream, null, opts)
-                }
-            }
+            val bitmap = wallpaperBitmap(context, uriStr)
             bitmap?.let { BitmapPainter(it.asImageBitmap()) }
         } catch (_: Exception) {
             null
@@ -537,7 +531,9 @@ private fun ChatContent(
             )
         },
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .then(if (wallpaperBackground != null) Modifier.background(wallpaperBackground) else Modifier)) {
             // Wallpaper image behind content
             wallpaperPainter?.let { painter ->
                 Image(
@@ -554,7 +550,6 @@ private fun ChatContent(
                     .imePadding()
                     // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
                     .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier)
-                    .then(if (wallpaperBackground != null) Modifier.background(wallpaperBackground) else Modifier),
         ) {
             if (isArchived) {
                 Box(
@@ -2073,4 +2068,37 @@ private fun Uri.getFileName(context: android.content.Context): String? {
         }
     }
     return name
+}
+
+/**
+ * Decode a wallpaper bitmap from either an app-private file path or an external content URI.
+ *
+ * - Absolute file paths (starting with "/") are decoded directly via [BitmapFactory.decodeFile].
+ * - Content URIs and other references are decoded via [ContentResolver.openInputStream].
+ *
+ * Returns null if the image cannot be read or decoded.
+ */
+private fun wallpaperBitmap(
+    context: android.content.Context,
+    uriStr: String,
+): android.graphics.Bitmap? {
+    return try {
+        if (uriStr.startsWith("/")) {
+            android.graphics.BitmapFactory.decodeFile(
+                uriStr,
+                android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 },
+            )
+        } else {
+            val uri = android.net.Uri.parse(uriStr)
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(
+                    stream,
+                    null,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 },
+                )
+            }
+        }
+    } catch (_: java.lang.Exception) {
+        null
+    }
 }
