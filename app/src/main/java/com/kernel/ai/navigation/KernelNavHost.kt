@@ -24,6 +24,8 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
@@ -178,6 +180,9 @@ internal fun PrimaryBottomBar(
     currentBaseRoute: String?,
     onNavigateToRoute: (String) -> Unit,
 ) {
+    val navItemColors = NavigationBarItemDefaults.colors(
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+    )
     NavigationBar {
         NavigationBarItem(
             selected = currentBaseRoute == ROUTE_LIST,
@@ -185,6 +190,7 @@ internal fun PrimaryBottomBar(
             icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
             label = { Text("Chats") },
             modifier = Modifier.testTag("bottom_nav_chats"),
+            colors = navItemColors,
         )
         NavigationBarItem(
             selected = currentBaseRoute == ROUTE_ACTIONS,
@@ -192,6 +198,7 @@ internal fun PrimaryBottomBar(
             icon = { Icon(Icons.Default.Bolt, contentDescription = null) },
             label = { Text("Actions") },
             modifier = Modifier.testTag("bottom_nav_actions"),
+            colors = navItemColors,
         )
         NavigationBarItem(
             selected = currentBaseRoute == ROUTE_TOOLS,
@@ -199,6 +206,7 @@ internal fun PrimaryBottomBar(
             icon = { Icon(Icons.Default.Build, contentDescription = null) },
             label = { Text("Tools") },
             modifier = Modifier.testTag("bottom_nav_tools"),
+            colors = navItemColors,
         )
     }
 }

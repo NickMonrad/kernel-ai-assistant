@@ -83,7 +83,7 @@ fun AboutScreen(
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Version") },
-                supportingContent = { Text("$versionName ($versionCode)") },
+                supportingContent = { Text("Jandal AI 🩴 · v$versionName ($versionCode)") },
             )
             HorizontalDivider()
 

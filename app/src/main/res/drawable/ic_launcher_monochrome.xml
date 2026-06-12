@@ -5,10 +5,13 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Traced from the approved generated concept: a soft, centered,
-         top-down jandal with generous padding and clear Y-strap cut-outs. -->
+    <!-- Monochrome line-art companion to the approved generated icon trace. -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="
             M 53.5,16
             C 65,16 73.5,26 76,39
@@ -19,27 +22,25 @@
             C 42,73 39.5,67.5 36,61
             C 32.5,54.5 30.5,47 32,39
             C 34.5,26 42,16 53.5,16 Z" />
-
-    <!-- Rounded green Y-strap, using the app-icon background colour as negative space. -->
     <path
-        android:strokeColor="#4F7942"
-        android:strokeWidth="8"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeWidth="5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:fillColor="@android:color/transparent"
         android:pathData="M 54,34 L 54,39" />
     <path
-        android:strokeColor="#4F7942"
-        android:strokeWidth="8"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeWidth="5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:fillColor="@android:color/transparent"
         android:pathData="M 54,39 C 48,48 41,55 39,64" />
     <path
-        android:strokeColor="#4F7942"
-        android:strokeWidth="8"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/system_accent1_500"
+        android:strokeWidth="5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:fillColor="@android:color/transparent"
         android:pathData="M 54,39 C 61,48 68,55 70,64" />
 </vector>

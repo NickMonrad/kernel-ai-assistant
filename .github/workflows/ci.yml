@@ -129,14 +129,20 @@ jobs:
           SHORT_SHA=${GITHUB_SHA::7}
           TAG="pr-${PR_NUMBER}"
 
-          # Upsert the pr-N pre-release (delete first so we can re-attach the APK)
-          gh release delete "$TAG" --yes 2>/dev/null || true
-          git tag -f "$TAG"
-          git push -f origin "$TAG"
+          # Upsert the pr-N pre-release (create; if exists, update APK + metadata)
           gh release create "$TAG" "$APK" \
             --title "PR #${PR_NUMBER} debug build — ${SHORT_SHA}" \
             --notes "Debug APK for PR #${PR_NUMBER}. Commit: ${GITHUB_SHA}. Build #${BUILD_NUMBER}." \
-            --prerelease
+            --prerelease 2>/dev/null \
+          || {
+            git tag -f "$TAG"
+            git push -f origin "$TAG"
+            gh release upload "$TAG" "$APK" --clobber
+            gh release edit "$TAG" \
+              --title "PR #${PR_NUMBER} debug build — ${SHORT_SHA}" \
+              --notes "Debug APK for PR #${PR_NUMBER}. Commit: ${GITHUB_SHA}. Build #${BUILD_NUMBER}." \
+              --prerelease
+          }
 
           APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/app-debug.apk"
 

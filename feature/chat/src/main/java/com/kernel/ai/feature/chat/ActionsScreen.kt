@@ -465,9 +465,9 @@ fun ActionsScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("⚡", style = MaterialTheme.typography.displayMedium)
+                            Text("🩴", style = MaterialTheme.typography.displayMedium)
                             Text(
-                                text = "No actions yet",
+                                text = "No actions yet. Try asking me to set a timer or check the weather.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier.padding(top = 8.dp),
                             )

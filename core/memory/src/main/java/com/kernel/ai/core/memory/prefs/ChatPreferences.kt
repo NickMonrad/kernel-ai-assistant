@@ -161,4 +161,17 @@ class ChatPreferences @Inject constructor(
             prefs[copyThinkingKey] = enabled
         }
     }
+
+    // ---- System colors ----
+    private val useSystemColorsKey = booleanPreferencesKey("use_system_colors")
+
+    /** When true, prefer system dynamic color (Android 12+) over Jandal palette. Default: true. */
+    val useSystemColors: Flow<Boolean> = context.chatPrefsDataStore.data
+        .map { prefs -> prefs[useSystemColorsKey] ?: true }
+
+    suspend fun setUseSystemColors(enabled: Boolean) {
+        context.chatPrefsDataStore.edit { prefs ->
+            prefs[useSystemColorsKey] = enabled
+        }
+    }
 }
