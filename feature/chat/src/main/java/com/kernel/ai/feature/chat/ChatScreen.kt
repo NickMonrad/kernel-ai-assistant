@@ -1439,7 +1439,9 @@ private fun InputBar(
                                 onClick = onCancel,
                                 shape = RoundedCornerShape(18.dp),
                                 color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.testTag("chat_cancel_generation"),
+                                modifier = Modifier
+                                    .testTag("chat_cancel_generation")
+                                    .padding(end = 4.dp),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Stop,
@@ -1450,6 +1452,7 @@ private fun InputBar(
                             }
                             } else {
                                 IconButton(
+                                    modifier = Modifier.padding(end = 4.dp),
                                     onClick = onSend,
                                     enabled = sendEnabled,
                                 ) {
