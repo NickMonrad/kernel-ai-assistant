@@ -780,7 +780,7 @@ private fun ConversationListItem(
                 else
                     formatTimestamp(conversation.updatedAt),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
         leadingContent = if (isInSelectionMode) {
