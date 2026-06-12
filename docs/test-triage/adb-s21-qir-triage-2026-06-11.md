@@ -25,7 +25,7 @@
 | Date | 2026-06-11 |
 | Base commit | [`13833fac`](https://github.com/NickMonrad/kernel-ai-assistant/tree/13833fac) — `fix(#1180): remove adb logcat -c, add oracle preflight check (#1181)` |
 | Branch | `issue/1186-s21-qir-triage` |
-| Latest commit | `5c1b205e` — add post-permission S21 rerun evidence, S23U comparison, follow-up issue tracking |
+| Latest commit | `e148e6ee` — fix S23U content leak conclusion, #1192 scope, and commit hash |
 
 ## Device Preconditions
 
