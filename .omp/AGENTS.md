@@ -142,6 +142,8 @@ context-mode is installed globally (MCP tools + native OMP hooks). Full routing 
 
 ## Branching & PR standards
 
+**Review path:** Human/ChatGPT review plus repo evidence. Do not request GitHub Copilot Review — treat any Copilot-generated PR review as non-authoritative.
+
 Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` only. PR body: `Closes #N`. Never auto-merge. After creating a PR, merge `main` into the branch if behind and check CI status.
 
 **Commit:** `type(#issue): short description` — types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
@@ -192,6 +194,7 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 ## Hard constraints
 
 No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
+No GitHub Copilot Review | Human/ChatGPT review plus repo evidence is the expected review path
 
 ## Memory
 
@@ -212,12 +215,21 @@ Load these only when relevant:
 - `docs/agents/skill-reference.md` — native and Wasm skill listings, Chicory bridge contract
 - `docs/agents/issue-hygiene.md` — issue normalisation checklist
 - `.docs/agents/debugging.md` — ADB commands, log filtering, common issues
-- `.docs/agents/validation.md` — per-scope validation table, CI constraints
+- `.docs/agents/validation.md` — per-scope validation table, CI constraints (updated with risk tiers)
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
 - `.docs/agents/repo-map.md` — key file index by area
 - `docs/UX_PATTERNS.md` — canonical UI/UX patterns (read before any new screen)
 - `.docs/agents/test-evidence-workflow.md` — test evidence lifecycle, CI vs on-device, publishing workflow, agent guidance
 - `docs/model-availability-ux-patterns.md` — model-facing screen patterns
+- `.docs/agents/risk-based-evidence-policy.md` — risk tiers (low/medium/high), device guidance, evidence requirements
+- `.docs/agents/evidence-manifest.md` — evidence manifest format for PR bodies
+- `.docs/agents/review-checklist.md` — code review checklist
+- `.docs/agents/review-gates-voice.md` — voice PR review gate (STT/TTS/VAD/wake-word)
+- `.docs/agents/review-gates-litert.md` — LiteRT/model PR review gate
+- `.docs/agents/review-gates-permissions.md` — permissions PR review gate
+- `.docs/agents/review-gates-test-harness.md` — test harness PR review gate
+- `.docs/agents/review-gates-navigation-ui.md` — navigation/UI PR review gate
+- `.docs/agents/review-gates-wallpaper-theme.md` — wallpaper/theme PR review gate
 
 **Phase status:** see `docs/ROADMAP.md` for the full tracker.

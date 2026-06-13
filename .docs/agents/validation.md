@@ -15,9 +15,9 @@ Load this when deciding how to verify a change.
 |-------------|------------|
 | Single file, no callers | Unit test for the changed function |
 | ViewModel logic | Unit test with mocked dependencies |
-| UI changes | Compose UI test + manual device test |
+| UI changes | Compose UI test; manual device test for visual alignment, permission flows, or navigation interaction |
 | Inference engine | Unit test with mocked `InferenceEngine` |
-| Skill logic | Unit test + manual device test |
+| Skill logic | Unit test; manual device test for voice-driven skill interaction |
 | Build config / Gradle | Full `assembleDebug` |
 | Cross-module refactor | Full `assembleDebug` + `lint` |
 
@@ -33,5 +33,8 @@ Load this when deciding how to verify a change.
 1. `./gradlew test` passes
 2. `./gradlew lint` passes (no new warnings)
 3. `./gradlew assembleDebug` succeeds
-4. If UI changes: `./gradlew connectedDebugAndroidTest` passes
-5. Manual smoke test on S23 Ultra for inference-related changes
+4. If UI changes with navigation or permission interaction: `./gradlew connectedDebugAndroidTest` passes
+5. Device test evidence on S21 for medium/high risk changes (see `.docs/agents/risk-based-evidence-policy.md`)
+
+> **Note:** Not all changes require device testing. See the risk-based evidence policy for
+> when CI-only, screenshot, or device evidence applies.
