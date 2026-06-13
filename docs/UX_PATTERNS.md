@@ -118,8 +118,41 @@ not invent new model state labels, badges, provider access flows, download actio
 actions, or model-selection language. Model Management remains the authoritative interface for
 model administration.
 
-Tools search is deferred for the first implementation slice. Do not require a search bar yet.
-However, represent Tools entries in a search-friendly data model so search can be added later
+### 1.2a Settings cog on primary tabs
+
+Settings is globally reachable from the top app bar of all three primary tabs (Chats, Actions, Tools)
+via a dedicated Settings cog icon (Icons.Default.Settings) with content description "Settings".
+
+The cog appears in the top app bar's `actions` slot, preserving the hamburger/drawer affordance
+on the left (navigationIcon slot). The Tools Settings row and the drawer Settings entry remain
+functional alongside the cog.
+
+Opening Settings from the cog behaves as a child destination from the current tab:
+
+```text
+Chats → Settings → Back → Chats
+Actions → Settings → Back → Actions
+Tools → Settings → Back → Tools
+```
+
+Use `launchSingleTop = true` to prevent duplicate Settings destinations on repeated cog taps.
+A stable test tag `top_bar_settings_button` is available for all three tabs.
+
+### 1.2b Tools search
+
+The Tools hub includes a local, deterministic search field for filtering tool destinations and
+Learn example prompts. No model inference or server/semantic search is used.
+
+- Empty query preserves the full grouped Tools layout.
+- Non-empty query filters tool destinations (by title, subtitle, category, and keywords) and
+  example prompts (by label, prompt text, and section title).
+- Search results are displayed under clear "Tools" and "Example prompts" section headers.
+- A clear button appears when search text is entered.
+- A "No results found" state appears when no matches exist.
+- Example prompts selected from search results open Actions as a draft/prefill only — they
+  do not auto-execute. The user must tap Send to execute.
+- Search uses case-insensitive substring matching.
+
 without rewriting the screen. Future-friendly entry metadata should include:
 
 - title

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -69,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,6 +89,7 @@ fun ConversationListScreen(
     onNavigateToActions: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -207,6 +210,9 @@ fun ConversationListScreen(
                                     },
                                 )
                             }
+                        }
+                        IconButton(onClick = onNavigateToSettings, modifier = Modifier.testTag("top_bar_settings_button")) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     },
                 )

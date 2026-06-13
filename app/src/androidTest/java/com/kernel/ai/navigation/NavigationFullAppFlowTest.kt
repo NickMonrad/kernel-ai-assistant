@@ -48,6 +48,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -139,6 +141,7 @@ class NavigationFullAppFlowTest {
         private const val TAG_ACTIONS_MENU_BUTTON = "faf_actions_menu_button"
         private const val TAG_DRAFT_SUBMIT = "faf_draft_submit"
         private const val TAG_DRAFT_TEXT = "faf_draft_text"
+        private const val TAG_SETTINGS_BUTTON = "top_bar_settings_button"
 
         // Destination stub tags
         private const val TAG_DEST_LEARN = "faf_dest_learn"
@@ -287,6 +290,14 @@ class NavigationFullAppFlowTest {
                                         Icon(Icons.Default.Menu, contentDescription = "Menu")
                                     }
                                 },
+                                actions = {
+                                    IconButton(
+                                        onClick = { navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true } },
+                                        modifier = Modifier.testTag(TAG_SETTINGS_BUTTON),
+                                    ) {
+                                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                                    }
+                                },
                             )
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -325,7 +336,12 @@ class NavigationFullAppFlowTest {
                         @Suppress("UNUSED")
                         val openSheet = backStackEntry.arguments?.getBoolean(ARG_OPEN_SHEET) ?: false
                         val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY) ?: ""
-                        ActionsScreenStub(draftQuery = draftQuery, drawerState = drawerState, scope = scope)
+                        ActionsScreenStub(
+                            draftQuery = draftQuery,
+                            drawerState = drawerState,
+                            scope = scope,
+                            onNavigateToSettings = { navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true } },
+                        )
                     }
 
                     // ── Tools (real production composable) ──
@@ -334,6 +350,14 @@ class NavigationFullAppFlowTest {
                             onOpenDrawer = { scope.launch { drawerState.open() } },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
+                            },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+                            },
+                            onOpenPrompt = { prompt ->
+                                navController.navigate(buildActionsDraftRoute(prompt)) {
+                                    launchSingleTop = true
+                                }
                             },
                         )
                     }
@@ -497,6 +521,7 @@ class NavigationFullAppFlowTest {
         draftQuery: String,
         drawerState: DrawerState,
         scope: CoroutineScope,
+        onNavigateToSettings: () -> Unit = {},
     ) {
         val inputText = remember { mutableStateOf(draftQuery) }
         val showDraft = remember { mutableStateOf(draftQuery.isNotEmpty()) }
@@ -510,6 +535,14 @@ class NavigationFullAppFlowTest {
                         modifier = Modifier.testTag(TAG_ACTIONS_MENU_BUTTON),
                     ) {
                         Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = onNavigateToSettings,
+                        modifier = Modifier.testTag(TAG_SETTINGS_BUTTON),
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
             )
@@ -890,5 +923,218 @@ class NavigationFullAppFlowTest {
         composeTestRule.onNodeWithTag(TAG_ACTIONS_MENU_BUTTON).performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("faf_drawer_sheet").assertIsDisplayed()
+    }
+
+    // ═══════════════════════════ 5. SETTINGS COG ENTRY POINTS ═══════════════
+
+    @Test
+    fun settingsCog_chatsToSettingsBackToChats() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_CHATS)
+
+        // Tap Settings cog from Chats
+        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
+
+        // Back returns to Chats (not reset to conversation_list)
+        composeTestRule.onNodeWithTag("faf_back_from_${TAG_DEST_SETTINGS}").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_CHATS)
+    }
+
+    @Test
+    fun settingsCog_actionsToSettingsBackToActions() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_ACTIONS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_ACTIONS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_ACTIONS)
+
+        // Tap Settings cog from Actions
+        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
+
+        // Back returns to Actions
+        composeTestRule.onNodeWithTag("faf_back_from_${TAG_DEST_SETTINGS}").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_ACTIONS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_ACTIONS)
+    }
+
+    @Test
+    fun settingsCog_toolsToSettingsBackToTools() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_TOOLS)
+
+        // Tap Settings cog from Tools (real production TopAppBar)
+        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
+
+        // Back returns to Tools
+        composeTestRule.onNodeWithTag("faf_back_from_${TAG_DEST_SETTINGS}").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_TOOLS)
+    }
+
+    @Test
+    fun settingsCog_repeatedTapNoDuplicate() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_CHATS)
+
+        // First tap — opens Settings
+        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
+        assertNodeExists("faf_back_from_${TAG_DEST_SETTINGS}")
+
+        // Second tap — should not create a duplicate Settings entry (launchSingleTop)
+        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
+
+        // One back should return to Chats (not a second Settings entry)
+        composeTestRule.onNodeWithTag("faf_back_from_${TAG_DEST_SETTINGS}").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
+        assertBottomNavSelected(BOTTOM_NAV_CHATS)
+    }
+
+    // ═══════════════════════════ 6. TOOLS SEARCH ═════════════════════════════
+
+    @Test
+    fun search_emptyShowsGroupedLayout() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Search field is present
+        composeTestRule.onNodeWithTag("tools_search_field").assertIsDisplayed()
+
+        // Full grouped layout rows are visible
+        composeTestRule.onNodeWithTag("tools_row_learn", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_lists", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_matchesDestinationByTitle() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Type a destination title
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("Convert")
+        composeTestRule.waitForIdle()
+
+        // Result row appears
+        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_matchesDestinationByKeyword() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Type a keyword (not in the title directly)
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("timer")
+        composeTestRule.waitForIdle()
+
+        // Clock matches via keyword "timer"
+        composeTestRule.onNodeWithTag("tools_search_result_clock").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_matchesExamplePrompt() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Type text found in an example prompt
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("shopping list")
+        composeTestRule.waitForIdle()
+
+        // Example prompt section header appears
+        composeTestRule.onNodeWithTag("tools_search_examples_header").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_noResultsState() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Type something that won't match anything
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("xyzzy_nonexistent")
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("tools_search_no_results").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_clearRestoresLayout() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Type a query
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("Convert")
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
+
+        // Clear via trailing icon
+        composeTestRule.onNodeWithTag("tools_search_field").performClick()
+        composeTestRule.waitForIdle()
+        // Use semantic clear — set text to empty
+        composeTestRule.onNodeWithTag("tools_search_field").performTextClearance()
+        composeTestRule.waitForIdle()
+
+        // Full layout restored
+        composeTestRule.onNodeWithTag("tools_row_lists", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_tappedExampleOpensDraftOnly() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Search for a known example
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("Add milk")
+        composeTestRule.waitForIdle()
+
+        // Tap the example result
+        composeTestRule.onNodeWithTag("tools_search_example_lists_add_milk", useUnmergedTree = true)
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        // Actions opens with draft prefilled (same as learn flow)
+        composeTestRule.onNodeWithTag(TAG_ACTIONS_SCREEN).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(TAG_DRAFT_TEXT).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Add milk to my shopping list").assertIsDisplayed()
+
+        // No auto-execution: draft UI present but no side effect
+        composeTestRule.onNodeWithTag(TAG_DRAFT_INPUT).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(TAG_DRAFT_SUBMIT).assertIsDisplayed()
     }
 }

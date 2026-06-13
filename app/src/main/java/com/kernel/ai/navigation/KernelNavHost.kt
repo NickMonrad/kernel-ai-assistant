@@ -430,6 +430,9 @@ fun KernelNavHost(
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
                             },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+                            },
                         )
                     }
                 }
@@ -514,6 +517,9 @@ fun KernelNavHost(
                             },
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
+                            },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
                             },
                         )
                     }
@@ -808,6 +814,14 @@ fun KernelNavHost(
                             },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
+                            },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+                            },
+                            onOpenPrompt = { prompt ->
+                                navController.navigate(buildActionsDraftRoute(prompt)) {
+                                    launchSingleTop = true
+                                }
                             },
                         )
                     }
