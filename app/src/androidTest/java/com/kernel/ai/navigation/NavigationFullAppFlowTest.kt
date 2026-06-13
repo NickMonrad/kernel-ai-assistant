@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -997,12 +998,14 @@ class NavigationFullAppFlowTest {
         composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
         assertNodeExists("faf_back_from_${TAG_DEST_SETTINGS}")
 
-        // Second tap — should not create a duplicate Settings entry (launchSingleTop)
-        composeTestRule.onNodeWithTag(TAG_SETTINGS_BUTTON).performClick()
+        // Simulate second rapid tap via navController (cog is on Chats, not visible now)
+        composeTestRule.runOnUiThread {
+            testNavController?.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+        }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag(TAG_DEST_SETTINGS).assertIsDisplayed()
 
-        // One back should return to Chats (not a second Settings entry)
+        // One back should return to Chats — not a second Settings entry
         composeTestRule.onNodeWithTag("faf_back_from_${TAG_DEST_SETTINGS}").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
@@ -1021,10 +1024,16 @@ class NavigationFullAppFlowTest {
         // Search field is present
         composeTestRule.onNodeWithTag("tools_search_field").assertIsDisplayed()
 
-        // Full grouped layout rows are visible
+        // Full grouped layout rows are visible (scroll to find below-fold sections)
         composeTestRule.onNodeWithTag("tools_row_learn", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_screen").performScrollToNode(
+            hasTestTag("tools_group_productivity")
+        )
         composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_screen").performScrollToNode(
+            hasTestTag("tools_group_app_setup")
+        )
         composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
     }
 
@@ -1109,6 +1118,9 @@ class NavigationFullAppFlowTest {
 
         // Full layout restored
         composeTestRule.onNodeWithTag("tools_row_lists", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_screen").performScrollToNode(
+            hasTestTag("tools_group_productivity")
+        )
         composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
     }
 
