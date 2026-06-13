@@ -1,7 +1,7 @@
 # Session Review: Quality-Improvement Playbook
 
 > Analysis period: 2026-05-01 → 2026-06-13  
-> 236 total commits (220 with conventional-conventional-commit prefixes, 16 merge commits excluded from type table)  
+> 236 total commits (220 with conventional commit prefixes, 16 merge commits excluded from type table)  
 > Compiled 2026-06-13
 
 ---
@@ -76,7 +76,6 @@ signal-to-noise ratio of the entire test suite.
 ### 3.2 Voice/STT/Audio Pipeline Fragility ⚠️ **Most Expensive Area**
 
 **Evidence**: #752 (15 fixes), #1057 (4 fixes), #1049 (3 fixes), plus #1046, #837, #832, #760.
-
 **Recurring sub-problems**:
 
 - Native STT stalls / no-match retry loops (#752)
@@ -86,12 +85,7 @@ signal-to-noise ratio of the entire test suite.
 - Wake-word threshold tuning (0.80 → 0.65, dual-threshold) (#1049)
 - Thinking-mode fallback when LiteRT fails to populate (#1057)
 
-**Root pattern**: Voice is the most complex subsystem (STT → VAD → wake-word → inference → TTS)
-and edge cases accumulate across three engine backends (Native Android, Sherpa-ONNX, Kokoro).
-
-### 3.3 Cross-Device Compatibility Gap
-
-**Evidence**: #684 Exynos GPU (10 fixes), S21 ADB triage vs S23U differences.
+**Evidence at the time** (2026-06-11 ADB triage): #684 Exynos GPU (10 fixes), S21 triage vs S23U differences.
 
 **Issues**:
 
@@ -107,7 +101,6 @@ rerun. Triage required per-device retesting.
 **Evidence**: 20+ commits across issues #1113–#1170 building the test evidence pipeline.
 
 **Pain points**:
-
 - Evidence schema normalisation (#1115, #1123)
 - PR evidence publishing (#1133, #1168, #1169)
 - Dashboard construction (#1138, #1146, #1166, #1177)
@@ -131,7 +124,6 @@ actual merged-PR state between syncs.
 `generateStructuredOnce`), #1091 (model losing context), #1093 (context budget scaling).
 
 **Issues**:
-
 - 0-token output from E4B/E2B requires retry without RAG before showing fallback
 - Thinking-mode channel parser falls back when LiteRT fails to populate
 - Context budget is fixed absolute values, not proportional to window size (#1093)
@@ -154,13 +146,13 @@ debugging — particularly voice-pipeline, LiteRT, and cross-device issues.
 
 | Observed Problem | Recommended Process Change | Expected Benefit | Where Enforced |
 |---|---|---|---|
-| **High fix density (40% fix rate)** | Require a "stabilisation checklist" before labelling any voice/audio/permission PR as done. Define max-acceptable-fix-commits per feature (>=3 triggers stop-and-revert review). | Fewer post-merge fixes; predictable quality per merged PR. | PR template; merge-queue gate |
-| **Voice pipeline fragility** | Create a voice-specific integration test suite that runs before every voice/audio PR merge. Exercises STT + VAD + wake-word + TTS in sequence with known fixtures. | Catch voice-pipeline regressions before merge instead of after. | ADB pre-merge gate; dedicated CI job |
-| **Device-specific behaviour** | Run ADB evidence on **both** S21 and S23U for any voice, model, or permission PR. Maintain a device-config matrix (known-good GPU, token window, warmup timeout). | Eliminate "it works on my device" surprises. | PR evidence checklist; device-matrix doc |
-| **Harness false signals** | Every ADB evidence run must pass the pre-flight oracle before results are trusted (#1181). Add a deliberate pass/fail fixture to validate harness health. | No more weeks of invalid evidence. | `adb_harness` entrypoint; CI validation |
-| **Documentation drift (27 doc-only PRs)** | Auto-generate ROADMAP check on every PR: CI flag if the PR touches feature code but no doc path is updated. Consider label-based partial ROADMAP generation from merged-PR metadata. | Reduce doc sync overhead; always-true spec. | CI workflow; GitHub labels |
-| **Model/session contamination** | Add `conversation.reset()` audit to every LiteRT-component PR review. Add a deterministic smoke test (3–4 independent intents) in CI that asserts no state carries between them. | Zero-regression on the #1190/#1191 fix. | Code review checklist; CI smoke test |
-| **UI/navigation polish regressions** | Run the full-app-flow navigation integration tests (#1207, `NavigationTest`) before merging any Compose navigation or settings-flow change. | Catch back-stack, tab, and overlay regressions before PR. | CI test suite |
+| **High fix density (40% fix rate)** | If a feature needs repeated follow-up fixes, pause to reassess scope, tests, and acceptance criteria before continuing. Include a stabilisation checklist for voice/audio/permission PRs. | Fewer post-merge fixes; predictable quality per merged PR. | PR template; retrospective trigger |
+| **Voice pipeline fragility** | Create a voice-specific integration test suite for shared lifecycle changes (audio focus, STT/TTS orchestration, wake-word/VAD, alert-time listening). Smaller voice changes need only the narrowest evidence slice. | Catch voice-pipeline regressions before merge instead of after. | ADB pre-merge gate; dedicated CI job |
+| **Device-specific behaviour** | Default to S21 for broad evidence. Use S23U only when the change is model/device-sensitive, S21 results are ambiguous, or the issue specifically reproduced on S23U. | Focus device testing where it adds signal. | PR evidence checklist |
+| **Harness false signals** | Every ADB evidence run should pass the pre-flight oracle before results are trusted (#1181). A deliberate pass/fail fixture validates harness health. | No more weeks of invalid evidence. | `adb_harness` entrypoint |
+| **Documentation drift (27 doc-only PRs)** | When a PR changes user-visible behaviour, architecture, roadmap status, or agent/test process, flag that docs need updating. A checklist item is enough — hard CI failures add noise. | Reduce doc sync overhead while keeping docs truthful. | PR template checklist |
+| **Model/session contamination** | Add `conversation.reset()` audit to LiteRT-component PR reviews. The existing CI smoke test (3–4 independent intents) already covers this after the #1190/#1191 fixes. | Zero-regression on the #1190/#1191 fix. | Code review checklist; CI smoke test |
+| **UI/navigation polish regressions** | Run navigation integration tests (#1207) for Compose navigation or settings-flow changes. For smaller UI changes, a quick manual back-stack check is sufficient. | Catch back-stack, tab, and overlay regressions before PR. | CI test suite |
 
 ---
 
@@ -188,20 +180,17 @@ Every issue or agent prompt should include these items before code starts:
 A PR is ready to merge when all applicable items are checked:
 
 ### Prerequisites
-
 - [ ] Issue number referenced in PR body (`Closes #N`)
 - [ ] Parent epic referenced (if applicable)
 - [ ] Branch name follows convention (`feature/`, `fix/`, `docs/`, `chore/`)
 
 ### Build & Code Quality
-
 - [ ] `./gradlew assembleDebug` passes
 - [ ] `./gradlew lint` passes (or baseline updated)
 - [ ] `./gradlew testDebugUnitTest` passes
 - [ ] No new lint warnings or deprecations introduced
 
 ### Regression Tests
-
 - [ ] Targeted unit tests added/updated for changed code
 - [ ] Existing tests still pass
 - [ ] ADB/UIAutomator evidence attached (if applicable)
@@ -210,7 +199,6 @@ A PR is ready to merge when all applicable items are checked:
 - [ ] Permission path covered: first-run, denied, revoked, repair, Android Settings
 
 ### Documentation
-
 - [ ] ROADMAP.md reviewed / updated
 - [ ] SPECIFICATION.md reviewed / updated
 - [ ] README.md reviewed / updated
@@ -218,7 +206,6 @@ A PR is ready to merge when all applicable items are checked:
 - [ ] UX_PATTERNS.md reviewed / updated (if new UI pattern)
 
 ### Limitations
-
 - [ ] Known limitations declared in PR body
 - [ ] Follow-up issues created for deferred work
 - [ ] Backward-compatibility impact assessed
@@ -229,8 +216,15 @@ A PR is ready to merge when all applicable items are checked:
 
 PRs are classified by risk level. Minimum evidence required per tier:
 
-### Low Risk
+> **Device guidance**: S21 is the default device for broad/regular evidence — it is always available
+> and lower-risk to use. S23U evidence should be focused and used only when:
+> - the change is model/device-sensitive (LiteRT, GPU, inference);
+> - S21 results are ambiguous or inconclusive;
+> - the issue specifically reproduced on S23U;
+> - release confidence requires comparison evidence.
+> The S23U is the user's daily driver — avoid broad suites there unless explicitly requested.
 
+### Low Risk
 *Docs, copy changes, labels, isolated visual polish, refactors with no behaviour change.*
 
 - [ ] `assembleDebug` passes
@@ -238,25 +232,24 @@ PRs are classified by risk level. Minimum evidence required per tier:
 - [ ] Before/after screenshots for visual changes (if applicable)
 
 ### Medium Risk
-
 *Compose navigation, settings flows, QIR mapping changes, list/calendar/tool behaviours,
 new skills with straightforward tool selection, test additions.*
 
 - [ ] All Low items
 - [ ] `testDebugUnitTest` passes
 - [ ] Targeted regression tests run
-- [ ] Device test evidence (single device minimum)
+- [ ] Device test evidence — S21 is default (single device minimum)
 - [ ] Screenshots for UI changes
 - [ ] ROADMAP/SPEC updated
 
-### High Risk
 
+### High Risk
 *Voice (STT/TTS/VAD/wake-word), LiteRT/model handling (session, KV cache, warmup),
 permissions (new flows, repair paths, Android Settings bridges), alarms/timers,
 test harness changes, device-compatibility changes, any new inference path.*
 
 - [ ] All Medium items
-- [ ] ADB evidence on **both** S21 and S23U (or explicitly waived)
+- [ ] Device test evidence — S21 required; S23U only if device-sensitive or ambiguous
 - [ ] Pre-flight oracle result in evidence
 - [ ] Session-isolation smoke test evidence
 - [ ] Permission path checklist completed
@@ -268,15 +261,22 @@ test harness changes, device-compatibility changes, any new inference path.*
 
 ## 9. Fragile-Subsystem Review Gates
 
+These checklists are not meant to be completed in full for every PR. Choose the smallest evidence
+slice that covers the changed path. Broader integration evidence is required only for changes
+touching the shared subsystem lifecycle, not for isolated component tweaks.
+
 ### Voice PRs (STT/TTS/VAD/wake-word)
 
-- [ ] Each engine backend (Native Android, Sherpa-ONNX, Kokoro) exercised independently
-- [ ] Audio-focus handling verified (both acquire and release)
-- [ ] Wake-word dual-threshold (0.65/0.80) tested
-- [ ] VAD onset blind window verified
-- [ ] Playback tail cutoff / hardware latency checked
-- [ ] Thinking-mode fallback path exercised
-- [ ] Both S21 and S23U tested
+*Choose the narrowest slice that exercises the changed path:*
+- Isolated STT engine swap → test only that engine's recognition path
+- TTS voice tweak → test only that TTS backend with one utterance
+- Shared lifecycle change (audio focus, STT/TTS orchestration, wake-word, VAD, alert-time listening)
+  → run broader voice integration suite
+
+- [ ] Audio-focus handling verified (acquire + release) — *only if change touches audio lifecycle*
+- [ ] Wake-word / VAD interaction checked — *only if wake-word or VAD path changed*
+- [ ] Relevant engine backend(s) exercised
+- [ ] Device test evidence — S21 default; S23U only if device-sensitive
 
 ### LiteRT/Model PRs
 
@@ -409,59 +409,229 @@ These metrics would add significant value and are feasible to add:
 
 ## 12. Recommended Follow-Up Issues
 
-The following issues should be created from this retrospective:
+The following issues should be created from this retrospective. Each includes a suggested title,
+priority, purpose, expected deliverables, and implementation notes.
 
-### P0 — Standard Agent Prompt / Issue / PR Review Templates
+### P0 — Standard Agent Prompt / Issue / PR Templates [docs-only]
 
-Create templates for:
+Create reusable templates so every agent prompt and PR starts with the same structure.
 
-- **Agent implementation prompts** (mapping to the Definition of Ready in §6)
-- **PR descriptions** (mapping to the Definition of Done checklist in §7)
-- **Code review checklist** (mapping to fragile-subsystem gates in §9)
+- **Purpose**: Reduce ambiguity in agent assignments and PR reviews.
+- **Deliverables**:
+  - `.github/ISSUE_TEMPLATE/agent-implementation.md` — maps to Definition of Ready (§6)
+  - `.github/PULL_REQUEST_TEMPLATE/default.md` — maps to Definition of Done (§7)
+  - `.omp/agent-prompt-template.md` — for agent work prompts
+  - `.docs/agents/review-checklist.md` — maps to review gates (§9)
+- **Parent epic**: _(none — standalone)_
+- **Notes**: Docs-only; can be drafted and merged in one pass.
 
-These should live in `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE/`, and
-`.omp/` for agent prompts.
+### P1 — Risk-Based PR Evidence Requirements [docs + tooling]
 
-### P1 — Risk-Based PR Evidence Requirements
+Formalise the three-tier evidence policy from §8.
 
-Formalise the PR tiers from §8 into a project-wide policy:
+- **Purpose**: Ensure every PR has the right evidence for its risk level without over-burdening low-risk changes.
+- **Deliverables**:
+  - Policy documented in `CONTRIBUTING.md` or `docs/automated-testing.md`
+  - Labels: `risk/low`, `risk/medium`, `risk/high`
+  - CI workflow file that validates minimum evidence based on changed file paths
+- **Parent epic**: _(standalone)_
+- **Notes**: Policy is docs-only; CI validation tooling is separate app work.
 
-- Document the three tiers in `CONTRIBUTING.md` or `docs/automated-testing.md`
-- Add a CI step that validates minimum evidence based on changed file paths
-- Create a `label:risk/low`, `label:risk/medium`, `label:risk/high` convention
+### P1 — Subsystem-Specific Review Gates [docs-only]
 
-### P1 — Subsystem-Specific Review Gates
+Move the fragile-subsystem checklists from §9 into standalone files.
 
-Move the fragile-subsystem checklists from §9 into sharable files:
+- **Purpose**: Make review gates referenceable from any PR without re-reading this playbook.
+- **Deliverables**:
+  - `.docs/agents/review-gates-voice.md`
+  - `.docs/agents/review-gates-litert.md`
+  - `.docs/agents/review-gates-permissions.md`
+  - `.docs/agents/review-gates-test-harness.md`
+  - `.docs/agents/review-gates-navigation-ui.md`
+  - `.docs/agents/review-gates-wallpaper-theme.md`
+- **Parent epic**: _(standalone)_
+- **Notes**: Docs-only; can be drafted in parallel sub-agent tasks.
 
-- `.docs/agents/review-gates-voice.md`
-- `.docs/agents/review-gates-litert.md`
-- `.docs/agents/review-gates-permissions.md`
-- `.docs/agents/review-gates-test-harness.md`
-- `.docs/agents/review-gates-navigation-ui.md`
-- `.docs/agents/review-gates-wallpaper-theme.md`
+### P2 — Evidence Manifest Schema for PRs [tooling]
 
-These become the authoritative checklist for review of each subsystem.
+Define a lightweight `evidence-manifest.json` that PRs can include to declare what evidence was collected.
 
-### P2 — Harness Metrics Dashboard Improvements
+- **Purpose**: Make evidence requirements machine-checkable and auditable without reading free-text PR descriptions.
+- **Deliverables**:
+  - Schema file in `docs/` or `schemas/`
+  - Optional CI validation: manifest present and complete for high-risk PRs
+- **Parent epic**: #1113 (test evidence)
+  - Per-evidence-run validation: pre-flight oracle, log-capture bounds, deliberate-fixture results
 
-Build on the existing evidence schema (§11) to add:
+### P2 — Quality Metrics Baseline and Monthly Review [process]
 
-- A cross-run dashboard showing pass/fail trends by phase, device, and failure bucket
-- Per-evidence-run validation: pre-flight oracle passes, log-capture bounds, deliberate-fixture results
-- Flaky-test detection across repeated runs (same commit, different result)
-- Stuck-mode/cascade detection: consecutive same wrong intent across unrelated prompts
+Establish a recurring monthly quality review using the root-cause taxonomy from §10.
 
-### P2 — Automated Documentation Drift Checks
-
-- CI step that checks if a PR modifies `app/src/main/java/` but no `.md` in `docs/` or `README.md`
-  — warns: "This PR changes application code. Did you update the spec or roadmap?"
-- Consider label-based ROADMAP auto-generation from merged-PR metadata and milestones
-- Track which modules have fallen behind their spec (`docs/SPECIFICATION.md` coverage gaps)
+- **Purpose**: Track whether fix density is trending down over time. Catch regression patterns before they compound.
+- **Deliverables**:
+  - First review: tag the last month's fix commits with root-cause categories
+  - Report format: one-page summary of top-3 problem categories and actionable next steps
+  - Target: < 25% fix rate as a long-term goal
+- **Parent epic**: _(standalone)_
+- **Notes**: Process-only; no code changes needed for the first cycle.
 
 ---
 
-## 13. Evidence Index
+## 13. Adoption Plan
+
+This playbook is valuable only if its recommendations are adopted incrementally. The following
+phases turn the playbook into concrete implementation steps, starting with the highest leverage.
+
+### Phase 1: Templates and Checklists
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Agent prompt template (DoR) | Every agent prompt includes scope, AC, device, risks from the start | 1 session |
+| PR template (DoD checklist) | Every PR opens with the quality checklist baked in | 1 session |
+| Subsystem review gates as standalone files | Teams can reference them per-subsystem without re-reading the playbook | 1–2 sessions |
+| Label convention: `risk/low/medium/high` | Lets CI and reviewers triage at a glance | 30 min |
+
+**How it improves quality**: Removes ambiguity from agent assignments. PRs arrive with evidence
+already planned rather than retrofitted.
+
+### Phase 2: Evidence Policy and Risk Labels
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| PR tiers documented in CONTRIBUTING.md | Everyone agrees on what evidence "high risk" requires | 1 session |
+| Evidence manifest schema | Machine-checkable evidence declarations in PRs | 1–2 sessions |
+| CI validation for tier-appropriate evidence | Automated gate for high-risk PRs | 2–3 sessions |
+
+**How it improves quality**: Shifts from "did the author remember to test?" to "did the policy require
+testing for this change?"
+
+### Phase 3: Harness Metrics and Dashboard
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Model warmup status/duration in evidence | Diagnose S21 warmup flakiness | 1 session |
+| Failure-bucket trend over time | See whether fix density is improving per bucket | 2–3 sessions |
+| Flaky-test detection across repeated runs | Distinguish real failures from test noise | 2–3 sessions |
+
+**How it improves quality**: Makes the test harness self-diagnosing instead of requiring manual
+triage of every failure run.
+
+### Phase 4: Subsystem Gates and Targeted Suites
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Voice integration test suite | Catch shared-lifecycle regressions before merge | 3–5 sessions |
+| Session-isolation smoke test in CI | Zero-regression on the #1190/#1191 fix | 1–2 sessions |
+| Navigation integration test run for Nav/UI PRs | Catch back-stack and overlay regressions | 2–3 sessions |
+
+**How it improves quality**: Replaces manual ad-hoc testing with automated regression prevention
+for the most fragile subsystems.
+
+### Phase 5: Monthly Quality Review
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Monthly fix-commit report using §10 taxonomy | Track whether the playbook is working | 1 session/month |
+| Top-3 problem categories with action items | Convert metrics into decisions | 1 session/month |
+
+**How it improves quality**: Closes the loop. Without review, the playbook is a snapshot of past
+problems; with review, it drives continuous improvement.
+
+---
+
+## 14. Evidence Index
+
+- Git log: 236 commits, 2026-05-01 to 2026-06-13
+- ADB triage report: `docs/test-triage/adb-s21-qir-triage-2026-06-11.md`
+- Debug evidence (before fix): `docs/test-triage/evidence/2026-06-11/` (8 JSON files)
+- Debug evidence (after fix): `docs/test-triage/evidence/2026-06-12/` (8 JSON files)
+- Learn examples evidence: `docs/test-triage/evidence/2026-06-13/issue-1215-learn-examples-evidence.json`
+- Open issues snapshot via GitHub search at time of writing
+- Roadmap: `docs/ROADMAP.md`
+  - Flaky-test detection across repeated runs (same commit, different result)
+  - Stuck-mode/cascade detection: consecutive same wrong intent across unrelated prompts
+- **Parent epic**: #1113 (test evidence)
+- **Notes**: Harness/app work; depends on evidence schema stability.
+
+### P2 — Automated Documentation Drift Checks [tooling]
+
+Add a lightweight CI check that flags when user-visible code changes without doc updates.
+
+- **Purpose**: Reduce the 27 doc-only sync PRs that occurred during the analysis period.
+- **Deliverables**:
+  - CI workflow that warns (not fails) when `app/src/main/java/` is modified but no `.md` in `docs/` or `README.md`
+  - Checklist item in PR template as alternative to CI for medium-risk PRs
+  - Investigation into label-based ROADMAP auto-generation
+- **Parent epic**: _(standalone)_
+- **Notes**: CI check should warn, not fail. Hard failures add noise.
+
+### P2 — Quality Metrics Baseline and Monthly Review [process]
+
+Establish a recurring monthly quality review using the root-cause taxonomy from §10.
+
+- **Purpose**: Track whether fix density is trending down over time. Catch regression patterns before they compound.
+- **Deliverables**:
+  - First review: tag the last month's fix commits with root-cause categories
+  - Report format: one-page summary of top-3 problem categories and actionable next steps
+  - Target: < 25% fix rate as a long-term goal
+- **Parent epic**: _(standalone)_
+- **Notes**: Process-only; no code changes needed for the first cycle.
+
+---
+
+## 13. Adoption Plan
+
+This playbook is valuable only if its recommendations are adopted incrementally. The following
+phases turn the playbook into concrete implementation steps, starting with the highest leverage.
+
+### Phase 1: Templates and Checklists
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Agent prompt template (DoR) | Every agent prompt includes scope, AC, device, risks from the start | 1 session |
+| PR template (DoD checklist) | Every PR opens with the quality checklist baked in | 1 session |
+| Subsystem review gates as standalone files | Teams can reference them per-subsystem without re-reading the playbook | 1–2 sessions |
+| Label convention: `risk/low/medium/high` | Lets CI and reviewers triage at a glance | 30 min |
+
+**How it improves quality**: Removes ambiguity from agent assignments. PRs arrive with evidence
+already planned rather than retrofitted.
+
+### Phase 2: Evidence Policy and Risk Labels
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| PR tiers documented in CONTRIBUTING.md | Everyone agrees on what evidence "high risk" requires | 1 session |
+| Evidence manifest schema | Machine-checkable evidence declarations in PRs | 1–2 sessions |
+| CI validation for tier-appropriate evidence | Automated gate for high-risk PRs | 2–3 sessions |
+
+**How it improves quality**: Shifts from "did the author remember to test?" to "did the policy require
+testing for this change?"
+
+### Phase 3: Harness Metrics and Dashboard
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Model warmup status/duration in evidence | Diagnose S21 warmup flakiness | 1 session |
+| Failure-bucket trend over time | See whether fix density is improving per bucket | 2–3 sessions |
+| Flaky-test detection across repeated runs | Distinguish real failures from test noise | 2–3 sessions |
+
+**How it improves quality**: Makes the test harness self-diagnosing instead of requiring manual
+triage of every failure run.
+
+### Phase 4: Subsystem Gates and Targeted Suites
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Voice integration test suite | Catch shared-lifecycle regressions before merge | 3–5 sessions |
+| Session-isolation smoke test in CI | Zero-regression on the #1190/#1191 fix | 1–2 sessions |
+| Navigation integration test run for Nav/UI PRs | Catch back-stack and overlay regressions | 2–3 sessions |
+
+**How it improves quality**: Replaces manual ad-hoc testing with automated regression prevention
+for the most fragile subsystems.
+
+### Phase 5: Monthly Quality Review
+| Output | What It Does | Effort |
+|--------|-------------|--------|
+| Monthly fix-commit report using §10 taxonomy | Track whether the playbook is working | 1 session/month |
+| Top-3 problem categories with action items | Convert metrics into decisions | 1 session/month |
+
+**How it improves quality**: Closes the loop. Without review, the playbook is a snapshot of past
+problems; with review, it drives continuous improvement.
+
+---
+
+## 14. Evidence Index
 
 - Git log: 236 commits, 2026-05-01 to 2026-06-13
 - ADB triage report: `docs/test-triage/adb-s21-qir-triage-2026-06-11.md`
