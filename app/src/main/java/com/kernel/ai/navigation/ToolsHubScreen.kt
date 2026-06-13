@@ -495,7 +495,7 @@ private fun routeForEntryId(id: String): String? = when (id) {
     "voice" -> ROUTE_VOICE
     "chat_preferences" -> ROUTE_CHAT_PREFERENCES
     "settings" -> ROUTE_SETTINGS
-    "models" -> null // handled via buildModelManagementRoute()
+    "models" -> buildModelManagementRoute()
     "permissions" -> ROUTE_APP_PERMISSIONS
     "about" -> ROUTE_ABOUT
     else -> null

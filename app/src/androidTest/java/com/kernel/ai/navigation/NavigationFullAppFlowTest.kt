@@ -987,7 +987,7 @@ class NavigationFullAppFlowTest {
     }
 
     @Test
-    fun settingsCog_repeatedTapNoDuplicate() {
+    fun settingsCog_launchSingleTopPreventsDuplicateSettingsDestination() {
         composeTestRule.setContent { KernelNavTestHost() }
         composeTestRule.onNodeWithTag(TAG_CHATS_SCREEN).assertIsDisplayed()
         assertBottomNavSelected(BOTTOM_NAV_CHATS)
@@ -1066,6 +1066,26 @@ class NavigationFullAppFlowTest {
 
         // Clock matches via keyword "timer"
         composeTestRule.onNodeWithTag("tools_search_result_clock").assertIsDisplayed()
+    }
+
+    @Test
+    fun search_matchesModelsAndNavigates() {
+        composeTestRule.setContent { KernelNavTestHost() }
+        composeTestRule.onNodeWithTag(BOTTOM_NAV_TOOLS).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+
+        // Search for "models" or related keyword
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("gemma")
+        composeTestRule.waitForIdle()
+
+        // Models result appears
+        composeTestRule.onNodeWithTag("tools_search_result_models").assertIsDisplayed()
+
+        // Tap navigates to Model Management
+        composeTestRule.onNodeWithTag("tools_search_result_models").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(TAG_DEST_MODELS).assertIsDisplayed()
     }
 
     @Test
