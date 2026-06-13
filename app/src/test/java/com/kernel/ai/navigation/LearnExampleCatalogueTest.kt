@@ -3,6 +3,7 @@ package com.kernel.ai.navigation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -79,6 +80,15 @@ class LearnExampleCatalogueTest {
         }
     }
 
+
+    @ParameterizedTest(name = "[{index}] id={0}")
+    @MethodSource("allExamples")
+    fun `QirIntent examples should not declare expectedMissingSlot`(ex: LearnExample) {
+        if (ex.expectedMode == ExpectedLearnMode.QirIntent) {
+            assertNull(ex.expectedMissingSlot,
+                "QirIntent '${ex.id}' should not declare expectedMissingSlot")
+        }
+    }
     @ParameterizedTest(name = "[{index}] id={0}")
     @MethodSource("allExamples")
     fun `QirSlotFill examples declare expectedRoute`(ex: LearnExample) {
@@ -91,6 +101,18 @@ class LearnExampleCatalogueTest {
         }
     }
 
+
+    @ParameterizedTest(name = "[{index}] id={0}")
+    @MethodSource("allExamples")
+    fun `QirSlotFill examples declare expectedMissingSlot`(ex: LearnExample) {
+        if (ex.expectedMode == ExpectedLearnMode.QirSlotFill) {
+            assertNotNull(ex.expectedMissingSlot, "QirSlotFill '${ex.id}' must declare expectedMissingSlot")
+            assertTrue(
+                ex.expectedMissingSlot!!.isNotBlank(),
+                "QirSlotFill '${ex.id}' must declare non-blank expectedMissingSlot"
+            )
+        }
+    }
     @ParameterizedTest(name = "[{index}] id={0}")
     @MethodSource("allExamples")
     fun `MealPlannerHandoff examples declare start_meal_planner route`(ex: LearnExample) {

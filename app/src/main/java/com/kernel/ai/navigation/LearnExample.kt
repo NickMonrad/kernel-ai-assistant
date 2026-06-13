@@ -55,10 +55,11 @@ enum class ExpectedLearnMode {
  * @property title User-visible label shown on the Learn screen.
  * @property prompt The text sent to the app when the example is selected.
  *   Defaults to [title] when not specified.
- * @property category Section/category name.
- * @property expectedMode How this example should be routed (see [ExpectedLearnMode]).
  * @property expectedRoute Expected QIR intent name (e.g. "create_calendar_event").
  *   Required for [QirIntent] and [QirSlotFill]; null for others.
+ * @property expectedMissingSlot For [QirSlotFill] examples, the name of the slot
+ *   the router expects the user to fill (e.g. "date", "body").
+ *   Required for [QirSlotFill]; null for others.
  * @property prefillOnly When true, selecting this example opens Actions as a draft
  *   without auto-execution. Defaults to true for safety.
  */
@@ -69,6 +70,7 @@ data class LearnExample(
     val category: String,
     val expectedMode: ExpectedLearnMode,
     val expectedRoute: String? = null,
+    val expectedMissingSlot: String? = null,
     val prefillOnly: Boolean = true,
 )
 
@@ -136,7 +138,8 @@ val allLearnExamples: List<LearnExample> = listOf(
     LearnExample("time_timer_10", "Set a timer for 10 minutes", category = "Time & planning",
         expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "set_timer"),
     LearnExample("calendar_soccer_training", "Create a calendar event for soccer training", category = "Time & planning",
-        expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "create_calendar_event"),
+        expectedMode = ExpectedLearnMode.QirSlotFill, expectedRoute = "create_calendar_event",
+        expectedMissingSlot = "date"),
     LearnExample("calendar_dentist", "Add dentist appointment next Tuesday", category = "Time & planning",
         expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "create_calendar_event"),
     LearnExample("calendar_assembly", "Schedule school assembly for Friday", category = "Time & planning",
@@ -170,13 +173,14 @@ val allLearnExamples: List<LearnExample> = listOf(
     LearnExample("weather_hot_tomorrow", "How hot will it be tomorrow?", category = "Weather",
         expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "get_weather"),
 
-    // ── People & communication ─────────────────────────────────────────────────
     LearnExample("people_email_alex", "Email Alex about the meeting", category = "People & communication",
-        expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "send_email"),
+        expectedMode = ExpectedLearnMode.QirSlotFill, expectedRoute = "send_email",
+        expectedMissingSlot = "body"),
     LearnExample("people_text_running_late", "Text Sarah that I'm running late", category = "People & communication",
         expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "send_sms"),
     LearnExample("people_email_school", "Email school that Freyja is sick today", category = "People & communication",
-        expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "send_email"),
+        expectedMode = ExpectedLearnMode.QirSlotFill, expectedRoute = "send_email",
+        expectedMissingSlot = "body"),
     LearnExample("people_text_dad", "Text Dad that I'm on my way", category = "People & communication",
         expectedMode = ExpectedLearnMode.QirIntent, expectedRoute = "send_sms"),
     LearnExample("people_call_mum", "Call Mum", category = "People & communication",

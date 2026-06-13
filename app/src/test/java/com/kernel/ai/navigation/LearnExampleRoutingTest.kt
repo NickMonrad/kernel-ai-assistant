@@ -35,6 +35,14 @@ class LearnExampleRoutingTest {
     @MethodSource("qirIntentExamples")
     fun `QirIntent examples route to expected intent`(ex: LearnExample) {
         val result = router.route(ex.prompt)
+        // QirIntent must NOT need slot-fill — that would be QirSlotFill
+        if (result is QuickIntentRouter.RouteResult.NeedsSlot) {
+            throw AssertionError(
+                "Example '${ex.id}' (prompt='${ex.prompt}') is marked QirIntent but returned NeedsSlot" +
+                    " for '${result.intent.intentName}' (missing: ${result.missingSlot.name})." +
+                    " Change to QirSlotFill with expectedMissingSlot=\"${result.missingSlot.name}\"."
+            )
+        }
         val intentName = routeResultToIntentName(result)
         assertNotNull(intentName) {
             "Expected QIR route for '${ex.id}' (prompt='${ex.prompt}'), but got FallThrough"
@@ -44,25 +52,36 @@ class LearnExampleRoutingTest {
         }
     }
 
-    // ── QirSlotFill — must route deterministically (may need slot filling) ───
-    @Test
-    fun `QirSlotFill examples route to expected intent`() {
-        val examples = allLearnExamples.filter { it.expectedMode == ExpectedLearnMode.QirSlotFill }
-        if (examples.isEmpty()) return // No QirSlotFill examples in catalogue currently
-        for (ex in examples) {
-            val result = router.route(ex.prompt)
-            when (result) {
-                is QuickIntentRouter.RouteResult.FallThrough -> {
-                    throw AssertionError(
-                        "Expected QIR slot-fill route for '${ex.id}' (prompt='${ex.prompt}'), but got FallThrough"
-                    )
+    // ── QirSlotFill — must route deterministically with NeedsSlot ───────────
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("qirSlotFillExamples")
+    fun `QirSlotFill examples route to expected intent with NeedsSlot`(ex: LearnExample) {
+        val result = router.route(ex.prompt)
+        assertNotNull(ex.expectedMissingSlot) {
+            "QirSlotFill '${ex.id}' must declare expectedMissingSlot"
+        }
+        when (result) {
+            is QuickIntentRouter.RouteResult.FallThrough -> {
+                throw AssertionError(
+                    "Expected QIR slot-fill route for '${ex.id}' (prompt='${ex.prompt}'), but got FallThrough"
+                )
+            }
+            is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                assertEquals(ex.expectedRoute, result.intent.intentName) {
+                    "Example '${ex.id}' expected route '${ex.expectedRoute}' but got '${result.intent.intentName}'"
                 }
-                else -> {
-                    val intentName = routeResultToIntentName(result)
-                    assertEquals(ex.expectedRoute, intentName) {
-                        "Example '${ex.id}' expected route '${ex.expectedRoute}' but got '$intentName'"
-                    }
+                assertEquals(ex.expectedMissingSlot, result.missingSlot.name) {
+                    "Example '${ex.id}' expected missing slot '${ex.expectedMissingSlot}' but got '${result.missingSlot.name}'"
                 }
+            }
+            else -> {
+                // RegexMatch or ClassifierMatch when NeedsSlot was expected
+                val intentName = routeResultToIntentName(result)
+                throw AssertionError(
+                    "Example '${ex.id}' (prompt='${ex.prompt}') expected NeedsSlot but got ${result::class.simpleName}" +
+                        " (route='$intentName')"
+                )
             }
         }
     }
