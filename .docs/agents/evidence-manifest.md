@@ -8,10 +8,13 @@ It helps reviewers quickly understand what evidence was collected and what was w
 
 ## When to Use
 
-- **Every PR:** Paste the relevant fields into the PR description.
-- **Durable tracking:** Save a copy to `docs/test-triage/evidence/pr-<N>-manifest.md` for
-  complex or long-running PRs.
-- **Skip:** Pure docs/copy changes with no behaviour impact can omit the manifest.
+- **Every non-trivial PR should include an evidence manifest.** Paste the relevant fields into
+  the PR description.
+- **Pure docs/template/copy-only PRs** may use a short validation note instead of the full
+  manifest (see the PR template for the docs-only checklist).
+- **Complex or long-running PRs** may save a copy to
+  `docs/test-triage/evidence/pr-<N>-manifest.md` for durable tracking.
+
 
 ## Template
 

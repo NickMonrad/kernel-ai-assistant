@@ -9,6 +9,7 @@ For subsystem-specific guidance, see the individual review gates (`.docs/agents/
 - [ ] Branch name follows convention (`feature/`, `fix/`, `docs/`, `chore/`)
 - [ ] Scope is clear and out-of-scope items are documented
 - [ ] Risk tier is declared (Low / Medium / High)
+- [ ] No GitHub Copilot Review requested or used as merge signal
 
 ## Build & Code Quality
 - [ ] `./gradlew assembleDebug` passes

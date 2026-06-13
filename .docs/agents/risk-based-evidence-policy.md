@@ -25,12 +25,17 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 **Examples:** Documentation changes, copy/text changes, labels and metadata updates,
 isolated visual polish (colour, spacing, typography only), refactors with no behaviour
-change, build config changes that don't affect behaviour, test-only changes.
+change, build config changes that do not affect behaviour, test-only changes.
 
-**Minimum evidence:**
-- `./gradlew assembleDebug` passes
-- `./gradlew lint` passes (or baseline updated)
-- Before/after screenshots for visual changes _(if applicable - optional otherwise)_
+**Minimum evidence by change type:**
+
+| Change Type | Minimum Evidence |
+|---|---|
+| Docs/template/copy-only | `git diff --check`; markdown lint if configured; no Android build/unit tests/device testing |
+| Build config | `./gradlew assembleDebug` (or targeted module build) |
+| Isolated visual polish | `./gradlew assembleDebug`; before/after screenshots; manual visual check only if alignment/touch-target judgement needed |
+| Test-only changes | `./gradlew :module:testDebugUnitTest` (or relevant script-level test); no app build unless touched area warrants it |
+| Refactor, no behaviour change | Targeted unit build/test based on changed area |
 
 **When CI-only evidence is enough:** Always, for pure docs/copy/build-config changes.
 
@@ -47,7 +52,7 @@ changes, list/calendar/tool behaviour changes, new skills with straightforward t
 selection, test additions or harness improvements, model availability UX changes.
 
 **Minimum evidence:**
-- All Low Risk items
+- Applicable Low Risk evidence for the changed area (see table above)
 - `./gradlew testDebugUnitTest` passes
 - Targeted regression tests run
 - Device test evidence — S21 is default (single device minimum)
@@ -80,7 +85,7 @@ pipeline, oracle, schema), device-compatibility changes, new inference paths, an
 change touching shared subsystem lifecycle.
 
 **Minimum evidence:**
-- All Medium Risk items
+- Applicable Medium Risk evidence for the changed area
 - Device test evidence — S21 required; S23U only if device-sensitive or ambiguous
 - Pre-flight oracle result in evidence _(for harness changes)_
 - Session-isolation smoke test evidence _(for LiteRT changes)_

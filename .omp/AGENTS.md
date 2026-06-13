@@ -142,6 +142,8 @@ context-mode is installed globally (MCP tools + native OMP hooks). Full routing 
 
 ## Branching & PR standards
 
+**Review path:** Human/ChatGPT review plus repo evidence. Do not request GitHub Copilot Review — treat any Copilot-generated PR review as non-authoritative.
+
 Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` only. PR body: `Closes #N`. Never auto-merge. After creating a PR, merge `main` into the branch if behind and check CI status.
 
 **Commit:** `type(#issue): short description` — types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
@@ -192,6 +194,7 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 ## Hard constraints
 
 No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
+No GitHub Copilot Review | Human/ChatGPT review plus repo evidence is the expected review path
 
 ## Memory
 

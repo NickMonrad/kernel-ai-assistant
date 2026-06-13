@@ -49,3 +49,6 @@ Use for every agent implementation prompt. Fill in all Required fields before st
      .docs/agents/review-gates-navigation-ui.md
      .docs/agents/review-gates-wallpaper-theme.md
 -->
+
+## Copilot Review
+<!-- Do NOT request GitHub Copilot Review. Human/ChatGPT review plus repo evidence is the expected review path. -->
