@@ -1,0 +1,51 @@
+name: Docs Drift Check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  check-docs-drift:
+    name: Check docs drift
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          fetch-depth: 0
+
+
+      - name: Get PR body
+        id: pr-body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr view "$PR_NUMBER" --json body --jq '.body' > /tmp/pr-body.txt
+
+      - name: Check docs drift
+        id: drift-check
+        continue-on-error: true
+        env:
+          GITHUB_STEP_SUMMARY: ${{ runner.temp }}/step-summary.md
+        run: |
+          python3 scripts/check_docs_drift.py \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-ref "HEAD" \
+            --pr-body-file /tmp/pr-body.txt
+
+      - name: Append to GITHUB_STEP_SUMMARY
+        if: steps.drift-check.outcome == 'success'
+        run: |
+          if [ -f "${{ runner.temp }}/step-summary.md" ]; then
+            cat "${{ runner.temp }}/step-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No docs drift warning generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Log result
+        run: |
+          echo "Docs drift check completed (warning-only, non-blocking)."

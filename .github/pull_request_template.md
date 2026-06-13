@@ -38,4 +38,8 @@ Closes #
 - [ ] Follow-up issues created for deferred work
 - [ ] Backward-compatibility impact assessed
 
+## Documentation
+<!-- If docs were not updated for a behaviour-sensitive change, explain why. -->
+Docs not needed:
+
 <!-- Do not request GitHub Copilot Review. Human/ChatGPT review plus repo evidence is the expected review path. -->
