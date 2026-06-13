@@ -1,0 +1,152 @@
+{
+  "suite": "learn_examples",
+  "scope": "targeted_qir_regression_subset",
+  "summary": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0
+  },
+  "note": "Targeted on-device subset validating QIR pattern fixes from PR #1216. Full catalogue coverage (67 examples) is provided by LearnExampleCatalogueTest (metadata) and LearnExampleRoutingTest (QIR routing), both CI-hosted in core:skills and :app unit tests.",
+  "cases": [
+    {
+      "learn_example_id": "calendar_dentist",
+      "section": "Time & planning",
+      "prompt": "Add dentist appointment next Tuesday",
+      "expected_mode": "qir_intent",
+      "expected_route": "create_calendar_event",
+      "actual_route": "create_calendar_event",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "calendar_assembly",
+      "section": "Time & planning",
+      "prompt": "Schedule school assembly for Friday",
+      "expected_mode": "qir_intent",
+      "expected_route": "create_calendar_event",
+      "actual_route": "create_calendar_event",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_coffee",
+      "section": "Maps & places",
+      "prompt": "Find coffee near me",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_supermarket",
+      "section": "Maps & places",
+      "prompt": "Find the closest supermarket",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_5_day_forecast",
+      "section": "Weather",
+      "prompt": "What's the 5 day forecast?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_hot_tomorrow",
+      "section": "Weather",
+      "prompt": "How hot will it be tomorrow?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "convert_percentage",
+      "section": "Utilities & conversions",
+      "prompt": "What's 15% of 87?",
+      "expected_mode": "qir_intent",
+      "expected_route": "calculate_arithmetic",
+      "actual_route": "calculate_arithmetic",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "convert_currency_usd_aud",
+      "section": "Utilities & conversions",
+      "prompt": "How much is 50 USD in AUD?",
+      "expected_mode": "qir_intent",
+      "expected_route": "convert_currency",
+      "actual_route": "convert_currency",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_current",
+      "section": "Weather",
+      "prompt": "What's the weather?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_tomorrow",
+      "section": "Weather",
+      "prompt": "What's the weather tomorrow?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_bunnings",
+      "section": "Maps & places",
+      "prompt": "Find Bunnings on the map",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_petrol",
+      "section": "Maps & places",
+      "prompt": "Find petrol stations nearby",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "meal_plan_shopping_list",
+      "section": "Meal planning",
+      "prompt": "Make a shopping list for my meal plan",
+      "expected_mode": "qir_intent",
+      "expected_route": "create_list",
+      "actual_route": "create_list",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "memory_dark_mode",
+      "section": "Notes & memory",
+      "prompt": "Remember that I prefer dark mode",
+      "expected_mode": "qir_intent",
+      "expected_route": "save_memory",
+      "actual_route": "save_memory",
+      "passed": true,
+      "failure_category": null
+    }
+  ]
+}
