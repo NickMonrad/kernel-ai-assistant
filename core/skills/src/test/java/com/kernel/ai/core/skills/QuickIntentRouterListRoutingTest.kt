@@ -96,4 +96,46 @@ class QuickIntentRouterListRoutingTest {
         assertEquals("111 over 70", match.intent.params["item"])
         assertEquals("blood pressure", match.intent.params["list_name"])
     }
+
+    // ── Negative: food/drink nouns must NOT route to calendar ────────────────
+
+    @Test
+    fun `does not route add coffee to my shopping list as calendar`() {
+        val result = router.route("add coffee to my shopping list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("coffee", match.intent.params["item"])
+        assertEquals("shopping", match.intent.params["list_name"])
+    }
+
+    @Test
+    fun `does not route put dinner on my list as calendar`() {
+        val result = router.route("put dinner on my list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("dinner", match.intent.params["item"])
+        assertEquals("list_name", match.missingSlot.name)
+    }
+    @Test
+    fun `does not route add lunch to the grocery list as calendar`() {
+        val result = router.route("add lunch to the grocery list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("lunch", match.intent.params["item"])
+        assertEquals("grocery", match.intent.params["list_name"])
+    }
+
+    @Test
+    fun `does not route make a coffee list as calendar`() {
+        val result = router.route("make a coffee list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("create_list", match.intent.intentName)
+    }
+
+    @Test
+    fun `does not route create a dinner list as calendar`() {
+        val result = router.route("create a dinner list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("create_list", match.intent.intentName)
+    }
 }
