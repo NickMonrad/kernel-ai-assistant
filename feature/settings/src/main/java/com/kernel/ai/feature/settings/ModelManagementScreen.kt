@@ -458,6 +458,29 @@ private fun ConversationReadinessBanner(
                 }
             }
         }
+        is ConversationModelReadiness.FallbackPreparing -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Chat is ready",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "${readiness.fallbackModel.displayName} is installed. " +
+                            "${readiness.downloadingModel.displayName} is downloading — " +
+                            "it will be available once finished.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         is ConversationModelReadiness.Preparing -> {
             Card(
                 modifier = modifier.fillMaxWidth(),

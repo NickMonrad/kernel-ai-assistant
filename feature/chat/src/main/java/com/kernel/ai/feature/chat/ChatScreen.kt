@@ -153,6 +153,8 @@ import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.ModelCardCompact
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
@@ -1804,6 +1806,23 @@ private fun OnboardingContent(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
+                is ConversationModelReadiness.FallbackPreparing -> {
+                    Text(
+                    text = "Chat is available with ${conversationReadiness.fallbackModel.displayName}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                    text = "${conversationReadiness.downloadingModel.displayName} is downloading " +
+                            "for the best experience on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
                 null, is ConversationModelReadiness.Ready -> {
                     Text(
                         text = if (isDownloading) {
@@ -1844,15 +1863,18 @@ private fun OnboardingContent(
                 )
             }
 
-            // ── Gated-model sign-in banner (only when HF auth blocks a NotDownloaded model) ──
-            // Only show when a gated model is actually NotDownloaded — if already
-            // Downloaded/Downloading, HF auth is not the blocker for progress.
-            val hasGatedModelsBlockedByAuth = otherModels.any {
-                it.model.isGated && it.state is DownloadState.NotDownloaded
-            }
-            if (!hfAuthenticated && hasGatedModelsBlockedByAuth) {
-                SignInBanner(
+            // ── Required-model blocking banner (gated auth/licence/failure) ─
+            val blockingBanner = deriveBlockingBanner(
+                otherModels = otherModels,
+                hfAuthenticated = hfAuthenticated,
+                downloadSources = downloadSources,
+            )
+            if (blockingBanner != null) {
+                BlockingBanner(
+                    data = blockingBanner,
                     onSignIn = onStartAuth,
+                    onRetry = onRetry,
+                    onNavigateToModelManagement = onNavigateToModelManagement,
                     modifier = Modifier.padding(top = 20.dp),
                 )
             }
@@ -1952,21 +1974,21 @@ private fun ConversationModelRecoveryCard(
             ) {
                 Text("Download ${recommendedModel.displayName}")
             }
-            Spacer(Modifier.height(12.dp))
             if (fallbackModel != recommendedModel) {
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = "or use the smaller fallback:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-            }
-            OutlinedButton(
-                onClick = { onDownload(fallbackModel) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Download ${fallbackModel.displayName} " +
-                    "(${formatBytesShort(fallbackModel.approxSizeBytes)})")
+                OutlinedButton(
+                    onClick = { onDownload(fallbackModel) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Download ${fallbackModel.displayName} " +
+                        "(${formatBytesShort(fallbackModel.approxSizeBytes)})")
+                }
             }
         }
     }
@@ -2044,6 +2066,164 @@ private fun SignInBanner(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Sign in to Hugging Face")
+            }
+        }
+    }
+}
+
+// ── Required-model blocking action helpers ──────────────────────────────
+
+/** Opaque action kind for the top-level blocking banner. */
+private sealed class BlockingAction {
+    data object SignIn : BlockingAction()
+    data class Retry(val model: KernelModel) : BlockingAction()
+    data object OpenModelManagement : BlockingAction()
+}
+
+/** Derived data for rendering a top-level blocker banner. */
+private data class BlockingBannerData(
+    val title: String,
+    val message: String,
+    val primaryActionLabel: String,
+    val primaryAction: BlockingAction,
+)
+
+/**
+ * Scans [otherModels] (non-conversation models) and returns the first blocking
+ * banner, or null if no required model has an actionable blocker.
+ *
+ * Priority order (deterministic by iteration):
+ * 1. Sign-in required (unauthenticated gated model)
+ * 2. License required (gated model needs license review)
+ * 3. Download failed (error state)
+ * 4. Approval pending / insufficient storage
+ */
+private fun deriveBlockingBanner(
+    otherModels: List<ChatUiState.ModelDownloadProgress>,
+    hfAuthenticated: Boolean,
+    downloadSources: Map<KernelModel, DownloadSource>,
+): BlockingBannerData? {
+    for (item in otherModels) {
+        val source = downloadSources[item.model] ?: DownloadSource.USER_INITIATED
+        val availability = item.state.toAvailability(
+            model = item.model,
+            hfAuth = hfAuthenticated,
+            source = source,
+        )
+        when (availability) {
+            is ModelAvailabilityState.ActionRequired -> when (val reason = availability.reason) {
+                is ActionReason.SignInRequired -> return BlockingBannerData(
+                    title = "Sign in required",
+                    message = "Sign in to Hugging Face to download ${item.model.displayName} " +
+                        "and enable gated features.",
+                    primaryActionLabel = "Sign in to Hugging Face",
+                    primaryAction = BlockingAction.SignIn,
+                )
+                is ActionReason.LicenseRequired -> return BlockingBannerData(
+                    title = "License required",
+                    message = "${item.model.displayName} needs a license to download. " +
+                        "Review it in Model Management to continue.",
+                    primaryActionLabel = "Review license in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.DownloadFailed -> return BlockingBannerData(
+                    title = "Download failed",
+                    message = "Failed to download ${item.model.displayName}.\n${reason.message}",
+                    primaryActionLabel = "Retry download",
+                    primaryAction = BlockingAction.Retry(item.model),
+                )
+                is ActionReason.ApprovalPending -> return BlockingBannerData(
+                    title = "Approval pending",
+                    message = "Access request is pending for ${item.model.displayName}.",
+                    primaryActionLabel = "Check status in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.AccessApprovalRequired -> return BlockingBannerData(
+                    title = "Additional access required",
+                    message = "${item.model.displayName} requires access approval from " +
+                        "${reason.providerName}.",
+                    primaryActionLabel = "Check in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.InsufficientStorage -> return BlockingBannerData(
+                    title = "Insufficient storage",
+                    message = "Free up storage space to download ${item.model.displayName}.",
+                    primaryActionLabel = "Manage storage",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+            }
+            else -> { /* Not a blocker — proceed to next model */ }
+        }
+    }
+    return null
+}
+
+@Composable
+private fun BlockingBanner(
+    data: BlockingBannerData,
+    onSignIn: () -> Unit,
+    onRetry: (KernelModel) -> Unit,
+    onNavigateToModelManagement: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (data.primaryAction) {
+        is BlockingAction.SignIn -> {
+            SignInBanner(onSignIn = onSignIn, modifier = modifier)
+        }
+        is BlockingAction.Retry -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = data.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = data.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onRetry(data.primaryAction.model) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(data.primaryActionLabel)
+                    }
+                }
+            }
+        }
+        is BlockingAction.OpenModelManagement -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = data.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = data.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onNavigateToModelManagement,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(data.primaryActionLabel)
+                    }
+                }
             }
         }
     }

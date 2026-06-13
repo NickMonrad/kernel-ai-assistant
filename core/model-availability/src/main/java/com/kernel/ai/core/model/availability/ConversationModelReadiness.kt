@@ -19,6 +19,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
  * |---|---|---|
  * |Flagship|E-4B downloaded|`Ready`|
  * |Flagship|E-4B not downloaded, E-2B downloaded|`FallbackActive`|
+ * |Flagship|E-2B downloaded, E-4B downloading|`FallbackPreparing` (E-4B downloading)|
  * |Flagship|E-4B downloading|`Preparing` (E-4B)|
  * |Flagship|E-4B missing, E-2B downloading|`Preparing` (E-2B)|
  * |Flagship|Neither downloaded nor downloading|`ActionRequired`|
@@ -39,6 +40,24 @@ sealed interface ConversationModelReadiness {
      */
     data class FallbackActive(
         val recommendedModel: KernelModel,
+    ) : ConversationModelReadiness
+
+    /**
+     * The fallback model is installed, but the tier-preferred model is also
+     * being downloaded — no redundant download CTA should be shown.
+     *
+     * @property recommendedModel The tier-preferred conversation model that is downloading
+     *   (e.g. E-4B on flagship).
+     * @property fallbackModel The model that is fully installed and usable
+     *   (always GEMMA_4_E2B on flagship).
+     * @property downloadingModel The model being downloaded (always the recommended model).
+     * @property progress 0.0–1.0 completion fraction, or null if unknown.
+     */
+    data class FallbackPreparing(
+        val recommendedModel: KernelModel,
+        val fallbackModel: KernelModel = KernelModel.GEMMA_4_E2B,
+        val downloadingModel: KernelModel,
+        val progress: Float?,
     ) : ConversationModelReadiness
 
     /**
@@ -71,9 +90,11 @@ sealed interface ConversationModelReadiness {
          * per-model download states.
          *
          * Priority order:
-         * 1. At least one valid model downloaded → `Ready` / `FallbackActive`
-         * 2. A valid model is actively downloading → `Preparing`
-         * 3. Nothing available → `ActionRequired`
+         * 1. E-4B installed → `Ready`
+         * 2. E-2B installed + E-4B downloading → `FallbackPreparing`
+         * 3. E-2B installed (fallback only) → `FallbackActive`
+         * 4. A valid model is actively downloading → `Preparing`
+         * 5. Nothing available → `ActionRequired`
          *
          * @param tier Current device hardware tier.
          * @param downloadStates Current download states for all models.
@@ -93,6 +114,12 @@ sealed interface ConversationModelReadiness {
             return when (tier) {
                 HardwareTier.FLAGSHIP -> when {
                     e4bDownloaded -> Ready
+                    e2bDownloaded && e4bDownloading -> FallbackPreparing(
+                        recommendedModel = KernelModel.GEMMA_4_E4B,
+                        fallbackModel = KernelModel.GEMMA_4_E2B,
+                        downloadingModel = KernelModel.GEMMA_4_E4B,
+                        progress = e4bState.progress,
+                    )
                     e2bDownloaded -> FallbackActive(recommendedModel = KernelModel.GEMMA_4_E4B)
                     e4bDownloading -> Preparing(
                         downloadingModel = KernelModel.GEMMA_4_E4B,

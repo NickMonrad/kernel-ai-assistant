@@ -90,18 +90,34 @@ class ConversationModelReadinessTest {
         }
 
         @Test
-        fun `E4B downloading with E2B downloaded returns FallbackActive not Preparing`() {
-            // When E2B is already installed, E4B downloading does not yield Preparing
-            // because E2B already satisfies chat readiness. Returns FallbackActive
-            // since the recommended model (E4B) is not yet fully installed.
+        fun `E4B downloading with E2B downloaded returns FallbackPreparing`() {
+            // When both E2B is installed AND E4B is downloading, the state is
+            // FallbackPreparing — not FallbackActive — so no redundant download
+            // CTA is shown for the model that is already being downloaded.
             val states = mapOf(
                 KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.5f),
                 KernelModel.GEMMA_4_E2B to DownloadState.Downloaded(e2bPath),
             )
             val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
-            assertInstanceOf(ConversationModelReadiness.FallbackActive::class.java, result)
-            val fallback = result as ConversationModelReadiness.FallbackActive
-            assertEquals(KernelModel.GEMMA_4_E4B, fallback.recommendedModel)
+            assertInstanceOf(ConversationModelReadiness.FallbackPreparing::class.java, result)
+            val fbPreparing = result as ConversationModelReadiness.FallbackPreparing
+            assertEquals(KernelModel.GEMMA_4_E4B, fbPreparing.recommendedModel)
+            assertEquals(KernelModel.GEMMA_4_E2B, fbPreparing.fallbackModel)
+            assertEquals(KernelModel.GEMMA_4_E4B, fbPreparing.downloadingModel)
+            assertEquals(0.5f, fbPreparing.progress!!, 0.001f)
+        }
+
+        @Test
+        fun `E4B downloading with E2B downloaded carries null progress through FallbackPreparing`() {
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.Downloading(),
+                KernelModel.GEMMA_4_E2B to DownloadState.Downloaded(e2bPath),
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
+            assertInstanceOf(ConversationModelReadiness.FallbackPreparing::class.java, result)
+            val fbPreparing = result as ConversationModelReadiness.FallbackPreparing
+            assertEquals(KernelModel.GEMMA_4_E4B, fbPreparing.downloadingModel)
+            assertEquals(0f, fbPreparing.progress!!, 0.001f)
         }
     }
 
