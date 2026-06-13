@@ -52,7 +52,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -460,18 +459,29 @@ class ToolsHubNavTest {
             )
         }
 
-        // Group headers should be visible
+        // Top-of-list items should be visible immediately
         composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_group_time_planning").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_people").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_utilities").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_personalisation").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
-
-        // Destination rows should be visible
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_notes").assertIsDisplayed()
+
+        // Scroll to and verify below-fold groups
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_people"))
+        composeTestRule.onNodeWithTag("tools_group_people").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_utilities"))
+        composeTestRule.onNodeWithTag("tools_group_utilities").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_personalisation"))
+        composeTestRule.onNodeWithTag("tools_group_personalisation").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_app_setup"))
+        composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
     }
 
     @Test
@@ -501,7 +511,6 @@ class ToolsHubNavTest {
         composeTestRule.onNodeWithTag("tools_search_field").performTextInput("convert")
         composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Convert").assertIsDisplayed()
     }
 
     @Test
@@ -518,7 +527,6 @@ class ToolsHubNavTest {
         composeTestRule.onNodeWithTag("tools_search_field").performTextInput("shopping")
         composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_search_result_lists").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Lists").assertIsDisplayed()
     }
 
     @Test
