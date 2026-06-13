@@ -42,6 +42,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -431,6 +432,222 @@ class ToolsHubNavTest {
         assertEquals(false, route.contains("widgetQuery"))
         assertTrue(route.contains("draftQuery"))
         assertTrue(route.contains("openSheet=true"))
+    }
+
+    // ── Tools search tests ──────────────────────────────────────────────────
+
+    @Test
+    fun toolsSearch_fieldIsDisplayed() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_emptyQueryPreservesGroupedLayout() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        // Top-of-list items should be visible immediately
+        composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_notes").assertIsDisplayed()
+
+        // Scroll to time_planning group (may be below fold on smaller screens)
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_time_planning"))
+        composeTestRule.onNodeWithTag("tools_group_time_planning").assertIsDisplayed()
+
+        // Scroll to and verify below-fold groups
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_people"))
+        composeTestRule.onNodeWithTag("tools_group_people").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_utilities"))
+        composeTestRule.onNodeWithTag("tools_group_utilities").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_personalisation"))
+        composeTestRule.onNodeWithTag("tools_group_personalisation").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_app_setup"))
+        composeTestRule.onNodeWithTag("tools_group_app_setup").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_clearButtonAppearsOnNonEmptyQuery() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("lists")
+        composeTestRule.onNodeWithTag("tools_search_clear").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_byDestinationTitle() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("convert")
+        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_byDestinationKeyword() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        // "shopping" keyword should match "Lists"
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("shopping")
+        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_result_lists").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_byExamplePrompt() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("dentist")
+        composeTestRule.onNodeWithTag("tools_search_examples_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_example_calendar_dentist").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_showsNoResultsForUnmatchedQuery() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("zzznotfound")
+        composeTestRule.onNodeWithTag("tools_search_no_results").assertIsDisplayed()
+        composeTestRule.onNodeWithText("No results found").assertIsDisplayed()
+
+        // Group headers should NOT be visible when searching
+        composeTestRule.onAllNodesWithTag("tools_group_productivity", useUnmergedTree = true)
+            .fetchSemanticsNodes().let { nodes ->
+                assertTrue("Expected no productivity group when no results", nodes.isEmpty())
+            }
+    }
+
+    @Test
+    fun toolsSearch_clearRestoresFullLayout() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("zzznotfound")
+        composeTestRule.onNodeWithTag("tools_search_no_results").assertIsDisplayed()
+
+        // Clear search
+        composeTestRule.onNodeWithTag("tools_search_clear").performClick()
+        composeTestRule.waitForIdle()
+
+        // Full layout should be restored
+        composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsSearch_matchedDestinationNavigates() {
+        var lastRoute = ""
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = { lastRoute = it },
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("lists")
+        composeTestRule.onNodeWithTag("tools_search_result_lists", useUnmergedTree = true).performClick()
+
+        assertEquals(ROUTE_LISTS, lastRoute)
+    }
+
+    @Test
+    fun toolsSearch_matchedExampleOpensPrompt() {
+        var capturedPrompt = ""
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+                onOpenPrompt = { capturedPrompt = it },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("dentist")
+        composeTestRule.onNodeWithTag("tools_search_example_calendar_dentist", useUnmergedTree = true).performClick()
+
+        assertTrue("Expected 'dentist' in captured prompt, got: $capturedPrompt",
+            capturedPrompt.contains("dentist", ignoreCase = true))
+    }
+
+    @Test
+    fun toolsSearch_showsBothDestinationsAndExamples() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("convert")
+
+        // Should show both "Tools" and "Examples" groups
+        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_examples_header").assertIsDisplayed()
+
+        // Convert destination should be matched
+        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
+
+        // Conversion examples should be matched
+        composeTestRule.onNodeWithTag("tools_search_example_convert_cups_ml").assertIsDisplayed()
     }
 
     private fun assertRowNavigatesTo(
