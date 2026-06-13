@@ -461,10 +461,14 @@ class ToolsHubNavTest {
 
         // Top-of-list items should be visible immediately
         composeTestRule.onNodeWithTag("tools_group_productivity").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_group_time_planning").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_notes").assertIsDisplayed()
+
+        // Scroll to time_planning group (may be below fold on smaller screens)
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_group_time_planning"))
+        composeTestRule.onNodeWithTag("tools_group_time_planning").assertIsDisplayed()
 
         // Scroll to and verify below-fold groups
         composeTestRule.onNodeWithTag("tools_screen")
