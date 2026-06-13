@@ -1040,7 +1040,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|book|put)\s+(?:a\s+|an\s+)?(?:dentist|gym|school|dental|hair|massage|doctor|eye|therapy|soccer|football|basketball|cricket|tennis|swim|swimming|meeting|training|lesson|class|session|appointment|checkup|physical|surgery|consultation|interview|wedding|party|dinner|lunch|breakfast|brunch|date|playdate|play\s+date|movie|film|concert|show|drinks|coffee)\s+(?:appointment|meeting|event|session|booking|class|lesson|training|checkup)?(?:s|es)?(?:\s+(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)))?""",
+                """(?:add|create|schedule|book|put)\s+(?:a\s+|an\s+)?(?:(?:appointment|meeting|event|session|booking|class|lesson|training|checkup|assembly|gathering|get\.?together|birthday|celebration)(?:s|es)?|(?:dentist|gym|school|dental|hair|haircut|massage|doctor|eye|therapy|soccer|football|basketball|cricket|tennis|swim|swimming|physical|surgery|consultation|interview|wedding|party|date|playdate|play\s+date|movie|film|concert|show|dinner|lunch|breakfast|brunch|coffee|drinks)\s+(?:(?:appointment|meeting|event|session|booking|class|lesson|training|checkup|assembly|gathering|get\.?together|birthday|celebration)(?:s|es)?(?:\s+(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)))?|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
@@ -1878,7 +1878,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain\s+tomorrow\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain\s+tomorrow\s*$)""",
+                """(?:will\s+it\s+rain\s+tomorrow\s*[.!?]*$|is\s+it\s+(?:going\s+to|gonna)\s+rain\s+tomorrow\s*[.!?]*$)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
@@ -1887,7 +1887,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+in\s+([\w\s,]+?)\s+tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s+in\s+([\w\s,]+?)\s*$)""",
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+in\s+([\w\s,]+?)\s+tomorrow\s*[.!?]*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s+in\s+([\w\s,]+?)\s*[.!?]*$)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1901,7 +1901,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$)""",
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*[.!?]*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*[.!?]*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*[.!?]*$)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
@@ -2009,7 +2009,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-"""(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
+                """(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2084,7 +2084,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend))\s*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend)))""",
+                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend))\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend)))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
@@ -3752,7 +3752,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets|can\s+you|could\s+you|please|help\s+me)\s+)?(?:plan|start|set\s+up|organi[sz]e|map\s+out|figure\s+out|sort\s+out|prep)\s+(?:(?:(?:my|our|the|a)\s+)?(?:weekly\s+)?)?(?:meal\s+planning|meal\s+plan|meals?|dinners?|menu|meal\s+prep)(?:\s+(?:for\s+the\s+week|this\s+week|weekly))?[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|please|help\s+me)\s+)?(?:plan|start|set\s+up|organi[sz]e|map\s+out|figure\s+out|sort\s+out|prep)\s+(?:(?:(?:my|our|the|a)\s+)?(?:weekly\s+)?)?(?:meal\s+planning|meal\s+plan|meals?|dinners?|menu|meal\s+prep)(?:\s+(?:for\s+the\s+week|for\s+this\s+week|this\s+week|weekly))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },

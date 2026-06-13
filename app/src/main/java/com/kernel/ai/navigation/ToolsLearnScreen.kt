@@ -195,7 +195,7 @@ fun ToolsLearnScreen(
 
                 section.defaultExamples.forEach { example ->
                     ToolsExampleRow(
-                        testTag = example.id,
+                        testTag = "tools_learn_${example.id}",
                         label = example.label,
                         onClick = { onOpenPrompt(example.prompt) },
                     )
@@ -204,7 +204,7 @@ fun ToolsLearnScreen(
                 if (isExpanded) {
                     section.moreExamples.forEach { example ->
                         ToolsExampleRow(
-                            testTag = example.id,
+                            testTag = "tools_learn_${example.id}",
                             label = example.label,
                             onClick = { onOpenPrompt(example.prompt) },
                         )

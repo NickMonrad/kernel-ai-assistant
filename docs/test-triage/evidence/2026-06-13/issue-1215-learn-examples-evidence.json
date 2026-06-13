@@ -1,10 +1,12 @@
 {
   "suite": "learn_examples",
+  "scope": "targeted_qir_regression_subset",
   "summary": {
-    "total": 67,
-    "passed": 67,
+    "total": 14,
+    "passed": 14,
     "failed": 0
   },
+  "note": "Targeted on-device subset validating QIR pattern fixes from PR #1216. Full catalogue coverage (67 examples) is provided by LearnExampleCatalogueTest (metadata) and LearnExampleRoutingTest (QIR routing), both CI-hosted in core:skills and :app unit tests.",
   "cases": [
     {
       "learn_example_id": "calendar_dentist",
@@ -17,32 +19,22 @@
       "failure_category": null
     },
     {
-      "learn_example_id": "weather_5_day_forecast",
-      "section": "Weather",
-      "prompt": "What's the 5 day forecast?",
+      "learn_example_id": "calendar_assembly",
+      "section": "Time & planning",
+      "prompt": "Schedule school assembly for Friday",
       "expected_mode": "qir_intent",
-      "expected_route": "get_weather",
-      "actual_route": "get_weather",
+      "expected_route": "create_calendar_event",
+      "actual_route": "create_calendar_event",
       "passed": true,
       "failure_category": null
     },
     {
-      "learn_example_id": "weather_bundaberg",
-      "section": "Weather",
-      "prompt": "What's the forecast for Bundaberg this weekend?",
+      "learn_example_id": "maps_find_coffee",
+      "section": "Maps & places",
+      "prompt": "Find coffee near me",
       "expected_mode": "qir_intent",
-      "expected_route": "get_weather",
-      "actual_route": "get_weather",
-      "passed": true,
-      "failure_category": null
-    },
-    {
-      "learn_example_id": "weather_hot_tomorrow",
-      "section": "Weather",
-      "prompt": "How hot will it be tomorrow?",
-      "expected_mode": "qir_intent",
-      "expected_route": "get_weather",
-      "actual_route": "get_weather",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
       "passed": true,
       "failure_category": null
     },
@@ -57,12 +49,22 @@
       "failure_category": null
     },
     {
-      "learn_example_id": "people_email_school",
-      "section": "People & communication",
-      "prompt": "Email school that Freyja is sick today",
+      "learn_example_id": "weather_5_day_forecast",
+      "section": "Weather",
+      "prompt": "What's the 5 day forecast?",
       "expected_mode": "qir_intent",
-      "expected_route": "send_email",
-      "actual_route": "send_email",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_hot_tomorrow",
+      "section": "Weather",
+      "prompt": "How hot will it be tomorrow?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
       "passed": true,
       "failure_category": null
     },
@@ -87,6 +89,46 @@
       "failure_category": null
     },
     {
+      "learn_example_id": "weather_current",
+      "section": "Weather",
+      "prompt": "What's the weather?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "weather_tomorrow",
+      "section": "Weather",
+      "prompt": "What's the weather tomorrow?",
+      "expected_mode": "qir_intent",
+      "expected_route": "get_weather",
+      "actual_route": "get_weather",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_bunnings",
+      "section": "Maps & places",
+      "prompt": "Find Bunnings on the map",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
+      "learn_example_id": "maps_find_petrol",
+      "section": "Maps & places",
+      "prompt": "Find petrol stations nearby",
+      "expected_mode": "qir_intent",
+      "expected_route": "find_nearby",
+      "actual_route": "find_nearby",
+      "passed": true,
+      "failure_category": null
+    },
+    {
       "learn_example_id": "meal_plan_shopping_list",
       "section": "Meal planning",
       "prompt": "Make a shopping list for my meal plan",
@@ -97,52 +139,12 @@
       "failure_category": null
     },
     {
-      "learn_example_id": "meal_plan_grocery",
-      "section": "Meal planning",
-      "prompt": "Create a grocery list from my meal plan",
+      "learn_example_id": "memory_dark_mode",
+      "section": "Notes & memory",
+      "prompt": "Remember that I prefer dark mode",
       "expected_mode": "qir_intent",
-      "expected_route": "create_list",
-      "actual_route": "create_list",
-      "passed": true,
-      "failure_category": null
-    },
-    {
-      "learn_example_id": "meal_plan_meals",
-      "section": "Meal planning",
-      "prompt": "Plan meals",
-      "expected_mode": "meal_planner_handoff",
-      "expected_route": "start_meal_planner",
-      "actual_route": "start_meal_planner",
-      "passed": true,
-      "failure_category": null
-    },
-    {
-      "learn_example_id": "meal_plan_dinners_week",
-      "section": "Meal planning",
-      "prompt": "Plan dinners for this week",
-      "expected_mode": "meal_planner_handoff",
-      "expected_route": "start_meal_planner",
-      "actual_route": "start_meal_planner",
-      "passed": true,
-      "failure_category": null
-    },
-    {
-      "learn_example_id": "meal_plan_lunches",
-      "section": "Meal planning",
-      "prompt": "Plan school lunches for the week",
-      "expected_mode": "freeform_chat_allowed",
-      "expected_route": null,
-      "actual_route": null,
-      "passed": true,
-      "failure_category": null
-    },
-    {
-      "learn_example_id": "calendar_assembly",
-      "section": "Time & planning",
-      "prompt": "Schedule school assembly for Friday",
-      "expected_mode": "qir_intent",
-      "expected_route": "create_calendar_event",
-      "actual_route": "create_calendar_event",
+      "expected_route": "save_memory",
+      "actual_route": "save_memory",
       "passed": true,
       "failure_category": null
     }
