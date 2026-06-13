@@ -58,6 +58,7 @@ pre-merge voice-pipeline hardening.
 ### 3.1 Model State Carryover / LiteRT Session Isolation *(Historical — fixed in #1190, #1191)*
 
 **Evidence at the time** (2026-06-11 ADB triage):
+
 - Safe-smoke before-fix: case 4 returned `set_timer` with `duration_seconds=7200` — stale data from case 2
 - Slot-fill: 6/6 failed from cross-test parameter leakage
 - Reproduced on both S21 and S23U
@@ -77,6 +78,7 @@ signal-to-noise ratio of the entire test suite.
 **Evidence**: #752 (15 fixes), #1057 (4 fixes), #1049 (3 fixes), plus #1046, #837, #832, #760.
 
 **Recurring sub-problems**:
+
 - Native STT stalls / no-match retry loops (#752)
 - Audio focus management during alerts (#752, #760)
 - Playback tail cutoff / hardware latency mismatch (#837)
@@ -92,6 +94,7 @@ and edge cases accumulate across three engine backends (Native Android, Sherpa-O
 **Evidence**: #684 Exynos GPU (10 fixes), S21 ADB triage vs S23U differences.
 
 **Issues**:
+
 - Mali GPU backend hangs on Exynos 2100 — needed allowlist, per-turn reset, memory tuning
 - S21 model warmup intermittently times out (confounded triage across multiple runs)
 - S21 8 GB RAM requires smaller context window (2000–4000 tokens, final 3072)
@@ -104,6 +107,7 @@ rerun. Triage required per-device retesting.
 **Evidence**: 20+ commits across issues #1113–#1170 building the test evidence pipeline.
 
 **Pain points**:
+
 - Evidence schema normalisation (#1115, #1123)
 - PR evidence publishing (#1133, #1168, #1169)
 - Dashboard construction (#1138, #1146, #1166, #1177)
@@ -127,6 +131,7 @@ actual merged-PR state between syncs.
 `generateStructuredOnce`), #1091 (model losing context), #1093 (context budget scaling).
 
 **Issues**:
+
 - 0-token output from E4B/E2B requires retry without RAG before showing fallback
 - Thinking-mode channel parser falls back when LiteRT fails to populate
 - Context budget is fixed absolute values, not proportional to window size (#1093)
@@ -183,17 +188,20 @@ Every issue or agent prompt should include these items before code starts:
 A PR is ready to merge when all applicable items are checked:
 
 ### Prerequisites
+
 - [ ] Issue number referenced in PR body (`Closes #N`)
 - [ ] Parent epic referenced (if applicable)
 - [ ] Branch name follows convention (`feature/`, `fix/`, `docs/`, `chore/`)
 
 ### Build & Code Quality
+
 - [ ] `./gradlew assembleDebug` passes
 - [ ] `./gradlew lint` passes (or baseline updated)
 - [ ] `./gradlew testDebugUnitTest` passes
 - [ ] No new lint warnings or deprecations introduced
 
 ### Regression Tests
+
 - [ ] Targeted unit tests added/updated for changed code
 - [ ] Existing tests still pass
 - [ ] ADB/UIAutomator evidence attached (if applicable)
@@ -202,6 +210,7 @@ A PR is ready to merge when all applicable items are checked:
 - [ ] Permission path covered: first-run, denied, revoked, repair, Android Settings
 
 ### Documentation
+
 - [ ] ROADMAP.md reviewed / updated
 - [ ] SPECIFICATION.md reviewed / updated
 - [ ] README.md reviewed / updated
@@ -209,6 +218,7 @@ A PR is ready to merge when all applicable items are checked:
 - [ ] UX_PATTERNS.md reviewed / updated (if new UI pattern)
 
 ### Limitations
+
 - [ ] Known limitations declared in PR body
 - [ ] Follow-up issues created for deferred work
 - [ ] Backward-compatibility impact assessed
@@ -220,6 +230,7 @@ A PR is ready to merge when all applicable items are checked:
 PRs are classified by risk level. Minimum evidence required per tier:
 
 ### Low Risk
+
 *Docs, copy changes, labels, isolated visual polish, refactors with no behaviour change.*
 
 - [ ] `assembleDebug` passes
@@ -227,6 +238,7 @@ PRs are classified by risk level. Minimum evidence required per tier:
 - [ ] Before/after screenshots for visual changes (if applicable)
 
 ### Medium Risk
+
 *Compose navigation, settings flows, QIR mapping changes, list/calendar/tool behaviours,
 new skills with straightforward tool selection, test additions.*
 
@@ -238,6 +250,7 @@ new skills with straightforward tool selection, test additions.*
 - [ ] ROADMAP/SPEC updated
 
 ### High Risk
+
 *Voice (STT/TTS/VAD/wake-word), LiteRT/model handling (session, KV cache, warmup),
 permissions (new flows, repair paths, Android Settings bridges), alarms/timers,
 test harness changes, device-compatibility changes, any new inference path.*
@@ -401,6 +414,7 @@ The following issues should be created from this retrospective:
 ### P0 — Standard Agent Prompt / Issue / PR Review Templates
 
 Create templates for:
+
 - **Agent implementation prompts** (mapping to the Definition of Ready in §6)
 - **PR descriptions** (mapping to the Definition of Done checklist in §7)
 - **Code review checklist** (mapping to fragile-subsystem gates in §9)
@@ -411,6 +425,7 @@ These should live in `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE/`
 ### P1 — Risk-Based PR Evidence Requirements
 
 Formalise the PR tiers from §8 into a project-wide policy:
+
 - Document the three tiers in `CONTRIBUTING.md` or `docs/automated-testing.md`
 - Add a CI step that validates minimum evidence based on changed file paths
 - Create a `label:risk/low`, `label:risk/medium`, `label:risk/high` convention
@@ -418,6 +433,7 @@ Formalise the PR tiers from §8 into a project-wide policy:
 ### P1 — Subsystem-Specific Review Gates
 
 Move the fragile-subsystem checklists from §9 into sharable files:
+
 - `.docs/agents/review-gates-voice.md`
 - `.docs/agents/review-gates-litert.md`
 - `.docs/agents/review-gates-permissions.md`
@@ -430,6 +446,7 @@ These become the authoritative checklist for review of each subsystem.
 ### P2 — Harness Metrics Dashboard Improvements
 
 Build on the existing evidence schema (§11) to add:
+
 - A cross-run dashboard showing pass/fail trends by phase, device, and failure bucket
 - Per-evidence-run validation: pre-flight oracle passes, log-capture bounds, deliberate-fixture results
 - Flaky-test detection across repeated runs (same commit, different result)
