@@ -16,7 +16,6 @@ Closes #
 - [ ] `git diff --check` — no whitespace errors
 - [ ] Markdown lint passes (if configured — not currently configured in this repo)
 - [ ] No Android build required
-
 - [ ] No Android unit tests required
 - [ ] No device testing required
 - [ ] ROADMAP.md / SPECIFICATION.md / README.md reviewed (if needed)
@@ -38,6 +37,7 @@ Closes #
 - [ ] Known limitations declared
 - [ ] Follow-up issues created for deferred work
 - [ ] Backward-compatibility impact assessed
+
 ## Documentation
 <!-- If docs were not updated for a behaviour-sensitive change, explain why. -->
 Docs not needed:

@@ -286,6 +286,41 @@ class RationaleDetectionTest(unittest.TestCase):
             body = f"## Documentation\n{phrase}"
             self.assertTrue(cdd.has_rationale_in_pr_body(body), f"Failed for: {phrase}")
 
+    def test_blank_docs_not_needed(self) -> None:
+        """Blank "Docs not needed:" field → False."""
+        body = "## Documentation\nDocs not needed:\n\nSome content"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_docs_not_needed_with_comment(self) -> None:
+        """Blank "Docs not needed:" followed by HTML comment → False."""
+        body = "## Documentation\nDocs not needed:\n\n<!-- Do not request Copilot Review -->"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_docs_not_needed_trailing_spaces(self) -> None:
+        """"Docs not needed:   " with trailing spaces → False."""
+        body = "## Documentation\nDocs not needed:   "
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_docs_not_needed_next_line(self) -> None:
+        """Blank "Docs not needed:" with text on next line → False."""
+        body = "## Documentation\nDocs not needed:\nThis is not a valid rationale"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_documentation_not_needed(self) -> None:
+        """Blank "Documentation not needed:" → False."""
+        body = "## Documentation\nDocumentation not needed:\n"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_docs_not_needed_dash(self) -> None:
+        """Blank "docs-not-needed:" → False."""
+        body = "## Documentation\ndocs-not-needed:\n"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
+    def test_blank_docs_not_needed_underscore(self) -> None:
+        """Blank "docs_not_needed:" → False."""
+        body = "## Documentation\ndocs_not_needed:\n"
+        self.assertFalse(cdd.has_rationale_in_pr_body(body))
+
 
 class MainIntegrationTest(unittest.TestCase):
     """Tests for main() via _run()."""
@@ -334,6 +369,19 @@ class MainIntegrationTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("passed", output)
         self.assertNotIn("Documentation Drift Warning", output)
+
+    def test_behaviour_change_blank_pr_template(self) -> None:
+        """Behaviour change with blank "Docs not needed:" field → warning."""
+        # Simulates default PR template with empty docs-not-needed field
+        template = "## Documentation\nDocs not needed:\n\n<!-- Do not request Copilot Review -->"
+        output, code = _run([
+            "--base-ref", "HEAD~1",
+            "--head-ref", "HEAD",
+            "--changed-files", "feature/chat/Screen.kt",
+            "--pr-body", template,
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("Documentation Drift Warning", output)
 
     def test_unknown_file_no_warning(self) -> None:
         """Unknown/non-sensitive file change → no warning."""

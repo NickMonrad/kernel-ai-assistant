@@ -168,6 +168,7 @@ def _glob_match(pattern: str, path: str) -> bool:
     parts = pattern.split("/")
     path_parts = path.split("/")
     return _match_parts(parts, path_parts)
+
 def relevant_docs_exist(changed_files: List[str], affected_areas: List[Area]) -> bool:
     """Check whether at least one expected doc across all affected areas was changed.
 
@@ -215,21 +216,25 @@ def classify_changed_files(changed_files: List[str]) -> List[Area]:
 
     return matched
 
-
 PR_RATIONALE_PATTERNS = [
-    re.compile(r"docs[-\s_]not[-\s_]needed\s*:\s*.+", re.IGNORECASE),
-    re.compile(r"docs not needed\s*:\s*.+", re.IGNORECASE),
-    re.compile(r"documentation not needed\s*:\s*.+", re.IGNORECASE),
+    re.compile(r"docs[-\s_]not[-\s_]needed\s*:[ \t]*\S", re.IGNORECASE),
+    re.compile(r"docs not needed\s*:[ \t]*\S", re.IGNORECASE),
+    re.compile(r"documentation not needed\s*:[ \t]*\S", re.IGNORECASE),
 ]
 
 
 def has_rationale_in_pr_body(pr_body: str | None) -> bool:
-    """Check whether the PR body contains a docs-not-needed rationale."""
+    """Check whether the PR body contains a docs-not-needed rationale.
+
+    Iterates over individual lines to ensure rationale is on the same line
+    as the label — a blank ``Docs not needed:`` field does not count.
+    """
     if not pr_body:
         return False
-    for pattern in PR_RATIONALE_PATTERNS:
-        if pattern.search(pr_body):
-            return True
+    for line in pr_body.splitlines():
+        for pattern in PR_RATIONALE_PATTERNS:
+            if pattern.search(line):
+                return True
     return False
 
 

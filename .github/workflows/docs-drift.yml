@@ -17,10 +17,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3
-        uses: actions/setup-python@0e8622815b5c84bb783c73a86e9dfaadfb46f891
-        with:
-          python-version: '3.x'
 
       - name: Get PR body
         id: pr-body
