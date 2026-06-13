@@ -73,6 +73,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -150,6 +152,7 @@ import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
@@ -263,9 +266,12 @@ fun ChatScreen(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
             onRetry = viewModel::retryDownload,
+            onDownloadModel = viewModel::retryDownload,
+            onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
             downloadSources = state.downloadSources,
+            conversationReadiness = state.conversationReadiness,
         )
         is ChatUiState.Ready -> {
             val context = LocalContext.current
@@ -1731,9 +1737,12 @@ private fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
+    onDownloadModel: (KernelModel) -> Unit,
+    onStartAuth: () -> Unit,
     onNavigateToModelManagement: () -> Unit,
     hfAuthenticated: Boolean = false,
     downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
+    conversationReadiness: ConversationModelReadiness? = null,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -1746,26 +1755,97 @@ private fun OnboardingContent(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp),
             )
-            Text(
-                text = if (isDownloading) {
-                    "Downloading AI models… please stay connected to Wi-Fi."
-                } else {
-                    "On-device AI models are required and will download automatically."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
-            )
 
-            if (modelProgress.isNotEmpty()) {
+            // ── Explanatory copy ─────────────────────────────────────────────
+            when (conversationReadiness) {
+                is ConversationModelReadiness.ActionRequired -> {
+                    Text(
+                        text = "Action Required",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Chat needs a conversation model before you can start talking to Jandal.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                is ConversationModelReadiness.FallbackActive -> {
+                    Text(
+                        text = "Chat is available with ${KernelModel.GEMMA_4_E2B.displayName}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Download ${conversationReadiness.recommendedModel.displayName} for best performance on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                else -> {
+                    Text(
+                        text = if (isDownloading) {
+                            "Downloading AI models… please stay connected to Wi-Fi."
+                        } else {
+                            "On-device AI models are required and will download automatically."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+
+            val conversationModels = setOf(
+                KernelModel.GEMMA_4_E4B,
+                KernelModel.GEMMA_4_E2B,
+            )
+            val otherModels = modelProgress.filter { it.model !in conversationModels }
+            val conversationBlocking = modelProgress.filter { it.model in conversationModels }
+
+            // ── Conversation-model actions (when blocking Chat) ─────────────
+            if (conversationReadiness is ConversationModelReadiness.ActionRequired) {
+                // Show a clear recovery card instead of a blank model row
+                ConversationModelRecoveryCard(
+                    recommendedModel = conversationReadiness.recommendedModel,
+                    fallbackModel = conversationReadiness.fallbackModel,
+                    onDownload = onDownloadModel,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            } else if (conversationReadiness is ConversationModelReadiness.FallbackActive) {
+                // E-2B is ready; recommend E-4B
+                ConversationModelRecommendationCard(
+                    recommendedModel = conversationReadiness.recommendedModel,
+                    onDownload = onDownloadModel,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            }
+
+            // ── Gated-model sign-in banner (when HF auth is missing) ────────
+            if (!hfAuthenticated && otherModels.any { it.model.isGated }) {
+                SignInBanner(
+                    onSignIn = onStartAuth,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            }
+
+            // ── Other model rows (EmbeddingGemma, SentencePiece, etc.) ──────
+            if (otherModels.isNotEmpty()) {
                 Column(
                     modifier = Modifier
-                        .padding(top = 28.dp)
+                        .padding(top = 20.dp)
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    modelProgress.forEach { item ->
+                    otherModels.forEach { item ->
                         val source = downloadSources[item.model]
                         ModelCardCompact(
                             title = item.displayName,
@@ -1779,14 +1859,171 @@ private fun OnboardingContent(
                         )
                     }
                 }
-                TextButton(
-                    onClick = onNavigateToModelManagement,
-                    modifier = Modifier.padding(top = 8.dp),
+            }
+
+            // ── Conversation model compact rows when not blocking ───────────
+            // Show E2B/E4B as compact cards only when readiness is Ready
+            if (conversationReadiness is ConversationModelReadiness.Ready &&
+                conversationBlocking.isNotEmpty()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(top = 20.dp)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    Text("Manage models")
+                    conversationBlocking.forEach { item ->
+                        val source = downloadSources[item.model]
+                        ModelCardCompact(
+                            title = item.displayName,
+                            description = item.sizeLabel,
+                            state = item.state.toAvailability(
+                                model = item.model,
+                                hfAuth = hfAuthenticated,
+                                source = source ?: DownloadSource.USER_INITIATED,
+                            ),
+                            showLock = item.model.isGated,
+                        )
+                    }
                 }
-            } else if (isDownloading) {
-                PauaLoadingIndicator(size = 24.dp)
+            }
+
+            // ── Manage models (always visible) ──────────────────────────────
+            TextButton(
+                onClick = onNavigateToModelManagement,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text("Manage models")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationModelRecoveryCard(
+    recommendedModel: KernelModel,
+    fallbackModel: KernelModel,
+    onDownload: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Conversation model required",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Recommended: ${recommendedModel.displayName} " +
+                    "(${formatBytesShort(recommendedModel.approxSizeBytes)}) — " +
+                    "best performance on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { onDownload(recommendedModel) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${recommendedModel.displayName}")
+            }
+            Spacer(Modifier.height(12.dp))
+            if (fallbackModel != recommendedModel) {
+                Text(
+                    text = "or use the smaller fallback:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            OutlinedButton(
+                onClick = { onDownload(fallbackModel) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${fallbackModel.displayName} " +
+                    "(${formatBytesShort(fallbackModel.approxSizeBytes)})")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationModelRecommendationCard(
+    recommendedModel: KernelModel,
+    onDownload: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Upgrade recommended",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Download ${recommendedModel.displayName} " +
+                    "(${formatBytesShort(recommendedModel.approxSizeBytes)}) " +
+                    "for the best experience on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { onDownload(recommendedModel) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${recommendedModel.displayName}")
+            }
+        }
+    }
+}
+
+/** Compact byte formatting for inline use. */
+private fun formatBytesShort(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000f)
+    bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000f)
+    else -> "$bytes B"
+}
+
+@Composable
+private fun SignInBanner(
+    onSignIn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Sign in to download models",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Some required models on Hugging Face need authentication. " +
+                    "Sign in with your Hugging Face account to continue.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onSignIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Sign in to Hugging Face")
             }
         }
     }

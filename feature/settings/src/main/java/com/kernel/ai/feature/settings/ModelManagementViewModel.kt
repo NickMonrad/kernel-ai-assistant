@@ -13,6 +13,8 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.AvailabilitySummary
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
@@ -47,6 +49,10 @@ data class ModelManagementUiState(
     val preferredModel: KernelModel? = null,
     val personaMode: PersonaMode = PersonaMode.HALF,
     val availabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
+    /** Whether a conversation model is installed and which recovery path is appropriate. */
+    val conversationReadiness: ConversationModelReadiness? = null,
+    /** Current device hardware tier, used for readiness messaging. */
+    val deviceTier: HardwareTier? = null,
 )
 
 private data class StorageMetrics(
@@ -134,6 +140,7 @@ class ModelManagementViewModel @Inject constructor(
             downloadSources = downloadSources,
             gatedStatuses = gatedStatuses,
         )
+        val tier = modelDownloadManager.deviceTier
         ModelManagementUiState(
             models = models,
             totalStorageUsedBytes = storage.used,
@@ -143,6 +150,11 @@ class ModelManagementViewModel @Inject constructor(
             preferredModel = preferredModel,
             personaMode = personaMode,
             availabilitySummary = summary,
+            conversationReadiness = ConversationModelReadiness.compute(
+                tier = tier,
+                downloadStates = downloadStates,
+            ),
+            deviceTier = tier,
         )
     }.stateIn(
         scope = viewModelScope,

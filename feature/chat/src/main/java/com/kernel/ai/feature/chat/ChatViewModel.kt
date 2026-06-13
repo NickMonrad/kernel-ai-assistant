@@ -27,6 +27,7 @@ import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
@@ -432,6 +433,10 @@ class ChatViewModel @Inject constructor(
                     modelProgress = progress,
                     hfAuthenticated = hfAuth,
                     downloadSources = downloadSources,
+                    conversationReadiness = ConversationModelReadiness.compute(
+                        tier = tier,
+                        downloadStates = downloadStates,
+                    ),
                 )
             }
             // Archived conversations are read-only — no engine needed. Skip the isReady gate.
@@ -1062,6 +1067,10 @@ class ChatViewModel @Inject constructor(
 
     fun retryDownload(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
+    }
+
+    fun startAuth() {
+        authRepository.startAuthFlow()
     }
 
     fun onInputChanged(text: String) {

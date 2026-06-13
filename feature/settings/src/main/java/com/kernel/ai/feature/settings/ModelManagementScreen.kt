@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,6 +49,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ModelCard
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,6 +97,17 @@ fun ModelManagementScreen(
                     modifier = Modifier.padding(16.dp),
                 )
             }
+            // ── Conversation-model readiness banner ───────────────────────────
+            item(key = "readiness_banner") {
+                val readiness = uiState.conversationReadiness
+                if (readiness != null) {
+                    ConversationReadinessBanner(
+                        readiness = readiness,
+                        onDownload = { model -> viewModel.downloadModel(model) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
             // ── Model rows ────────────────────────────────────────────────────
             item {
                 Text(
@@ -117,9 +130,27 @@ fun ModelManagementScreen(
                 val canDelete = availabilityState is ModelAvailabilityState.Ready &&
                     !rowState.model.isBundled &&
                     rowState.model != uiState.preferredModel
+                val description = buildString {
+                    append("%.1f MB".format(rowState.model.approxSizeBytes / 1_000_000f))
+                    when (rowState.model) {
+                        KernelModel.GEMMA_4_E4B -> {
+                            if (uiState.deviceTier == com.kernel.ai.core.inference.hardware.HardwareTier.FLAGSHIP) {
+                                append(" · Recommended")
+                            }
+                        }
+                        KernelModel.GEMMA_4_E2B -> {
+                            if (uiState.conversationReadiness is ConversationModelReadiness.ActionRequired ||
+                                uiState.conversationReadiness is ConversationModelReadiness.FallbackActive
+                            ) {
+                                append(" · Fallback")
+                            }
+                        }
+                        else -> { /* no label for other models */ }
+                    }
+                }
                 ModelCard(
                     title = rowState.model.displayName,
-                    description = "%.1f MB".format(rowState.model.approxSizeBytes / 1_000_000f),
+                    description = description,
                     state = availabilityState,
                     showLock = rowState.model.isGated && rowState.downloadState is DownloadState.NotDownloaded,
                     onPrimaryAction = {
@@ -342,6 +373,93 @@ private fun StorageSummaryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ConversationReadinessBanner(
+    readiness: ConversationModelReadiness,
+    onDownload: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (readiness) {
+        is ConversationModelReadiness.ActionRequired -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Chat needs a conversation model",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Download ${readiness.recommendedModel.displayName} for best performance on this device, " +
+                            "or ${readiness.fallbackModel.displayName} as a smaller fallback.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onDownload(readiness.recommendedModel) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download ${readiness.recommendedModel.displayName}")
+                    }
+                    if (readiness.fallbackModel != readiness.recommendedModel) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "or download the smaller fallback:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { onDownload(readiness.fallbackModel) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Download ${readiness.fallbackModel.displayName}")
+                        }
+                    }
+                }
+            }
+        }
+        is ConversationModelReadiness.FallbackActive -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Chat is ready",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "${KernelModel.GEMMA_4_E2B.displayName} is installed. " +
+                            "Chat is usable, but downloading ${readiness.recommendedModel.displayName} " +
+                            "will give you the best experience on this device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onDownload(readiness.recommendedModel) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download ${readiness.recommendedModel.displayName}")
+                    }
+                }
+            }
+        }
+        is ConversationModelReadiness.Ready -> {
+            // No banner needed when everything is fine
         }
     }
 }
