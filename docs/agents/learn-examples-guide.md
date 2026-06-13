@@ -45,8 +45,7 @@ The "Learn what Jandal can do" catalogue in `ToolsLearnScreen.kt` is derived fro
    `toPrompts("my_new_example")` looks up the `LearnExample` by id.
 
 4. **Verify QIR routing** if `expectedMode` is `QirIntent` or `QirSlotFill`:
-   - Run `./gradlew :core:skills:testDebugUnitTest` — the Learn examples in
-     `QuickIntentRouterTest` must pass.
+   - Run `./gradlew :app:testDebugUnitTest` — `LearnExampleRoutingTest` covers every QirIntent and QirSlotFill example in the catalogue.
    - If routing doesn't work, add or fix the regex/intent pattern in `QuickIntentRouter.kt`.
 
 5. **Run catalogue integrity tests**:
