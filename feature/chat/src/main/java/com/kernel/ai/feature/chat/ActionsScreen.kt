@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
@@ -111,6 +112,7 @@ fun ActionsScreen(
     onInitialQueryConsumed: () -> Unit = {},
     onNavigateToChat: (query: String, speakResponse: Boolean) -> Unit = { _, _ -> },
     onNewConversation: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
@@ -295,6 +297,9 @@ fun ActionsScreen(
                         IconButton(onClick = { showClearConfirmation = true }) {
                             Icon(Icons.Default.Delete, contentDescription = "Clear history")
                         }
+                    }
+                    IconButton(onClick = onNavigateToSettings, modifier = Modifier.testTag("top_bar_settings_button")) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
             )
