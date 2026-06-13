@@ -12,6 +12,19 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
  * before Chat can open.  On [HardwareTier.FLAGSHIP], either GEMMA_4_E4B or
  * GEMMA_4_E2B satisfies this requirement, with E-4B treated as the recommended /
  * tier-preferred default.  On non‑flagship tiers only E-2B satisfies the requirement.
+ *
+ * ## State machine
+ *
+ * |Tier|Download states|Readiness|
+ * |---|---|---|
+ * |Flagship|E-4B downloaded|`Ready`|
+ * |Flagship|E-4B not downloaded, E-2B downloaded|`FallbackActive`|
+ * |Flagship|E-4B downloading|`Preparing` (E-4B)|
+ * |Flagship|E-4B missing, E-2B downloading|`Preparing` (E-2B)|
+ * |Flagship|Neither downloaded nor downloading|`ActionRequired`|
+ * |Non-flagship|E-2B downloaded|`Ready`|
+ * |Non-flagship|E-2B downloading|`Preparing` (E-2B)|
+ * |Non-flagship|E-2B not downloaded, not downloading|`ActionRequired`|
  */
 sealed interface ConversationModelReadiness {
 
@@ -26,6 +39,17 @@ sealed interface ConversationModelReadiness {
      */
     data class FallbackActive(
         val recommendedModel: KernelModel,
+    ) : ConversationModelReadiness
+
+    /**
+     * A conversation model is currently being downloaded — no user action is required.
+     *
+     * @property downloadingModel The model being downloaded (E-4B or E-2B).
+     * @property progress 0.0–1.0 completion fraction, or null if unknown.
+     */
+    data class Preparing(
+        val downloadingModel: KernelModel,
+        val progress: Float?,
     ) : ConversationModelReadiness
 
     /**
@@ -46,6 +70,11 @@ sealed interface ConversationModelReadiness {
          * Computes [ConversationModelReadiness] for the current device [tier] and
          * per-model download states.
          *
+         * Priority order:
+         * 1. At least one valid model downloaded → `Ready` / `FallbackActive`
+         * 2. A valid model is actively downloading → `Preparing`
+         * 3. Nothing available → `ActionRequired`
+         *
          * @param tier Current device hardware tier.
          * @param downloadStates Current download states for all models.
          */
@@ -53,13 +82,26 @@ sealed interface ConversationModelReadiness {
             tier: HardwareTier,
             downloadStates: Map<KernelModel, DownloadState>,
         ): ConversationModelReadiness {
-            val e4bDownloaded = downloadStates[KernelModel.GEMMA_4_E4B] is DownloadState.Downloaded
-            val e2bDownloaded = downloadStates[KernelModel.GEMMA_4_E2B] is DownloadState.Downloaded
+            val e4bState = downloadStates[KernelModel.GEMMA_4_E4B]
+            val e2bState = downloadStates[KernelModel.GEMMA_4_E2B]
+
+            val e4bDownloaded = e4bState is DownloadState.Downloaded
+            val e2bDownloaded = e2bState is DownloadState.Downloaded
+            val e4bDownloading = e4bState is DownloadState.Downloading
+            val e2bDownloading = e2bState is DownloadState.Downloading
 
             return when (tier) {
                 HardwareTier.FLAGSHIP -> when {
                     e4bDownloaded -> Ready
                     e2bDownloaded -> FallbackActive(recommendedModel = KernelModel.GEMMA_4_E4B)
+                    e4bDownloading -> Preparing(
+                        downloadingModel = KernelModel.GEMMA_4_E4B,
+                        progress = e4bState.progress,
+                    )
+                    e2bDownloading -> Preparing(
+                        downloadingModel = KernelModel.GEMMA_4_E2B,
+                        progress = e2bState.progress,
+                    )
                     else -> ActionRequired(
                         recommendedModel = KernelModel.GEMMA_4_E4B,
                         fallbackModel = KernelModel.GEMMA_4_E2B,
@@ -67,6 +109,10 @@ sealed interface ConversationModelReadiness {
                 }
                 else -> when {
                     e2bDownloaded -> Ready
+                    e2bDownloading -> Preparing(
+                        downloadingModel = KernelModel.GEMMA_4_E2B,
+                        progress = e2bState.progress,
+                    )
                     else -> ActionRequired(
                         recommendedModel = KernelModel.GEMMA_4_E2B,
                         fallbackModel = KernelModel.GEMMA_4_E2B,

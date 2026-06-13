@@ -62,6 +62,47 @@ class ConversationModelReadinessTest {
             val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
             assertEquals(ConversationModelReadiness.Ready, result)
         }
+
+        @Test
+        fun `E4B downloading returns Preparing`() {
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.5f),
+                KernelModel.GEMMA_4_E2B to DownloadState.NotDownloaded,
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
+            assertInstanceOf(ConversationModelReadiness.Preparing::class.java, result)
+            val preparing = result as ConversationModelReadiness.Preparing
+            assertEquals(KernelModel.GEMMA_4_E4B, preparing.downloadingModel)
+            assertEquals(0.5f, preparing.progress!!, 0.001f)
+        }
+
+        @Test
+        fun `E4B missing and E2B downloading returns Preparing`() {
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.NotDownloaded,
+                KernelModel.GEMMA_4_E2B to DownloadState.Downloading(progress = 0.3f),
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
+            assertInstanceOf(ConversationModelReadiness.Preparing::class.java, result)
+            val preparing = result as ConversationModelReadiness.Preparing
+            assertEquals(KernelModel.GEMMA_4_E2B, preparing.downloadingModel)
+            assertEquals(0.3f, preparing.progress!!, 0.001f)
+        }
+
+        @Test
+        fun `E4B downloading with E2B downloaded returns FallbackActive not Preparing`() {
+            // When E2B is already installed, E4B downloading does not yield Preparing
+            // because E2B already satisfies chat readiness. Returns FallbackActive
+            // since the recommended model (E4B) is not yet fully installed.
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.5f),
+                KernelModel.GEMMA_4_E2B to DownloadState.Downloaded(e2bPath),
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
+            assertInstanceOf(ConversationModelReadiness.FallbackActive::class.java, result)
+            val fallback = result as ConversationModelReadiness.FallbackActive
+            assertEquals(KernelModel.GEMMA_4_E4B, fallback.recommendedModel)
+        }
     }
 
     // ── Non-flagship (MID_RANGE / LOW_POWER) ──────────────────────────────────
@@ -87,6 +128,19 @@ class ConversationModelReadinessTest {
             )
             val result = ConversationModelReadiness.compute(HardwareTier.LOW_POWER, states)
             assertEquals(ConversationModelReadiness.Ready, result)
+        }
+
+        @Test
+        fun `E2B downloading on mid range returns Preparing`() {
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.NotDownloaded,
+                KernelModel.GEMMA_4_E2B to DownloadState.Downloading(progress = 0.7f),
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.MID_RANGE, states)
+            assertInstanceOf(ConversationModelReadiness.Preparing::class.java, result)
+            val preparing = result as ConversationModelReadiness.Preparing
+            assertEquals(KernelModel.GEMMA_4_E2B, preparing.downloadingModel)
+            assertEquals(0.7f, preparing.progress!!, 0.001f)
         }
 
         @Test
@@ -139,13 +193,27 @@ class ConversationModelReadinessTest {
         }
 
         @Test
-        fun `downloading state is not considered installed`() {
+        fun `E4B downloading with no progress returns Preparing with null progress`() {
+            // Downloading with default progress of 0f
             val states = mapOf(
-                KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.5f),
+                KernelModel.GEMMA_4_E4B to DownloadState.Downloading(),
                 KernelModel.GEMMA_4_E2B to DownloadState.NotDownloaded,
             )
             val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
-            // Downloading is not Downloaded — still ActionRequired
+            assertInstanceOf(ConversationModelReadiness.Preparing::class.java, result)
+            val preparing = result as ConversationModelReadiness.Preparing
+            assertEquals(KernelModel.GEMMA_4_E4B, preparing.downloadingModel)
+            // progress property captures the raw value (could be 0f)
+            assertEquals(0f, preparing.progress!!, 0.001f)
+        }
+
+        @Test
+        fun `E4B Error state maps to ActionRequired not Preparing`() {
+            val states = mapOf(
+                KernelModel.GEMMA_4_E4B to DownloadState.Error("Network error"),
+                KernelModel.GEMMA_4_E2B to DownloadState.NotDownloaded,
+            )
+            val result = ConversationModelReadiness.compute(HardwareTier.FLAGSHIP, states)
             assertInstanceOf(ConversationModelReadiness.ActionRequired::class.java, result)
         }
     }

@@ -75,7 +75,6 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1773,6 +1772,22 @@ private fun OnboardingContent(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+                is ConversationModelReadiness.Preparing -> {
+                    Text(
+                        text = "Preparing conversation model",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Downloading ${conversationReadiness.downloadingModel.displayName}… " +
+                            "Chat will be available once it finishes.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
                 is ConversationModelReadiness.FallbackActive -> {
                     Text(
                         text = "Chat is available with ${KernelModel.GEMMA_4_E2B.displayName}.",
@@ -1789,7 +1804,7 @@ private fun OnboardingContent(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                else -> {
+                null, is ConversationModelReadiness.Ready -> {
                     Text(
                         text = if (isDownloading) {
                             "Downloading AI models… please stay connected to Wi-Fi."
@@ -1829,8 +1844,13 @@ private fun OnboardingContent(
                 )
             }
 
-            // ── Gated-model sign-in banner (when HF auth is missing) ────────
-            if (!hfAuthenticated && otherModels.any { it.model.isGated }) {
+            // ── Gated-model sign-in banner (only when HF auth blocks a NotDownloaded model) ──
+            // Only show when a gated model is actually NotDownloaded — if already
+            // Downloaded/Downloading, HF auth is not the blocker for progress.
+            val hasGatedModelsBlockedByAuth = otherModels.any {
+                it.model.isGated && it.state is DownloadState.NotDownloaded
+            }
+            if (!hfAuthenticated && hasGatedModelsBlockedByAuth) {
                 SignInBanner(
                     onSignIn = onStartAuth,
                     modifier = Modifier.padding(top = 20.dp),

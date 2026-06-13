@@ -458,6 +458,28 @@ private fun ConversationReadinessBanner(
                 }
             }
         }
+        is ConversationModelReadiness.Preparing -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Preparing conversation model",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "${readiness.downloadingModel.displayName} is downloading. " +
+                            "Chat will be ready once it finishes.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         is ConversationModelReadiness.Ready -> {
             // No banner needed when everything is fine
         }
