@@ -182,7 +182,7 @@ fun ToolsHubScreen(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
                     {
-                        IconButton(onClick = { searchQuery = "" }) {
+                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.testTag("tools_search_clear")) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear search")
                         }
                     }
