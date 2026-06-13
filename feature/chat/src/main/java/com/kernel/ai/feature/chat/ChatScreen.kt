@@ -156,6 +156,8 @@ import com.kernel.ai.core.model.availability.ModelCardCompact
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.toAvailability
+import com.kernel.ai.core.model.availability.GatedModelStatus
+import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
@@ -272,6 +274,7 @@ fun ChatScreen(
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
             downloadSources = state.downloadSources,
+            gatedStatuses = state.gatedStatuses,
             conversationReadiness = state.conversationReadiness,
         )
         is ChatUiState.Ready -> {
@@ -1743,6 +1746,7 @@ private fun OnboardingContent(
     onNavigateToModelManagement: () -> Unit,
     hfAuthenticated: Boolean = false,
     downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
+    gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
     conversationReadiness: ConversationModelReadiness? = null,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1863,11 +1867,11 @@ private fun OnboardingContent(
                 )
             }
 
-            // ── Required-model blocking banner (gated auth/licence/failure) ─
             val blockingBanner = deriveBlockingBanner(
                 otherModels = otherModels,
                 hfAuthenticated = hfAuthenticated,
                 downloadSources = downloadSources,
+                gatedStatuses = gatedStatuses,
             )
             if (blockingBanner != null) {
                 BlockingBanner(
@@ -1896,6 +1900,7 @@ private fun OnboardingContent(
                                 model = item.model,
                                 hfAuth = hfAuthenticated,
                                 source = source ?: DownloadSource.USER_INITIATED,
+                                gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE,
                             ),
                             showLock = item.model.isGated,
                         )
@@ -1923,6 +1928,7 @@ private fun OnboardingContent(
                                 model = item.model,
                                 hfAuth = hfAuthenticated,
                                 source = source ?: DownloadSource.USER_INITIATED,
+                                gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE,
                             ),
                             showLock = item.model.isGated,
                         )
@@ -2096,19 +2102,22 @@ private data class BlockingBannerData(
  * 1. Sign-in required (unauthenticated gated model)
  * 2. License required (gated model needs license review)
  * 3. Download failed (error state)
- * 4. Approval pending / insufficient storage
+ * 4. Access denied / approval pending / insufficient storage
  */
 private fun deriveBlockingBanner(
     otherModels: List<ChatUiState.ModelDownloadProgress>,
     hfAuthenticated: Boolean,
     downloadSources: Map<KernelModel, DownloadSource>,
+    gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
 ): BlockingBannerData? {
     for (item in otherModels) {
         val source = downloadSources[item.model] ?: DownloadSource.USER_INITIATED
+        val gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE
         val availability = item.state.toAvailability(
             model = item.model,
             hfAuth = hfAuthenticated,
             source = source,
+            gated = gated,
         )
         when (availability) {
             is ModelAvailabilityState.ActionRequired -> when (val reason = availability.reason) {
@@ -2151,6 +2160,16 @@ private fun deriveBlockingBanner(
                     primaryActionLabel = "Manage storage",
                     primaryAction = BlockingAction.OpenModelManagement,
                 )
+            }
+            is ModelAvailabilityState.Unavailable -> when (val reason = availability.reason) {
+                is UnavailableReason.AccessDenied -> return BlockingBannerData(
+                    title = "Access denied",
+                    message = "Access to ${item.model.displayName} has been denied. " +
+                        "Check your access in Model Management.",
+                    primaryActionLabel = "Check in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                else -> { /* Other unavailable reasons unrelated to gating */ }
             }
             else -> { /* Not a blocker — proceed to next model */ }
         }

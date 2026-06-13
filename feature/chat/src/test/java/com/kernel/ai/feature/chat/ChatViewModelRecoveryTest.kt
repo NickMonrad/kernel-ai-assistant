@@ -10,6 +10,7 @@ import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.prefs.ChatPreferences
@@ -88,6 +89,7 @@ class ChatViewModelRecoveryTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val gatedModelStatusRepository: GatedModelStatusRepository = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
     @BeforeEach
@@ -168,6 +170,7 @@ class ChatViewModelRecoveryTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        gatedModelStatusRepository = gatedModelStatusRepository,
         authRepository = authRepository,
         startListeningCuePlayer = startListeningCuePlayer,
         chatPreferences = chatPreferences,

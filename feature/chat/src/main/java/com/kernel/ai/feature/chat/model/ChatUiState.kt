@@ -4,6 +4,7 @@ import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.inference.download.KernelModel
 
 sealed interface ChatUiState {
@@ -55,6 +56,7 @@ sealed interface ChatUiState {
         val modelProgress: List<ModelDownloadProgress> = emptyList(),
         val hfAuthenticated: Boolean = false,
         val downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
+        val gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
         /**
          * Whether a conversation model is installed and which recovery path
          * is appropriate. Populated by [ChatViewModel] — never null when shown.
