@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import java.io.File
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -132,6 +136,9 @@ fun ChatPreferencesScreen(
     val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
     val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
     val useSystemColors by viewModel.useSystemColors.collectAsStateWithLifecycle()
+    val importedWallpapers by viewModel.importedWallpapers.collectAsStateWithLifecycle()
+    val wallpaperImportError by viewModel.wallpaperImportError.collectAsStateWithLifecycle()
+    val migrationRunning by viewModel.migrationRunning.collectAsStateWithLifecycle()
 
     var showRetentionPicker by remember { mutableStateOf(false) }
     var showFontSizePicker by remember { mutableStateOf(false) }
@@ -141,20 +148,21 @@ fun ChatPreferencesScreen(
     var showWallpaperColorPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable permission so the URI survives reboots
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-            scope.launch {
-                viewModel.setWallpaperType("image")
-                viewModel.setWallpaperImageUri(uri.toString())
-            }
+            viewModel.importWallpaper(uri)
+        }
+    }
+
+    // Show snackbar on wallpaper import errors
+    LaunchedEffect(wallpaperImportError) {
+        wallpaperImportError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearWallpaperImportError()
         }
     }
 
@@ -169,6 +177,7 @@ fun ChatPreferencesScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -319,7 +328,7 @@ fun ChatPreferencesScreen(
                 "image" -> {
                     wallpaperImageUri?.let { uri ->
                         AsyncImage(
-                            model = Uri.parse(uri),
+                            model = if (uri.startsWith("/")) android.net.Uri.fromFile(java.io.File(uri)) else Uri.parse(uri),
                             contentDescription = "Wallpaper preview",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -330,10 +339,59 @@ fun ChatPreferencesScreen(
                             placeholder = null,
                             error = null,
                         )
-                }
+                    }
                 }
             }
 
+            // Wallpaper management (#1206)
+            if (migrationRunning) {
+                Text(
+                    text = "Migrating existing wallpaper…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (wallpaperType == "image" && wallpaperImageUri != null) {
+                OutlinedButton(
+                    onClick = { viewModel.deleteCurrentWallpaper() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Delete current image wallpaper")
+                }
+            }
+            if (importedWallpapers.any { !it.isActive }) {
+                OutlinedButton(
+                    onClick = { viewModel.deleteUnusedWallpapers() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Delete unused image wallpapers (${importedWallpapers.count { !it.isActive }})")
+                }
+            }
+
+            // ─────── Saved image wallpapers ───────
+            if (importedWallpapers.isNotEmpty()) {
+                SectionHeader("Saved image wallpapers")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    importedWallpapers.forEach { wallpaper ->
+                        SavedWallpaperThumbnail(
+                            wallpaper = wallpaper,
+                            onClick = { viewModel.selectImportedWallpaper(wallpaper.path) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
             HorizontalDivider()
 
             // ─────── Conversation Copy (#1024) ───────
@@ -554,6 +612,51 @@ private fun WallpaperTypeButton(
     }
 }
 
+@Composable
+private fun SavedWallpaperThumbnail(
+    wallpaper: ImportedWallpaper,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .then(
+                if (wallpaper.isActive) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                } else {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                }
+            ),
+    ) {
+        AsyncImage(
+            model = Uri.fromFile(File(wallpaper.path)),
+            contentDescription = wallpaper.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        if (wallpaper.isActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Active wallpaper",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+    }
+}
+
 private val TEXT_COLORS = listOf(
     null to "Default",
     Color(0xFFFFFFFF) to "White",
@@ -661,6 +764,7 @@ private fun ColorPickerDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
 
 @Preview(showBackground = true)
 @Composable
