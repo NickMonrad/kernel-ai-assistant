@@ -2242,6 +2242,17 @@ class QuickIntentRouterTest {
         addCases(smartHomeOnClassifierPhrases(), "smart_home_on", "Smart Home ON (classifier)")
         addCases(smartHomeOffRegexPhrases(), "smart_home_off", "Smart Home OFF (regex)")
         addCases(smartHomeOffClassifierPhrases(), "smart_home_off", "Smart Home OFF (classifier)")
+        addCases(learnExampleCalendarPhrases(), "create_calendar_event", "Learn Calendar (regex)")
+        addCases(learnExampleWeatherPhrases(), "get_weather", "Learn Weather (regex)")
+        addCases(learnExampleMapsPhrases(), "find_nearby", "Learn Maps (regex)")
+        addCases(learnExampleEmailPhrases(), "send_email", "Learn Email (regex)")
+        addCases(learnExampleCalculationPhrases(), "convert_currency", "Learn Conversion (regex)")
+        addCases(learnExampleListPhrases(), "create_list", "Learn Create List (regex)")
+        // Meal planner handoff: "Plan meals" must route to start_meal_planner, not generic fallthrough
+        addCases(learnExampleMealPlannerPhrases(), "start_meal_planner", "Learn Meal Planner (regex)")
+        // These are explicitly freeform and should NOT be expected to match deterministically
+        // They are registered here for coverage tracking purposes only
+        addFallthrough(learnExampleFreeformPhrases())
         addFallthrough(e4bFallthroughPhrases())
 
         val report = StringBuilder()
@@ -3131,6 +3142,73 @@ class QuickIntentRouterTest {
             Arguments.of("send an email to my boss about the project body Draft is ready for review", "my boss"),
             Arguments.of("email Nick about dinner plans body Want to eat at seven?", "Nick"),
             Arguments.of("email Sarah regarding the report body I attached the latest version", "Sarah"),
+        )
+
+        // ── Learn Example (QIR regression data) ──────────────────────────────────────
+
+        @JvmStatic
+        fun learnExampleCalendarPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Add dentist appointment next Tuesday"),
+            Arguments.of("Schedule school assembly for Friday"),
+        )
+
+        @JvmStatic
+        fun learnExampleWeatherPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("What's the 5 day forecast?"),
+            Arguments.of("What's the forecast for Bundaberg this weekend?"),
+            Arguments.of("How hot will it be tomorrow?"),
+            Arguments.of("What's the weather?"),
+            Arguments.of("What's the weather like in Wellington?"),
+            Arguments.of("Will it rain today?"),
+            Arguments.of("What's the weather tomorrow?"),
+            Arguments.of("Do I need an umbrella today?"),
+        )
+
+        @JvmStatic
+        fun learnExampleMapsPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Find the closest supermarket"),
+            Arguments.of("Find coffee near me"),
+            Arguments.of("Find petrol stations nearby"),
+            Arguments.of("Find Bunnings on the map"),
+            Arguments.of("Find parks near me"),
+        )
+
+        @JvmStatic
+        fun learnExampleEmailPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Email school that Freyja is sick today"),
+            Arguments.of("Email Alex about the meeting"),
+        )
+
+        @JvmStatic
+        fun learnExampleCalculationPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("What's 15% of 87?"),
+            Arguments.of("How much is 50 USD in AUD?"),
+            Arguments.of("Convert 2 cups to mL"),
+            Arguments.of("Convert 1 cup of flour to grams"),
+            Arguments.of("Convert 200 grams of butter to cups"),
+            Arguments.of("Convert 20 Australian dollars to New Zealand dollars"),
+            Arguments.of("Convert 5 kilometres to miles"),
+        )
+
+        @JvmStatic
+        fun learnExampleListPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Make a shopping list for my meal plan"),
+            Arguments.of("Create a grocery list from my meal plan"),
+        )
+
+        @JvmStatic
+        fun learnExampleMealPlannerPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Plan meals"),
+            Arguments.of("Plan dinners for this week"),
+        )
+
+        @JvmStatic
+        fun learnExampleFreeformPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("Plan school lunches for the week"),
+            Arguments.of("Suggest family dinners with chicken and rice"),
+            Arguments.of("Make a 5-day meal plan for two adults and two kids"),
+            Arguments.of("Plan vegetarian dinners for next week"),
+            Arguments.of("Suggest meals using what I already have"),
         )
 
         // ── Lists ─────────────────────────────────────────────────────────────────
