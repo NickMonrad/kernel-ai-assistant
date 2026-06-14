@@ -95,9 +95,10 @@ App setup
   Models
   Permissions
 
-Learn what Jandal can do (first row, opens dedicated Learn screen)
-  Example prompts for actions, planning, weather, maps, media, and more
-  Opens ToolsLearnScreen with 9 grouped categories
+Learn (compact, collapsible first row, opens dedicated Learn screen)
+  Expanded: "Learn what Jandal can do" / "Example prompts to get started"
+  Collapsed: "Getting started" / Add button
+  Collapsed/expanded state persists locally
 ```
 
 Each row uses the existing app visual language:
@@ -181,9 +182,11 @@ Future search should be able to produce matches such as:
 ### 1.3 Tool examples and demo prompts
 
 Example prompts live on a dedicated **Learn screen** (`ToolsLearnScreen`, route `tools/learn`).
-The Tools hub contains a single "Learn what Jandal can do" row (tag `tools_row_learn`) at
-the top of the screen that opens the Learn screen. Examples are never rendered inline in
-the Tools hub.
+The Tools hub contains a compact, collapsible Learn entry at the top of the screen
+(tag `tools_row_learn` when expanded, `tools_learn_collapsed` when collapsed) that opens
+the Learn screen. The collapsed/expanded state is persisted locally via SharedPreferences
+so returning users keep their preference across app restarts. Examples are never rendered
+inline in the Tools hub.
 
 The Learn screen uses grouped sections with a collapsed default showing two examples per
 group and a **View more** button to expand that group to show additional prompts.

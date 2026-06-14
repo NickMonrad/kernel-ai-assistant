@@ -56,12 +56,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Before
 
 @RunWith(AndroidJUnit4::class)
 class ToolsHubNavTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Before
+    fun setUp() {
+        ApplicationProvider.getApplicationContext<Context>()
+            .getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
 
     @Test
     fun bottomNav_showsChatsActionsAndTools() {
