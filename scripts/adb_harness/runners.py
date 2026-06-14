@@ -490,8 +490,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 extra.append(f"tags=[{','.join(tc.tags)}]")
             if tc.fixture:
                 extra.append(f"fixture={tc.fixture}")
-            if tc.slot_reply:
-                extra.append(f"slot_reply={tc.slot_reply!r}")
+            effective = tc.effective_slot_replies
+            if effective is not None:
+                if len(effective) == 1:
+                    extra.append(f"slot_reply={effective[0]!r}")
+                else:
+                    extra.append(f"slot_replies={effective!r}")
+
             if tc.confirm_reply:
                 extra.append(f"confirm_reply={tc.confirm_reply!r}")
             if tc.expect_initial_log_contains:
@@ -747,8 +752,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 else None
             )
             final_signal = tc.expect_log_contains or intent_signal
-            if tc.slot_reply is not None:
-                # Slot-fill test: two-turn flow.
+            slot_replies = tc.effective_slot_replies
+            if slot_replies is not None:
+                # Slot-fill test: multi-turn flow.
+                # 1. Send quick action → wait for initial NeedsSlot prompt
+                # 2. For each intermediate slot reply (all but last):
+                #    send reply, wait briefly for next slot to be primed
+                # 3. For the final slot reply: wait for intent dispatch signal
                 logcat1 = capture_fresh_logcat(
                     lambda: send_quick_action(tc.message),
                     timeout=WAIT_SECONDS,
@@ -762,8 +772,18 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                             f"initial slot prompt '{tc.expect_initial_log_contains}' "
                             f"not found in first-turn logcat"
                         )
+                # Send intermediate slot replies — brief wait between each
+                # to let the app process the reply and prime the next slot.
+                for reply in slot_replies[:-1]:
+                    capture_fresh_logcat(
+                        lambda r=reply: send_slot_reply(r),
+                        timeout=5.0,
+                        expected=None,
+                        keep_foreground=True,
+                    )
+                # Send the final slot reply — this triggers the actual dispatch
                 logcat = capture_fresh_logcat(
-                    lambda: send_slot_reply(tc.slot_reply),
+                    lambda: send_slot_reply(slot_replies[-1]),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
                     keep_foreground=True,

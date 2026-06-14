@@ -38,6 +38,7 @@ class TestCase:
     expect_reply_contains: str | None = None
     expect_params: dict[str, str] | None = None
     slot_reply: str | None = None
+    slot_replies: list[str] | None = None
     expect_log_contains: str | None = None
     confirm_reply: str | None = None
     # Audit metadata (issue #1163)
@@ -53,6 +54,21 @@ class TestCase:
             self.id = _slugify(self.message)
         if self.xfail and not self.xfail_reason:
             self.xfail_reason = "(no reason given)"
+        if self.slot_reply is not None and self.slot_replies is not None:
+            import warnings
+            warnings.warn(
+                f"TestCase '{self.id}': both slot_reply and slot_replies set — "
+                f"slot_replies takes precedence"
+            )
+
+    @property
+    def effective_slot_replies(self) -> list[str] | None:
+        """Return slot_replies if set, otherwise wrap slot_reply as a single-item list."""
+        if self.slot_replies is not None:
+            return self.slot_replies
+        if self.slot_reply is not None:
+            return [self.slot_reply]
+        return None
 
 
 @dataclass

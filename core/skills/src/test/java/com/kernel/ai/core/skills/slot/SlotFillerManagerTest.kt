@@ -372,7 +372,7 @@ class SlotFillerManagerTest {
         assertInstanceOf(SlotFillResult.Completed::class.java, secondResult)
         val completed2 = secondResult as SlotFillResult.Completed
         assertEquals("set_timer", completed2.intentName)
-        assertEquals("5 minutes", completed2.params["duration_seconds"])
+        assertEquals("300", completed2.params["duration_seconds"])
         // MUST NOT leak app_name from first request
         assertNull(completed2.params["app_name"])
     }
