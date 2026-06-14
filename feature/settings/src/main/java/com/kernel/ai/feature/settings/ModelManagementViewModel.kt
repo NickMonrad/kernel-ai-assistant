@@ -175,6 +175,10 @@ class ModelManagementViewModel @Inject constructor(
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
             if (tmpFile.exists()) tmpFile.delete()
+            // Persist suppression for non-required models so they don't auto-queue on restart
+            if (!model.isRequired) {
+                modelPreferences.suppressOptionalModel(model)
+            }
             withContext(Dispatchers.Main) {
                 modelDownloadManager.refreshState(model)
             }

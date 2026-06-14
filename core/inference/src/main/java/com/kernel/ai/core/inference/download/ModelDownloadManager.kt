@@ -99,17 +99,23 @@ class ModelDownloadManager @Inject constructor(
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
                 startDownload(model, source = DownloadSource.AUTO_QUEUED)
             }
-        // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
-        // NOTE: tier is already declared above
-        KernelModel.entries
-            .filter {
-                !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) &&
-                (!it.isGated || authRepository.getAccessToken() != null)
-            }
-            .forEach { model ->
-                Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
-                startDownload(model, source = DownloadSource.AUTO_QUEUED)
-            }
+        // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP),
+        // but only if the user hasn't manually suppressed/deleted them.
+        scope.launch {
+            val suppressedIds = modelPreferences.suppressedOptionalModelIds.first()
+            KernelModel.entries
+                .filter {
+                    !it.isRequired &&
+                    it.preferredForTier == tier &&
+                    !it.isDownloaded(context) &&
+                    it.name !in suppressedIds &&
+                    (!it.isGated || authRepository.getAccessToken() != null)
+                }
+                .forEach { model ->
+                    Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
+                    startDownload(model, source = DownloadSource.AUTO_QUEUED)
+                }
+        }
         // Auto-trigger gated required models when user signs in
         scope.launch {
             authRepository.isAuthenticated
@@ -144,6 +150,12 @@ class ModelDownloadManager @Inject constructor(
             return
         }
 
+
+        // User-initiated download clears any prior suppression so the model can auto-queue
+        // on future app restarts after a fresh download followed by another manual delete.
+        if (!model.isRequired && source == DownloadSource.USER_INITIATED) {
+            scope.launch { modelPreferences.unsuppressOptionalModel(model) }
+        }
 
         // Track the download source for UI layer
         _downloadSources.update { it.toMutableMap().apply { put(model, source) } }
