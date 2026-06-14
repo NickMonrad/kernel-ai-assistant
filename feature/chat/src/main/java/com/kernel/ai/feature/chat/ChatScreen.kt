@@ -171,6 +171,8 @@ import kotlin.math.roundToInt
 import kotlin.ranges.ClosedFloatingPointRange
 import androidx.compose.runtime.mutableFloatStateOf
 import com.kernel.ai.core.inference.ModelCapabilities
+import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
@@ -376,52 +378,95 @@ fun ChatScreen(
                 showModelSettings = showModelSettings,
                 onShowModelSettingsChange = { showModelSettings = it },
             )
-            if (showModelSettings && state.modelCapabilities != null && viewModel.currentModel.value != null) {
+            // Model settings overlay — always shown on icon tap, not guarded by
+            // modelCapabilities/currentModel null-check (#961).
+            if (showModelSettings) {
                 val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
                 val capabilities = state.modelCapabilities
-                var temp by remember { mutableFloatStateOf(viewModel.uiState.value.let { s ->
-                    if (s is ChatUiState.Ready) s.temperature else 0.7f
-                }) }
-                var topP by remember { mutableFloatStateOf(viewModel.uiState.value.let { s ->
-                    if (s is ChatUiState.Ready) s.topP else 0.9f
-                }) }
-                var topK by remember { mutableIntStateOf(viewModel.uiState.value.let { s ->
-                    if (s is ChatUiState.Ready) s.topK else 64
-                }) }
+                val modelReady = currentModel != null && capabilities != null
+
+                // Draft state: loaded when sheet opens, discarded on cancel
+                var temp by remember { mutableFloatStateOf(state.temperature) }
+                var topP by remember { mutableFloatStateOf(state.topP) }
+                var topK by remember { mutableIntStateOf(state.topK) }
                 var showThinking by remember { mutableStateOf(state.showThinkingProcess) }
+                var isApplying by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    viewModel.isApplyingSettings.collect { isApplying = it }
+                }
+
+                // Close the settings sheet on successful apply, keep open on failure (#961)
+                val applyCompleted = viewModel.settingsApplyCompleted
+                LaunchedEffect(Unit) {
+                    applyCompleted.collect { success ->
+                        if (success) showModelSettings = false
+                    }
+                }
 
                 ModalBottomSheet(
                     onDismissRequest = { showModelSettings = false },
                     dragHandle = { ModelSettingsDragHandle() },
                 ) {
-                    ModelSettingsSheet(
-                        model = currentModel!!,
-                        capabilities = capabilities,
-                        temperature = temp,
-                        onTemperatureChange = {
-                            temp = it
-                            viewModel.setTemperature(it)
-                        },
-                        topP = topP,
-                        onTopPChange = {
-                            topP = it
-                            viewModel.setTopP(it)
-                        },
-                        topK = topK,
-                        onTopKChange = {
-                            topK = it
-                            viewModel.setTopK(it)
-                        },
-                        showThinking = showThinking,
-                        onShowThinkingChange = {
-                            showThinking = it
-                            viewModel.setThinkingEnabled(it)
-                        },
-                        onReset = {
-                            viewModel.resetModelSettings()
-                            showModelSettings = false
-                        },
-                    )
+                    if (!modelReady) {
+                        // Model/settings not available — show explanatory text
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(40.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(text = "Model settings", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Model settings are available once the chat model is ready.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        ModelSettingsSheet(
+                            model = currentModel!!,
+                            capabilities = capabilities!!,
+                            activeBackend = state.activeBackend,
+                            temperature = temp,
+                            onTemperatureChange = { temp = it },
+                            topP = topP,
+                            onTopPChange = { topP = it },
+                            topK = topK,
+                            onTopKChange = { topK = it },
+                            showThinking = showThinking,
+                            onShowThinkingChange = { showThinking = it },
+                            isApplying = isApplying,
+                            onApply = {
+                                val active = viewModel.activeModelSettings.value
+                                val draft = ModelSettingsEntity(
+                                    modelId = currentModel!!.modelId,
+                                    contextWindowSize = active?.contextWindowSize ?: 4096,
+                                    temperature = temp,
+                                    topP = topP,
+                                    topK = topK,
+                                    showThinkingProcess = showThinking,
+                                    speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: false,
+                                )
+                                viewModel.applyModelSettingsAndStartNewChat(draft)
+                            },
+                            onCancel = { showModelSettings = false },
+                            onReset = {
+                                // Update local draft only — do NOT persist until Apply is tapped (#961)
+                                temp = 1.0f
+                                topP = 0.95f
+                                topK = 64
+                                showThinking = true
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -2393,6 +2438,7 @@ private fun ModelSettingsDragHandle() {
 private fun ModelSettingsSheet(
     model: KernelModel,
     capabilities: ModelCapabilities,
+    activeBackend: BackendType?,
     temperature: Float,
     onTemperatureChange: (Float) -> Unit,
     topP: Float,
@@ -2401,14 +2447,19 @@ private fun ModelSettingsSheet(
     onTopKChange: (Int) -> Unit,
     showThinking: Boolean,
     onShowThinkingChange: (Boolean) -> Unit,
+    isApplying: Boolean = false,
+    onApply: () -> Unit,
+    onCancel: () -> Unit,
     onReset: () -> Unit,
-) {
+)
+{
     Column(
         modifier = Modifier
             .fillMaxHeight(0.7f)
             .padding(horizontal = 16.dp, vertical = 16.dp)
             .verticalScroll(rememberScrollState()),
     ) {
+        // Header
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Default.Tune,
@@ -2422,47 +2473,73 @@ private fun ModelSettingsSheet(
             )
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
 
-        // Temperature
-        _SliderRow(
-            label = "Temperature",
-            valueLabel = "%.1f".format(temperature),
-            value = temperature,
-            valueRange = 0.1f..2.0f,
-            steps = 18,
-            onValueChangeFinished = { newVal ->
-                val snapped = (newVal * 10).roundToInt() / 10f
-                onTemperatureChange(snapped)
-            },
-        )
+        // Backend info label
+        val backendLabel = when (activeBackend) {
+            BackendType.NPU -> "NPU (hardware sampler — temperature/top-p/top-k use fixed values)"
+            BackendType.GPU -> "GPU"
+            BackendType.CPU -> "CPU"
+            else -> ""
+        }
+        if (backendLabel.isNotBlank()) {
+            Text(
+                text = backendLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
 
-        // Top-P
-        _SliderRow(
-            label = "Top-P",
-            valueLabel = "%.2f".format(topP),
-            value = topP,
-            valueRange = 0.0f..1.0f,
-            steps = 19,
-            onValueChangeFinished = { newVal ->
-                val snapped = (newVal * 20).roundToInt() / 20f
-                onTopPChange(snapped)
-            },
-        )
+        // Sampler controls — hidden when NPU (hardware sampler, SamplerConfig ignored)
+        if (activeBackend != BackendType.NPU) {
+            // Temperature
+            _SliderRow(
+                label = "Temperature",
+                valueLabel = "%.1f".format(temperature),
+                value = temperature,
+                valueRange = 0.1f..2.0f,
+                steps = 18,
+                onValueChangeFinished = { newVal ->
+                    val snapped = (newVal * 10).roundToInt() / 10f
+                    onTemperatureChange(snapped)
+                },
+            )
 
-        // Top-K
-        _SliderRow(
-            label = "Top-K",
-            valueLabel = "$topK",
-            value = topK.toFloat(),
-            valueRange = 1f..100f,
-            steps = 98,
-            onValueChangeFinished = { newVal ->
-                onTopKChange(newVal.roundToInt())
-            },
-        )
+            // Top-P
+            _SliderRow(
+                label = "Top-P",
+                valueLabel = "%.2f".format(topP),
+                value = topP,
+                valueRange = 0.0f..1.0f,
+                steps = 19,
+                onValueChangeFinished = { newVal ->
+                    val snapped = (newVal * 20).roundToInt() / 20f
+                    onTopPChange(snapped)
+                },
+            )
 
-        // Thinking toggle
+            // Top-K
+            _SliderRow(
+                label = "Top-K",
+                valueLabel = "$topK",
+                value = topK.toFloat(),
+                valueRange = 1f..100f,
+                steps = 98,
+                onValueChangeFinished = { newVal ->
+                    onTopKChange(newVal.roundToInt())
+                },
+            )
+        } else {
+            Text(
+                text = "Sampler controls (temperature, top-p, top-k) are not available with " +
+                    "the NPU backend, which uses a fixed hardware sampler.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // Thinking toggle — only when the model supports it
         if (capabilities.supportsThinking) {
             Spacer(Modifier.height(8.dp))
             Row(
@@ -2487,7 +2564,7 @@ private fun ModelSettingsSheet(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         // Reset button
         OutlinedButton(
@@ -2495,6 +2572,28 @@ private fun ModelSettingsSheet(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Reset to defaults")
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Apply / Cancel buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Cancel")
+            }
+            Button(
+                onClick = onApply,
+                modifier = Modifier.weight(1f),
+                enabled = !isApplying,
+            ) {
+                Text(if (isApplying) "Applying…" else "Apply")
+            }
         }
 
         Spacer(Modifier.height(32.dp))

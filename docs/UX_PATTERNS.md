@@ -37,12 +37,14 @@ a claim that every navigation change is already implemented.
 - **Bottom navigation bar** — permanent launch tabs: **Chats**, **Actions**, **Tools**.
 - **Tools** is the primary discovery surface for capabilities that are otherwise hard to find from
   Chats or Actions.
-- **Navigation drawer** provides compact quick-access shortcuts for common destinations
-  (Lists, Notes, Clock, Convert, Important dates, People & Contacts, Meal plans, and Settings).
-- **Tools** is the full catalogue, search, learning, and descriptions surface — the primary
-  discovery surface for all app capabilities.
+- **Navigation drawer** provides compact quick-access shortcuts for common destinations.
+  Drawer ordering: favourite shortcuts first, recently used shortcuts next, default shortcuts
+  when favourites/recents are empty or sparse, Settings pinned separately at the bottom with a
+  divider.
+- **Tools** is the full catalogue, search, learning, descriptions, and favourites-management
+  surface — the primary discovery surface for all app capabilities.
 - **Drawer** content is intentionally limited to high-use shortcuts. Favourites and recently-used
-  tools are planned in [#1233](https://github.com/NickMonrad/kernel-ai-assistant/issues/1233).
+  tools provide personalised quick access.
 - **Settings** is configuration, not the primary feature-discovery surface.
 - All navigation is managed by `KernelNavHost` in `:app`. Do not create parallel navigation graphs.
 - This document defines the target UX model. It does not require adding `ROUTE_TOOLS`, changing
@@ -95,9 +97,10 @@ App setup
   Models
   Permissions
 
-Learn what Jandal can do (first row, opens dedicated Learn screen)
-  Example prompts for actions, planning, weather, maps, media, and more
-  Opens ToolsLearnScreen with 9 grouped categories
+Learn (compact, collapsible first row, opens dedicated Learn screen)
+  Expanded: "Learn what Jandal can do" / "Example prompts to get started"
+  Collapsed: "Getting started" / Add button
+  Collapsed/expanded state persists locally
 ```
 
 Each row uses the existing app visual language:
@@ -181,9 +184,11 @@ Future search should be able to produce matches such as:
 ### 1.3 Tool examples and demo prompts
 
 Example prompts live on a dedicated **Learn screen** (`ToolsLearnScreen`, route `tools/learn`).
-The Tools hub contains a single "Learn what Jandal can do" row (tag `tools_row_learn`) at
-the top of the screen that opens the Learn screen. Examples are never rendered inline in
-the Tools hub.
+The Tools hub contains a compact, collapsible Learn entry at the top of the screen
+(tag `tools_row_learn` when expanded, `tools_learn_collapsed` when collapsed) that opens
+the Learn screen. The collapsed/expanded state is persisted locally via SharedPreferences
+so returning users keep their preference across app restarts. Examples are never rendered
+inline in the Tools hub.
 
 The Learn screen uses grouped sections with a collapsed default showing two examples per
 group and a **View more** button to expand that group to show additional prompts.
@@ -342,6 +347,93 @@ an implementation follow-up to this design/test-pattern alignment work, then cov
 - confirmation that no blank screen was observed;
 - any skipped checks, device limitations, or follow-up notes.
 
+
+### 1.8 Favourite and recently used shortcuts
+
+[#1233](https://github.com/NickMonrad/kernel-ai-assistant/issues/1233) introduces shortcut-level
+favourites and recently used tracking for the navigation drawer.
+
+#### 1.8a Shortcut Registry
+
+A `ShortcutRegistry` object in `com.kernel.ai.navigation` defines all eligible shortcuts with
+stable IDs, labels, icons, and navigation routes. The registry serves as the single source of
+truth for drawer defaults, favourite eligibility, and recently-used tracking.
+
+Each shortcut has:
+
+- `id` — stable identifier used for persistence and lookup
+- `label` — human-readable display name
+- `icon` — Material icon displayed in the drawer
+- `route` — navigation route or deep-link
+- `parentToolId` — for sub-feature shortcuts (e.g. `clock.stopwatch` parent = `clock`)
+- `canFavourite` — whether the shortcut is eligible for favouriting
+- `canRecordRecent` — whether opens are tracked as recently used
+- `isSettings` — whether this is the Settings entry (pinned separately)
+
+Top-level shortcuts: Lists, Notes, Meal plans, Clock, Important dates, People & Contacts, Convert.
+Sub-feature shortcuts: Clock Stopwatch, Clock Timer, Clock Alarms.
+Settings is pinned at the bottom with a divider, not favourite-able, and not recent-able.
+Unknown or removed shortcut IDs are ignored gracefully.
+
+#### 1.8b Favourite persistence
+
+Favourite shortcut IDs are persisted locally in a Room table (`favourite_shortcuts`) in the
+`kernel_db` database. No telemetry, analytics, cloud sync, prompt recording, or action payload
+recording is performed. Favouriting does not navigate or execute actions.
+
+- `FavouriteShortcutEntity` — Room entity with id, sortOrder, addedAt
+- `FavouriteShortcutDao` — Room DAO with observeAll, insert, delete
+- `FavouriteShortcutRepository` — wraps the DAO, provides toggle/add/remove
+
+The Tools hub displays a star (filled/outline) on eligible rows. Tapping the star adds or
+removes the shortcut from favourites without navigating. Stable test tags follow the pattern
+`tools_row_{id}_favourite`.
+
+#### 1.8c Recently used tracking
+
+Recently used shortcut IDs are persisted locally in a Room table (`recent_shortcuts`) in the
+`kernel_db` database. Recording occurs when a user explicitly opens a shortcut from:
+
+- Tools hub row tap
+- Tools search result selection
+- Navigation drawer item click
+
+Recording does NOT occur for:
+
+- Merely viewing the Tools hub or searching
+- Learn example prompt taps (no stable shortcut ID)
+
+Behaviour:
+
+- Opens are deduplicated by ID (repeated opens update the timestamp).
+- List is capped at 5 entries, newest first.
+- Settings is excluded from recents.
+- No prompt text, personal data, or action payloads are recorded.
+
+#### 1.8d Drawer ordering
+
+1. Favourite shortcuts first, in sort order.
+2. Recently used shortcuts next, newest first, deduplicated against favourites.
+3. Default shortcuts fill remaining space when favourites/recents are sparse.
+4. Settings pinned at the bottom with a horizontal divider.
+
+Duplicates across sections are avoided.
+
+#### 1.8e Tools hub favourite affordance
+
+The Tools hub shows a star toggle (filled when favourited, outline when not) on eligible
+top-level tool rows. The star is a trailing icon button with test tag pattern
+`tools_row_{id}_favourite`. Tapping the star toggles the favourite without triggering
+navigation or executing any action.
+
+#### 1.8f Future considerations
+
+- Deep-linking to specific sub-feature tabs (e.g. opening Stopwatch directly instead of the
+  Clock landing screen) is partially supported for clock sub-features via query parameters
+  (`settings/side_panel?tab=stopwatch`). Full support for all sub-features may be added in
+  a follow-up.
+- Sub-feature favourite affordances in the Tools hub are not yet surfaced in the main tools
+  list grid.
 ---
 
 ## 2. List / Collection Screens

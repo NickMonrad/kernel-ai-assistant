@@ -886,6 +886,37 @@ class QuickIntentRouterTest {
     }
 
     @Test
+    fun `date diff stt waits mishearing is corrected to weeks`() {
+        // "how many waits until 31 October" → "how many weeks until 31 October"
+        val result = regexOnlyRouter.route("how many waits until 31 October")
+        assertRegexMatch(result, "get_date_diff", "how many waits until 31 October")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("31 October", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff stt ordinal split mishearing is corrected`() {
+        // "how many weeks until the 30 first of october" → ordinal correction → "31st of october"
+        val result = regexOnlyRouter.route("how many weeks until the 30 first of october")
+        assertRegexMatch(result, "get_date_diff", "how many weeks until the 30 first of october")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("31st of october", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff strips leading the from target date`() {
+        val result = regexOnlyRouter.route("how many weeks until the 31 October")
+        assertRegexMatch(result, "get_date_diff", "how many weeks until the 31 October")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("31 October", intent.params["target_date"])
+    }
+
+    @Test
     fun `how to cook kumara falls through to llm not date diff`() {
         assertFallThrough(
             regexOnlyRouter.route("how to cook kumara"),
@@ -898,6 +929,59 @@ class QuickIntentRouterTest {
         assertFallThrough(
             regexOnlyRouter.route("do you know how to cook kumara"),
             "do you know how to cook kumara",
+        )
+    }
+
+    @Test
+    fun `non date input containing waits is not mutated by date diff stt normalisation`() {
+        // "waits" in a non-date context must not trigger date-diff matching.
+        assertFallThrough(
+            regexOnlyRouter.route("how many times should I wait"),
+            "how many times should I wait",
+        )
+    }
+
+    @Test
+    fun `non date input containing ordinal split is not mutated by date diff stt normalisation`() {
+        // "first" in a non-date ordinal context must not trigger date-diff matching.
+        assertFallThrough(
+            regexOnlyRouter.route("I came first in the race"),
+            "I came first in the race",
+        )
+    }
+
+    @Test
+    fun `non date input with waiter related phrase is not mutated`() {
+        assertFallThrough(
+            regexOnlyRouter.route("how long is the wait for a table"),
+            "how long is the wait for a table",
+        )
+    }
+
+    @Test
+    fun `date diff how many waits mishearing still routes to get_date_diff`() {
+        // "how many waits until ..." must still route to get_date_diff via pattern 1.
+        val result = regexOnlyRouter.route("how many waits until the 30 first of october")
+        assertRegexMatch(result, "get_date_diff", "how many waits until the 30 first of october")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("31st of october", intent.params["target_date"])
+    }
+
+    @Test
+    fun `wait until without how many prefix does not route to date diff`() {
+        // bare "wait until 7am" must NOT route to get_date_diff — it's a wait command.
+        assertFallThrough(
+            regexOnlyRouter.route("wait until 7am"),
+            "wait until 7am",
+        )
+    }
+
+    @Test
+    fun `don't wait until does not route to date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("don't wait until Friday"),
+            "don't wait until Friday",
         )
     }
 
@@ -2572,6 +2656,11 @@ class QuickIntentRouterTest {
             Arguments.of("when is Easter"),
             Arguments.of("how many days until 2026-08-22"),
             Arguments.of("how long until August 22 2026"),
+            // #1227 — date-countdown routing
+            Arguments.of("how many weeks until 31 October"),
+            Arguments.of("how many weeks until the 31 October"),
+            // STT variant: "waits" → "weeks" normalised, ordinal split fixed
+            Arguments.of("how many waits until the 30 first of october"),
         )
 
         @JvmStatic
@@ -3144,6 +3233,7 @@ class QuickIntentRouterTest {
             Arguments.of("add bananas to shopping list", "bananas", "shopping"),
             Arguments.of("add butter to the grocery list", "butter", "grocery"),
             Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
+            Arguments.of("add eggs to my shopping list", "eggs", "shopping"),
         )
 
         @JvmStatic
@@ -3188,11 +3278,13 @@ class QuickIntentRouterTest {
             Arguments.of("add something to my list"),
             Arguments.of("add something to shopping list"),
             Arguments.of("put something on the list"),
+            Arguments.of("put something on my shopping list"),
         )
 
         @JvmStatic
         fun addToListMissingListNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("add milk to my list", "milk"),
+            Arguments.of("add an item to my list", "an item"),
             Arguments.of("add milk to list", "milk"),
             Arguments.of("put eggs on the list", "eggs"),
             Arguments.of("chuck bread on my list", "bread"),

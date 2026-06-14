@@ -144,6 +144,7 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -3204,10 +3205,10 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
+                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|waits?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
         ),
         // "how many days since March 1" / "how long since Easter"
         IntentPattern(
@@ -3216,7 +3217,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "since") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "since") }
         ),
         // "days until Christmas" / "weeks until New Year"
         IntentPattern(
@@ -3225,7 +3226,7 @@ class QuickIntentRouter(
                 """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
         ),
         // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
         IntentPattern(
@@ -3234,7 +3235,7 @@ class QuickIntentRouter(
                 """what\s+day(?:\s+of\s+the\s+week)?\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
         ),
         // "when is ANZAC Day" / "when is Easter"  (not "when is X this year" — that falls to E4B)
         IntentPattern(
@@ -3243,7 +3244,7 @@ class QuickIntentRouter(
                 """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
         ),
 
         // ── Calculator / Conversion ──
@@ -4348,6 +4349,7 @@ class QuickIntentRouter(
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
         val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
 
+
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
         // the alias normalisation above) so they reach the deterministic cooking-conversion path.
         // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
@@ -4396,6 +4398,14 @@ class QuickIntentRouter(
 
         // Stage 3: Fall through to E4B
         return RouteResult.FallThrough(input = trimmed)
+    }
+
+    /** Strip leading "the " and fix STT ordinal split in target_date string captured by date-diff patterns. */
+    private fun cleanTargetDate(raw: String): String {
+        val stripped = raw.trim().replace(Regex("^the\\s+", RegexOption.IGNORE_CASE), "").trim()
+        // #1227 — STT mishearing: "30 first" → "31st" (thirty-first split into "30 first").
+        // Only correct the specific observed artifact; general ordinal handling is not needed.
+        return stripped.replace(Regex("""\b30\s+first\b""", RegexOption.IGNORE_CASE), "31st")
     }
 
     // ── Parameter parsing helpers ─────────────────────────────────────────────

@@ -22,6 +22,7 @@ import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.ModelConfig
+import com.kernel.ai.core.inference.DEFAULT_MAX_TOKENS
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
@@ -34,6 +35,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.rag.RagRepository
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
@@ -90,6 +92,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -310,6 +315,18 @@ class ChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _showThinkingProcess = MutableStateFlow(true)
+
+    /**
+     * Snapshot of the currently active [ModelSettingsEntity] loaded into the inference engine.
+     * Updated during engine init and after [applyModelSettingsAndStartNewChat]. Used by
+     * [baseUiState] to populate temperature/top-p/top-k/thinking values reactively without
+     * calling [ModelSettingsRepository.getSettings] inside the combine lambda.
+     */
+    private val _activeModelSettings = MutableStateFlow<ModelSettingsEntity?>(null)
+
+    /** True while settings apply is in-flight. Used by the UI to show progress and gate sheet dismissal. */
+    private val _isApplyingSettings = MutableStateFlow(false)
+    private val _settingsApplyCompleted = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
     /** Combined visual customisation prefs, updated from ChatPreferences. */
     @Suppress("UNCHECKED_CAST")
     private val visualPrefs: StateFlow<VisualPrefs> = combine(
@@ -363,6 +380,7 @@ class ChatViewModel @Inject constructor(
         val isGenerating: Boolean,
         val isLoadingModel: Boolean,
         val conversationInitialized: Boolean,
+        val activeBackend: BackendType?,
     )
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -371,14 +389,14 @@ class ChatViewModel @Inject constructor(
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
     )
-
     private val engineState = combine(
         inferenceEngine.isReady,
         inferenceEngine.isGenerating,
         _isLoadingModel,
         _conversationInitialized,
-    ) { isReady, isGenerating, isLoadingModel, conversationInitialized ->
-        EngineState(isReady, isGenerating, isLoadingModel, conversationInitialized)
+        inferenceEngine.activeBackend,
+    ) { isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend ->
+        EngineState(isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend)
     }
 
     private val inputState = combine(
@@ -404,13 +422,14 @@ class ChatViewModel @Inject constructor(
             gatedModels.zip(array.asList()) { model, status -> model to status }
                 .toMap()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-    /** Base uiState without visual prefs (8-input combine). */
+    /** Base uiState without visual prefs (9-input combine). */
     private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
         downloadManager.downloadSources,
         inputState,
         _showThinkingProcess,
+        _activeModelSettings,
         isArchived,
         authRepository.isAuthenticated,
         gatedStatuses,
@@ -424,10 +443,11 @@ class ChatViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val input = array[3] as InputState
         val showThinking = array[4] as Boolean
-        val archived = array[5] as Boolean
-        val hfAuth = array[6] as Boolean
+        val activeModelSettings = array[5] as ModelSettingsEntity?
+        val archived = array[6] as Boolean
+        val hfAuth = array[7] as Boolean
         @Suppress("UNCHECKED_CAST")
-        val gatedStatusesMap = array[7] as Map<KernelModel, GatedModelStatus>
+        val gatedStatusesMap = array[8] as Map<KernelModel, GatedModelStatus>
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -474,9 +494,10 @@ class ChatViewModel @Inject constructor(
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
                 modelCapabilities = activeModel?.capabilities,
-                temperature = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).temperature } ?: 0.7f,
-                topP = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topP } ?: 0.9f,
-                topK = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topK } ?: 64,
+                temperature = activeModelSettings?.temperature ?: 0.7f,
+                topP = activeModelSettings?.topP ?: 0.9f,
+                topK = activeModelSettings?.topK ?: 64,
+                activeBackend = engine.activeBackend,
                 // ---- Visual customisation (#906) — filled from visualPrefs below ----
                 fontSize = 1,
                 bubbleTheme = "system",
@@ -907,6 +928,7 @@ class ChatViewModel @Inject constructor(
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
+                _activeModelSettings.value = settings
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -965,6 +987,7 @@ class ChatViewModel @Inject constructor(
                 Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
+                _activeModelSettings.value = settings
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -3153,51 +3176,175 @@ class ChatViewModel @Inject constructor(
     val currentModel: StateFlow<KernelModel?> =
         activeModelState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Set thinking mode for the current model. Requires app restart to take effect. */
+    /** Snapshot of the currently active model settings, used by the settings overlay. */
+    val activeModelSettings: StateFlow<ModelSettingsEntity?> = _activeModelSettings.asStateFlow()
+
+    /** True while [applyModelSettingsAndStartNewChat] is in-flight. */
+    val isApplyingSettings: StateFlow<Boolean> = _isApplyingSettings.asStateFlow()
+
+    /**
+     * Emits `true` on successful settings apply, `false` on failure.
+     * Consumed by the UI to dismiss the settings sheet on success.
+     */
+    val settingsApplyCompleted: SharedFlow<Boolean> = _settingsApplyCompleted.asSharedFlow()
+
+    /**
+     * Apply conversation-scoped model settings and start a fresh chat session
+     * without restarting the app.
+     *
+     * The engine stays warm — only the conversation is recreated with the new
+     * [ModelConfig] derived from [draft]. The following settings are applied:
+     * temperature, top-p, top-k, thinking mode.
+     *
+     * Engine-level settings (model path, backend, max tokens, speculative decoding)
+     * are **not** changed — those require a full [initEngineWhenReady] cycle.
+     *
+     * On success the settings sheet should be dismissed; on failure [ChatUiState.error]
+     * is set with a descriptive message.
+     */
+    fun applyModelSettingsAndStartNewChat(draft: ModelSettingsEntity) {
+        viewModelScope.launch {
+            _isApplyingSettings.value = true
+            try {
+                val model = activeModel ?: run {
+                    _error.value = "Cannot apply settings: no active model"
+                    _settingsApplyCompleted.emit(false)
+                    return@launch
+                }
+                val modelPath = downloadManager.getModelPath(model) ?: run {
+                    _error.value = "Cannot apply settings: model file not found"
+                    _settingsApplyCompleted.emit(false)
+                    return@launch
+                }
+
+                // 1. Cancel active generation
+                inferenceEngine.cancelGeneration()
+
+                // 2. Stop/clear voice input/output state
+                stopVoicePlayback()
+                _voiceMode.value = null
+                pendingVoiceReply = false
+                voiceInputController.stopListening()
+                voiceOutputController.stop()
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _voicePlaybackState.value = VoicePlaybackState.Idle
+
+                // 3. Capture the pre-apply active settings for engine-scoped field carry-over
+                //    (contextWindowSize/maxTokens, speculativeDecodingEnabled) BEFORE
+                //    overwriting _activeModelSettings with the draft (#961).
+                val preApplyActiveSettings = _activeModelSettings.value
+
+                // 4. Persist draft settings and update reactive state
+                modelSettingsRepository.saveSettings(draft)
+                _activeModelSettings.value = draft
+                _showThinkingProcess.value = draft.showThinkingProcess
+
+                // 5. Build fresh ModelConfig from active model + draft settings
+                //    Only conversation-scoped fields are changed (temperature, top-p,
+                //    top-k, thinking). Engine-level fields (backend, maxTokens,
+                //    speculativeDecoding) carry over from the active model's current
+                //    config — draft values must NOT be used for those (#961).
+                val newConfig = ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(),
+                    maxTokens = preApplyActiveSettings?.contextWindowSize ?: DEFAULT_MAX_TOKENS,
+                    temperature = draft.temperature,
+                    topP = draft.topP,
+                    topK = draft.topK,
+                    thinkingEnabled = draft.showThinkingProcess,
+                    speculativeDecodingEnabled = preApplyActiveSettings?.speculativeDecodingEnabled ?: false,
+                    toolProvider = toolProvider,
+                )
+
+                // 5. Reconfigure the engine conversation with new settings
+                //    Throws InferenceException if engine is not initialized (#961)
+                inferenceEngine.reconfigureConversation(newConfig)
+
+                // 6. Start a fresh conversation record
+                val id = conversationRepository.createConversation()
+                conversationId = id
+
+                // 7. Clear all transient chat state for the new conversation
+                _messages.value = emptyList()
+                _inputText.value = ""
+                _error.value = null
+                _conversationTitle.value = null
+                titleGenerationStarted = false
+                titleIsPlaceholder = false
+
+                // 8. Reset token/context counters and replay flags
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                needsHistoryReplay = false
+                pendingConfirmationIntent = null
+
+                // 9. Rebuild system prompt now that backend + settings are resolved
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+
+                Log.i(TAG, "Settings applied and new conversation started for ${model.modelId}")
+                _settingsApplyCompleted.emit(true)
+            } catch (e: CancellationException) {
+                _settingsApplyCompleted.emit(false)
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "applyModelSettingsAndStartNewChat failed", e)
+                _error.value = "Failed to apply settings: ${e.message}"
+                _settingsApplyCompleted.emit(false)
+            } finally {
+                _isApplyingSettings.value = false
+            }
+        }
+    }
+
+    /** Persist thinking mode for the current model and update active settings snapshot. */
     fun setThinkingEnabled(enabled: Boolean) {
         viewModelScope.launch {
             val model = activeModel ?: return@launch
             val settings = modelSettingsRepository.getSettings(model.modelId)
             modelSettingsRepository.saveSettings(settings.copy(showThinkingProcess = enabled))
-            // Update the running engine immediately if ready
+            _activeModelSettings.value = _activeModelSettings.value?.copy(showThinkingProcess = enabled)
             if (inferenceEngine.isReady.value) {
                 _showThinkingProcess.value = enabled
             }
         }
     }
 
-    /** Set temperature for the current model. Requires app restart to take effect. */
+    /** Persist temperature for the current model and update active settings snapshot. */
     fun setTemperature(temp: Float) {
         viewModelScope.launch {
             val model = activeModel ?: return@launch
             val settings = modelSettingsRepository.getSettings(model.modelId)
             modelSettingsRepository.saveSettings(settings.copy(temperature = temp))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(temperature = temp)
         }
     }
 
-    /** Set top-P for the current model. Requires app restart to take effect. */
+    /** Persist top-P for the current model and update active settings snapshot. */
     fun setTopP(topP: Float) {
         viewModelScope.launch {
             val model = activeModel ?: return@launch
             val settings = modelSettingsRepository.getSettings(model.modelId)
             modelSettingsRepository.saveSettings(settings.copy(topP = topP))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(topP = topP)
         }
     }
 
-    /** Set top-K for the current model. Requires app restart to take effect. */
+    /** Persist top-K for the current model and update active settings snapshot. */
     fun setTopK(topK: Int) {
         viewModelScope.launch {
             val model = activeModel ?: return@launch
             val settings = modelSettingsRepository.getSettings(model.modelId)
             modelSettingsRepository.saveSettings(settings.copy(topK = topK))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(topK = topK)
         }
     }
 
-    /** Reset current model settings to hardware-aware defaults. */
+    /** Reset current model settings to hardware-aware defaults and update snapshot. */
     fun resetModelSettings() {
         viewModelScope.launch {
             val model = activeModel ?: return@launch
-            modelSettingsRepository.resetToDefaults(model.modelId)
+            val defaults = modelSettingsRepository.resetToDefaults(model.modelId)
+            _activeModelSettings.value = defaults
         }
     }
 

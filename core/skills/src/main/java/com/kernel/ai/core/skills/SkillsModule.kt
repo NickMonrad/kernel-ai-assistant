@@ -91,6 +91,11 @@ abstract class SkillsModule {
             intentContractRegistry = registry,
         )
 
+        /** Provide the nowProvider for NativeIntentHandler (defaults to LocalDate.now()). */
+        @Provides
+        @Singleton
+        fun provideNowProvider(): () -> java.time.LocalDate = { java.time.LocalDate.now() }
+
         /** Provide the singleton IntentContractRegistry. */
         @Provides
         @Singleton
