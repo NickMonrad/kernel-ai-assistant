@@ -27,6 +27,9 @@ import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import com.kernel.ai.core.model.availability.GatedModelStatus
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
@@ -145,6 +148,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val gatedModelStatusRepository: GatedModelStatusRepository,
     private val authRepository: HuggingFaceAuthRepository,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
@@ -386,7 +390,21 @@ class ChatViewModel @Inject constructor(
     ) { messages, inputText, error, title, isSpeakingResponse ->
         InputState(messages, inputText, error, title, isSpeakingResponse)
     }
-    /** Base uiState without visual prefs (7-input combine). */
+
+    private val gatedModels: List<KernelModel> = KernelModel.entries.filter { it.isGated && it.isRequired }
+
+    /**
+     * Combined gated statuses for all required gated models, used when deriving
+     * blocking banners and availability states in Chat onboarding.
+     */
+    private val gatedStatuses: StateFlow<Map<KernelModel, GatedModelStatus>> =
+        combine(
+            gatedModels.map { model -> gatedModelStatusRepository.get(model) },
+        ) { array: Array<GatedModelStatus> ->
+            gatedModels.zip(array.asList()) { model, status -> model to status }
+                .toMap()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** Base uiState without visual prefs (8-input combine). */
     private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
@@ -395,6 +413,7 @@ class ChatViewModel @Inject constructor(
         _showThinkingProcess,
         isArchived,
         authRepository.isAuthenticated,
+        gatedStatuses,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val engine = array[0] as EngineState
@@ -407,6 +426,8 @@ class ChatViewModel @Inject constructor(
         val showThinking = array[4] as Boolean
         val archived = array[5] as Boolean
         val hfAuth = array[6] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val gatedStatusesMap = array[7] as Map<KernelModel, GatedModelStatus>
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -432,6 +453,11 @@ class ChatViewModel @Inject constructor(
                     modelProgress = progress,
                     hfAuthenticated = hfAuth,
                     downloadSources = downloadSources,
+                    gatedStatuses = gatedStatusesMap,
+                    conversationReadiness = ConversationModelReadiness.compute(
+                        tier = tier,
+                        downloadStates = downloadStates,
+                    ),
                 )
             }
             // Archived conversations are read-only — no engine needed. Skip the isReady gate.
@@ -1062,6 +1088,10 @@ class ChatViewModel @Inject constructor(
 
     fun retryDownload(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
+    }
+
+    fun startAuth() {
+        authRepository.startAuthFlow()
     }
 
     fun onInputChanged(text: String) {
