@@ -9,6 +9,8 @@ import com.kernel.ai.core.memory.dao.ConversionHistoryDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.CurrencyFavouriteDao
+import com.kernel.ai.core.memory.dao.FavouriteShortcutDao
+import com.kernel.ai.core.memory.dao.RecentShortcutDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
@@ -118,6 +120,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_47_48,
                     KernelDatabase.MIGRATION_48_49,
                     KernelDatabase.MIGRATION_49_50,
+                    KernelDatabase.MIGRATION_50_51,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default — enable it per-connection
@@ -188,6 +191,12 @@ abstract class MemoryModule {
 
         @Provides
         fun provideCurrencyFavouriteDao(db: KernelDatabase): CurrencyFavouriteDao = db.currencyFavouriteDao()
+
+        @Provides
+        fun provideFavouriteShortcutDao(db: KernelDatabase): FavouriteShortcutDao = db.favouriteShortcutDao()
+
+        @Provides
+        fun provideRecentShortcutDao(db: KernelDatabase): RecentShortcutDao = db.recentShortcutDao()
 
         @Provides
         fun provideMealPlanSessionDao(db: KernelDatabase): MealPlanSessionDao = db.mealPlanSessionDao()

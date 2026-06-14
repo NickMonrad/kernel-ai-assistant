@@ -102,6 +102,7 @@ import java.time.format.DateTimeFormatter
 fun SidePanelScreen(
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    initialTab: String? = null,
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
@@ -137,6 +138,17 @@ fun SidePanelScreen(
 
     BackHandler(enabled = isInSelectionMode) {
         viewModel.clearSelection()
+    }
+
+    // Set initial tab from navigation argument, if provided.
+    // Uses explicit mapping so "timer" maps to TIMERS, not the uppercase-enum-name heuristic.
+    LaunchedEffect(initialTab) {
+        if (initialTab != null) {
+            val tab = mapQueryParamToTab(initialTab)
+            if (tab != null) {
+                viewModel.setTab(tab)
+            }
+        }
     }
 
     val visibleSelectionIds = when (selectedTab) {
@@ -2175,4 +2187,20 @@ private fun centeredTimerWheelIndex(listState: LazyListState): Int? {
     return layoutInfo.visibleItemsInfo.minByOrNull { item ->
         abs((item.offset + item.size / 2) - viewportCenter)
     }?.index
+}
+
+/**
+ * Maps a query-parameter tab value to a [ClockSurfaceTab].
+ *
+ * Uses explicit mapping so "timer" correctly maps to [ClockSurfaceTab.TIMERS]
+ * even though the enum name is plural.
+ */
+private fun mapQueryParamToTab(param: String): ClockSurfaceTab? {
+    return when (param.uppercase()) {
+        "TIMER", "TIMERS" -> ClockSurfaceTab.TIMERS
+        "ALARM", "ALARMS" -> ClockSurfaceTab.ALARMS
+        "STOPWATCH" -> ClockSurfaceTab.STOPWATCH
+        "WORLD_CLOCK" -> ClockSurfaceTab.WORLD_CLOCK
+        else -> null
+    }
 }
