@@ -368,7 +368,7 @@ class ActionsViewModelTest {
         assertEquals(1, insertedActions.size)
         // MUST NOT leak app_name from first slot fill
         assertNull(CapturingRunIntentSkill.default.calls[0].arguments["app_name"])
-        assertEquals("5 minutes", CapturingRunIntentSkill.default.calls[0].arguments["duration_seconds"])
+        assertEquals("300", CapturingRunIntentSkill.default.calls[0].arguments["duration_seconds"])
     }
 
     @Test
