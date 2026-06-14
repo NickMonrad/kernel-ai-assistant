@@ -10,8 +10,9 @@ import kotlinx.coroutines.flow.emptyFlow
  * Lifecycle:
  * 1. [initialize] — loads model weights onto the chosen hardware backend (10–30 s).
  * 2. [generate] — streams [GenerationResult] tokens for one or more turns.
- * 3. [resetConversation] — clears context window while keeping the engine warm.
- * 4. [shutdown] — releases all native resources.
+ * 3. [reconfigureConversation] — recreates the conversation with new sampler/thinking settings (warm).
+ * 4. [resetConversation] — clears context window while keeping the engine warm.
+ * 5. [shutdown] — releases all native resources.
  *
  * Thread-safety: implementations pin all work to [LlmDispatcher].
  */
@@ -115,6 +116,28 @@ interface InferenceEngine {
      * The engine stays warm — no model reload required.
      */
     suspend fun updateSystemPrompt(systemPrompt: String)
+
+    /**
+     * Recreate the conversation with a new [ModelConfig] while keeping the engine warm.
+     *
+     * Closes the active LiteRT conversation and creates a new one with the updated
+     * [ModelConfig] settings (temperature, top-p, top-k, thinking mode). The engine
+     * itself is **not** shut down or re-initialised — only the conversation/session
+     * is rebuilt.
+     *
+     * Safe to call while [isReady] is true and a [generate] call is in flight — the
+     * active generation is cancelled before the conversation is reset. After this
+     * returns, the next [generate] call starts a fresh conversation with the new
+     * configuration.
+     *
+     * Only conversation-scoped settings are applied. Engine-level settings
+     * (model path, backend type, max tokens, speculative decoding) from the original
+     * [initialize] call remain in effect — use the full [shutdown]/[initialize] cycle
+     * to change those.
+     *
+     * @throws [InferenceException] if conversation creation fails.
+     */
+    suspend fun reconfigureConversation(config: ModelConfig)
 
     /** Release the engine and all native resources. Safe to call multiple times. */
     suspend fun shutdown()

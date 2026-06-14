@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat.model
 
 import com.kernel.ai.core.inference.ModelCapabilities
+import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
@@ -28,6 +29,8 @@ sealed interface ChatUiState {
         val topP: Float = 0.9f,
         /** Current model top-K (synced from ModelSettingsEntity). */
         val topK: Int = 64,
+        /** The hardware backend currently in use by the inference engine, or null. */
+        val activeBackend: BackendType? = null,
         // ---- Visual customisation (#906) ----
         /** 0=small, 1=medium, 2=large */
         val fontSize: Int = 1,
