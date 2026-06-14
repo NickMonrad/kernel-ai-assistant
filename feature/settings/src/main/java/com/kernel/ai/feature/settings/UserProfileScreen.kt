@@ -116,6 +116,7 @@ fun UserProfileScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp),
+                enabled = !saving,
                 label = { Text("Profile") },
                 placeholder = {
                     Text("e.g. My name is Nick. I use a Samsung S23 Ultra. I prefer concise answers.")

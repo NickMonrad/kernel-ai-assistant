@@ -32,12 +32,14 @@ Return ONLY a JSON object using these fields (omit any field that is absent or u
   "environment" – tools, devices, OS, apps, or infrastructure they use (array of strings, one item per tool/system)
   "context"     – hobbies, interests, family, or background facts (array of strings, one item per fact)
   "rules"       – preferences, tone instructions, or directives for the AI assistant (array of strings, one item per rule)
+  "facts"       – miscellaneous profile facts that don't fit other fields (array of strings, one item per fact)
 
 Rules for extraction:
-- Each array item must be a short, standalone fact (one sentence or phrase maximum)
+- Each "facts" item must be a short, standalone fact (one sentence or phrase maximum)
 - Do not invent information not present in the input
 - Do not include markdown, explanation, or code fences — return only the JSON object
 - If no information is available for a field, omit it entirely
+- Preserve valuable non-name context: project relationships ("for this application", "developer of this application"), app references ("building an Android app called Jandal AI"), employer context, and any other useful facts
         """.trimIndent()
 
         // Strip markdown code fences the model may produce despite instructions
@@ -55,7 +57,12 @@ Rules for extraction:
             return null
         }
         return try {
-            val raw = inferenceEngine.generateOnce(freeText, SYSTEM_PROMPT, thinkingEnabled = false)
+            val raw = inferenceEngine.generateOnce(
+                prompt = freeText,
+                systemPrompt = SYSTEM_PROMPT,
+                thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
+            )
             if (raw.isBlank()) {
                 Log.w(TAG, "Profile LLM extraction returned blank response")
                 return null

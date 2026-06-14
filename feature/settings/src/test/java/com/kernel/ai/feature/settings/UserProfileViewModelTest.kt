@@ -9,6 +9,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -118,6 +119,71 @@ class UserProfileViewModelTest {
         viewModel.save("")
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { repository.save("") }
+    }
+
+    // ── Suspended save lifecycle ──────────────────────────────────────────────
+
+    @Test
+    fun `saving is true while save is in progress`() = runTest(testDispatcher) {
+        val deferred = CompletableDeferred<Unit>()
+        coEvery { repository.save(any()) } coAnswers {
+            deferred.await()
+        }
+        // Start save (will suspend on deferred)
+        viewModel.save("test save lifecycle")
+        // Advance dispatcher so the coroutine starts and sets _saving = true
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.saving.value, "saving should be true while save is in progress")
+        // Complete the deferred so save finishes
+        deferred.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.saving.value, "saving should be false after save completes")
+    }
+
+    @Test
+    fun `duplicate save is blocked while saving`() = runTest(testDispatcher) {
+        val deferred = CompletableDeferred<Unit>()
+        coEvery { repository.save(any()) } coAnswers {
+            deferred.await()
+        }
+        // Start first save
+        viewModel.save("first")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.saving.value, "saving should be true after first save starts")
+        // Attempt second save — should be blocked
+        viewModel.save("second")
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Only the first save should have been attempted
+        coVerify(exactly = 1) { repository.save(any()) }
+        // Complete the deferred
+        deferred.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.saving.value, "saving should be false after save completes")
+        // Still exactly one save
+        coVerify(exactly = 1) { repository.save(any()) }
+    }
+
+    @Test
+    fun `save emits Success after deferred completes`() = runTest(testDispatcher) {
+        val deferred = CompletableDeferred<Unit>()
+        coEvery { repository.save(any()) } coAnswers {
+            deferred.await()
+        }
+        var result: SaveResult? = null
+        val job = launch {
+            viewModel.saveResult.collect {
+                result = it
+            }
+        }
+        viewModel.save("test deferred success")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.saving.value, "saving should be true before deferred completes")
+        // Complete the deferred
+        deferred.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.saving.value, "saving should be false after deferred completes")
+        assertTrue(result is SaveResult.Success, "should emit Success after deferred completes")
+        job.cancel()
     }
 
     // ── Clear behaviour ───────────────────────────────────────────────────────

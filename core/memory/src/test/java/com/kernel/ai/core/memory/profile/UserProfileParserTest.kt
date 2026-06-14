@@ -1,8 +1,10 @@
 package com.kernel.ai.core.memory.profile
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -374,16 +376,18 @@ class UserProfileParserTest {
         }
 
         @Test
-        fun `example 2 name role location and use cases`() {
+        fun `example 2 nurse in Brisbane`() {
             val result = UserProfileParser.parse(
                 "I'm Sarah. I'm a nurse in Brisbane and I mostly use Jandal for reminders, shopping lists, and quick meal ideas."
             )
             assertEquals("Sarah", result.name)
-            assertTrue(result.role?.contains("nurse") == true,
+            assertNotNull(result.role, "role should not be null")
+            assertTrue(result.role!!.contains("nurse"),
                 "role should contain 'nurse', was: ${result.role}")
-            val allText = result.toYaml()
-            assertTrue(allText.contains("Brisbane"),
-                "Brisbane should be in parsed output: $allText")
+            assertFalse(result.role!!.contains("reminders"),
+                "role should NOT contain 'reminders' (unrelated factual detail), was: ${result.role}")
+            assertTrue(result.facts.any { it.contains("reminders") },
+                "unrelated details should be in facts, was: ${result.facts}")
         }
 
         @Test
@@ -419,15 +423,21 @@ class UserProfileParserTest {
         }
 
         @Test
-        fun `example 6 occupation and planning context`() {
+        fun `example 6 teacher in Melbourne`() {
             val result = UserProfileParser.parse(
                 "I'm Bec, a primary school teacher in Melbourne. When I ask about planning, assume school terms and classroom activities unless I say otherwise."
             )
-            assertTrue(result.role?.contains("teacher") == true,
+            assertEquals("Bec", result.name)
+            assertNotNull(result.role, "role should not be null")
+            assertTrue(result.role!!.contains("teacher"),
                 "role should contain 'teacher', was: ${result.role}")
-            val allText = result.toYaml()
-            assertTrue(allText.contains("Melbourne"),
-                "Melbourne should be in parsed output: $allText")
+            assertTrue(result.role!!.contains("Melbourne"),
+                "role should contain 'Melbourne' (location context in role), was: ${result.role}")
+            // Verify role is not swallowing the entire planning rule
+            assertFalse(result.role!!.contains("school terms"),
+                "role should NOT contain 'school terms' (belongs in rules), was: ${result.role}")
+            assertTrue(result.rules.any { it.contains("school terms") },
+                "planning context should be in rules, was: ${result.rules}")
         }
 
         @Test
