@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.InferenceException
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
@@ -63,6 +64,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -336,23 +338,75 @@ class ChatViewModelSettingsApplyTest {
         isReadyFlow.value = true
         advanceUntilIdle()
 
-        val d = draft()
+        val d = draft(
+            contextWindowSize = 4096,   // engine-scoped — should NOT propagate
+            speculativeDecodingEnabled = false, // engine-scoped — should NOT propagate
+        )
         viewModel.applyModelSettingsAndStartNewChat(d)
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
             inferenceEngine.reconfigureConversation(
                 withArg { config ->
-                    assertEquals("/path/to/model", config.modelPath)
-                    assertEquals(d.contextWindowSize, config.maxTokens)
+                    // Conversation-scoped: come from draft
                     assertEquals(d.temperature, config.temperature)
                     assertEquals(d.topP, config.topP)
                     assertEquals(d.topK, config.topK)
                     assertEquals(d.showThinkingProcess, config.thinkingEnabled)
-                    assertEquals(d.speculativeDecodingEnabled, config.speculativeDecodingEnabled)
+
+                    // Engine-scoped: come from active settings (setupInitPrerequisites returns
+                    // contextWindowSize=8192, speculativeDecodingEnabled=true), NOT from draft
+                    assertEquals("/path/to/model", config.modelPath)
+                    assertEquals(8192, config.maxTokens)
+                    assertEquals(true, config.speculativeDecodingEnabled)
                 },
             )
         }
+        clearViewModel(viewModel)
+    }
+
+    @Test
+    fun `reconfigureConversation failure does not create conversation`() = runTest(dispatcher) {
+        setupInitPrerequisites()
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        isReadyFlow.value = true
+        advanceUntilIdle()
+
+        // Make reconfigure throw (simulates engine not initialized)
+        coEvery { inferenceEngine.reconfigureConversation(any()) } throws
+            com.kernel.ai.core.inference.InferenceException("Engine not initialized")
+
+        val d = draft()
+        viewModel.applyModelSettingsAndStartNewChat(d)
+        advanceUntilIdle()
+
+        // reconfigure was called but failed — no new conversation should be created
+        coVerify(exactly = 1) { inferenceEngine.reconfigureConversation(any()) }
+        coVerify(exactly = 1) { conversationRepository.createConversation() }
+
+        // Messages should still exist from init (engine started one conversation)
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertNotNull(state.error)
+        assertTrue(state.error!!.contains("Engine not initialized", ignoreCase = true))
+    }
+    @Test
+    fun `isApplyingSettings tracks apply lifecycle`() = runTest(dispatcher) {
+        setupInitPrerequisites()
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        isReadyFlow.value = true
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isApplyingSettings.value)
+
+        val d = draft()
+        viewModel.applyModelSettingsAndStartNewChat(d)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isApplyingSettings.value)
         clearViewModel(viewModel)
     }
 
