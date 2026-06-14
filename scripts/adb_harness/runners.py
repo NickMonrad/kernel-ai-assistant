@@ -294,23 +294,47 @@ def run_llm_tools(dry_run: bool = False) -> int:
         # Build assertion failures
         failures_list: list[str] = []
 
-        if not chip_text:
-            failures_list.append("No tool_chip_visible marker found")
+        # #1074: When expect_no_tool_call is True, skip tool-specific checks
+        if tc.expect_no_tool_call:
+            if actual_top_level is not None:
+                failures_list.append(
+                    f"expected no tool call but got {actual_top_level!r}"
+                )
+        else:
+            # Normal tool-call checks
+            if not chip_text:
+                failures_list.append("No tool_chip_visible marker found")
 
-        # Tool name check
-        if actual_top_level != tc.expected_top_level_tool:
-            failures_list.append(
-                f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
-            )
+            if actual_top_level != tc.expected_top_level_tool:
+                failures_list.append(
+                    f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
+                )
 
-        # Nested intent check
-        if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
-            failures_list.append(
-                f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
-            )
+            if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
+                failures_list.append(
+                    f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
+                )
 
-        # Field checks
-        if tc.expected_fields:
+            if not (native_tool or legacy_tool):
+                failures_list.append("No native-tool or legacy-tool marker found")
+
+            if not message_saved:
+                failures_list.append("No ChatMessage.toolCall persistence marker found")
+
+            if actual_top_level and not skill_result:
+                failures_list.append("No skill_result marker found")
+
+        # #1074: Log contains check (applies to both tool and no-tool cases)
+        log_contains_match = False
+        if tc.expect_log_contains is not None:
+            log_contains_match = tc.expect_log_contains in final_log
+            if not log_contains_match:
+                failures_list.append(
+                    f"log_contains: expected {tc.expect_log_contains!r} not found in logcat"
+                )
+
+        # Field checks (only when tools are called and fields are expected)
+        if tc.expected_fields and actual_top_level:
             merged_data = {**native_data, **legacy_data}
             for k, v in tc.expected_fields.items():
                 actual_v = merged_data.get(k)
@@ -340,20 +364,12 @@ def run_llm_tools(dry_run: bool = False) -> int:
         if tc.expect_no_retry and retry_seen:
             failures_list.append("Model retry observed (raw_tool_call_retry_succeeded / hallucination_retry_succeeded)")
 
-        # Positive checks
+        # Route-decision marker (always required)
         if not route_marker:
             failures_list.append("No route-decision marker found")
 
-        if not (native_tool or legacy_tool):
-            failures_list.append("No native-tool or legacy-tool marker found")
-
-        if not message_saved:
-            failures_list.append("No ChatMessage.toolCall persistence marker found")
-        if actual_top_level and not skill_result:
-            failures_list.append("No skill_result marker found")
-
-        # Result mode check
-        if tc.expected_result_mode != "unknown":
+        # Result mode check (only when tools are called)
+        if tc.expected_result_mode != "unknown" and actual_top_level:
             skill_data = _parse_tool_marker(skill_result)
             mode = skill_data.get("mode", "unknown")
             if mode != tc.expected_result_mode:
@@ -378,6 +394,9 @@ def run_llm_tools(dry_run: bool = False) -> int:
             reply_text=reply_text,
             passed=passed,
             failures=failures_list,
+            no_tool_call_requested=tc.expect_no_tool_call,
+            log_contains_required=tc.expect_log_contains,
+            log_contains_match=log_contains_match,
         )
         results.append(result)
 

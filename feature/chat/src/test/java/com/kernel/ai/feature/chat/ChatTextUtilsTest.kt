@@ -2,6 +2,9 @@ package com.kernel.ai.feature.chat
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import com.kernel.ai.core.inference.JandalPersona
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -1186,4 +1189,142 @@ class ChatTextUtilsTest {
         }
     }
 
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // DETERMINISTIC NZ TERM DETECTION (#1074)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("detectKnownNzTerm")
+    inner class KnownNzTermDetectionTests {
+
+        private val sampleEntries = listOf(
+            JandalPersona.NzTruthEntry(
+                id = "nz_141",
+                term = "Wharepaku",
+                category = "maori",
+                definition = "The te reo Māori term for toilet, restroom, or bathroom.",
+                triggerContext = "When the user mentions wharepaku.",
+                vibeLevel = 2,
+                vectorText = "Wharepaku. Toilet. Restroom. Bathroom.",
+                metadataJson = "{}",
+            ),
+            JandalPersona.NzTruthEntry(
+                id = "nz_142",
+                term = "Chocka",
+                category = "slang",
+                definition = "Completely full to the brim; packed.",
+                triggerContext = "When the user says chocka.",
+                vibeLevel = 4,
+                vectorText = "Chocka. Chocka block. Full up. Crowded.",
+                metadataJson = "{}",
+            ),
+            JandalPersona.NzTruthEntry(
+                id = "nz_144",
+                term = "Taniwha",
+                category = "maori",
+                definition = "Supernatural creatures from Māori mythology.",
+                triggerContext = "When the user mentions taniwha.",
+                vibeLevel = 3,
+                vectorText = "Taniwha. Water spirit. Guardian. Kaitiaki.",
+                metadataJson = "{}",
+            ),
+            JandalPersona.NzTruthEntry(
+                id = "nz_140",
+                term = "Kumara",
+                category = "food",
+                definition = "New Zealand sweet potato.",
+                triggerContext = "When the user mentions kumara.",
+                vibeLevel = 2,
+                vectorText = "Kumara. Sweet potato. Roast kumara.",
+                metadataJson = "{}",
+            ),
+        )
+
+        @Test
+        fun `detects wharepaku in question`() {
+            val result = detectKnownNzTerm("what is a wharepaku", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `detects chocka in sentence`() {
+            val result = detectKnownNzTerm("the pub is chocka tonight", sampleEntries)
+            assertEquals("Chocka", result?.term)
+        }
+
+        @Test
+        fun `detects taniwha in query`() {
+            val result = detectKnownNzTerm("tell me about taniwha", sampleEntries)
+            assertEquals("Taniwha", result?.term)
+        }
+
+        @Test
+        fun `detects kumara in cooking question`() {
+            val result = detectKnownNzTerm("how do you cook kumara", sampleEntries)
+            assertEquals("Kumara", result?.term)
+        }
+
+        @Test
+        fun `detects term with capital letters`() {
+            val result = detectKnownNzTerm("Tell me about Taniwha", sampleEntries)
+            assertEquals("Taniwha", result?.term)
+        }
+
+        @Test
+        fun `returns first match when multiple terms present`() {
+            val result = detectKnownNzTerm("kumara and taniwha", sampleEntries)
+            // Should find Kumara first (it's earlier in the list)
+            assertNotNull(result)
+            assertTrue(result?.term == "Kumara" || result?.term == "Taniwha")
+        }
+
+        @Test
+        fun `returns null for non-NZ text`() {
+            val result = detectKnownNzTerm("What is the capital of France?", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `returns null for explicit wikipedia request`() {
+            val result = detectKnownNzTerm("look up the Battle of Hastings on Wikipedia", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `returns null for blank text`() {
+            val result = detectKnownNzTerm("", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `returns null for whitespace text`() {
+            val result = detectKnownNzTerm("   ", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `detects wharepaku in STT normalised follow-up`() {
+            // After TranscriptNormaliser, "fattybaku" becomes "wharepaku",
+            // so the downstream detection should find "wharepaku".
+            val result = detectKnownNzTerm("where is the wharepaku", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `does not match short terms under 3 chars`() {
+            val shortEntry = JandalPersona.NzTruthEntry(
+                id = "nz_short",
+                term = "NZ",
+                category = "culture",
+                definition = "New Zealand abbreviation.",
+                triggerContext = "When the user says NZ.",
+                vibeLevel = 1,
+                vectorText = "NZ. New Zealand.",
+                metadataJson = "{}",
+            )
+            val result = detectKnownNzTerm("I live in NZ", listOf(shortEntry))
+            assertNull(result)
+        }
+    }
 }

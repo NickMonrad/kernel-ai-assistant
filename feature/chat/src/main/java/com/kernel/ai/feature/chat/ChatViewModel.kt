@@ -2156,8 +2156,8 @@ class ChatViewModel @Inject constructor(
             isToolQueryForTurn = isToolQuery
             val preferImmediateContext = prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
-            val effectiveRagContext: String
-            val effectiveRagTokenCost: Int
+            var effectiveRagContext: String
+            var effectiveRagTokenCost: Int
             when {
                 isToolQuery -> {
                     effectiveRagContext = ""
@@ -2185,6 +2185,26 @@ class ChatViewModel @Inject constructor(
                         maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
                     )
                     effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                }
+            }
+
+            // #1074: Deterministic NZ term detection — when the user's message contains a
+            // known NZ truth memory term, inject the corresponding NZ cultural context
+            // before the model can choose query_wikipedia. This ensures known NZ/Māori
+            // terms are served from seeded context rather than falling through to an
+            // encyclopedia lookup that may miss the NZ cultural angle.
+            // Explicit Wikipedia requests ("look up X on Wikipedia") are preserved.
+            if (explicitWikipediaQuery == null) {
+                val nzTermEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
+                if (nzTermEntry != null) {
+                    val nzBlock = "[NZ Context: ${nzTermEntry.term}] ${nzTermEntry.definition}"
+                    effectiveRagContext = if (effectiveRagContext.isBlank()) {
+                        nzBlock
+                    } else {
+                        "$nzBlock\n\n$effectiveRagContext"
+                    }
+                    effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                    Log.d(TAG, "Deterministic NZ context injected for term='${nzTermEntry.term}'")
                 }
             }
 

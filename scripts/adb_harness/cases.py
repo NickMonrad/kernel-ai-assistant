@@ -508,6 +508,47 @@ annotate_phases(PHASES)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
 LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
+    # ── NZ Memory-First Cases (#1074) ──────────────────────────────────────
+    # These prompts contain known NZ/Māori terms. The model should answer from
+    # the injected [NZ Context: ...] block rather than calling query_wikipedia.
+    LLMToolsTestCase(
+        name="nz_wharepaku_memory_first",
+        message="what is a wharepaku",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context injected for term='Wharepaku'",
+    ),
+    LLMToolsTestCase(
+        name="nz_chocka_memory_first",
+        message="what is chocka",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context injected for term='Chocka'",
+    ),
+    LLMToolsTestCase(
+        name="nz_taniwha_memory_first",
+        message="tell me about taniwha",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context injected for term='Taniwha'",
+    ),
+    LLMToolsTestCase(
+        name="nz_kumara_memory_first",
+        message="what is kumara",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context injected for term='Kumara'",
+    ),
+    # ── Explicit Wikipedia Control (#1074) ─────────────────────────────────
+    # Explicit Wikipedia requests must still reach query_wikipedia.
     LLMToolsTestCase(
         name="query_wikipedia_natural",
         message="Look up the history of the Battle of Hastings on Wikipedia for me",
