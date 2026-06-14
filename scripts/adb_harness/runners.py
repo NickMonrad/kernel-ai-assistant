@@ -333,6 +333,26 @@ def run_llm_tools(dry_run: bool = False) -> int:
                     f"log_contains: expected {tc.expect_log_contains!r} not found in logcat"
                 )
 
+        # #1074: Reply content assertion (applies to both tool and no-tool cases)
+        reply_terms_match = False
+        if tc.expected_reply_contains:
+            if reply_text:
+                reply_lower = reply_text.lower()
+                reply_terms_match = any(
+                    term.lower() in reply_lower
+                    for term in tc.expected_reply_contains
+                )
+                if not reply_terms_match:
+                    failures_list.append(
+                        f"reply_content: expected one of {tc.expected_reply_contains!r} "
+                        f"not found in reply ({reply_text[:120]!r})"
+                    )
+            else:
+                failures_list.append(
+                    f"reply_content: expected one of {tc.expected_reply_contains!r} "
+                    f"but no reply text was extracted"
+                )
+
         # Field checks (only when tools are called and fields are expected)
         if tc.expected_fields and actual_top_level:
             merged_data = {**native_data, **legacy_data}
@@ -397,6 +417,8 @@ def run_llm_tools(dry_run: bool = False) -> int:
             no_tool_call_requested=tc.expect_no_tool_call,
             log_contains_required=tc.expect_log_contains,
             log_contains_match=log_contains_match,
+            expected_reply_terms=tc.expected_reply_contains,
+            reply_terms_match=reply_terms_match,
         )
         results.append(result)
 

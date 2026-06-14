@@ -89,6 +89,9 @@ class LLMToolsTestCase:
     expect_no_tool_call: bool = False
     # When set, the accumulated logcat buffer must contain this substring. (#1074)
     expect_log_contains: str | None = None
+    # When set, the final assistant reply must contain at least one of these
+    # substrings (case-insensitive). Proves seeded context influenced the reply. (#1074)
+    expected_reply_contains: list[str] | None = None
 
 @dataclass
 class TestResult:
@@ -276,4 +279,6 @@ class LLMToolsResult:
     no_tool_call_requested: bool = False
     log_contains_required: str | None = None
     log_contains_match: bool = False
-
+    # Reply content assertion (#1074)
+    expected_reply_terms: list[str] | None = None
+    reply_terms_match: bool = False

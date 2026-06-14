@@ -1286,9 +1286,26 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `returns null for explicit wikipedia request`() {
+        fun `returns null for non-NZ query that mentions Wikipedia`() {
+            // This proves detectKnownNzTerm does not itself short-circuit on
+            // the word "Wikipedia" — Battle of Hastings is simply not an NZ term.
             val result = detectKnownNzTerm("look up the Battle of Hastings on Wikipedia", sampleEntries)
             assertNull(result)
+        }
+
+        @Test
+        fun `detects wharepaku even when Wikipedia is explicitly requested`() {
+            // detectKnownNzTerm does not understand Wikipedia intent — it only
+            // checks term presence. The Wikipedia bypass is handled by the caller
+            // (ChatViewModel) which checks extractExplicitWikipediaQuery first.
+            val result = detectKnownNzTerm("look up wharepaku on Wikipedia", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `detects taniwha even when Wikipedia is explicitly requested`() {
+            val result = detectKnownNzTerm("look up taniwha on Wikipedia", sampleEntries)
+            assertEquals("Taniwha", result?.term)
         }
 
         @Test

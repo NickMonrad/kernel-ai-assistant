@@ -571,6 +571,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
         expect_log_contains="Deterministic NZ context injected for term='Wharepaku'",
+        expected_reply_contains=["toilet", "restroom", "bathroom"],
     ),
     LLMToolsTestCase(
         name="nz_chocka_memory_first",
@@ -578,8 +579,8 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expected_top_level_tool="no_tool_call",
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
-        expect_no_tool_call=True,
         expect_log_contains="Deterministic NZ context injected for term='Chocka'",
+        expected_reply_contains=["full", "packed", "chock-a-block"],
     ),
     LLMToolsTestCase(
         name="nz_taniwha_memory_first",
@@ -587,8 +588,8 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expected_top_level_tool="no_tool_call",
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
-        expect_no_tool_call=True,
         expect_log_contains="Deterministic NZ context injected for term='Taniwha'",
+        expected_reply_contains=["guardian", "kaitiaki", "water", "waterway", "mythology"],
     ),
     LLMToolsTestCase(
         name="nz_kumara_memory_first",
@@ -598,6 +599,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
         expect_log_contains="Deterministic NZ context injected for term='Kumara'",
+        expected_reply_contains=["sweet potato", "hāngī", "hangi", "Sunday roast", "Māori"],
     ),
     # ── Explicit Wikipedia Control (#1074) ─────────────────────────────────
     # Explicit Wikipedia requests must still reach query_wikipedia.
@@ -606,6 +608,26 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         message="Look up the history of the Battle of Hastings on Wikipedia for me",
         expected_top_level_tool="query_wikipedia",
         expected_fields={"query": "Battle of Hastings"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
+    ),
+    LLMToolsTestCase(
+        name="explicit_wikipedia_with_wharepaku",
+        # Explicit Wikipedia request with a known NZ term must still call
+        # query_wikipedia, NOT be intercepted by NZ memory-first injection. (#1074)
+        message="look up wharepaku on Wikipedia",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "wharepaku"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
+    ),
+    LLMToolsTestCase(
+        name="explicit_wikipedia_with_taniwha",
+        message="look up taniwha on Wikipedia",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "taniwha"},
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expected_result_mode="direct_reply",
