@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.annotation.VisibleForTesting
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -296,6 +297,17 @@ class ModelDownloadManager @Inject constructor(
         return tierModel ?: KernelModel.GEMMA_4_E2B
     }
 
+    /**
+     * Permanently removes all WorkManager metadata (including completed records)
+     * for this model's worker. Used after manual delete to prevent stale SUCCEEDED
+     * records from reasserting downloaded state on app restart.
+     *
+     * Safe to call on any worker state — completed, cancelled, running, or absent.
+     */
+    fun pruneCompletedWork(model: KernelModel) {
+        workManager.cancelUniqueWork(model.workerTag)
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
@@ -358,9 +370,23 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.SUCCEEDED -> {
-                        val path = withContext(Dispatchers.IO) { model.localFile(context).absolutePath }
-                        Log.i(TAG, "Download succeeded: $path")
-                        DownloadState.Downloaded(localPath = path)
+                        // Stale WorkManager SUCCEEDED records from a previous session
+                        // can persist after the model file was manually deleted. Trust
+                        // the filesystem: only emit Downloaded when the file exists and
+                        // has content. Prune the stale work when the file is missing.
+                        val (localFile, filePresent) = withContext(Dispatchers.IO) {
+                            val f = model.localFile(context)
+                            f to (f.exists() && f.length() > 0)
+                        }
+                        if (filePresent) {
+                            val path = localFile.absolutePath
+                            Log.i(TAG, "Download succeeded: $path")
+                            DownloadState.Downloaded(localPath = path)
+                        } else {
+                            Log.w(TAG, "Stale succeeded worker but file missing — cancelling: ${model.displayName}")
+                            workManager.cancelUniqueWork(model.workerTag)
+                            DownloadState.NotDownloaded
+                        }
                     }
 
                     WorkInfo.State.FAILED -> {
@@ -410,6 +436,27 @@ class ModelDownloadManager @Inject constructor(
                 }
                 updateState(model, newState)
             }
+    }
+}
+
+/**
+ * Determines the [DownloadState] for a SUCCEEDED WorkManager worker by
+ * checking the filesystem. Returns [DownloadState.Downloaded] if the model
+ * file exists and has content, [DownloadState.NotDownloaded] otherwise.
+ *
+ * Package-visible for testing — prefer using [ModelDownloadManager]'s
+ * [observeWorkInfo] which also prunes stale completed workers.
+ */
+@VisibleForTesting
+internal suspend fun succeededWorkerDownloadState(
+    model: KernelModel,
+    context: Context,
+): DownloadState = withContext(Dispatchers.IO) {
+    val f = model.localFile(context)
+    if (f.exists() && f.length() > 0) {
+        DownloadState.Downloaded(localPath = f.absolutePath)
+    } else {
+        DownloadState.NotDownloaded
     }
 }
 
