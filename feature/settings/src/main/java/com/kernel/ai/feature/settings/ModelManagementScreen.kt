@@ -51,6 +51,7 @@ import com.kernel.ai.core.model.availability.ModelCard
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.model.availability.ActionReason
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,6 +128,7 @@ fun ModelManagementScreen(
                     model = rowState.model,
                     hfAuth = uiState.hfAuthenticated,
                     source = rowState.downloadSource,
+                    gated = rowState.gatedStatus,
                 )
                 val canDelete = availabilityState is ModelAvailabilityState.Ready &&
                     !rowState.model.isBundled &&
@@ -153,27 +155,28 @@ fun ModelManagementScreen(
                     title = rowState.model.displayName,
                     description = description,
                     state = availabilityState,
-                    showLock = rowState.model.isGated && rowState.downloadState is DownloadState.NotDownloaded,
+                    showLock = rowState.model.isGated && availabilityState !is ModelAvailabilityState.ActionRequired,
                     onPrimaryAction = {
-                        when (val state = rowState.downloadState) {
-                            is DownloadState.Downloading -> viewModel.cancelDownload(rowState.model)
-                            is DownloadState.Downloaded -> viewModel.updateModel(rowState.model)
-                            is DownloadState.NotDownloaded -> {
-                                if (!uiState.hfAuthenticated && rowState.model.isGated) {
-                                    viewModel.startAuth()
-                                } else {
-                                    viewModel.downloadModel(rowState.model)
-                                }
-                            }
-                            is DownloadState.Error -> {
-                                if (state.licenceRequired) {
+                        when (val avail = availabilityState) {
+                            is ModelAvailabilityState.ActionRequired -> when (avail.reason) {
+                                is ActionReason.SignInRequired -> viewModel.startAuth()
+                                is ActionReason.LicenseRequired ->
                                     rowState.model.licenceUrl?.let { url ->
-                                        CustomTabsIntent.Builder().build().launchUrl(context, url.toUri())
+                                        openInAppBrowser(context, url)
                                     }
-                                } else {
-                                    viewModel.downloadModel(rowState.model)
-                                }
+                                is ActionReason.DownloadFailed -> viewModel.downloadModel(rowState.model)
+                                is ActionReason.ApprovalPending -> { /* no action — label is null */ }
+                                is ActionReason.AccessApprovalRequired ->
+                                    rowState.model.licenceUrl?.let { url ->
+                                        openInAppBrowser(context, url)
+                                    }
+                                is ActionReason.InsufficientStorage -> { /* no direct action */ }
                             }
+                            is ModelAvailabilityState.Preparing -> {
+                                if (!avail.isAutoQueued) viewModel.cancelDownload(rowState.model)
+                            }
+                            is ModelAvailabilityState.Ready -> viewModel.updateModel(rowState.model)
+                            else -> viewModel.downloadModel(rowState.model)
                         }
                     },
                     onSecondaryAction = if (canDelete) {

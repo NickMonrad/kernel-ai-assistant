@@ -263,7 +263,7 @@ fun defaultActionLabel(state: ModelAvailabilityState): String? = when (state) {
     is ModelAvailabilityState.Preparing -> if (state.isAutoQueued) null else "Cancel"
     is ModelAvailabilityState.ActionRequired -> when (state.reason) {
         is ActionReason.SignInRequired -> "Sign in to HuggingFace"
-        is ActionReason.LicenseRequired -> "View license"
+        is ActionReason.LicenseRequired -> "Accept license"
         is ActionReason.ApprovalPending -> null
         is ActionReason.AccessApprovalRequired -> "Request access"
         is ActionReason.InsufficientStorage -> "Manage storage"
