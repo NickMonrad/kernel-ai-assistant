@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +53,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 
@@ -154,7 +155,11 @@ fun ToolsHubScreen(
     onOpenPrompt: (prompt: String) -> Unit = {},
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var learnSectionExpanded by rememberSaveable { mutableStateOf(true) }
+    val context = LocalContext.current
+    var learnSectionExpanded by remember {
+        val prefs = context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getBoolean("tools_learn_expanded", true))
+    }
 
     Scaffold(
         topBar = {
@@ -232,7 +237,13 @@ fun ToolsHubScreen(
                             )
                         }
                         IconButton(
-                            onClick = { learnSectionExpanded = false },
+                            onClick = {
+                                learnSectionExpanded = false
+                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("tools_learn_expanded", false)
+                                    .apply()
+                            },
                             modifier = Modifier.testTag("tools_learn_collapse"),
                         ) {
                             Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Collapse")
@@ -243,7 +254,13 @@ fun ToolsHubScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { learnSectionExpanded = true }
+                            .clickable {
+                                learnSectionExpanded = true
+                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("tools_learn_expanded", true)
+                                    .apply()
+                            }
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                             .testTag("tools_learn_collapsed"),
                         verticalAlignment = Alignment.CenterVertically,
@@ -411,6 +428,7 @@ fun ToolsHubScreen(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("tools_group_app_setup"),
                 )
                 ToolsListItem(
                     testTag = "tools_row_settings",
