@@ -101,6 +101,58 @@ class GenerateQualityScorecardTest(unittest.TestCase):
 
             self.assertEqual(exit_code, 2)
 
+    def test_empty_metrics_does_not_crash(self) -> None:
+        """Empty/partial metrics produces valid output with 0/TBD values."""
+        markdown = scorecard.build_scorecard({"metrics": {}})
+
+        self.assertIn("0 valid / 0 invalid", markdown)
+        self.assertIn("0 failure bucket(s)", markdown)
+        self.assertIn("0 stuck-mode suspect(s)", markdown)
+        self.assertIn("| Artifact paths available | 0 |", markdown)
+
+    def test_cli_rejects_non_existent_input_file(self) -> None:
+        """Non-existent input file returns exit code 2."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_path = Path(tmp) / "no_such_file.json"
+            exit_code = scorecard.main(["--input", str(fake_path)])
+            self.assertEqual(exit_code, 2)
+
+    def test_includes_action_rows(self) -> None:
+        """Follow-up action rows appear in generated output."""
+        data = {
+            "month": "2026-06",
+            "actions": [
+                {"action": "Add test coverage for edge cases", "category": "Test coverage", "why": "Found gap during review", "owner": "Agent", "target": "2026-07", "issue": "#1240"},
+                {"action": "Tune wake-word threshold", "category": "Product defect", "why": "FP reports", "owner": "Dev", "target": "2026-07", "issue": "#1241"},
+            ],
+        }
+        markdown = scorecard.build_scorecard(data)
+
+        self.assertIn("Add test coverage for edge cases", markdown)
+        self.assertIn("Test coverage", markdown)
+        self.assertIn("Tune wake-word threshold", markdown)
+        self.assertIn("Product defect", markdown)
+        self.assertIn("#1240", markdown)
+        self.assertIn("#1241", markdown)
+
+    def test_cli_month_override(self) -> None:
+        """CLI --month flag overrides month in output."""
+        data = {"month": "2026-05"}
+        with tempfile.TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.json"
+            input_path.write_text(json.dumps(data), encoding="utf-8")
+
+            exit_code = scorecard.main(["--input", str(input_path), "--month", "2026-12"])
+            self.assertEqual(exit_code, 0)
+            # Output to stdout — test won't capture it, so just verify no crash
+            # and that the function with month override works
+
+            # Also test with output file
+            output_path = Path(tmp) / "out.md"
+            exit_code2 = scorecard.main(["--input", str(input_path), "--month", "2026-12", "--output", str(output_path)])
+            self.assertEqual(exit_code2, 0)
+            self.assertIn("2026-12", output_path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
