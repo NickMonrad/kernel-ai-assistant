@@ -144,21 +144,6 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
-    // #1227 — STT mishearing for date-diff countdown queries.
-    // NZ/English STT commonly mishears:
-    //   "weeks" → "waits" (vowel merger in "weeks" ~ "waits")
-    //   "31st"  → "30 first" (ordinal split — "th" perceived as separate tokens)
-    // Scoped to the regex path only; applied before date-diff pattern matching.
-    private val WAITS_TO_WEEKS_RE = Regex(
-        """\bwaits\b""",
-        RegexOption.IGNORE_CASE,
-    )
-    // Ordinal split: "30 first of" → increment the number and add "st" suffix.
-    // Common STT artifact for "thirty-first" → "30 first" etc.
-    private val ORDINAL_SPLIT_RE = Regex(
-        """\b(\d+)\s+first\b""",
-        RegexOption.IGNORE_CASE,
-    )
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
@@ -3220,7 +3205,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
+                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|waits?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
@@ -3238,7 +3223,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
+                """(?:days?|weeks?|waits?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
@@ -4364,22 +4349,13 @@ class QuickIntentRouter(
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
         val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
 
-        // #1227 — STT mishearing for date-diff countdown queries.
-        //   "weeks" → "waits" (vowel merger)
-        //   "31st"  → "30 first" (ordinal split)
-        // Scoped to regex path only; classifier/FallThrough still see the original.
-        val dateDiffFixed = WAITS_TO_WEEKS_RE.replace(listTailFixed, "weeks")
-            .replace(ORDINAL_SPLIT_RE) { match ->
-                val num = match.groupValues[1].toIntOrNull()
-                if (num != null) "${num + 1}st" else match.value
-            }
 
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
         // the alias normalisation above) so they reach the deterministic cooking-conversion path.
         // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
         // transcribes spoken fractions as glyphs.
         val fractionNormalized = normalizeNumericCookingFractions(
-            normalizeWrittenCookingFractions(dateDiffFixed),
+            normalizeWrittenCookingFractions(listTailFixed),
         )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
@@ -4424,9 +4400,13 @@ class QuickIntentRouter(
         return RouteResult.FallThrough(input = trimmed)
     }
 
-    /** Strip leading "the " from a target_date string captured by date-diff patterns. */
-    private fun cleanTargetDate(raw: String): String =
-        raw.trim().replace(Regex("^the\\s+", RegexOption.IGNORE_CASE), "").trim()
+    /** Strip leading "the " and fix STT ordinal split in target_date string captured by date-diff patterns. */
+    private fun cleanTargetDate(raw: String): String {
+        val stripped = raw.trim().replace(Regex("^the\\s+", RegexOption.IGNORE_CASE), "").trim()
+        // #1227 — STT mishearing: "30 first" → "31st" (thirty-first split into "30 first").
+        // Only correct the specific observed artifact; general ordinal handling is not needed.
+        return stripped.replace(Regex("""\b30\s+first\b""", RegexOption.IGNORE_CASE), "31st")
+    }
 
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 

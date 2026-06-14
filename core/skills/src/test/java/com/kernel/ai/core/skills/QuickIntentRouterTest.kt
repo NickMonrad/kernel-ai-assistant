@@ -932,6 +932,32 @@ class QuickIntentRouterTest {
         )
     }
 
+    @Test
+    fun `non date input containing waits is not mutated by date diff stt normalisation`() {
+        // "waits" in a non-date context must not trigger date-diff matching.
+        assertFallThrough(
+            regexOnlyRouter.route("how many times should I wait"),
+            "how many times should I wait",
+        )
+    }
+
+    @Test
+    fun `non date input containing ordinal split is not mutated by date diff stt normalisation`() {
+        // "first" in a non-date ordinal context must not trigger date-diff matching.
+        assertFallThrough(
+            regexOnlyRouter.route("I came first in the race"),
+            "I came first in the race",
+        )
+    }
+
+    @Test
+    fun `non date input with waiter related phrase is not mutated`() {
+        assertFallThrough(
+            regexOnlyRouter.route("how long is the wait for a table"),
+            "how long is the wait for a table",
+        )
+    }
+
     @Nested
     @DisplayName("Calculator")
     inner class Calculator {
