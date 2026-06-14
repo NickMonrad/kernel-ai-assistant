@@ -11,6 +11,8 @@ data class UserProfileYaml(
     val environment: List<String> = emptyList(),
     val context: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
+    /** Miscellaneous profile facts not captured by other fields. */
+    val facts: List<String> = emptyList(),
 ) {
     /** Render as compact YAML block for system prompt injection. */
     fun toYaml(): String = buildString {
@@ -20,6 +22,10 @@ data class UserProfileYaml(
         if (environment.isNotEmpty()) {
             appendLine("environment:")
             environment.forEach { appendLine("  - $it") }
+        }
+        if (facts.isNotEmpty()) {
+            appendLine("facts:")
+            facts.forEach { appendLine("  - $it") }
         }
         if (context.isNotEmpty()) {
             appendLine("context:")
@@ -32,7 +38,8 @@ data class UserProfileYaml(
     }.trimEnd()
 
     fun isEmpty(): Boolean =
-        name == null && role == null && location == null && environment.isEmpty() && context.isEmpty() && rules.isEmpty()
+        name == null && role == null && location == null &&
+            environment.isEmpty() && context.isEmpty() && rules.isEmpty() && facts.isEmpty()
 
     fun toJson(): String = buildString {
         append("{")
@@ -41,6 +48,7 @@ data class UserProfileYaml(
         role?.let { parts.add("\"role\":\"${it.escapeJson()}\"") }
         location?.let { parts.add("\"location\":\"${it.escapeJson()}\"") }
         if (environment.isNotEmpty()) parts.add("\"environment\":[${environment.joinToString(",") { "\"${it.escapeJson()}\"" }}]")
+        if (facts.isNotEmpty()) parts.add("\"facts\":[${facts.joinToString(",") { "\"${it.escapeJson()}\"" }}]")
         if (context.isNotEmpty()) parts.add("\"context\":[${context.joinToString(",") { "\"${it.escapeJson()}\"" }}]")
         if (rules.isNotEmpty()) parts.add("\"rules\":[${rules.joinToString(",") { "\"${it.escapeJson()}\"" }}]")
         append(parts.joinToString(","))
@@ -61,6 +69,9 @@ data class UserProfileYaml(
                     (0 until arr.length()).map { arr.getString(it) }
                 } ?: emptyList(),
                 rules = obj.optJSONArray("rules")?.let { arr ->
+                    (0 until arr.length()).map { arr.getString(it) }
+                } ?: emptyList(),
+                facts = obj.optJSONArray("facts")?.let { arr ->
                     (0 until arr.length()).map { arr.getString(it) }
                 } ?: emptyList(),
             )

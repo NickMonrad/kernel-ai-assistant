@@ -15,6 +15,7 @@ package com.kernel.ai.core.memory.profile
  * - Smart Home: "I use Home Assistant", "My smart home", "I have smart lights"
  * - AI Tools: "I use Copilot", "I prefer local models", "Prioritize local-first"
  * - Rules: "I prefer X", "I like X", "always X", "never X", "don't X", "Prioritize X", "When providing X"
+ * - Facts: Miscellaneous useful facts stored as generic key-value facts
  * - Context: Sentences that don't match the above but contain useful info
  */
 object UserProfileParser {
@@ -39,17 +40,21 @@ object UserProfileParser {
 
     private val ROLE_PATTERNS = listOf(
         Regex("""(?i)\b(?:i'm an?|i am an?|i work as an?|role:\s*)\s+(.+?)(?:\.|$)"""),
+        // "I'm NAME, a ROLE" or "I'm NAME, an ROLE" — name already extracted by name pass
+        Regex("""(?i)\b(?:i'm|i am)\s+[A-Z][a-zA-Z]+,\s+(?:an?\s+)?(.+?)(?:\.|$)"""),
     )
+
+    /** Regex that matches trailing employer/org context like "for X", "at X" after a role title. */
+    private val ROLE_TRAILING_PATTERN = Regex("""(?i)\s*(?:,\s*)?(?:for|at)\s+.+$""")
 
     private val ROLE_KEYWORDS = setOf(
         "developer", "engineer", "designer", "manager", "analyst", "architect",
         "consultant", "student", "researcher", "programmer", "admin", "devops",
-        "writer", "teacher", "professional", "specialist",
+        "writer", "teacher", "professional", "specialist", "nurse",
         // Common abbreviations and additional titles
         "technologist", "dev", "eng", "cto", "ceo", "vp", "pm", "tpm", "sre", "qa",
         "director", "lead", "principal", "founder", "freelancer", "contractor",
     )
-
     private val ENVIRONMENT_PATTERNS = listOf(
         Regex("""(?i)\b(?:i use|i have|i run|i'm (?:on|using)|running|device:\s*)\s+(.+?)(?:\.|$)"""),
         // Section-header style: "Systems: X", "Hardware: X", "Network: X", "Homelab: X", "Local AI: X"
@@ -58,6 +63,8 @@ object UserProfileParser {
 
     private val RULE_PATTERNS = listOf(
         Regex("""(?i)\b(?:i prefer|i like|i want|always|never|don'?t|do not|please)\s+(.+?)(?:\.|$)"""),
+        // Standalone "prefer X" (without "I") as a preference statement
+        Regex("""(?i)\bprefer\s+(.+?)(?:\.|$)"""),
         Regex("""(?i)\b(?:prioritize|when providing|when asked about|default to|assume)\s+(.+?)(?:\.|$)"""),
         // Imperative commands: "Set my X to Y", "Use X for Y"
         Regex("""(?i)^(?:set my|keep .+ (?:as|at|on)|use .+ for)\s+(.+?)(?:\.|$)"""),
@@ -92,8 +99,9 @@ object UserProfileParser {
         val environment = mutableListOf<String>()
         val context = mutableListOf<String>()
         val rules = mutableListOf<String>()
+        val facts = mutableListOf<String>()
 
-        // Split into sentences
+        // Split into sentences by period, exclamation, question mark, or newline
         val sentences = freeText.split(Regex("""(?<=[.!?])\s+|\n+"""))
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -101,19 +109,23 @@ object UserProfileParser {
         val consumed = mutableSetOf<Int>()
 
         // Pass 1: Extract name
+        // Do NOT consume the sentence if it contains role keywords — role pass still needs it.
         for ((i, sentence) in sentences.withIndex()) {
             if (name != null) break
             for (pattern in NAME_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
                     name = match.groupValues[1].trim()
-                    consumed.add(i)
+                    val lower = sentence.lowercase()
+                    if (!ROLE_KEYWORDS.any { lower.contains(it) }) {
+                        consumed.add(i)
+                    }
                     break
                 }
             }
         }
 
-        // Pass 1b: Extract location (don't consume sentence if it also contains role info)
+        // Pass 1b: Extract location
         for ((i, sentence) in sentences.withIndex()) {
             if (i in consumed) continue
             if (location != null) break
@@ -135,15 +147,30 @@ object UserProfileParser {
         for ((i, sentence) in sentences.withIndex()) {
             if (i in consumed) continue
             if (role != null) break
-            // Check if sentence mentions a role keyword
             val lowerSentence = sentence.lowercase()
             val hasRoleKeyword = ROLE_KEYWORDS.any { lowerSentence.contains(it) }
             if (hasRoleKeyword) {
                 for (pattern in ROLE_PATTERNS) {
                     val match = pattern.find(sentence)
                     if (match != null) {
-                        role = match.groupValues[1].trim().removeSuffix(".")
-                            .replace(Regex("""(?i)\s*(?:,\s*)?(?:based|located) in\s+.+$"""), "").trim()
+                        var rawRole = match.groupValues[1].trim().removeSuffix(".")
+                        // Strip trailing "based in X" / "located in X"
+                        rawRole = rawRole.replace(Regex("""(?i)\s*(?:,\s*)?(?:based|located) in\s+.+$"""), "").trim()
+                        // Capture trailing "for X", "at X", "of X", "with X" as relationship facts
+                        val trailingMatch = ROLE_TRAILING_PATTERN.find(rawRole)
+                        val cleanRole: String
+                        if (trailingMatch != null) {
+                            cleanRole = rawRole.substring(0, trailingMatch.range.first).trim()
+                            facts.add(rawRole.substring(trailingMatch.range.first).trim())
+                        } else {
+                            cleanRole = rawRole
+                        }
+                        if (cleanRole.isNotBlank() && ROLE_KEYWORDS.any { cleanRole.lowercase().contains(it) }) {
+                            role = cleanRole
+                        } else if (rawRole.isNotBlank()) {
+                            // Role pattern matched but no keyword in cleaned role — store as fact
+                            facts.add(rawRole)
+                        }
                         consumed.add(i)
                         break
                     }
@@ -156,7 +183,6 @@ object UserProfileParser {
             if (i in consumed) continue
             var matched = false
 
-            // Try AI patterns first (add to rules)
             for (pattern in AI_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -168,7 +194,6 @@ object UserProfileParser {
             }
             if (matched) continue
 
-            // Try rule patterns
             for (pattern in RULE_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -180,7 +205,6 @@ object UserProfileParser {
             }
             if (matched) continue
 
-            // Try hobby patterns (add to context)
             for (pattern in HOBBY_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -192,7 +216,6 @@ object UserProfileParser {
             }
             if (matched) continue
 
-            // Try smart home patterns (add to environment)
             for (pattern in SMART_HOME_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -204,7 +227,6 @@ object UserProfileParser {
             }
             if (matched) continue
 
-            // Try environment patterns
             for (pattern in ENVIRONMENT_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -217,11 +239,13 @@ object UserProfileParser {
             if (matched) continue
         }
 
-        // Pass 4: Everything else goes to context
+        // Pass 4: Everything else goes to context or facts
         for ((i, sentence) in sentences.withIndex()) {
             if (i in consumed) continue
             if (sentence.length > 5) {
-                context.add(sentence.trim().removeSuffix("."))
+                val trimmed = sentence.trim().removeSuffix(".")
+                // Extract as fact if it reads like a factual statement
+                facts.add(trimmed)
             }
         }
 
@@ -232,6 +256,7 @@ object UserProfileParser {
             environment = environment.take(25),
             context = context.take(25),
             rules = rules.take(25),
+            facts = facts.take(25),
         )
     }
 }
