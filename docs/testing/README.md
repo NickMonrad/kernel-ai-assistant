@@ -20,6 +20,7 @@ retained for reference but may contain stale assumptions.
 |----------|--------|-------------|
 | [`automated-test-specification.md`](./automated-test-specification.md) | **Design / Draft** (#427) | Comprehensive test coverage matrix with proposed ADB, UI Automator, and manual tests. Many items predate the current harness structure. |
 | [`nl-test-specification.md`](./nl-test-specification.md) | **Design / Living** | Implementation-agnostic natural-language test cases written without knowledge of regex patterns or routing internals. |
+| [`harness-metrics-dashboard-design.md`](./harness-metrics-dashboard-design.md) | **Dashboard integration complete** (#1224, #1237) | Metrics summariser + dashboard cards for evidence validity, failure buckets, device context, stuck-mode, and artifact links. |
 
 ## Historical audits
 

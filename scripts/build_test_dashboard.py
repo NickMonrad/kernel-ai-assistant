@@ -18,6 +18,16 @@ import re
 import sys
 from pathlib import Path
 
+# Try to import the metrics summariser (optional — dashboard works without it)
+try:
+    from summarise_test_evidence_metrics import (  # type: ignore[import-untyped]
+        summarise,
+        discover_evidence,
+    )
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -487,12 +497,22 @@ def _build_aggregates(evidence: list[dict]) -> dict:
             "has_unscoped": any(str(row["scope_type"]) == "unscoped" for row in suite_breakdown),
         })
 
+    # Compute metrics via the optional summariser module
+    metrics: dict | None = None
+    if _METRICS_AVAILABLE and evidence:
+        metrics_records = [
+            (Path(r.get("_source_relpath", "unknown.json")), r, [])
+            for r in evidence
+        ]
+        metrics = summarise(metrics_records)
+
     return {
         "latest_by_source": latest_by_source,
         "history": sorted(evidence, key=lambda r: r.get("timestamp", ""), reverse=True),
         "prs": prs_data,
         "releases": releases_data,
         "devices": devices_data,
+        "metrics": metrics,
     }
 
 
@@ -629,6 +649,153 @@ def _page(title: str, body: str, extra_head: str = "") -> str:
 </html>"""
 
 
+
+
+def _render_metrics_section(data: dict) -> str:
+    """Render a compact reviewer-focused metrics section for the overview."""
+    metrics = data.get("metrics")
+    if not metrics or not isinstance(metrics, dict):
+        return ""
+
+    validity = metrics.get("validity", {})
+    valid_count = _safe_int(validity.get("valid_records"))
+    invalid_count = _safe_int(validity.get("invalid_records"))
+    has_invalid = invalid_count > 0
+    issue_buckets = validity.get("issue_buckets", {})
+
+    # ── Validity card ──
+    if has_invalid:
+        validity_html = f"""<div class="card">
+  <div class="label">Evidence Validity</div>
+  <div class="value fail">{valid_count} valid / {invalid_count} invalid</div>
+  <div class="meta">
+    <span class="badge warn">ISSUES</span>
+  </div>
+</div>"""
+    elif valid_count > 0:
+        validity_html = f"""<div class="card">
+  <div class="label">Evidence Validity</div>
+  <div class="value pass">{valid_count} valid / 0 invalid</div>
+</div>"""
+    else:
+        validity_html = ""
+
+    # ── Failure buckets card ──
+    fb = metrics.get("failure_buckets", {})
+    if fb:
+        fb_rows = "".join(
+            f"<tr><td>{cat}</td><td>{cnt}</td></tr>\n"
+            for cat, cnt in fb.items()
+        )
+        failure_html = f"""<div class="card">
+  <div class="label">Failure Buckets</div>
+  <table>
+  <thead><tr><th>Category</th><th>Count</th></tr></thead>
+  <tbody>{fb_rows}</tbody>
+  </table>
+</div>"""
+    else:
+        failure_html = f"""<div class="card">
+  <div class="label">Failure Buckets</div>
+  <div class="value pass">No failures</div>
+</div>"""
+
+    # ── Device context card ──
+    by_device = metrics.get("by_device", {})
+    if by_device:
+        dev_rows = "".join(
+            f"<tr>"
+            f"<td><code>{did}</code></td>"
+            f"<td>{d.get('label') or '—'}</td>"
+            f"<td>{d.get('tier') or '—'}</td>"
+            f"<td>{d.get('android_api') or '—'}</td>"
+            f"<td>{d.get('source') or '—'}</td>"
+            f"<td>{d.get('passed', 0)}/{d.get('total', 0)}</td>"
+            f"</tr>\n"
+            for did, d in sorted(by_device.items())
+        )
+        device_html = f"""<div class="card">
+  <div class="label">Device Context</div>
+  <table>
+  <thead><tr><th>Device</th><th>Label</th><th>Tier</th><th>API</th><th>Source</th><th>Pass/Fail</th></tr></thead>
+  <tbody>{dev_rows}</tbody>
+  </table>
+</div>"""
+    else:
+        device_html = ""
+
+    # ── Stuck-mode warning ──
+    stuck_html = ""
+    stuck_mode = metrics.get("stuck_mode", [])
+    if stuck_mode:
+        stuck_items = "".join(
+            f"<li>Actual tool <code>{item['actual_tool']}</code> appeared for "
+            f"{item['expected_tool_count']} different expected tools "
+            f"({', '.join(f'<code>{e}</code>' for e in item['different_expected_tools'])})</li>\n"
+            for item in stuck_mode
+        )
+        stuck_html = f"""<div class="warning-panel">
+  <strong>⚠️ Stuck-mode / cascade suspects</strong>
+  <p style="margin-top:6px;font-size:0.88rem">
+    The same wrong actual tool was observed across multiple different expected tools.
+    This may indicate the model is stuck on a particular tool or intent.
+    This is a suspect signal, not a definitive diagnosis.</p>
+  <ul style="margin:8px 0 0 20px;font-size:0.85rem">{stuck_items}</ul>
+</div>"""
+
+    # ── Artifact links ──
+    artifacts = metrics.get("artifacts", [])
+    if artifacts:
+        art_rows = "".join(
+            f"<tr>"
+            f"<td>{a.get('suite') or '—'}</td>"
+            f"<td>{a.get('device_id') or '—'}</td>"
+            f"<td>{a.get('case') or '—'}</td>"
+            f"<td><code>{a.get('field')}</code></td>"
+            f"<td><code>{a.get('path')}</code></td>"
+            f"</tr>\n"
+            for a in artifacts[:20]
+        )
+        art_note = ""
+        if len(artifacts) > 20:
+            art_note = f'<div class="table-note">Showing first 20 of {len(artifacts)} artifacts</div>'
+        artifact_html = f"""<div class="card">
+  <div class="label">Artifacts</div>
+  <table>
+  <thead><tr><th>Suite</th><th>Device</th><th>Case</th><th>Type</th><th>Path</th></tr></thead>
+  <tbody>{art_rows}</tbody>
+  </table>
+  {art_note}
+</div>"""
+    else:
+        artifact_html = ""
+
+    # ── Validity issue buckets (if invalid evidence exists) ──
+    issue_rows = ""
+    if has_invalid and issue_buckets:
+        issue_rows = "".join(
+            f"<tr><td><code>{issue}</code></td><td>{cnt}</td></tr>\n"
+            for issue, cnt in sorted(issue_buckets.items())
+        )
+        issue_rows = f"""<div class="card">
+  <div class="label">Validity Issue Buckets</div>
+  <table>
+  <thead><tr><th>Issue</th><th>Count</th></tr></thead>
+  <tbody>{issue_rows}</tbody>
+  </table>
+</div>"""
+
+    cards = "".join(filter(None, [validity_html, issue_rows, failure_html, stuck_html]))
+    device_artifacts = "".join(filter(None, [device_html, artifact_html]))
+
+    body = f"""<div class="section">
+<h2>Reviewer Metrics</h2>
+<div class="summary-grid">{cards}</div>
+{device_artifacts}
+</div>"""
+    return body
+
+
 def _render_overview(data: dict) -> str:
     # Latest cards
     latest = data["latest_by_source"]
@@ -704,10 +871,14 @@ def _render_overview(data: dict) -> str:
     if not dev_rows:
         dev_rows = '<tr><td colspan="5" class="empty">No device evidence yet</td></tr>'
 
+    metrics_section = _render_metrics_section(data)
+
     body = f"""<h1>Test Evidence Dashboard</h1>
 
 <h2>Latest Results</h2>
 <div class="summary-grid">{cards}</div>
+
+{metrics_section}
 
 <div class="section">
 <h2>Recent Pull Requests</h2>
@@ -1015,6 +1186,11 @@ def _build_releases_json(aggregates: dict) -> list[dict]:
     return aggregates["releases"]
 
 
+def _build_metrics_json(aggregates: dict) -> dict | None:
+    """Build ``metrics.json`` — evidence metrics summary block."""
+    return aggregates.get("metrics")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1094,6 +1270,7 @@ def main() -> None:
         print(f"  {name} — {len(content)} bytes")
 
     # Write JSON data files
+    metrics_data = _build_metrics_json(aggregates)
     json_data: dict[str, object] = {
         "latest.json": _build_latest_json(aggregates),
         "history.json": _build_history_json(aggregates),
@@ -1101,10 +1278,9 @@ def main() -> None:
         "devices.json": _build_devices_json(aggregates),
         "releases.json": _build_releases_json(aggregates),
     }
+    if metrics_data is not None:
+        json_data["metrics.json"] = metrics_data
     for name, obj in json_data.items():
-        path = data_dir / name
-        blob = json.dumps(obj, indent=2, default=str)
-        path.write_text(blob)
         print(f"  data/{name} — {len(blob)} bytes")
 
     print(f"\nDashboard built in {out_dir.resolve()}")
