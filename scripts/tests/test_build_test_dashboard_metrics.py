@@ -9,15 +9,16 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-
 HERE = Path(__file__).resolve().parent
 SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from build_test_dashboard import (
     _build_aggregates,
+    _build_json_data,
     _build_metrics_json,
     _METRICS_AVAILABLE,
     _render_metrics_section,
@@ -232,6 +233,152 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
         # HTML should show the artifact table
         html = _render_metrics_section(agg)
         self.assertIn("screenshots/fail_case.png", html)
+
+    # ------------------------------------------------------------------ #
+    # Full dashboard build path tests
+    # ------------------------------------------------------------------ #
+
+    def test_full_dashboard_build_writes_all_json_files(self) -> None:
+        """Full dashboard build writes all expected JSON data files."""
+        import summarise_test_evidence_metrics as metrics_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results_dir = Path(tmp) / "results"
+            out_dir = Path(tmp) / "out"
+            results_dir.mkdir()
+
+            # Write one valid evidence file
+            (results_dir / "evidence.json").write_text(json.dumps(_make_record()))
+
+            # Simulate main()'s build path
+            from build_test_dashboard import _discover_results, _write_json_files
+
+            evidence_list = _discover_results(results_dir)
+
+            metrics: dict | None = None
+            if _METRICS_AVAILABLE:
+                raw = metrics_mod.discover_evidence(results_dir)
+                metrics = metrics_mod.summarise(raw) if raw else None
+
+            aggregates = _build_aggregates(evidence_list, metrics=metrics)
+            json_data = _build_json_data(aggregates)
+
+            data_dir = out_dir / "data"
+            data_dir.mkdir(parents=True)
+            _write_json_files(json_data, data_dir)
+
+            expected = ["latest.json", "history.json", "prs.json",
+                        "devices.json", "releases.json", "metrics.json"]
+            for name in expected:
+                self.assertTrue((data_dir / name).exists(), f"Missing {name}")
+                parsed = json.loads((data_dir / name).read_text())
+                self.assertIsNotNone(parsed, f"{name} is null/empty")
+
+    def test_metrics_json_in_build_json_data(self) -> None:
+        """_build_json_data includes metrics.json when metrics block present."""
+        rec = _make_record()
+        aggregates = _build_aggregates([rec])
+        json_data = _build_json_data(aggregates)
+        self.assertIn("metrics.json", json_data)
+        self.assertIsInstance(json_data["metrics.json"], dict)
+        self.assertIn("validity", json_data["metrics.json"])  # type: ignore[operator]
+
+    def test_malformed_evidence_invalid_records(self) -> None:
+        """Malformed evidence file appears in metrics.validity.invalid_records."""
+        import summarise_test_evidence_metrics as metrics_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results_dir = Path(tmp)
+            (results_dir / "valid.json").write_text(json.dumps(_make_record()))
+            # Missing required fields
+            (results_dir / "invalid.json").write_text(json.dumps({"source": "ci"}))
+
+            raw = metrics_mod.discover_evidence(results_dir)
+            summary = metrics_mod.summarise(raw)
+
+            self.assertGreaterEqual(summary["validity"]["invalid_records"], 1)
+            self.assertEqual(summary["validity"]["valid_records"], 1)
+
+    def test_malformed_evidence_issue_buckets(self) -> None:
+        """Malformed evidence file contributes to validity issue_buckets."""
+        import summarise_test_evidence_metrics as metrics_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results_dir = Path(tmp)
+            (results_dir / "invalid.json").write_text(json.dumps({"source": "ci"}))
+
+            raw = metrics_mod.discover_evidence(results_dir)
+            summary = metrics_mod.summarise(raw)
+
+            self.assertIn("issue_buckets", summary["validity"])
+            self.assertGreater(len(summary["validity"]["issue_buckets"]), 0)
+            # Should include missing-field issues
+            all_issues = " ".join(summary["validity"]["issue_buckets"].keys())
+            self.assertIn("missing:", all_issues)
+
+    def test_valid_and_invalid_evidence_tolerance(self) -> None:
+        """Dashboard generation succeeds with one valid + one invalid evidence file."""
+        import summarise_test_evidence_metrics as metrics_mod
+        from build_test_dashboard import _discover_results, _write_json_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results_dir = Path(tmp) / "results"
+            out_dir = Path(tmp) / "out"
+            results_dir.mkdir()
+            data_dir = out_dir / "data"
+            data_dir.mkdir(parents=True)
+
+            (results_dir / "valid.json").write_text(json.dumps(_make_record()))
+            (results_dir / "invalid.json").write_text(json.dumps({"not": "evidence"}))
+
+            evidence_list = _discover_results(results_dir)
+            raw = metrics_mod.discover_evidence(results_dir)
+            metrics = metrics_mod.summarise(raw) if raw else None
+            aggregates = _build_aggregates(evidence_list, metrics=metrics)
+            json_data = _build_json_data(aggregates)
+            _write_json_files(json_data, data_dir)
+
+            # metrics.json should show invalid evidence
+            metrics_json = json.loads((data_dir / "metrics.json").read_text())
+            self.assertGreaterEqual(metrics_json["validity"]["invalid_records"], 1)
+
+            # Other JSON files should load without crashing
+            for name in ("prs.json", "devices.json", "releases.json"):
+                data = json.loads((data_dir / name).read_text())
+                self.assertIsInstance(data, (list, dict))
+
+    def test_invalid_evidence_does_not_crash_dashboard(self) -> None:
+        """Dashboard generation handles all-invalid evidence gracefully."""
+        import summarise_test_evidence_metrics as metrics_mod
+        from build_test_dashboard import _discover_results, _write_json_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results_dir = Path(tmp) / "results"
+            out_dir = Path(tmp) / "out"
+            results_dir.mkdir()
+            data_dir = out_dir / "data"
+            data_dir.mkdir(parents=True)
+
+            # Only invalid files
+            (results_dir / "bad.json").write_text("not json at all")
+            (results_dir / "empty_obj.json").write_text("{}")
+
+            evidence_list = _discover_results(results_dir)
+            raw = metrics_mod.discover_evidence(results_dir)
+            metrics = metrics_mod.summarise(raw) if raw else None
+            aggregates = _build_aggregates(evidence_list, metrics=metrics)
+            json_data = _build_json_data(aggregates)
+            _write_json_files(json_data, data_dir)
+
+            # metrics.json reports invalid records
+            metrics_json = json.loads((data_dir / "metrics.json").read_text())
+            self.assertGreaterEqual(metrics_json["validity"]["invalid_records"], 1)
+
+            # Other JSON files should still be valid
+            for name in ("latest.json", "history.json", "prs.json",
+                        "devices.json", "releases.json"):
+                data = json.loads((data_dir / name).read_text())
+                self.assertIsNotNone(data)
 
 
 if __name__ == "__main__":

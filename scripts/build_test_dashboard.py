@@ -249,7 +249,7 @@ def _source_links(results_url_base: str, latest_relpath: str, all_relpaths: list
 # Data aggregation
 # ---------------------------------------------------------------------------
 
-def _build_aggregates(evidence: list[dict]) -> dict:
+def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict:
     """Build aggregated data structures from flat evidence list."""
     # Latest per source
     latest_by_source: dict[str, dict | None] = {"ci": None, "on_device": None}
@@ -498,8 +498,9 @@ def _build_aggregates(evidence: list[dict]) -> dict:
         })
 
     # Compute metrics via the optional summariser module
-    metrics: dict | None = None
-    if _METRICS_AVAILABLE and evidence:
+    # (only when not already provided — caller may pass metrics that include
+    #  invalid evidence from discover_evidence())
+    if metrics is None and _METRICS_AVAILABLE and evidence:
         metrics_records = [
             (Path(r.get("_source_relpath", "unknown.json")), r, [])
             for r in evidence
@@ -1191,6 +1192,30 @@ def _build_metrics_json(aggregates: dict) -> dict | None:
     return aggregates.get("metrics")
 
 
+def _build_json_data(aggregates: dict) -> dict[str, object]:
+    """Build all JSON data dicts from aggregates for export."""
+    metrics_data = _build_metrics_json(aggregates)
+    json_data: dict[str, object] = {
+        "latest.json": _build_latest_json(aggregates),
+        "history.json": _build_history_json(aggregates),
+        "prs.json": _build_prs_json(aggregates),
+        "devices.json": _build_devices_json(aggregates),
+        "releases.json": _build_releases_json(aggregates),
+    }
+    if metrics_data is not None:
+        json_data["metrics.json"] = metrics_data
+    return json_data
+
+
+def _write_json_files(json_data: dict[str, object], data_dir: Path) -> None:
+    """Write JSON data dicts to individual files in `data_dir`."""
+    for name, obj in json_data.items():
+        path = data_dir / name
+        blob = json.dumps(obj, indent=2, default=str)
+        path.write_text(blob)
+        print(f"  data/{name} — {len(blob)} bytes")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1237,6 +1262,20 @@ def main() -> None:
     evidence = _discover_results(results_dir)
     print(f"Loaded {len(evidence)} evidence record(s)")
 
+    # Compute metrics via discover_evidence (preserves invalid/malformed records
+    # for validity reporting — unlike _discover_results which filters them out)
+    metrics: dict | None = None
+    if _METRICS_AVAILABLE:
+        metrics_records = discover_evidence(results_dir)
+        if metrics_records:
+            metrics = summarise(metrics_records)
+            valid = metrics.get("validity", {}).get("valid_records", 0)
+            invalid = metrics.get("validity", {}).get("invalid_records", 0)
+            if invalid:
+                print(f"Metrics: {valid} valid / {invalid} invalid record(s)")
+            else:
+                print(f"Metrics: {valid} valid record(s)")
+
     # Derive results URL base for source file links
     if args.results_url:
         results_url_base = args.results_url.rstrip("/")
@@ -1246,8 +1285,7 @@ def main() -> None:
     else:
         results_url_base = ""
 
-    # Aggregate
-    aggregates = _build_aggregates(evidence)
+    aggregates = _build_aggregates(evidence, metrics=metrics)
     aggregates["results_url_base"] = results_url_base
     print(
         f"  {len(aggregates['prs'])} PR(s), "
@@ -1270,18 +1308,8 @@ def main() -> None:
         print(f"  {name} — {len(content)} bytes")
 
     # Write JSON data files
-    metrics_data = _build_metrics_json(aggregates)
-    json_data: dict[str, object] = {
-        "latest.json": _build_latest_json(aggregates),
-        "history.json": _build_history_json(aggregates),
-        "prs.json": _build_prs_json(aggregates),
-        "devices.json": _build_devices_json(aggregates),
-        "releases.json": _build_releases_json(aggregates),
-    }
-    if metrics_data is not None:
-        json_data["metrics.json"] = metrics_data
-    for name, obj in json_data.items():
-        print(f"  data/{name} — {len(blob)} bytes")
+    json_data = _build_json_data(aggregates)
+    _write_json_files(json_data, data_dir)
 
     print(f"\nDashboard built in {out_dir.resolve()}")
 
