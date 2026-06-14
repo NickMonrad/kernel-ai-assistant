@@ -3223,7 +3223,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """(?:days?|weeks?|waits?)\s+(?:until|till|to)\s+(.+)""",
+                """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }

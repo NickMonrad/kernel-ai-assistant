@@ -958,6 +958,33 @@ class QuickIntentRouterTest {
         )
     }
 
+    @Test
+    fun `date diff how many waits mishearing still routes to get_date_diff`() {
+        // "how many waits until ..." must still route to get_date_diff via pattern 1.
+        val result = regexOnlyRouter.route("how many waits until the 30 first of october")
+        assertRegexMatch(result, "get_date_diff", "how many waits until the 30 first of october")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("31st of october", intent.params["target_date"])
+    }
+
+    @Test
+    fun `wait until without how many prefix does not route to date diff`() {
+        // bare "wait until 7am" must NOT route to get_date_diff — it's a wait command.
+        assertFallThrough(
+            regexOnlyRouter.route("wait until 7am"),
+            "wait until 7am",
+        )
+    }
+
+    @Test
+    fun `don't wait until does not route to date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("don't wait until Friday"),
+            "don't wait until Friday",
+        )
+    }
+
     @Nested
     @DisplayName("Calculator")
     inner class Calculator {
@@ -3206,6 +3233,7 @@ class QuickIntentRouterTest {
             Arguments.of("add bananas to shopping list", "bananas", "shopping"),
             Arguments.of("add butter to the grocery list", "butter", "grocery"),
             Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
+            Arguments.of("add eggs to my shopping list", "eggs", "shopping"),
         )
 
         @JvmStatic
@@ -3250,11 +3278,13 @@ class QuickIntentRouterTest {
             Arguments.of("add something to my list"),
             Arguments.of("add something to shopping list"),
             Arguments.of("put something on the list"),
+            Arguments.of("put something on my shopping list"),
         )
 
         @JvmStatic
         fun addToListMissingListNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("add milk to my list", "milk"),
+            Arguments.of("add an item to my list", "an item"),
             Arguments.of("add milk to list", "milk"),
             Arguments.of("put eggs on the list", "eggs"),
             Arguments.of("chuck bread on my list", "bread"),
