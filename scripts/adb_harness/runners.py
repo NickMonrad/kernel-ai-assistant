@@ -156,11 +156,19 @@ def _clear_conversation() -> None:
 
 
 
-def run_llm_tools(dry_run: bool = False) -> int:
+def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> int:
     """Execute the llm_tools harness phase. Returns non-zero on failures.
 
+    Args:
+        dry_run: Print selected cases without device interaction.
+        case_ids: Optional list of case names to filter on (matched against
+            ``LLMToolsTestCase.name``). When None, runs all cases.
+
+    When no filter is set, runs every case in ``LLM_TOOLS_CASES``.
+    When *case_ids* is set, only cases whose ``.name`` appears in the list
+    are executed (case-insensitive match).
+
     Requires runtime marker emission in the app code (ChatViewModel,
-    NativeIntentHandler, and the tool-call path must log
     ``llm_tools_route``, ``llm_tools_native_tool``, ``llm_tools_legacy_tool``,
     ``llm_tools_skill_result``, and ``llm_tools_message_toolcall_saved``).
     Without these markers the harness will fail every case.
@@ -168,12 +176,25 @@ def run_llm_tools(dry_run: bool = False) -> int:
     This runner is separate from run_tests() because it has different data models,
     observability requirements, and state management (conversation isolation per case).
     """
+    # Build active cases (filtered by case_ids, or all)
+    active_cases: list[LLMToolsTestCase] = LLM_TOOLS_CASES
+    if case_ids:
+        ids_lower = [c.lower() for c in case_ids]
+        active_cases = [tc for tc in LLM_TOOLS_CASES if tc.name.lower() in ids_lower]
+        if not active_cases:
+            print(f"ERROR: --case filter {case_ids!r} matched no llm_tools cases. "
+                  f"Available names: {[c.name for c in LLM_TOOLS_CASES]}", file=sys.stderr)
+            return 1
+
     if dry_run:
         print("=" * 70)
         print("  LLM TOOLS E2E — DRY RUN (no device interaction)")
         print("=" * 70)
         print()
-        for i, tc in enumerate(LLM_TOOLS_CASES, 1):
+        if case_ids:
+            print(f"  Filter: --case {','.join(case_ids)} ({len(active_cases)} of {len(LLM_TOOLS_CASES)} cases)")
+            print()
+        for i, tc in enumerate(active_cases, 1):
             print(f"  [{i:2d}] {tc.name}: \"{tc.message}\"")
             print(f"       expected → {tc.expected_top_level_tool}"
                   f"{f' (nested: {tc.expected_nested_intent})' if tc.expected_nested_intent else ''}")
@@ -184,7 +205,7 @@ def run_llm_tools(dry_run: bool = False) -> int:
                   f" no_slot_fill={tc.expect_no_slot_fill}"
                   f" no_retry={tc.expect_no_retry}")
         print()
-        print(f"  Total: {len(LLM_TOOLS_CASES)} test cases")
+        print(f"  Total: {len(active_cases)} test case{'s' if len(active_cases) != 1 else ''}")
         print("=" * 70)
         return 0
 
@@ -241,10 +262,10 @@ def run_llm_tools(dry_run: bool = False) -> int:
 
     # Run each golden prompt in isolation
     results: list[LLMToolsResult] = []
-    total = len(LLM_TOOLS_CASES)
+    total = len(active_cases)
     failures = 0
 
-    for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
+    for idx, tc in enumerate(active_cases, 1):
         print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
 
         # Isolate: force-stop, dismiss overlays, then send prompt
