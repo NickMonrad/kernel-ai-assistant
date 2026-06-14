@@ -621,10 +621,9 @@ class LiteRtInferenceEngine @Inject constructor(
 
     override suspend fun reconfigureConversation(config: ModelConfig) {
         withContext(LlmDispatcher) {
-            if (engine == null) {
-                Log.w(TAG, "reconfigureConversation: engine not initialized — ignoring")
-                return@withContext
-            }
+            val eng = engine ?: throw InferenceException(
+                "Engine not initialized — cannot reconfigure conversation. Call initialize() first."
+            )
             resetConversationForConfig(config)
             Log.i(TAG, "Conversation reconfigured with new settings")
         }

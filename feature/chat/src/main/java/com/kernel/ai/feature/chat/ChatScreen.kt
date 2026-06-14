@@ -390,6 +390,18 @@ fun ChatScreen(
                 var topP by remember { mutableFloatStateOf(state.topP) }
                 var topK by remember { mutableIntStateOf(state.topK) }
                 var showThinking by remember { mutableStateOf(state.showThinkingProcess) }
+                var isApplying by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    viewModel.isApplyingSettings.collect { isApplying = it }
+                }
+
+                // Close the settings sheet on successful apply, keep open on failure (#961)
+                val applyCompleted = viewModel.settingsApplyCompleted
+                LaunchedEffect(Unit) {
+                    applyCompleted.collect { success ->
+                        if (success) showModelSettings = false
+                    }
+                }
 
                 ModalBottomSheet(
                     onDismissRequest = { showModelSettings = false },
@@ -431,6 +443,7 @@ fun ChatScreen(
                             onTopKChange = { topK = it },
                             showThinking = showThinking,
                             onShowThinkingChange = { showThinking = it },
+                            isApplying = isApplying,
                             onApply = {
                                 val active = viewModel.activeModelSettings.value
                                 val draft = ModelSettingsEntity(
@@ -443,23 +456,14 @@ fun ChatScreen(
                                     speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: false,
                                 )
                                 viewModel.applyModelSettingsAndStartNewChat(draft)
-                                showModelSettings = false
                             },
                             onCancel = { showModelSettings = false },
                             onReset = {
-                                viewModel.resetModelSettings()
-                                val defaults = viewModel.activeModelSettings.value
-                                if (defaults != null) {
-                                    temp = defaults.temperature
-                                    topP = defaults.topP
-                                    topK = defaults.topK
-                                    showThinking = defaults.showThinkingProcess
-                                } else {
-                                    temp = 1.0f
-                                    topP = 0.95f
-                                    topK = 64
-                                    showThinking = true
-                                }
+                                // Update local draft only — do NOT persist until Apply is tapped (#961)
+                                temp = 1.0f
+                                topP = 0.95f
+                                topK = 64
+                                showThinking = true
                             },
                         )
                     }
@@ -2443,10 +2447,12 @@ private fun ModelSettingsSheet(
     onTopKChange: (Int) -> Unit,
     showThinking: Boolean,
     onShowThinkingChange: (Boolean) -> Unit,
+    isApplying: Boolean = false,
     onApply: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
-) {
+)
+{
     Column(
         modifier = Modifier
             .fillMaxHeight(0.7f)
@@ -2584,8 +2590,9 @@ private fun ModelSettingsSheet(
             Button(
                 onClick = onApply,
                 modifier = Modifier.weight(1f),
+                enabled = !isApplying,
             ) {
-                Text("Apply")
+                Text(if (isApplying) "Applying…" else "Apply")
             }
         }
 
