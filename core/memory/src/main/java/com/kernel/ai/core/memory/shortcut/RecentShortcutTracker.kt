@@ -31,8 +31,12 @@ class RecentShortcutTracker @Inject constructor(
     /**
      * Record that a shortcut was opened.
      * Deduplicates by replacing the timestamp, then trims to [MAX_RECENTS].
+     *
+     * Defence-in-depth: refuses to record "settings" or blank IDs even if
+     * the caller does not filter — Settings must never occupy a recent slot.
      */
     suspend fun record(id: String) {
+        if (id == "settings" || id.isBlank()) return
         dao.upsert(
             RecentShortcutEntity(
                 id = id,

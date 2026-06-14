@@ -86,6 +86,12 @@ class ShortcutRegistryTest {
             val settings = ShortcutRegistry.byId("settings")
             assertTrue(settings?.isSettings ?: false, "Settings must be marked isSettings")
         }
+
+        @Test
+        fun `settings cannot record recent even via canRecordRecent`() {
+            val settings = ShortcutRegistry.byId("settings")
+            assertFalse(settings?.canRecordRecent ?: true, "Settings must have canRecordRecent = false")
+        }
     }
 
     @Nested
@@ -120,6 +126,38 @@ class ShortcutRegistryTest {
             assertNotNull(ShortcutRegistry.byId("clock.timer"))
             assertNotNull(ShortcutRegistry.byId("clock.alarms"))
         }
+
+        @Test
+        fun `clock stopwatch route contains stopwatch tab param`() {
+            val shortcut = ShortcutRegistry.byId("clock.stopwatch")
+            assertNotNull(shortcut)
+            assertTrue(shortcut?.route?.contains("?tab=stopwatch") == true,
+                "clock.stopwatch route should contain ?tab=stopwatch, got: ${shortcut?.route}")
+        }
+
+        @Test
+        fun `clock timer route contains timer tab param`() {
+            val shortcut = ShortcutRegistry.byId("clock.timer")
+            assertNotNull(shortcut)
+            assertTrue(shortcut?.route?.contains("?tab=timer") == true,
+                "clock.timer route should contain ?tab=timer, got: ${shortcut?.route}")
+        }
+
+        @Test
+        fun `clock alarms route contains alarms tab param`() {
+            val shortcut = ShortcutRegistry.byId("clock.alarms")
+            assertNotNull(shortcut)
+            assertTrue(shortcut?.route?.contains("?tab=alarms") == true,
+                "clock.alarms route should contain ?tab=alarms, got: ${shortcut?.route}")
+        }
+
+        @Test
+        fun `clock top-level route does NOT contain tab param`() {
+            val shortcut = ShortcutRegistry.byId("clock")
+            assertNotNull(shortcut)
+            assertFalse(shortcut?.route?.contains("?tab=") == true,
+                "clock route should NOT contain ?tab=, got: ${shortcut?.route}")
+        }
     }
 
     @Nested
@@ -145,6 +183,75 @@ class ShortcutRegistryTest {
                 "clock.stopwatch", "clock.timer", "clock.alarms",
             )
             assertEquals(expected, ShortcutRegistry.allById.keys)
+        }
+    }
+
+    @Nested
+    @DisplayName("Drawer item ordering")
+    inner class DrawerOrdering {
+
+        @Test
+        fun `buildDrawerItems places favourites first`() {
+            val items = buildDrawerItems(
+                favouriteIds = listOf("notes", "lists"),
+                recentIds = emptyList(),
+            )
+            assertEquals("notes", items[0].id, "First item should be first favourite")
+            assertEquals("lists", items[1].id, "Second item should be second favourite")
+        }
+
+        @Test
+        fun `buildDrawerItems places recents after favourites`() {
+            val items = buildDrawerItems(
+                favouriteIds = listOf("lists"),
+                recentIds = listOf("convert"),
+            )
+            assertTrue(items.indexOfFirst { it.id == "convert" } > items.indexOfFirst { it.id == "lists" },
+                "Recents should appear after favourites")
+        }
+
+        @Test
+        fun `buildDrawerItems dedupes recents that are already favourites`() {
+            val items = buildDrawerItems(
+                favouriteIds = listOf("clock"),
+                recentIds = listOf("clock", "convert"),
+            )
+            val clockCount = items.count { it.id == "clock" }
+            assertEquals(1, clockCount, "Clock should appear only once even if in both favs and recents")
+        }
+
+        @Test
+        fun `buildDrawerItems fills remaining with defaults`() {
+            val items = buildDrawerItems(
+                favouriteIds = emptyList(),
+                recentIds = emptyList(),
+            )
+            // All defaults should be present
+            for (def in ShortcutRegistry.drawerDefaults) {
+                assertTrue(items.any { it.id == def.id }, "Default should be present: ${def.id}")
+            }
+        }
+
+        @Test
+        fun `buildDrawerItems places settings last`() {
+            val items = buildDrawerItems(
+                favouriteIds = listOf("lists"),
+                recentIds = listOf("convert"),
+            )
+            assertEquals("settings", items.last().id, "Settings must be the last item")
+            assertTrue(items.last().isSettings, "Last item must be marked isSettings")
+        }
+
+        @Test
+        fun `buildDrawerItems excludes settings from favourites`() {
+            val items = buildDrawerItems(
+                favouriteIds = listOf("settings"),
+                recentIds = emptyList(),
+            )
+            // Settings should not appear from favourites; only once at the end
+            val settingsPositions = items.mapIndexedNotNull { i, s -> i.takeIf { s.id == "settings" } }
+            assertEquals(1, settingsPositions.size, "Settings should appear exactly once")
+            assertEquals(items.lastIndex, settingsPositions[0], "Settings should be at the last position")
         }
     }
 }

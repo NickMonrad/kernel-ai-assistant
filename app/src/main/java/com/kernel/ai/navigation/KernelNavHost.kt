@@ -194,11 +194,20 @@ private fun NavHostController.navigateToToolsDestination(route: String) {
  * - Should NOT use [restoreState] — no stale transient state to restore.
  * - Should NOT use [saveState] — drawer screens are not tabs.
  * - Always pop to the Chats list to keep the back stack shallow and predictable.
+ *
+ * Handles query-parameterised routes (e.g. "settings/side_panel?tab=stopwatch")
+ * by comparing the full route when parameters are present — allows tab-switching
+ * within the same base destination.
  */
 private fun NavHostController.navigateToDrawerDestination(route: String) {
-    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
-    val targetBaseRoute = route.substringBefore('?')
-    if (currentBaseRoute == targetBaseRoute) return
+    val entry = currentBackStackEntry
+    val currentRoute = entry?.destination?.route ?: ""
+    val currentBase = currentRoute.substringBefore('?')
+    val targetBase = route.substringBefore('?')
+    val targetQuery = route.substringAfter('?', "")
+
+    // Skip if same base route AND no differentiating query params
+    if (currentBase == targetBase && targetQuery.isEmpty()) return
 
     navigate(route) {
         popUpTo(ROUTE_LIST) {
@@ -758,13 +767,12 @@ fun KernelNavHost(
                             },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
-                                // Record recent
-                                val shortcutId = ShortcutRegistry.allById.entries
+                                // Record recent — only if the shortcut allows it
+                                val entry = ShortcutRegistry.allById.entries
                                     .firstOrNull { it.value.route == route }
-                                    ?.key
-                                if (shortcutId != null) {
+                                if (entry != null && entry.value.canRecordRecent) {
                                     scope.launch {
-                                        recentShortcutTracker?.record(shortcutId)
+                                        recentShortcutTracker?.record(entry.key)
                                     }
                                 }
                             },
@@ -857,15 +865,13 @@ private fun DrawerContent(
             onClick = {
                 scope.launch {
                     drawerState.close()
-                    // Record recent
-                    if (!item.isSettings && recentShortcutTracker != null) {
+                    // Record recent (defence-in-depth: honour canRecordRecent)
+                    if (!item.isSettings && recentShortcutTracker != null &&
+                        item.canRecordRecent
+                    ) {
                         recentShortcutTracker.record(item.id)
                     }
-                    if (item.isSettings) {
-                        navController.navigateToDrawerDestination(ROUTE_SETTINGS)
-                    } else {
-                        navController.navigate(item.route) { launchSingleTop = true }
-                    }
+                    navController.navigateToDrawerDestination(item.route)
                 }
             },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
@@ -878,7 +884,7 @@ private fun DrawerContent(
  *
  * Order: favourites → recents (no duplicates with favourites) → defaults (fill remaining) → settings (pinned).
  */
-private fun buildDrawerItems(
+internal fun buildDrawerItems(
     favouriteIds: List<String>,
     recentIds: List<String>,
 ): List<ShortcutDef> {
