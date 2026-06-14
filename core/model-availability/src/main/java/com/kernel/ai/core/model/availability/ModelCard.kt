@@ -129,10 +129,21 @@ fun ModelCard(
                             }
                         }
                     }
-                    is ModelAvailabilityState.Unavailable,
+                    is ModelAvailabilityState.Unavailable -> {
+                        // Outlined for unavailable — model cannot be used, action is secondary
+                        if (actionLabel != null) {
+                            OutlinedButton(
+                                onClick = onPrimaryAction,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(actionLabel)
+                            }
+                        }
+                    }
                     ModelAvailabilityState.NotDisplayed -> {
-                        // Full-width outlined button for unavailable/not-displayed
-                        OutlinedButton(
+                        // Filled Button for "Download" — stronger visual affordance.
+                        // OutlinedButton has poor contrast in dark mode against card backgrounds.
+                        Button(
                             onClick = onPrimaryAction,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
