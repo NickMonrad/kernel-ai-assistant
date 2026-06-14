@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -471,13 +472,13 @@ private fun ConversationReadinessBanner(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = "${readiness.fallbackModel.displayName} is installed. " +
                             "${readiness.downloadingModel.displayName} is downloading — " +
                             "it will be available once finished.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    ConversationDownloadProgress(progress = readiness.progress)
                 }
             }
         }
@@ -500,12 +501,30 @@ private fun ConversationReadinessBanner(
                             "Chat will be ready once it finishes.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    ConversationDownloadProgress(progress = readiness.progress)
                 }
             }
         }
         is ConversationModelReadiness.Ready -> {
             // No banner needed when everything is fine
         }
+    }
+}
+
+@Composable
+private fun ConversationDownloadProgress(
+    progress: Float?,
+) {
+    Spacer(modifier = Modifier.height(8.dp))
+    if (progress != null && progress > 0f) {
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else {
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

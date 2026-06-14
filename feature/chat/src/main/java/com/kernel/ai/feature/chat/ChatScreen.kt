@@ -1793,6 +1793,9 @@ private fun OnboardingContent(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    ConversationDownloadProgress(
+                        progress = conversationReadiness.progress,
+                    )
                 }
                 is ConversationModelReadiness.FallbackActive -> {
                     Text(
@@ -1825,6 +1828,9 @@ private fun OnboardingContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 2.dp),
+                    )
+                    ConversationDownloadProgress(
+                        progress = conversationReadiness.progress,
                     )
                 }
                 null, is ConversationModelReadiness.Ready -> {
@@ -1944,6 +1950,23 @@ private fun OnboardingContent(
                 Text("Manage models")
             }
         }
+    }
+}
+
+@Composable
+private fun ConversationDownloadProgress(
+    progress: Float?,
+) {
+    Spacer(modifier = Modifier.height(8.dp))
+    if (progress != null && progress > 0f) {
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else {
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
