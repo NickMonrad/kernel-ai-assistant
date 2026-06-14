@@ -162,7 +162,76 @@ class ToolsHubNavTest {
         // tools_row_learn should be visible without scrolling
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithText("Learn what Jandal can do").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Example prompts for actions, planning, weather, maps, media, and more").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Example prompts to get started").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_learnCollapseHidesExpandedRow() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+            )
+        }
+
+        // Initially expanded — collapse button visible
+        composeTestRule.onNodeWithTag("tools_learn_collapse").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
+
+        // Collapse
+        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+
+        // Expanded row hidden, collapsed row shown
+        composeTestRule.onNodeWithTag("tools_learn_collapsed").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Getting started").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolsHub_learnCollapsedClickReExpands() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+            )
+        }
+
+        // Start expanded → collapse
+        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_learn_collapsed").assertIsDisplayed()
+
+        // Re-expand
+        composeTestRule.onNodeWithTag("tools_learn_collapsed", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+
+        // Expanded row back
+        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_learn_collapse").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("tools_learn_collapsed", useUnmergedTree = true)
+            .fetchSemanticsNodes().let { nodes ->
+                assertTrue("Expected no collapsed row after re-expand", nodes.isEmpty())
+            }
+    }
+
+    @Test
+    fun toolsHub_learnCollapsedStateSearchStillWorks() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                onNavigateToSettings = {},
+            )
+        }
+
+        // Collapse learn
+        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+
+        // Search still works
+        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("convert")
+        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
     }
 
     @Test
