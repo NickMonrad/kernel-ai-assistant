@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +38,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -49,6 +53,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 
@@ -149,6 +155,11 @@ fun ToolsHubScreen(
     onOpenPrompt: (prompt: String) -> Unit = {},
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var learnSectionExpanded by remember {
+        val prefs = context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getBoolean("tools_learn_expanded", true))
+    }
 
     Scaffold(
         topBar = {
@@ -192,27 +203,94 @@ fun ToolsHubScreen(
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
                     .testTag("tools_search_field"),
             )
 
             if (searchQuery.isBlank()) {
                 // ── Full grouped layout ──────────────────────────────────────
-                ToolsListItem(
-                    testTag = "tools_row_learn",
-                    icon = Icons.AutoMirrored.Filled.MenuBook,
-                    title = "Learn what Jandal can do",
-                    subtitle = "Example prompts for actions, planning, weather, maps, media, and more",
-                    onClick = { onNavigateToRoute(ROUTE_TOOLS_LEARN) },
-                )
-                HorizontalDivider()
+                // Compact, collapsible Learn entry
+                if (learnSectionExpanded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToRoute(ROUTE_TOOLS_LEARN) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .testTag("tools_row_learn"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Learn what Jandal can do",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                "Example prompts to get started",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                learnSectionExpanded = false
+                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("tools_learn_expanded", false)
+                                    .apply()
+                            },
+                            modifier = Modifier.testTag("tools_learn_collapse"),
+                        ) {
+                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Collapse")
+                        }
+                    }
+                    HorizontalDivider()
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                learnSectionExpanded = true
+                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("tools_learn_expanded", true)
+                                    .apply()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .testTag("tools_learn_collapsed"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            "Getting started",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Show",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    HorizontalDivider()
+                }
 
                 Text(
                     text = "Productivity",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_productivity"),
                 )
                 ToolsListItem(
@@ -240,13 +318,13 @@ fun ToolsHubScreen(
                 )
                 HorizontalDivider()
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "Time & planning",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_time_planning"),
                 )
                 ToolsListItem(
@@ -266,13 +344,13 @@ fun ToolsHubScreen(
                 )
                 HorizontalDivider()
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "People",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_people"),
                 )
                 ToolsListItem(
@@ -284,13 +362,13 @@ fun ToolsHubScreen(
                 )
                 HorizontalDivider()
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "Utilities",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_utilities"),
                 )
                 ToolsListItem(
@@ -302,13 +380,13 @@ fun ToolsHubScreen(
                 )
                 HorizontalDivider()
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "Personalisation",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_personalisation"),
                 )
                 ToolsListItem(
@@ -342,15 +420,14 @@ fun ToolsHubScreen(
                     subtitle = "Archive, themes, wallpaper, and copy options",
                     onClick = { onNavigateToRoute(ROUTE_CHAT_PREFERENCES) },
                 )
-                HorizontalDivider()
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "App setup",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("tools_group_app_setup"),
                 )
                 ToolsListItem(

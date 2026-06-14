@@ -38,6 +38,7 @@ data class ModelRowState(
     val model: KernelModel,
     val downloadState: DownloadState,
     val downloadSource: DownloadSource = DownloadSource.USER_INITIATED,
+    val gatedStatus: GatedModelStatus = GatedModelStatus.NONE,
 )
 
 data class ModelManagementUiState(
@@ -131,6 +132,7 @@ class ModelManagementViewModel @Inject constructor(
                 model = model,
                 downloadState = downloadStates[model] ?: DownloadState.NotDownloaded,
                 downloadSource = downloadSources[model] ?: DownloadSource.USER_INITIATED,
+                gatedStatus = gatedStatuses[model] ?: GatedModelStatus.NONE,
             )
         }
         val summary = computeAvailabilitySummary(
