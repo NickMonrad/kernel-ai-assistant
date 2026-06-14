@@ -1,0 +1,204 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-14T09-58-45Z",
+  "elapsed_seconds": 107.7,
+  "summary": {
+    "total": 6,
+    "passed": 5,
+    "xfail": 0,
+    "xpass": 0,
+    "failed": 1
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "how_many_weeks_until_31_october",
+      "message": "how many weeks until 31 October",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "get_date_diff",
+      "actual_intent": "get_date_diff",
+      "expect_params": null,
+      "actual_params": {
+        "target_date": "31 October",
+        "direction": "until"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "misc",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 2,
+      "case_id": "how_many_weeks_until_the_31_october",
+      "message": "how many weeks until the 31 October",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "get_date_diff",
+      "actual_intent": "get_date_diff",
+      "expect_params": null,
+      "actual_params": {
+        "target_date": "31 October",
+        "direction": "until"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "misc",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 3,
+      "case_id": "set_an_alarm",
+      "message": "set an alarm",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": {
+        "time": "7am"
+      },
+      "actual_params": {
+        "time": "7am"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 4,
+      "case_id": "set_a_timer",
+      "message": "set a timer",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_timer",
+      "expect_params": {
+        "duration_seconds": "300"
+      },
+      "actual_params": {
+        "duration_seconds": "300"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 5,
+      "case_id": "add_to_my_list",
+      "message": "add to my list",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "set_timer",
+      "expect_params": {
+        "item": "eggs"
+      },
+      "actual_params": {
+        "duration_seconds": "300"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param item"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 6,
+      "case_id": "slot_fill_add_to_list_multi",
+      "message": "add to my list",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "multi_slot"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "add_to_list",
+      "expect_params": {
+        "item": "eggs",
+        "list_name": "shopping list"
+      },
+      "actual_params": {
+        "item": "eggs",
+        "list_name": "shopping list"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "pass",
+      "failure_bucket": null
+    }
+  ]
+}
