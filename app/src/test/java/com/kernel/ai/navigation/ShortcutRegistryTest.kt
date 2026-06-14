@@ -158,6 +158,23 @@ class ShortcutRegistryTest {
             assertFalse(shortcut?.route?.contains("?tab=") == true,
                 "clock route should NOT contain ?tab=, got: ${shortcut?.route}")
         }
+
+        @Test
+        fun `sub-feature shortcuts are favourite-eligible`() {
+            assertTrue(ShortcutRegistry.byId("clock.stopwatch")?.canFavourite ?: false,
+                "clock.stopwatch must be favourite-eligible")
+            assertTrue(ShortcutRegistry.byId("clock.timer")?.canFavourite ?: false,
+                "clock.timer must be favourite-eligible")
+            assertTrue(ShortcutRegistry.byId("clock.alarms")?.canFavourite ?: false,
+                "clock.alarms must be favourite-eligible")
+        }
+
+        @Test
+        fun `sub-feature shortcuts are in allFavouriteEligibleIds`() {
+            assertTrue("clock.stopwatch" in ShortcutRegistry.allFavouriteEligibleIds)
+            assertTrue("clock.timer" in ShortcutRegistry.allFavouriteEligibleIds)
+            assertTrue("clock.alarms" in ShortcutRegistry.allFavouriteEligibleIds)
+        }
     }
 
     @Nested

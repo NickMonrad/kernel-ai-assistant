@@ -355,6 +355,41 @@ fun ToolsHubScreen(
                     onToggleFavourite = clockOnFav,
                 )
                 HorizontalDivider()
+
+                // Clock sub-feature shortcuts (indented, with favourite toggles)
+                val stopwatch = ShortcutRegistry.clockStopwatch
+                val timer = ShortcutRegistry.clockTimer
+                val alarms = ShortcutRegistry.clockAlarms
+                ClockSubFeatureRow(
+                    testTag = "tools_row_clock_stopwatch",
+                    title = stopwatch.label,
+                    subtitle = "Clock",
+                    route = stopwatch.route,
+                    canFavourite = stopwatch.canFavourite,
+                    isFavourite = stopwatch.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(stopwatch.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                ClockSubFeatureRow(
+                    testTag = "tools_row_clock_timer",
+                    title = timer.label,
+                    subtitle = "Clock",
+                    route = timer.route,
+                    canFavourite = timer.canFavourite,
+                    isFavourite = timer.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(timer.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                ClockSubFeatureRow(
+                    testTag = "tools_row_clock_alarms",
+                    title = alarms.label,
+                    subtitle = "Clock",
+                    route = alarms.route,
+                    canFavourite = alarms.canFavourite,
+                    isFavourite = alarms.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(alarms.id) },
+                    onNavigate = onNavigateToRoute,
+                )
                 val (datesCanFav, datesIsFav, datesOnFav) = favouriteParams("important_dates", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_important_dates",
@@ -653,6 +688,67 @@ private fun ToolsListItem(
             }
         } else {
             { Icon(Icons.Default.ChevronRight, contentDescription = null) }
+        },
+    )
+}
+
+/**
+ * An indented sub-feature row for clock shortcuts (Stopwatch, Timer, Alarms).
+ *
+ * Shows a compact row with a favourite star toggle. Clicking the row navigates
+ * to the parent Clock screen with the corresponding tab selected via query param.
+ */
+@Composable
+private fun ClockSubFeatureRow(
+    testTag: String,
+    title: String,
+    subtitle: String,
+    route: String,
+    canFavourite: Boolean,
+    isFavourite: Boolean,
+    onToggleFavourite: () -> Unit,
+    onNavigate: (String) -> Unit,
+) {
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onNavigate(route) }
+            .padding(start = 32.dp)
+            .testTag(testTag),
+        headlineContent = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Default.Timer,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = if (canFavourite) {
+            {
+                IconButton(
+                    onClick = onToggleFavourite,
+                    modifier = Modifier.testTag("${testTag}_favourite"),
+                ) {
+                    Icon(
+                        imageVector = if (isFavourite) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = if (isFavourite) "Remove from favourites" else "Add to favourites",
+                    )
+                }
+            }
+        } else {
+            null
         },
     )
 }

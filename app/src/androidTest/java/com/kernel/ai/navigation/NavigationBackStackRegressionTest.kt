@@ -880,10 +880,9 @@ class NavigationBackStackRegressionTest {
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_lists").assertIsDisplayed()
 
-        // Clicking a row triggers the navigate callback (do this before scrolling away)
-        composeTestRule.onNodeWithTag("tools_row_lists").performClick()
-        composeTestRule.waitForIdle()
-        assertTrue("Expected navigate to lists route", navigatedRoutes.contains("lists"))
+        // Clicking a row triggers the navigate callback (useUnmergedTree to avoid
+        // being intercepted by the favourite star IconButton in the trailing content)
+        composeTestRule.onNodeWithTag("tools_row_lists", useUnmergedTree = true).performClick()
         // Scroll to and verify rows below the fold
         composeTestRule.onNodeWithTag("tools_screen")
             .performScrollToNode(hasTestTag("tools_row_settings"))
@@ -929,6 +928,116 @@ class NavigationBackStackRegressionTest {
         composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
         composeTestRule.waitForIdle()
         assertEquals("tools", navigatedRoute)
+    }
+
+    @Test
+    fun realToolsHubScreen_subFeatureRowsRender() {
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        // Scroll to time & planning section
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock"))
+        composeTestRule.onNodeWithTag("tools_row_clock").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_clock_stopwatch").assertIsDisplayed()
+        // Scroll to timer sub-feature
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_timer"))
+        composeTestRule.onNodeWithTag("tools_row_clock_timer").assertIsDisplayed()
+        // Scroll to alarms sub-feature
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_alarms"))
+        composeTestRule.onNodeWithTag("tools_row_clock_alarms").assertIsDisplayed()
+    }
+
+    @Test
+    fun realToolsHubScreen_subFeatureFavouriteToggles() {
+        val toggledIds = mutableListOf<String>()
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = {},
+                favouriteIds = setOf("clock.stopwatch", "clock.alarms"),
+                onToggleFavourite = { id -> toggledIds.add(id) },
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        // Scroll to sub-features
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_stopwatch"))
+        // Toggle stopwatch (should unfavourite since it's in favouriteIds)
+        composeTestRule.onNodeWithTag("tools_row_clock_stopwatch_favourite").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue("should have toggled clock.stopwatch", toggledIds.contains("clock.stopwatch"))
+
+        // Toggle timer (should favourite since it's not in favouriteIds)
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_timer"))
+        // Verify favourite star exists on each sub-feature
+        composeTestRule.onNodeWithTag("tools_row_clock_stopwatch_favourite").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_row_clock_timer_favourite").assertIsDisplayed()
+        // Scroll to alarms to make it visible
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_alarms_favourite"))
+        composeTestRule.onNodeWithTag("tools_row_clock_alarms_favourite").assertIsDisplayed()
+    }
+
+    @Test
+    fun realToolsHubScreen_subFeatureNavigatesExactRoute() {
+        val navigatedRoutes = mutableListOf<String>()
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = { route -> navigatedRoutes.add(route) },
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        // Navigate via stopwatch sub-feature row
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_stopwatch"))
+        composeTestRule.onNodeWithTag("tools_row_clock_stopwatch").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue("Should navigate to stopwatch tab route",
+            navigatedRoutes.any { it.contains("?tab=stopwatch") })
+    }
+
+    @Test
+    fun realToolsHubScreen_favouriteToggleDoesNotNavigate() {
+        val navigatedRoutes = mutableListOf<String>()
+        val toggledIds = mutableListOf<String>()
+        composeTestRule.setContent {
+            ToolsHubScreen(
+                onOpenDrawer = {},
+                onNavigateToRoute = { route -> navigatedRoutes.add(route) },
+                favouriteIds = emptySet(),
+                onToggleFavourite = { id -> toggledIds.add(id) },
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        // Toggle a top-level favourite star
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_lists_favourite"))
+        composeTestRule.onNodeWithTag("tools_row_lists_favourite").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("Toggling favourite should not navigate", 0, navigatedRoutes.size)
+        assertTrue("Favourite toggle should be recorded", toggledIds.contains("lists"))
+
+        // Toggle a sub-feature favourite star
+        composeTestRule.onNodeWithTag("tools_screen")
+            .performScrollToNode(hasTestTag("tools_row_clock_stopwatch_favourite"))
+        composeTestRule.onNodeWithTag("tools_row_clock_stopwatch_favourite").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("Toggling sub-feature favourite should not navigate", 0, navigatedRoutes.size)
+        assertTrue("Sub-feature fav toggle should be recorded", toggledIds.contains("clock.stopwatch"))
     }
     @Test
     fun realToolsHubScreen_toolbarOpensDrawer() {
