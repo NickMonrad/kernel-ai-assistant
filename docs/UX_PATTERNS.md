@@ -24,7 +24,7 @@ Primary bottom navigation uses three launch destinations:
 | **Chats** | Conversation history and assistant chat |
 | **Actions** | Direct command execution and action result history |
 | **Tools** | Discover and open app capabilities |
-| **Drawer** | Secondary / overflow navigation during transition |
+| **Drawer** | Compact quick-access shortcuts for common destinations |
 | **Settings** | Configuration, accessible from Tools and the drawer |
 
 This three-destination launch model is the deliberate design decision from
@@ -37,7 +37,12 @@ a claim that every navigation change is already implemented.
 - **Bottom navigation bar** — permanent launch tabs: **Chats**, **Actions**, **Tools**.
 - **Tools** is the primary discovery surface for capabilities that are otherwise hard to find from
   Chats or Actions.
-- **Navigation drawer** remains available as secondary / overflow navigation during the transition.
+- **Navigation drawer** provides compact quick-access shortcuts for common destinations
+  (Lists, Notes, Clock, Convert, Important dates, People & Contacts, Meal plans, and Settings).
+- **Tools** is the full catalogue, search, learning, and descriptions surface — the primary
+  discovery surface for all app capabilities.
+- **Drawer** content is intentionally limited to high-use shortcuts. Favourites and recently-used
+  tools are planned in [#1233](https://github.com/NickMonrad/kernel-ai-assistant/issues/1233).
 - **Settings** is configuration, not the primary feature-discovery surface.
 - All navigation is managed by `KernelNavHost` in `:app`. Do not create parallel navigation graphs.
 - This document defines the target UX model. It does not require adding `ROUTE_TOOLS`, changing
@@ -547,18 +552,54 @@ Every list screen must handle the empty state explicitly:
 
 ---
 
-## 11. Drawer and Secondary Destinations
+## 11. Drawer — Compact Quick-Access Launcher
 
-The drawer remains part of the app shell during the transition to the `Chats | Actions | Tools`
-launch model. Treat it as secondary / overflow navigation, not the primary discovery surface for
-core capabilities.
+The drawer provides compact quick-access shortcuts for common destinations across the app.
+It is intentionally scoped as a dense launcher, not a full catalogue. Its role is distinct from
+the Tools hub:
 
-- Keep the drawer available from the primary destinations during the transition.
-- Use **Tools** for primary capability discovery.
-- Use **Settings** for configuration and preferences, accessible from both Tools and the drawer.
-- Do not remove or simplify the drawer in the same slice that introduces or refines Tools.
-- Do not assume every future destination belongs in bottom navigation; evaluate whether it belongs
-  in Tools, the drawer, or a nested flow under an existing destination.
+```text
+Tools tab = full catalogue, search, learning, descriptions
+Drawer    = compact quick-access shortcuts (evolving to favourites/recent tools)
+Settings  = configuration, reachable from both Tools and the drawer
+```
+
+### Current shortcut set
+
+The drawer shows the following destinations for launch:
+
+- Lists
+- Notes
+- Clock
+- Convert
+- Important dates
+- People & Contacts
+- Meal plans
+- Settings
+
+Every drawer destination is also reachable through Tools. No launch-critical capability is
+drawer-only. Settings is reachable from the primary-tab Settings cog and the drawer.
+
+### Access
+
+- **Hamburger menu icon** on the top app bar of all three primary tabs (Chats, Actions, Tools).
+- **Swipe gesture** on primary tab screens.
+
+### Future evolution
+
+- [#1213](https://github.com/NickMonrad/kernel-ai-assistant/issues/1213) will improve Tools hub
+  density so it works better as the full catalogue surface.
+- [#1233](https://github.com/NickMonrad/kernel-ai-assistant/issues/1233) will add favourite and
+  recently-used shortcut support to the drawer, evolving it into a personalised quick launcher.
+
+### Compatibility with Tools
+
+- Do not make the drawer a second full Tools catalogue.
+- **Tools** is the full catalogue, search, learning, and descriptions surface.
+- **Drawer** is the compact quick-access surface.
+- Do not remove the drawer without a replacement for its quick-access role.
+- Do not assume every future destination belongs in bottom navigation; evaluate whether it
+  belongs in Tools, the drawer, or a nested flow under an existing destination.
 
 ---
 
