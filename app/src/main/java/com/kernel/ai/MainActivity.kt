@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var chatPreferences: ChatPreferences
 
+    @Inject lateinit var favouriteShortcutRepository: com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
+    @Inject lateinit var recentShortcutTracker: com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
+
     /** Bridges ADB `--es chat_input` extras (onCreate + onNewIntent) into the nav graph. */
     private val adbChatInput = mutableStateOf<String?>(null)
 
@@ -94,6 +97,8 @@ class MainActivity : ComponentActivity() {
                     initialQuickActionIsVoice = adbQuickActionInput.value?.isVoice ?: false,
                     quickActionSerial = adbQuickActionInput.value?.serial ?: 0,
                     initialSlotReply = adbSlotReplyInput.value,
+                    favouriteShortcutRepository = favouriteShortcutRepository,
+                    recentShortcutTracker = recentShortcutTracker,
                 )
             }
         }

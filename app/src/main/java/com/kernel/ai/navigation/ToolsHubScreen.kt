@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -147,6 +149,8 @@ fun ToolsHubScreen(
     onNavigateToRoute: (route: String) -> Unit,
     onNavigateToSettings: () -> Unit = {},
     onOpenPrompt: (prompt: String) -> Unit = {},
+    favouriteIds: Set<String> = emptySet(),
+    onToggleFavourite: (String) -> Unit = {},
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -215,28 +219,40 @@ fun ToolsHubScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("tools_group_productivity"),
                 )
+                val (listsCanFav, listsIsFav, listsOnFav) = favouriteParams("lists", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_lists",
                     icon = Icons.Default.Checklist,
                     title = "Lists",
                     subtitle = "Shopping, tasks, and reusable lists",
                     onClick = { onNavigateToRoute(ROUTE_LISTS) },
+                    canFavourite = listsCanFav,
+                    isFavourite = listsIsFav,
+                    onToggleFavourite = listsOnFav,
                 )
                 HorizontalDivider()
+                val (notesCanFav, notesIsFav, notesOnFav) = favouriteParams("notes", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_notes",
                     icon = Icons.Default.Note,
                     title = "Notes",
                     subtitle = "Quick notes and saved thoughts",
                     onClick = { onNavigateToRoute(ROUTE_NOTES) },
+                    canFavourite = notesCanFav,
+                    isFavourite = notesIsFav,
+                    onToggleFavourite = notesOnFav,
                 )
                 HorizontalDivider()
+                val (mealCanFav, mealIsFav, mealOnFav) = favouriteParams("meal_plans", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_meal_plans",
                     icon = Icons.Default.Bookmarks,
                     title = "Meal plans",
                     subtitle = "Plan meals and generate shopping ideas",
                     onClick = { onNavigateToRoute(ROUTE_MEAL_PLANS) },
+                    canFavourite = mealCanFav,
+                    isFavourite = mealIsFav,
+                    onToggleFavourite = mealOnFav,
                 )
                 HorizontalDivider()
 
@@ -249,20 +265,28 @@ fun ToolsHubScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("tools_group_time_planning"),
                 )
+                val (clockCanFav, clockIsFav, clockOnFav) = favouriteParams("clock", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_clock",
                     icon = Icons.Default.Timer,
                     title = "Clock",
                     subtitle = "Alarms, timers, stopwatch, and world clock",
                     onClick = { onNavigateToRoute(ROUTE_SIDE_PANEL) },
+                    canFavourite = clockCanFav,
+                    isFavourite = clockIsFav,
+                    onToggleFavourite = clockOnFav,
                 )
                 HorizontalDivider()
+                val (datesCanFav, datesIsFav, datesOnFav) = favouriteParams("important_dates", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_important_dates",
                     icon = Icons.Default.Event,
                     title = "Important dates",
                     subtitle = "Birthdays, anniversaries, and recurring dates",
                     onClick = { onNavigateToRoute(ROUTE_IMPORTANT_DATES) },
+                    canFavourite = datesCanFav,
+                    isFavourite = datesIsFav,
+                    onToggleFavourite = datesOnFav,
                 )
                 HorizontalDivider()
 
@@ -275,12 +299,16 @@ fun ToolsHubScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("tools_group_people"),
                 )
+                val (peopleCanFav, peopleIsFav, peopleOnFav) = favouriteParams("people_contacts", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_people_contacts",
                     icon = Icons.Default.People,
                     title = "People & Contacts",
                     subtitle = "Contact aliases and people Jandal can recognise",
                     onClick = { onNavigateToRoute(ROUTE_CONTACT_ALIASES) },
+                    canFavourite = peopleCanFav,
+                    isFavourite = peopleIsFav,
+                    onToggleFavourite = peopleOnFav,
                 )
                 HorizontalDivider()
 
@@ -293,12 +321,16 @@ fun ToolsHubScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("tools_group_utilities"),
                 )
+                val (convertCanFav, convertIsFav, convertOnFav) = favouriteParams("convert", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_convert",
                     icon = Icons.Default.Calculate,
                     title = "Convert",
                     subtitle = "Units, currency, and quick calculations",
                     onClick = { onNavigateToRoute(ROUTE_CONVERT) },
+                    canFavourite = convertCanFav,
+                    isFavourite = convertIsFav,
+                    onToggleFavourite = convertOnFav,
                 )
                 HorizontalDivider()
 
@@ -501,6 +533,16 @@ private fun routeForEntryId(id: String): String? = when (id) {
     else -> null
 }
 
+/** Build favourite params for a Tools row. */
+private fun favouriteParams(
+    id: String,
+    favouriteIds: Set<String>,
+    onToggleFavourite: (String) -> Unit,
+): Triple<Boolean, Boolean, () -> Unit> = Triple(
+    id in ShortcutRegistry.allFavouriteEligibleIds && id != "settings",
+    id in favouriteIds,
+    { onToggleFavourite(id) },
+)
 @Composable
 private fun ToolsListItem(
     testTag: String,
@@ -508,6 +550,9 @@ private fun ToolsListItem(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    canFavourite: Boolean = false,
+    isFavourite: Boolean = false,
+    onToggleFavourite: () -> Unit = {},
 ) {
     ListItem(
         modifier = Modifier
@@ -517,6 +562,20 @@ private fun ToolsListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
         leadingContent = { Icon(icon, contentDescription = null) },
-        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+        trailingContent = if (canFavourite) {
+            {
+                IconButton(
+                    onClick = onToggleFavourite,
+                    modifier = Modifier.testTag("${testTag}_favourite"),
+                ) {
+                    Icon(
+                        imageVector = if (isFavourite) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = if (isFavourite) "Remove from favourites" else "Add to favourites",
+                    )
+                }
+            }
+        } else {
+            { Icon(Icons.Default.ChevronRight, contentDescription = null) }
+        },
     )
 }

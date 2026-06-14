@@ -102,6 +102,7 @@ import java.time.format.DateTimeFormatter
 fun SidePanelScreen(
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    initialTab: String? = null,
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
@@ -137,6 +138,20 @@ fun SidePanelScreen(
 
     BackHandler(enabled = isInSelectionMode) {
         viewModel.clearSelection()
+    }
+
+    // Set initial tab from navigation argument, if provided
+    LaunchedEffect(initialTab) {
+        if (initialTab != null) {
+            val tab = try {
+                ClockSurfaceTab.valueOf(initialTab.uppercase())
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+            if (tab != null) {
+                viewModel.setTab(tab)
+            }
+        }
     }
 
     val visibleSelectionIds = when (selectedTab) {
