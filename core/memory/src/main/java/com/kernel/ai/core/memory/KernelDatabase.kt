@@ -10,10 +10,12 @@ import com.kernel.ai.core.memory.dao.ConversionHistoryDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.CurrencyFavouriteDao
+import com.kernel.ai.core.memory.dao.FavouriteShortcutDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.RecentShortcutDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
@@ -35,12 +37,14 @@ import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.ConversionHistoryEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.CurrencyFavouriteEntity
+import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.NoteEntity
+import com.kernel.ai.core.memory.entity.RecentShortcutEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
 import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
@@ -86,8 +90,10 @@ import java.time.ZoneId
         MealPlanProjectionWriteEntity::class,
         MealPlanFavouriteRecipeEntity::class,
         NoteEntity::class,
+        FavouriteShortcutEntity::class,
+        RecentShortcutEntity::class,
     ],
-    version = 50,
+    version = 51,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -117,6 +123,8 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun mealPlanRecipeVersionDao(): MealPlanRecipeVersionDao
     abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
     abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
+    abstract fun favouriteShortcutDao(): FavouriteShortcutDao
+    abstract fun recentShortcutDao(): RecentShortcutDao
     abstract fun mealPlanFavouriteRecipeDao(): MealPlanFavouriteRecipeDao
     abstract fun noteDao(): NoteDao
 
@@ -840,6 +848,29 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `smart_title_generated` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_archived_at` ON `notes` (`archived_at`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_pinned_display_order` ON `notes` (`pinned`, `display_order`)")
+            }
+        }
+
+        /** Creates favourite_shortcuts and recent_shortcuts tables for drawer shortcuts (#1233). */
+        val MIGRATION_50_51 = object : Migration(50, 51) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `favourite_shortcuts` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `sort_order` INTEGER NOT NULL,
+                        `added_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `recent_shortcuts` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `opened_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
             }
         }
 

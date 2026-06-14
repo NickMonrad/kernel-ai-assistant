@@ -1,5 +1,10 @@
 package com.kernel.ai.navigation
 
+import androidx.compose.foundation.layout.Spacer
+import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
+import com.kernel.ai.core.memory.entity.RecentShortcutEntity
+import com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
+import com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -32,6 +37,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -138,6 +147,9 @@ internal fun buildNewMealPlanChatRoute(): String =
 internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
     "settings/model_management?scrollTo=$scrollTo"
 
+internal fun buildSidePanelTabRoute(tab: String): String =
+    "$ROUTE_SIDE_PANEL?tab=$tab"
+
 internal fun buildActionsDraftRoute(draftQuery: String): String =
     "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}"
 
@@ -182,11 +194,20 @@ private fun NavHostController.navigateToToolsDestination(route: String) {
  * - Should NOT use [restoreState] — no stale transient state to restore.
  * - Should NOT use [saveState] — drawer screens are not tabs.
  * - Always pop to the Chats list to keep the back stack shallow and predictable.
+ *
+ * Handles query-parameterised routes (e.g. "settings/side_panel?tab=stopwatch")
+ * by comparing the full route when parameters are present — allows tab-switching
+ * within the same base destination.
  */
 private fun NavHostController.navigateToDrawerDestination(route: String) {
-    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
-    val targetBaseRoute = route.substringBefore('?')
-    if (currentBaseRoute == targetBaseRoute) return
+    val entry = currentBackStackEntry
+    val currentRoute = entry?.destination?.route ?: ""
+    val currentBase = currentRoute.substringBefore('?')
+    val targetBase = route.substringBefore('?')
+    val targetQuery = route.substringAfter('?', "")
+
+    // Skip if same base route AND no differentiating query params
+    if (currentBase == targetBase && targetQuery.isEmpty()) return
 
     navigate(route) {
         popUpTo(ROUTE_LIST) {
@@ -251,7 +272,6 @@ internal fun PrimaryBottomBar(
         )
     }
 }
-
 @Composable
 fun KernelNavHost(
     initialChatQuery: String? = null,
@@ -261,6 +281,8 @@ fun KernelNavHost(
      *  [LaunchedEffect] re-fires even when the query text is identical to the prior one. */
     quickActionSerial: Int = 0,
     initialSlotReply: String? = null,
+    favouriteShortcutRepository: FavouriteShortcutRepository? = null,
+    recentShortcutTracker: RecentShortcutTracker? = null,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -299,93 +321,12 @@ fun KernelNavHost(
         gesturesEnabled = currentBaseRoute in BOTTOM_NAV_ROUTES,
         drawerContent = {
             ModalDrawerSheet {
-                Text(
-                    text = "Jandal",
-                    style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
-                )
-                HorizontalDivider()
-                androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(4.dp))
-                NavigationDrawerItem(
-                    label = { Text("Lists") },
-                    icon = { Icon(Icons.Default.Checklist, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_LISTS,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_LISTS)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Notes") },
-                    icon = { Icon(Icons.Default.Note, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_NOTES,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_NOTES)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Clock") },
-                    icon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_SIDE_PANEL,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_SIDE_PANEL)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Convert") },
-                    icon = { Icon(Icons.Default.Calculate, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_CONVERT,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_CONVERT)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Important dates") },
-                    icon = { Icon(Icons.Default.Event, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_IMPORTANT_DATES,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_IMPORTANT_DATES)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("People & Contacts") },
-                    icon = { Icon(Icons.Default.People, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_CONTACT_ALIASES,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_CONTACT_ALIASES)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Meal plans") },
-                    icon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_MEAL_PLANS,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_MEAL_PLANS)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                NavigationDrawerItem(
-                    label = { Text("Settings") },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_SETTINGS,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigateToDrawerDestination(ROUTE_SETTINGS)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                DrawerContent(
+                    navController = navController,
+                    drawerState = drawerState,
+                    currentBaseRoute = currentBaseRoute,
+                    favouriteShortcutRepository = favouriteShortcutRepository,
+                    recentShortcutTracker = recentShortcutTracker,
                 )
             }
         },
@@ -750,7 +691,14 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_SIDE_PANEL) {
+                composable(
+                    route = "$ROUTE_SIDE_PANEL?tab={tab}",
+                    arguments = listOf(
+                        navArgument("tab") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) { backStackEntry ->
+                    val tabParam = backStackEntry.arguments?.getString("tab") ?: ""
+                    val initialTab = tabParam.ifBlank { null }
                     SidePanelScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
@@ -759,6 +707,7 @@ fun KernelNavHost(
                                 launchSingleTop = true
                             }
                         },
+                        initialTab = initialTab,
                     )
                 }
 
@@ -807,6 +756,10 @@ fun KernelNavHost(
                     )
                 }
                 composable(ROUTE_TOOLS) {
+                    val scope = rememberCoroutineScope()
+                    val favEntities by favouriteShortcutRepository?.observeAll()
+                        ?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
+                    val toolsFavouriteIds = favEntities.map { it.id }.toSet()
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ToolsHubScreen(
                             onOpenDrawer = {
@@ -814,6 +767,14 @@ fun KernelNavHost(
                             },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
+                                // Record recent — only if the shortcut allows it
+                                val entry = ShortcutRegistry.allById.entries
+                                    .firstOrNull { it.value.route == route }
+                                if (entry != null && entry.value.canRecordRecent) {
+                                    scope.launch {
+                                        recentShortcutTracker?.record(entry.key)
+                                    }
+                                }
                             },
                             onNavigateToSettings = {
                                 navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
@@ -821,6 +782,12 @@ fun KernelNavHost(
                             onOpenPrompt = { prompt ->
                                 navController.navigate(buildActionsDraftRoute(prompt)) {
                                     launchSingleTop = true
+                                }
+                            },
+                            favouriteIds = toolsFavouriteIds,
+                            onToggleFavourite = { shortcutId ->
+                                scope.launch {
+                                    favouriteShortcutRepository?.toggle(shortcutId)
                                 }
                             },
                         )
@@ -842,4 +809,116 @@ fun KernelNavHost(
             }
         }
     }
+}
+
+/**
+ * Dynamic drawer content that shows favourites, recents, defaults, and settings.
+ */
+@Composable
+private fun DrawerContent(
+    navController: NavHostController,
+    drawerState: androidx.compose.material3.DrawerState,
+    currentBaseRoute: String?,
+    favouriteShortcutRepository: FavouriteShortcutRepository?,
+    recentShortcutTracker: RecentShortcutTracker?,
+) {
+    val scope = rememberCoroutineScope()
+
+    // Collect favourites and recents if the repositories are provided
+    val favouriteIds by when (favouriteShortcutRepository) {
+        null -> remember { mutableStateOf(emptyList<FavouriteShortcutEntity>()) }
+        else -> favouriteShortcutRepository.observeAll().collectAsState(initial = emptyList())
+    }
+    val recentIds by when (recentShortcutTracker) {
+        null -> remember { mutableStateOf(emptyList<RecentShortcutEntity>()) }
+        else -> recentShortcutTracker.observeAll().collectAsState(initial = emptyList())
+    }
+
+    // Compute the ordered display list
+    val displayItems by remember(favouriteIds, recentIds) {
+        derivedStateOf {
+            buildDrawerItems(
+                favouriteIds = favouriteIds.map { it.id },
+                recentIds = recentIds.map { it.id },
+            )
+        }
+    }
+
+    // Header
+    Text(
+        text = "Jandal",
+        style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+        modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+    )
+    HorizontalDivider()
+    Spacer(modifier = Modifier.padding(4.dp))
+
+    // Render items with a divider before Settings
+    displayItems.forEach { item ->
+        if (item.isSettings) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        }
+        NavigationDrawerItem(
+            label = { Text(item.label) },
+            icon = { Icon(item.icon, contentDescription = null) },
+            selected = currentBaseRoute == item.route.substringBefore('?'),
+            onClick = {
+                scope.launch {
+                    drawerState.close()
+                    // Record recent (defence-in-depth: honour canRecordRecent)
+                    if (!item.isSettings && recentShortcutTracker != null &&
+                        item.canRecordRecent
+                    ) {
+                        recentShortcutTracker.record(item.id)
+                    }
+                    navController.navigateToDrawerDestination(item.route)
+                }
+            },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+        )
+    }
+}
+
+/**
+ * Build the ordered list of drawer shortcut items.
+ *
+ * Order: favourites → recents (no duplicates with favourites) → defaults (fill remaining) → settings (pinned).
+ */
+internal fun buildDrawerItems(
+    favouriteIds: List<String>,
+    recentIds: List<String>,
+): List<ShortcutDef> {
+    val result = mutableListOf<ShortcutDef>()
+    val addedIds = mutableSetOf<String>()
+
+    // 1. Favourite shortcuts (in order)
+    for (id in favouriteIds) {
+        val def = ShortcutRegistry.byId(id)
+        if (def != null && def.isSettings.not()) {
+            result.add(def)
+            addedIds.add(id)
+        }
+    }
+
+    // 2. Recently used shortcuts (deduped against favourites)
+    for (id in recentIds) {
+        if (id in addedIds || id == ShortcutRegistry.settings.id) continue
+        val def = ShortcutRegistry.byId(id)
+        if (def != null) {
+            result.add(def)
+            addedIds.add(id)
+        }
+    }
+
+    // 3. Default shortcuts (fill gaps, deduped against already-added)
+    for (def in ShortcutRegistry.drawerDefaults) {
+        if (def.id in addedIds) continue
+        result.add(def)
+        addedIds.add(def.id)
+    }
+
+    // 4. Settings pinned at the bottom with a divider
+    result.add(ShortcutRegistry.settings)
+
+    return result
 }
