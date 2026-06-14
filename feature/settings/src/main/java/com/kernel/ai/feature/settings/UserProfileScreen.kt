@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,9 +26,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +52,7 @@ fun UserProfileScreen(
 ) {
     val savedProfile by viewModel.profileText.collectAsStateWithLifecycle()
     val structured by viewModel.structuredProfile.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
 
     // Keep the last non-null structured value so StructuredProfileCard has a safe
     // reference during AnimatedVisibility's exit animation (prevents NPE when clear() fires).
@@ -54,9 +61,25 @@ fun UserProfileScreen(
 
     // Local edit buffer — initialised from saved value.
     var editText by rememberSaveable(savedProfile) { mutableStateOf(savedProfile) }
-    val isDirty = editText != savedProfile
+    val isDirty = editText != savedProfile && !saving
     val charCount = editText.length
     val maxLength = viewModel.maxLength
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Observe save result for transient UI feedback
+    LaunchedEffect(Unit) {
+        viewModel.saveResult.collect { result ->
+            when (result) {
+                is SaveResult.Success -> {
+                    snackbarHostState.showSnackbar("Profile saved")
+                }
+                is SaveResult.Error -> {
+                    snackbarHostState.showSnackbar("Save failed: ${result.message}")
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -68,7 +91,8 @@ fun UserProfileScreen(
                     }
                 },
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -116,6 +140,7 @@ fun UserProfileScreen(
                         viewModel.clear()
                     },
                     modifier = Modifier.weight(1f),
+                    enabled = !saving,
                 ) {
                     Text("Clear")
                 }
@@ -123,9 +148,21 @@ fun UserProfileScreen(
                 Button(
                     onClick = { viewModel.save(editText) },
                     modifier = Modifier.weight(1f),
-                    enabled = isDirty,
+                    enabled = isDirty && !saving,
                 ) {
-                    Text("Save")
+                    if (saving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (saving) {
+                        Text("Saving…")
+                    } else {
+                        Text("Save")
+                    }
                 }
             }
 
@@ -163,6 +200,9 @@ private fun StructuredProfileCard(profile: UserProfileYaml) {
 
             if (profile.environment.isNotEmpty()) {
                 FieldList("Environment", profile.environment)
+            }
+            if (profile.facts.isNotEmpty()) {
+                FieldList("Facts", profile.facts)
             }
             if (profile.context.isNotEmpty()) {
                 FieldList("Context", profile.context)

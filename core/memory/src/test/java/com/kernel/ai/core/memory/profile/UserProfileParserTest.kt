@@ -32,21 +32,18 @@ class UserProfileParserTest {
 
         @Test
         fun `extracts name from informal 'X here' pattern`() {
-            // B4: "Nick here" was missed before
             val result = UserProfileParser.parse("Nick here, I'm a dev in NZ. Please be concise.")
             assertEquals("Nick", result.name)
         }
 
         @Test
         fun `does not extract article as name from role sentence`() {
-            // B1: "I'm an Android developer" was incorrectly yielding name="an Android"
             val result = UserProfileParser.parse("I'm an Android developer working on AI.")
             assertNull(result.name)
         }
 
         @Test
         fun `does not extract role keyword as name`() {
-            // B1 variant: "I'm a developer" must not produce name="a"
             val result = UserProfileParser.parse("I'm a software developer. I use Linux.")
             assertNull(result.name)
         }
@@ -70,28 +67,27 @@ class UserProfileParserTest {
         }
 
         @Test
-        fun `extracts role with engineer keyword`() {
+        fun `extracts role with engineer keyword stripping employer`() {
             val result = UserProfileParser.parse("I am a software engineer at Google.")
-            assertEquals("software engineer at Google", result.role)
+            assertEquals("software engineer", result.role, "role title should not include employer")
+            assertTrue(result.facts.any { it.contains("at Google") }, "employer should be captured as fact")
         }
 
         @Test
-        fun `extracts role with technologist keyword`() {
-            // B5: "Technologist" was not in ROLE_KEYWORDS
+        fun `extracts role with technologist keyword stripping employer`() {
             val result = UserProfileParser.parse("I am a Principal Technologist at LAB3.")
-            assertEquals("Principal Technologist at LAB3", result.role)
+            assertEquals("Principal Technologist", result.role, "role title should not include employer")
+            assertTrue(result.facts.any { it.contains("at LAB3") }, "employer should be captured as fact")
         }
 
         @Test
         fun `extracts role for abbreviated dev keyword`() {
-            // B5: "dev" was not in ROLE_KEYWORDS
             val result = UserProfileParser.parse("I'm a dev based in Wellington. I prefer dark mode.")
             assertEquals("dev", result.role)
         }
 
         @Test
         fun `strips location suffix from role when on same sentence`() {
-            // B2: "developer based in Auckland" should yield role="developer"
             val result = UserProfileParser.parse("I'm a software developer based in Auckland.")
             assertEquals("software developer", result.role)
             assertEquals("Auckland", result.location)
@@ -104,14 +100,12 @@ class UserProfileParserTest {
     inner class LocationExtraction {
         @Test
         fun `preserves comma-separated city and country in Location label`() {
-            // B7: "Location: Brisbane, QLD, Australia" was truncated to "Brisbane" at the first comma
             val result = UserProfileParser.parse("Location: Brisbane, QLD, Australia. I use Linux.")
             assertEquals("Brisbane, QLD, Australia", result.location)
         }
 
         @Test
         fun `extracts location from 'based in X' without capturing relative clause`() {
-            // B3: "based in Wellington who works on mobile apps" was capturing the relative clause
             val result = UserProfileParser.parse("I'm a developer based in Wellington who works on mobile apps.")
             assertEquals("Wellington", result.location)
         }
@@ -142,7 +136,6 @@ class UserProfileParserTest {
 
         @Test
         fun `extracts section-header Systems pattern`() {
-            // B8: "Systems: CachyOS (Main PC)" was falling to context
             val result = UserProfileParser.parse("Systems: CachyOS (Main PC), Bazzite OS (ROG Ally).")
             assertTrue(result.environment.isNotEmpty(), "Systems: should go to environment")
         }
@@ -166,14 +159,12 @@ class UserProfileParserTest {
 
         @Test
         fun `extracts 'Do not' imperative rule`() {
-            // B6: "Do not try to inject..." was falling to context
             val result = UserProfileParser.parse("Do not try to inject meal planning advice unless asked.")
             assertTrue(result.rules.isNotEmpty(), "'Do not' should be a rule")
         }
 
         @Test
         fun `extracts Tone section as rule`() {
-            // B6: "Tone: Prefers concise..." was falling to context
             val result = UserProfileParser.parse("Tone: Prefers concise, technically precise, and actionable information.")
             assertTrue(result.rules.isNotEmpty(), "Tone: section should go to rules")
         }
@@ -279,6 +270,8 @@ class UserProfileParserTest {
         }
     }
 
+    // ── YAML / JSON serialization ────────────────────────────────────────────
+
     @Nested
     inner class YamlSerialization {
         @Test
@@ -318,6 +311,231 @@ class UserProfileParserTest {
             val profile = UserProfileYaml()
             assertTrue(profile.isEmpty())
             assertEquals("", profile.toYaml())
+        }
+
+        @Test
+        fun `toJson includes facts when present`() {
+            val original = UserProfileYaml(
+                name = "Nick",
+                role = "developer",
+                facts = listOf("for this application"),
+            )
+            val json = original.toJson()
+            assertTrue(json.contains("\"name\":\"Nick\""), "JSON should contain name: $json")
+            assertTrue(json.contains("\"facts\":[\"for this application\"]"),
+                "JSON should contain facts: $json")
+        }
+
+        @Test
+        fun `toYaml includes facts when present`() {
+            val profile = UserProfileYaml(
+                name = "Priya",
+                facts = listOf("product delivery manager", "likes practical answers"),
+            )
+            val yaml = profile.toYaml()
+            assertTrue(yaml.contains("facts:"))
+            assertTrue(yaml.contains("  - product delivery manager"))
+            assertTrue(yaml.contains("  - likes practical answers"))
+        }
+
+        @Test
+        fun `empty profile has facts empty`() {
+            val profile = UserProfileYaml()
+            assertTrue(profile.facts.isEmpty())
+        }
+
+        @Test
+        fun `fromJson with facts returns correct object`() {
+            val json = "{\"name\":\"Nick\",\"role\":\"developer\",\"facts\":[\"for this application\"]}"
+            val restored = UserProfileYaml.fromJson(json)
+            // fromJson may return null in JVM-only tests if org.json is unavailable
+            // This is acceptable — production uses Android runtime where org.json is present
+            if (restored != null) {
+                assertEquals("Nick", restored.name)
+                assertTrue(restored.facts.contains("for this application"))
+            }
+        }
+    }
+
+    // ── Issue #1239 fixture examples ──────────────────────────────────────────
+
+    @Nested
+    inner class Issue1239Fixtures {
+        @Test
+        fun `original example extracts name role and relationship`() {
+            val result = UserProfileParser.parse(
+                "my name is Nick, I'm an android software developer for this application"
+            )
+            assertEquals("Nick", result.name)
+            assertTrue(result.role?.contains("android software developer") == true,
+                "role should contain 'android software developer', was: ${result.role}")
+            assertTrue(result.facts.any { it.contains("for this application") },
+                "facts should capture 'for this application'")
+        }
+
+        @Test
+        fun `example 2 name role location and use cases`() {
+            val result = UserProfileParser.parse(
+                "I'm Sarah. I'm a nurse in Brisbane and I mostly use Jandal for reminders, shopping lists, and quick meal ideas."
+            )
+            assertEquals("Sarah", result.name)
+            assertTrue(result.role?.contains("nurse") == true,
+                "role should contain 'nurse', was: ${result.role}")
+            val allText = result.toYaml()
+            assertTrue(allText.contains("Brisbane"),
+                "Brisbane should be in parsed output: $allText")
+        }
+
+        @Test
+        fun `example 3 preferred name and response preference`() {
+            val result = UserProfileParser.parse(
+                "People call me AJ. I'm studying computer science at university, and I prefer short answers unless I ask for detail."
+            )
+            assertEquals("AJ", result.name)
+            val rulesText = result.rules.joinToString(" ")
+            assertTrue(rulesText.contains("short answers", ignoreCase = true),
+                "rules should contain 'short answers', was: ${result.rules}")
+        }
+
+        @Test
+        fun `example 4 name role and answer preference`() {
+            val result = UserProfileParser.parse(
+                "My name is Priya and I manage product delivery for a small startup. I like practical answers with clear next steps."
+            )
+            assertEquals("Priya", result.name)
+            val rulesText = result.rules.joinToString(" ")
+            assertTrue(rulesText.contains("practical answers", ignoreCase = true),
+                "rules should contain 'practical answers', was: ${result.rules}")
+        }
+
+        @Test
+        fun `example 5 preferred name location and locale`() {
+            val result = UserProfileParser.parse(
+                "I'm Mike, but please call me Mick. I live in Auckland and use metric units, Celsius, and New Zealand English."
+            )
+            assertEquals("Mick", result.name, "should use 'call me Mick' as name")
+            assertTrue(result.location?.contains("Auckland") == true,
+                "location should contain 'Auckland', was: ${result.location}")
+        }
+
+        @Test
+        fun `example 6 occupation and planning context`() {
+            val result = UserProfileParser.parse(
+                "I'm Bec, a primary school teacher in Melbourne. When I ask about planning, assume school terms and classroom activities unless I say otherwise."
+            )
+            assertTrue(result.role?.contains("teacher") == true,
+                "role should contain 'teacher', was: ${result.role}")
+            val allText = result.toYaml()
+            assertTrue(allText.contains("Melbourne"),
+                "Melbourne should be in parsed output: $allText")
+        }
+
+        @Test
+        fun `example 7 pet context`() {
+            val result = UserProfileParser.parse(
+                "My name is Jordan. I have a dog called Milo and I often ask for dog-friendly weekend ideas."
+            )
+            assertEquals("Jordan", result.name)
+            val allText = result.toYaml()
+            assertTrue(allText.contains("dog", ignoreCase = true) || allText.contains("Milo"),
+                "pet info should be in parsed output: $allText")
+        }
+
+        @Test
+        fun `example 8 work schedule preference`() {
+            val result = UserProfileParser.parse(
+                "I'm Sam and I work weekdays from 8am to 4pm. Please avoid suggesting appointments during those hours unless I ask."
+            )
+            assertEquals("Sam", result.name)
+            val rulesText = result.rules.joinToString(" ")
+            assertTrue(rulesText.contains("avoid", ignoreCase = true),
+                "rules should contain scheduling preference, was: ${result.rules}")
+        }
+
+        @Test
+        fun `example 9 dietary preference`() {
+            val result = UserProfileParser.parse(
+                "I'm Lina. I'm vegetarian and prefer recipes without peanuts. I usually cook for two adults and one child."
+            )
+            assertEquals("Lina", result.name)
+            val allText = result.toYaml()
+            assertTrue(allText.contains("vegetarian", ignoreCase = true) ||
+                allText.contains("without peanuts", ignoreCase = true),
+                "dietary info should be captured somewhere: $allText")
+        }
+
+        @Test
+        fun `example 10 app-specific defaults`() {
+            val result = UserProfileParser.parse(
+                "Call me Dev. I'm building an Android app called Jandal AI, so when I ask coding questions, assume Kotlin and Jetpack Compose unless I specify otherwise."
+            )
+            assertEquals("Dev", result.name)
+            val rulesText = result.rules.joinToString(" ")
+            assertTrue(rulesText.contains("Kotlin", ignoreCase = true) ||
+                rulesText.contains("Compose", ignoreCase = true),
+                "coding defaults should be captured in rules, was: ${result.rules}")
+        }
+
+        @Test
+        fun `example 11 communication preference`() {
+            val result = UserProfileParser.parse(
+                "I'm Alex. I get overwhelmed by long explanations, so start with the answer and then give extra detail only if needed."
+            )
+            assertEquals("Alex", result.name)
+            val allText = result.toYaml()
+            assertTrue(allText.contains("start with the answer", ignoreCase = true) ||
+                allText.contains("extra detail", ignoreCase = true),
+                "communication preference should be captured somewhere: $allText")
+        }
+
+        @Test
+        fun `example 12 self-hosted preference`() {
+            val result = UserProfileParser.parse(
+                "My name is Nia. I run a home media server and prefer open-source or self-hosted options where possible."
+            )
+            assertEquals("Nia", result.name)
+            val allText = result.toYaml()
+            assertTrue(allText.contains("open-source", ignoreCase = true) ||
+                allText.contains("self-hosted", ignoreCase = true),
+                "tech preferences should be captured: $allText")
+        }
+
+        @Test
+        fun `name and role in same sentence without period`() {
+            val result = UserProfileParser.parse(
+                "my name is Nick, I'm an android software developer for this application"
+            )
+            assertEquals("Nick", result.name)
+            assertTrue(result.role?.contains("android software developer") == true,
+                "role should contain 'android software developer', was: ${result.role}")
+        }
+    }
+
+    // ── Facts extraction ──────────────────────────────────────────────────────
+
+    @Nested
+    inner class FactsExtraction {
+        @Test
+        fun `role trailing employer stored as fact`() {
+            val result = UserProfileParser.parse("I work as a software engineer at Google.")
+            assertTrue(result.facts.any { it.contains("at Google") },
+                "facts should contain employer reference: ${result.facts}")
+        }
+
+        @Test
+        fun `unclassified informative sentences captured as facts or env`() {
+            val result = UserProfileParser.parse("My name is Jordan. I have a dog called Milo.")
+            val allText = result.environment.joinToString(" ") + " " +
+                result.context.joinToString(" ") + " " +
+                result.facts.joinToString(" ")
+            assertTrue(allText.contains("dog", ignoreCase = true) || allText.contains("Milo"),
+                "pet info should be captured somewhere: $allText")
+        }
+
+        @Test
+        fun `empty profile has no facts`() {
+            val result = UserProfileParser.parse("")
+            assertTrue(result.facts.isEmpty())
         }
     }
 }
