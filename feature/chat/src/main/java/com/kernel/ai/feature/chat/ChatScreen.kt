@@ -73,7 +73,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -150,8 +151,13 @@ import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.ModelCardCompact
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.toAvailability
+import com.kernel.ai.core.model.availability.GatedModelStatus
+import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
@@ -263,9 +269,13 @@ fun ChatScreen(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
             onRetry = viewModel::retryDownload,
+            onDownloadModel = viewModel::retryDownload,
+            onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
             downloadSources = state.downloadSources,
+            gatedStatuses = state.gatedStatuses,
+            conversationReadiness = state.conversationReadiness,
         )
         is ChatUiState.Ready -> {
             val context = LocalContext.current
@@ -1731,9 +1741,13 @@ private fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
+    onDownloadModel: (KernelModel) -> Unit,
+    onStartAuth: () -> Unit,
     onNavigateToModelManagement: () -> Unit,
     hfAuthenticated: Boolean = false,
     downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
+    gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
+    conversationReadiness: ConversationModelReadiness? = null,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -1746,26 +1760,144 @@ private fun OnboardingContent(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp),
             )
-            Text(
-                text = if (isDownloading) {
-                    "Downloading AI models… please stay connected to Wi-Fi."
-                } else {
-                    "On-device AI models are required and will download automatically."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
-            )
 
-            if (modelProgress.isNotEmpty()) {
+            // ── Explanatory copy ─────────────────────────────────────────────
+            when (conversationReadiness) {
+                is ConversationModelReadiness.ActionRequired -> {
+                    Text(
+                        text = "Action Required",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Chat needs a conversation model before you can start talking to Jandal.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                is ConversationModelReadiness.Preparing -> {
+                    Text(
+                        text = "Preparing conversation model",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Downloading ${conversationReadiness.downloadingModel.displayName}… " +
+                            "Chat will be available once it finishes.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    ConversationDownloadProgress(
+                        progress = conversationReadiness.progress,
+                    )
+                }
+                is ConversationModelReadiness.FallbackActive -> {
+                    Text(
+                        text = "Chat is available with ${KernelModel.GEMMA_4_E2B.displayName}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        text = "Download ${conversationReadiness.recommendedModel.displayName} for best performance on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                is ConversationModelReadiness.FallbackPreparing -> {
+                    Text(
+                    text = "Chat is available with ${conversationReadiness.fallbackModel.displayName}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                    text = "${conversationReadiness.downloadingModel.displayName} is downloading " +
+                            "for the best experience on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    ConversationDownloadProgress(
+                        progress = conversationReadiness.progress,
+                    )
+                }
+                null, is ConversationModelReadiness.Ready -> {
+                    Text(
+                        text = if (isDownloading) {
+                            "Downloading AI models… please stay connected to Wi-Fi."
+                        } else {
+                            "On-device AI models are required and will download automatically."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+
+            val conversationModels = setOf(
+                KernelModel.GEMMA_4_E4B,
+                KernelModel.GEMMA_4_E2B,
+            )
+            val otherModels = modelProgress.filter { it.model !in conversationModels }
+            val conversationBlocking = modelProgress.filter { it.model in conversationModels }
+
+            // ── Conversation-model actions (when blocking Chat) ─────────────
+            if (conversationReadiness is ConversationModelReadiness.ActionRequired) {
+                // Show a clear recovery card instead of a blank model row
+                ConversationModelRecoveryCard(
+                    recommendedModel = conversationReadiness.recommendedModel,
+                    fallbackModel = conversationReadiness.fallbackModel,
+                    onDownload = onDownloadModel,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            } else if (conversationReadiness is ConversationModelReadiness.FallbackActive) {
+                // E-2B is ready; recommend E-4B
+                ConversationModelRecommendationCard(
+                    recommendedModel = conversationReadiness.recommendedModel,
+                    onDownload = onDownloadModel,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            }
+
+            val blockingBanner = deriveBlockingBanner(
+                otherModels = otherModels,
+                hfAuthenticated = hfAuthenticated,
+                downloadSources = downloadSources,
+                gatedStatuses = gatedStatuses,
+            )
+            if (blockingBanner != null) {
+                BlockingBanner(
+                    data = blockingBanner,
+                    onSignIn = onStartAuth,
+                    onRetry = onRetry,
+                    onNavigateToModelManagement = onNavigateToModelManagement,
+                    modifier = Modifier.padding(top = 20.dp),
+                )
+            }
+
+            // ── Other model rows (EmbeddingGemma, SentencePiece, etc.) ──────
+            if (otherModels.isNotEmpty()) {
                 Column(
                     modifier = Modifier
-                        .padding(top = 28.dp)
+                        .padding(top = 20.dp)
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    modelProgress.forEach { item ->
+                    otherModels.forEach { item ->
                         val source = downloadSources[item.model]
                         ModelCardCompact(
                             title = item.displayName,
@@ -1774,19 +1906,366 @@ private fun OnboardingContent(
                                 model = item.model,
                                 hfAuth = hfAuthenticated,
                                 source = source ?: DownloadSource.USER_INITIATED,
+                                gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE,
                             ),
                             showLock = item.model.isGated,
                         )
                     }
                 }
-                TextButton(
-                    onClick = onNavigateToModelManagement,
-                    modifier = Modifier.padding(top = 8.dp),
+            }
+
+            // ── Conversation model compact rows when not blocking ───────────
+            // Show E2B/E4B as compact cards only when readiness is Ready
+            if (conversationReadiness is ConversationModelReadiness.Ready &&
+                conversationBlocking.isNotEmpty()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(top = 20.dp)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    Text("Manage models")
+                    conversationBlocking.forEach { item ->
+                        val source = downloadSources[item.model]
+                        ModelCardCompact(
+                            title = item.displayName,
+                            description = item.sizeLabel,
+                            state = item.state.toAvailability(
+                                model = item.model,
+                                hfAuth = hfAuthenticated,
+                                source = source ?: DownloadSource.USER_INITIATED,
+                                gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE,
+                            ),
+                            showLock = item.model.isGated,
+                        )
+                    }
                 }
-            } else if (isDownloading) {
-                PauaLoadingIndicator(size = 24.dp)
+            }
+
+            // ── Manage models (always visible) ──────────────────────────────
+            TextButton(
+                onClick = onNavigateToModelManagement,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text("Manage models")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationDownloadProgress(
+    progress: Float?,
+) {
+    Spacer(modifier = Modifier.height(8.dp))
+    if (progress != null && progress > 0f) {
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else {
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun ConversationModelRecoveryCard(
+    recommendedModel: KernelModel,
+    fallbackModel: KernelModel,
+    onDownload: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Conversation model required",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Recommended: ${recommendedModel.displayName} " +
+                    "(${formatBytesShort(recommendedModel.approxSizeBytes)}) — " +
+                    "best performance on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { onDownload(recommendedModel) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${recommendedModel.displayName}")
+            }
+            if (fallbackModel != recommendedModel) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "or use the smaller fallback:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onDownload(fallbackModel) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Download ${fallbackModel.displayName} " +
+                        "(${formatBytesShort(fallbackModel.approxSizeBytes)})")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationModelRecommendationCard(
+    recommendedModel: KernelModel,
+    onDownload: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Upgrade recommended",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Download ${recommendedModel.displayName} " +
+                    "(${formatBytesShort(recommendedModel.approxSizeBytes)}) " +
+                    "for the best experience on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { onDownload(recommendedModel) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${recommendedModel.displayName}")
+            }
+        }
+    }
+}
+
+/** Compact byte formatting for inline use. */
+private fun formatBytesShort(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000f)
+    bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000f)
+    else -> "$bytes B"
+}
+
+@Composable
+private fun SignInBanner(
+    onSignIn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Sign in to download models",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Some required models on Hugging Face need authentication. " +
+                    "Sign in with your Hugging Face account to continue.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onSignIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Sign in to Hugging Face")
+            }
+        }
+    }
+}
+
+// ── Required-model blocking action helpers ──────────────────────────────
+
+/** Opaque action kind for the top-level blocking banner. */
+private sealed class BlockingAction {
+    data object SignIn : BlockingAction()
+    data class Retry(val model: KernelModel) : BlockingAction()
+    data object OpenModelManagement : BlockingAction()
+}
+
+/** Derived data for rendering a top-level blocker banner. */
+private data class BlockingBannerData(
+    val title: String,
+    val message: String,
+    val primaryActionLabel: String,
+    val primaryAction: BlockingAction,
+)
+
+/**
+ * Scans [otherModels] (non-conversation models) and returns the first blocking
+ * banner, or null if no required model has an actionable blocker.
+ *
+ * Priority order (deterministic by iteration):
+ * 1. Sign-in required (unauthenticated gated model)
+ * 2. License required (gated model needs license review)
+ * 3. Download failed (error state)
+ * 4. Access denied / approval pending / insufficient storage
+ */
+private fun deriveBlockingBanner(
+    otherModels: List<ChatUiState.ModelDownloadProgress>,
+    hfAuthenticated: Boolean,
+    downloadSources: Map<KernelModel, DownloadSource>,
+    gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
+): BlockingBannerData? {
+    for (item in otherModels) {
+        val source = downloadSources[item.model] ?: DownloadSource.USER_INITIATED
+        val gated = gatedStatuses[item.model] ?: GatedModelStatus.NONE
+        val availability = item.state.toAvailability(
+            model = item.model,
+            hfAuth = hfAuthenticated,
+            source = source,
+            gated = gated,
+        )
+        when (availability) {
+            is ModelAvailabilityState.ActionRequired -> when (val reason = availability.reason) {
+                is ActionReason.SignInRequired -> return BlockingBannerData(
+                    title = "Sign in required",
+                    message = "Sign in to Hugging Face to download ${item.model.displayName} " +
+                        "and enable gated features.",
+                    primaryActionLabel = "Sign in to Hugging Face",
+                    primaryAction = BlockingAction.SignIn,
+                )
+                is ActionReason.LicenseRequired -> return BlockingBannerData(
+                    title = "License required",
+                    message = "${item.model.displayName} needs a license to download. " +
+                        "Review it in Model Management to continue.",
+                    primaryActionLabel = "Review license in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.DownloadFailed -> return BlockingBannerData(
+                    title = "Download failed",
+                    message = "Failed to download ${item.model.displayName}.\n${reason.message}",
+                    primaryActionLabel = "Retry download",
+                    primaryAction = BlockingAction.Retry(item.model),
+                )
+                is ActionReason.ApprovalPending -> return BlockingBannerData(
+                    title = "Approval pending",
+                    message = "Access request is pending for ${item.model.displayName}.",
+                    primaryActionLabel = "Check status in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.AccessApprovalRequired -> return BlockingBannerData(
+                    title = "Additional access required",
+                    message = "${item.model.displayName} requires access approval from " +
+                        "${reason.providerName}.",
+                    primaryActionLabel = "Check in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                is ActionReason.InsufficientStorage -> return BlockingBannerData(
+                    title = "Insufficient storage",
+                    message = "Free up storage space to download ${item.model.displayName}.",
+                    primaryActionLabel = "Manage storage",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+            }
+            is ModelAvailabilityState.Unavailable -> when (val reason = availability.reason) {
+                is UnavailableReason.AccessDenied -> return BlockingBannerData(
+                    title = "Access denied",
+                    message = "Access to ${item.model.displayName} has been denied. " +
+                        "Check your access in Model Management.",
+                    primaryActionLabel = "Check in Model Management",
+                    primaryAction = BlockingAction.OpenModelManagement,
+                )
+                else -> { /* Other unavailable reasons unrelated to gating */ }
+            }
+            else -> { /* Not a blocker — proceed to next model */ }
+        }
+    }
+    return null
+}
+
+@Composable
+private fun BlockingBanner(
+    data: BlockingBannerData,
+    onSignIn: () -> Unit,
+    onRetry: (KernelModel) -> Unit,
+    onNavigateToModelManagement: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (data.primaryAction) {
+        is BlockingAction.SignIn -> {
+            SignInBanner(onSignIn = onSignIn, modifier = modifier)
+        }
+        is BlockingAction.Retry -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = data.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = data.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onRetry(data.primaryAction.model) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(data.primaryActionLabel)
+                    }
+                }
+            }
+        }
+        is BlockingAction.OpenModelManagement -> {
+            Card(
+                modifier = modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = data.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = data.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onNavigateToModelManagement,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(data.primaryActionLabel)
+                    }
+                }
             }
         }
     }
