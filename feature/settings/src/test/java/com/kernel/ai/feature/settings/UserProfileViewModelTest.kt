@@ -164,6 +164,30 @@ class UserProfileViewModelTest {
     }
 
     @Test
+    fun `only first save text is persisted when duplicate is blocked`() = runTest(testDispatcher) {
+        val deferred = CompletableDeferred<Unit>()
+        coEvery { repository.save(any()) } coAnswers {
+            deferred.await()
+        }
+
+        viewModel.save("original version")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.saving.value, "saving should be true after first save")
+
+        // Second save attempt is blocked — different text should NOT reach repository
+        viewModel.save("second version")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Only "original version" was passed to the repository
+        coVerify(exactly = 1) { repository.save("original version") }
+        deferred.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.saving.value, "saving should be false after save completes")
+        // Still only one save call
+        coVerify(exactly = 1) { repository.save("original version") }
+    }
+
+    @Test
     fun `save emits Success after deferred completes`() = runTest(testDispatcher) {
         val deferred = CompletableDeferred<Unit>()
         coEvery { repository.save(any()) } coAnswers {

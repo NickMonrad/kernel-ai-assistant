@@ -26,8 +26,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -43,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.profile.UserProfileYaml
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,27 +58,53 @@ fun UserProfileScreen(
     var lastStructured by remember { mutableStateOf<UserProfileYaml?>(null) }
     if (structured != null) lastStructured = structured
 
-    // Local edit buffer — initialised from saved value.
-    var editText by rememberSaveable(savedProfile) { mutableStateOf(savedProfile) }
+    // Local edit buffer — stable key, synced safely below to avoid mid-save overwrite.
+    var editText by rememberSaveable { mutableStateOf("") }
+
+    // Snapshot of editText when save was initiated, used for divergence detection.
+    // When a save completes, if editText has diverged (user kept typing), keep their edits.
+    var savedTextSnapshot by remember { mutableStateOf<String?>(null) }
+
+    // Sync editText from savedProfile when the screen first loads or when the repository
+    // changes externally (e.g. clear from another session). Skip during save to avoid
+    // overwriting edits made while a save is in flight.
+    LaunchedEffect(savedProfile, saving) {
+        if (!saving && savedTextSnapshot == null) {
+            editText = savedProfile
+        }
+    }
+
+    // Save lifecycle tracking: capture snapshot on save start, handle divergence on completion.
+    LaunchedEffect(saving) {
+        if (saving) {
+            savedTextSnapshot = editText
+        } else if (savedTextSnapshot != null) {
+            // Save completed — only sync if user hasn't edited since save was clicked
+            if (editText == savedTextSnapshot) {
+                editText = savedProfile
+            }
+            savedTextSnapshot = null
+        }
+    }
+
+    // Inline save status text below the buttons for transient UX feedback.
+    // Avoids SnackbarHost for simpler UX — SnackbarHost was not the source of
+    // the PopupLayout retention; the trigger was enabled = !saving on the text field.
+    var saveStatusText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.saveResult.collect { result ->
+            saveStatusText = when (result) {
+                is SaveResult.Success -> "Profile saved"
+                is SaveResult.Error -> "Save failed: ${result.message}"
+            }
+            delay(3000)
+            saveStatusText = null
+        }
+    }
+
     val isDirty = editText != savedProfile && !saving
     val charCount = editText.length
     val maxLength = viewModel.maxLength
-
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    // Observe save result for transient UI feedback
-    LaunchedEffect(Unit) {
-        viewModel.saveResult.collect { result ->
-            when (result) {
-                is SaveResult.Success -> {
-                    snackbarHostState.showSnackbar("Profile saved")
-                }
-                is SaveResult.Error -> {
-                    snackbarHostState.showSnackbar("Save failed: ${result.message}")
-                }
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -92,7 +117,6 @@ fun UserProfileScreen(
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -116,7 +140,7 @@ fun UserProfileScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp),
-                enabled = !saving,
+                readOnly = saving,
                 label = { Text("Profile") },
                 placeholder = {
                     Text("e.g. My name is Nick. I use a Samsung S23 Ultra. I prefer concise answers.")
@@ -167,6 +191,18 @@ fun UserProfileScreen(
                 }
             }
 
+            // Inline save status — replaces SnackbarHost to avoid PopupLayout leak
+            if (saveStatusText != null) {
+                Text(
+                    text = saveStatusText!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (saveStatusText!!.startsWith("Save failed"))
+                        MaterialTheme.colorScheme.error
+                    else
+                        MaterialTheme.colorScheme.primary,
+                )
+            }
+
             // Structured preview — shows parsed fields from the saved profile
             AnimatedVisibility(visible = structured?.isEmpty() == false) {
                 lastStructured?.let { StructuredProfileCard(profile = it) }
@@ -182,34 +218,38 @@ private fun StructuredProfileCard(profile: UserProfileYaml) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = "Parsed Profile",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
+            Spacer(Modifier.height(8.dp))
 
-            profile.name?.let { FieldRow("Name", it) }
-            profile.role?.let { FieldRow("Role", it) }
-            profile.location?.let { FieldRow("Location", it) }
+            profile.name?.let {
+                FieldRow(label = "Name", value = it)
+            }
+            profile.role?.let {
+                FieldRow(label = "Role", value = it)
+            }
+            profile.location?.let {
+                FieldRow(label = "Location", value = it)
+            }
 
             if (profile.environment.isNotEmpty()) {
-                FieldList("Environment", profile.environment)
-            }
-            if (profile.facts.isNotEmpty()) {
-                FieldList("Facts", profile.facts)
+                FieldList(label = "Environment", items = profile.environment)
             }
             if (profile.context.isNotEmpty()) {
-                FieldList("Context", profile.context)
+                FieldList(label = "Context", items = profile.context)
             }
             if (profile.rules.isNotEmpty()) {
-                FieldList("Preferences", profile.rules)
+                FieldList(label = "Rules", items = profile.rules)
+            }
+            if (profile.facts.isNotEmpty()) {
+                FieldList(label = "Facts", items = profile.facts)
             }
         }
     }
@@ -217,7 +257,7 @@ private fun StructuredProfileCard(profile: UserProfileYaml) {
 
 @Composable
 private fun FieldRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row {
         Text(
             text = "$label: ",
             style = MaterialTheme.typography.bodySmall,
@@ -233,19 +273,16 @@ private fun FieldRow(label: String, value: String) {
 
 @Composable
 private fun FieldList(label: String, items: List<String>) {
-    Column {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    items.forEach { item ->
         Text(
-            text = label,
+            text = "  \u2022 $item",
             style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        items.forEach { item ->
-            Text(
-                text = "  • $item",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
     }
 }
