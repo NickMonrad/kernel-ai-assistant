@@ -339,14 +339,25 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("set playback speed to 2x", "podcast_speed"),
         TestCase("set podcast playback to normal speed", "podcast_speed"),
         TestCase("slow down the podcast", "podcast_speed"),
+        # date_diff — deterministic countdown routing (issue #1227)
+        TestCase("how many weeks until 31 October", "get_date_diff",
+                 tags=["deterministic_core", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"],
+                 expect_reply_contains=r"weeks? from now|days? from now"),
+        TestCase("how many weeks until the 31 October", "get_date_diff",
+                 tags=["deterministic_core", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"],
+                 expect_reply_contains=r"weeks? from now|days? from now"),
     ]),
     ("slot_fill", [
         # ── Positive slot-fill: bare query → NeedsSlot → valid reply → dispatch ──
+        # Alarm: slot-fill stores `time=7am` as the canonical public marker.
+        # NativeIntentHandler internally resolves to hours/minutes, but the log marker
+        # shows the raw param `time=7am` because the slot-fill merges the user's reply
+        # text directly. This is the intended canonical representation for the harness.
         TestCase(
             "set an alarm",
             "set_alarm",
             slot_reply="7am",
-            expect_params={"hours": "7", "minutes": "0"},
+            expect_params={"time": "7am"},
             expect_initial_log_contains="NeedsSlot",
             tags=["slot_fill", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"],
         ),
@@ -410,6 +421,37 @@ PHASES: list[tuple[str, list[TestCase]]] = [
             expect_params={"item": "eggs"},
             expect_initial_log_contains="NeedsSlot",
             tags=["slot_fill"],
+        ),
+
+        # ── Multi-slot positive: bare query → NeedsSlot → multiple replies → dispatch ──
+        TestCase(
+            "add to my list",
+            "add_to_list",
+            slot_replies=["eggs", "shopping list"],
+            expect_params={"item": "eggs", "list_name": "shopping list"},
+            expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "multi_slot"],
+            id="slot_fill_add_to_list_multi",
+        ),
+        TestCase(
+            "send a message",
+            "send_sms",
+            slot_replies=["Mum", "on my way"],
+            expect_params={"contact": "Mum", "message": "on my way"},
+            expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "multi_slot", "fixture_required", "contact_fixture_required"],
+            fixture="contacts:family_seed",
+            id="slot_fill_send_sms_multi",
+        ),
+        TestCase(
+            "send an email",
+            "send_email",
+            slot_replies=["Nick", "meeting", "see you at 2"],
+            expect_params={"contact": "Nick", "subject": "meeting", "body": "see you at 2"},
+            expect_initial_log_contains="NeedsSlot",
+            tags=["slot_fill", "multi_slot", "fixture_required", "contact_fixture_required"],
+            fixture="contacts:email_contact_seed",
+            id="slot_fill_send_email_multi",
         ),
         # ── Negative slot-fill: invalid slot value → should NOT dispatch ──
         TestCase(

@@ -148,6 +148,8 @@ class NativeIntentHandler @Inject constructor(
     private val noteDao: NoteDao,
     private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
     private val listNotificationScheduler: ListNotificationScheduler,
+    /** Injectable clock for stable unit test results. Defaults to [LocalDate.now]. */
+    private val nowProvider: () -> java.time.LocalDate = { java.time.LocalDate.now() },
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -2164,7 +2166,7 @@ class NativeIntentHandler @Inject constructor(
     private fun getDateDiff(params: Map<String, String>): SkillResult {
         val targetStr = params["target_date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("get_date_diff", "No target_date provided")
-        val today = LocalDate.now()
+        val today = nowProvider()
         val preferPast = params["direction"] == "since"
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today

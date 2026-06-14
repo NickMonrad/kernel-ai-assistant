@@ -886,6 +886,37 @@ class QuickIntentRouterTest {
     }
 
     @Test
+    fun `date diff stt waits mishearing is corrected to weeks`() {
+        // "how many waits until 31 October" → "how many weeks until 31 October"
+        val result = regexOnlyRouter.route("how many waits until 31 October")
+        assertRegexMatch(result, "get_date_diff", "how many waits until 31 October")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("31 October", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff stt ordinal split mishearing is corrected`() {
+        // "how many weeks until the 30 first of october" → ordinal correction → "31st of october"
+        val result = regexOnlyRouter.route("how many weeks until the 30 first of october")
+        assertRegexMatch(result, "get_date_diff", "how many weeks until the 30 first of october")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("31st of october", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff strips leading the from target date`() {
+        val result = regexOnlyRouter.route("how many weeks until the 31 October")
+        assertRegexMatch(result, "get_date_diff", "how many weeks until the 31 October")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("31 October", intent.params["target_date"])
+    }
+
+    @Test
     fun `how to cook kumara falls through to llm not date diff`() {
         assertFallThrough(
             regexOnlyRouter.route("how to cook kumara"),
@@ -2572,6 +2603,11 @@ class QuickIntentRouterTest {
             Arguments.of("when is Easter"),
             Arguments.of("how many days until 2026-08-22"),
             Arguments.of("how long until August 22 2026"),
+            // #1227 — date-countdown routing
+            Arguments.of("how many weeks until 31 October"),
+            Arguments.of("how many weeks until the 31 October"),
+            // STT variant: "waits" → "weeks" normalised, ordinal split fixed
+            Arguments.of("how many waits until the 30 first of october"),
         )
 
         @JvmStatic

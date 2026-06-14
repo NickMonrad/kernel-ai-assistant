@@ -144,6 +144,22 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    // #1227 — STT mishearing for date-diff countdown queries.
+    // NZ/English STT commonly mishears:
+    //   "weeks" → "waits" (vowel merger in "weeks" ~ "waits")
+    //   "31st"  → "30 first" (ordinal split — "th" perceived as separate tokens)
+    // Scoped to the regex path only; applied before date-diff pattern matching.
+    private val WAITS_TO_WEEKS_RE = Regex(
+        """\bwaits\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    // Ordinal split: "30 first of" → increment the number and add "st" suffix.
+    // Common STT artifact for "thirty-first" → "30 first" etc.
+    private val ORDINAL_SPLIT_RE = Regex(
+        """\b(\d+)\s+first\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -3207,7 +3223,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
         ),
         // "how many days since March 1" / "how long since Easter"
         IntentPattern(
@@ -3216,7 +3232,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "since") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "since") }
         ),
         // "days until Christmas" / "weeks until New Year"
         IntentPattern(
@@ -3225,7 +3241,7 @@ class QuickIntentRouter(
                 """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
         ),
         // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
         IntentPattern(
@@ -3234,7 +3250,7 @@ class QuickIntentRouter(
                 """what\s+day(?:\s+of\s+the\s+week)?\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
         ),
         // "when is ANZAC Day" / "when is Easter"  (not "when is X this year" — that falls to E4B)
         IntentPattern(
@@ -3243,7 +3259,7 @@ class QuickIntentRouter(
                 """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
         ),
 
         // ── Calculator / Conversion ──
@@ -4348,12 +4364,22 @@ class QuickIntentRouter(
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
         val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
 
+        // #1227 — STT mishearing for date-diff countdown queries.
+        //   "weeks" → "waits" (vowel merger)
+        //   "31st"  → "30 first" (ordinal split)
+        // Scoped to regex path only; classifier/FallThrough still see the original.
+        val dateDiffFixed = WAITS_TO_WEEKS_RE.replace(listTailFixed, "weeks")
+            .replace(ORDINAL_SPLIT_RE) { match ->
+                val num = match.groupValues[1].toIntOrNull()
+                if (num != null) "${num + 1}st" else match.value
+            }
+
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
         // the alias normalisation above) so they reach the deterministic cooking-conversion path.
         // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
         // transcribes spoken fractions as glyphs.
         val fractionNormalized = normalizeNumericCookingFractions(
-            normalizeWrittenCookingFractions(listTailFixed),
+            normalizeWrittenCookingFractions(dateDiffFixed),
         )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
@@ -4397,6 +4423,10 @@ class QuickIntentRouter(
         // Stage 3: Fall through to E4B
         return RouteResult.FallThrough(input = trimmed)
     }
+
+    /** Strip leading "the " from a target_date string captured by date-diff patterns. */
+    private fun cleanTargetDate(raw: String): String =
+        raw.trim().replace(Regex("^the\\s+", RegexOption.IGNORE_CASE), "").trim()
 
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
