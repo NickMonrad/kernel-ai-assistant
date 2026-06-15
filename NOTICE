@@ -1,7 +1,7 @@
 Kernel AI Assistant
 Copyright 2026 Nicholas Monrad
 
-This product includes software adapted from the following projects:
+This product includes software adapted from or based on the following projects:
 
 Google AI Edge Gallery
   Copyright 2024 Google LLC
@@ -14,6 +14,14 @@ Google LiteRT-LM
   Licensed under the Apache License, Version 2.0
   https://github.com/google-ai-edge/LiteRT-LM
   Used: LiteRT-LM Android library (com.google.ai.edge.litertlm:litertlm-android)
+
+openWakeWord
+  Copyright openWakeWord contributors
+  Licensed under the Apache License, Version 2.0
+  https://github.com/dscripka/openWakeWord
+  Used/adapted: wake-word model lineage and wake-word detection approach for the
+  bundled "Hey Jandal" wake-word ONNX assets. Final release notes must also record
+  the provenance/training data ownership of the generated Jandal-specific model files.
 
 Additional third-party libraries and downloadable model/voice assets
   Jandal AI depends on third-party Android/Kotlin libraries, local inference runtimes,
