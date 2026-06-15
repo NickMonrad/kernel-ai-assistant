@@ -710,3 +710,16 @@ internal fun detectKnownNzTerm(
         term.length >= 3 && Regex("""\b${Regex.escape(term)}\b""").containsMatchIn(lower)
     }
 }
+
+/**
+ * Builds a deterministic assistant reply from a seeded NZ truth entry.
+ * Used by [com.kernel.ai.feature.chat.ChatViewModel] to answer known NZ/Māori
+ * cultural terms locally without calling query_wikipedia or the inference engine.
+ *
+ * @param entry the matched NZ truth entry with term and definition.
+ * @return a complete assistant reply string.
+ */
+internal fun buildKnownNzContextReply(entry: JandalPersona.NzTruthEntry): String {
+    val definition = entry.definition.trim().trimEnd('.')
+    return "${entry.term}: $definition."
+}

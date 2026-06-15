@@ -20,6 +20,49 @@ import org.junit.jupiter.params.provider.ValueSource
  */
 class ChatTextUtilsTest {
 
+    private val sampleEntries = listOf(
+        JandalPersona.NzTruthEntry(
+            id = "nz_141",
+            term = "Wharepaku",
+            category = "culture",
+            definition = "Wharepaku is the te reo Māori term for a toilet, restroom, or bathroom. It's a compound word literally meaning 'small house' (whare = building/house, paku = small). Standard term found on public signage, schools, and government buildings across New Zealand.",
+            triggerContext = "When the user asks about wharepaku, bathroom, toilet, or restroom",
+            vibeLevel = 3,
+            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Māori language. New Zealand. Small house. Public signage. Māori culture. Te reo Māori.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_142",
+            term = "Chocka",
+            category = "culture",
+            definition = "Chocka (or chock-a-block) is a Kiwi colloquialism meaning full, packed, or crowded. Common usage: 'the pub was chocka', 'my schedule is chocka', or 'the car is chocka with gear'. Derived from nautical terminology where a block-and-tackle rig is fully extended ('chock-a-block').",
+            triggerContext = "When the user asks about chocka, chock-a-block, or New Zealand slang",
+            vibeLevel = 2,
+            vectorText = "Chocka. Chock-a-block. Full. Packed. Crowded. Kiwi colloquialism. New Zealand slang. Nautical origin.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_143",
+            term = "Taniwha",
+            category = "culture",
+            definition = "Taniwha are powerful supernatural beings in Māori mythology that dwell in deep rivers, dark caves, lakes, or the ocean. They can be protective guardians (kaitiaki) for an iwi or dangerous predatory monsters that kidnap women or eat people. They are complex figures that enforce respect for natural boundaries and waterways.",
+            triggerContext = "When the user asks about taniwha, Māori mythology, or supernatural beings in New Zealand",
+            vibeLevel = 4,
+            vectorText = "Taniwha. Māori mythology. Supernatural beings. Kaitiaki. Guardians. Water spirits. New Zealand. Māori culture. Iwi. Natural boundaries. Waterways.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_144",
+            term = "Kumara",
+            category = "culture",
+            definition = "Kumara (sweet potato) is a root vegetable brought to Aotearoa by early Māori. It's a staple of both traditional Māori hāngī and the classic Kiwi Sunday roast. Varieties include red (Owairaka), gold (Toka Toka), and orange (Beauregard). It holds significant cultural importance in New Zealand.",
+            triggerContext = "When the user asks about kumara, sweet potato, hāngī, or traditional Māori food",
+            vibeLevel = 3,
+            vectorText = "Kumara. Sweet potato. Māori food. Hāngī. Sunday roast. New Zealand. Aotearoa. Owairaka. Toka Toka. Beauregard. Root vegetable.",
+            metadataJson = """{}""",
+        ),
+    )
+
     // ═════════════════════════════════════════════════════════════════════════
     // STRIP MARKDOWN
     // ═════════════════════════════════════════════════════════════════════════
@@ -1198,48 +1241,6 @@ class ChatTextUtilsTest {
     @DisplayName("detectKnownNzTerm")
     inner class KnownNzTermDetectionTests {
 
-        private val sampleEntries = listOf(
-            JandalPersona.NzTruthEntry(
-                id = "nz_141",
-                term = "Wharepaku",
-                category = "maori",
-                definition = "The te reo Māori term for toilet, restroom, or bathroom.",
-                triggerContext = "When the user mentions wharepaku.",
-                vibeLevel = 2,
-                vectorText = "Wharepaku. Toilet. Restroom. Bathroom.",
-                metadataJson = "{}",
-            ),
-            JandalPersona.NzTruthEntry(
-                id = "nz_142",
-                term = "Chocka",
-                category = "slang",
-                definition = "Completely full to the brim; packed.",
-                triggerContext = "When the user says chocka.",
-                vibeLevel = 4,
-                vectorText = "Chocka. Chocka block. Full up. Crowded.",
-                metadataJson = "{}",
-            ),
-            JandalPersona.NzTruthEntry(
-                id = "nz_144",
-                term = "Taniwha",
-                category = "maori",
-                definition = "Supernatural creatures from Māori mythology.",
-                triggerContext = "When the user mentions taniwha.",
-                vibeLevel = 3,
-                vectorText = "Taniwha. Water spirit. Guardian. Kaitiaki.",
-                metadataJson = "{}",
-            ),
-            JandalPersona.NzTruthEntry(
-                id = "nz_140",
-                term = "Kumara",
-                category = "food",
-                definition = "New Zealand sweet potato.",
-                triggerContext = "When the user mentions kumara.",
-                vibeLevel = 2,
-                vectorText = "Kumara. Sweet potato. Roast kumara.",
-                metadataJson = "{}",
-            ),
-        )
 
         @Test
         fun `detects wharepaku in question`() {
@@ -1342,6 +1343,43 @@ class ChatTextUtilsTest {
             )
             val result = detectKnownNzTerm("I live in NZ", listOf(shortEntry))
             assertNull(result)
+        }
+    }
+
+    @Nested
+    inner class BuildKnownNzContextReplyTests {
+
+        @Test
+        fun `builds reply for wharepaku entry`() {
+            val entry = sampleEntries.first { it.term == "Wharepaku" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Wharepaku"))
+            assertTrue(result.contains("toilet") || result.contains("restroom") || result.contains("bathroom"))
+            assertTrue(result.endsWith("."))
+        }
+
+        @Test
+        fun `builds reply for chocka entry`() {
+            val entry = sampleEntries.first { it.term == "Chocka" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Chocka"))
+            assertTrue(result.contains("full") || result.contains("packed") || result.contains("chock-a-block"))
+        }
+
+        @Test
+        fun `builds reply for taniwha entry`() {
+            val entry = sampleEntries.first { it.term == "Taniwha" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Taniwha"))
+            assertTrue(result.contains("guardian") || result.contains("kaitiaki"))
+        }
+
+        @Test
+        fun `builds reply for kumara entry`() {
+            val entry = sampleEntries.first { it.term == "Kumara" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Kumara"))
+            assertTrue(result.contains("sweet potato"))
         }
     }
 }

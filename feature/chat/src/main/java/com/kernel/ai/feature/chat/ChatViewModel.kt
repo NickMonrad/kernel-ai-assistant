@@ -1434,6 +1434,7 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
+            var injectedNzContextForTurn: String? = null
             var isToolQueryForTurn = false
             // Tracks whether this turn had a conversation reset (independent command).
             // Used by the history replay section to exclude previous independent-command
@@ -2242,6 +2243,39 @@ class ChatViewModel @Inject constructor(
                     Log.d(TAG, "Deterministic NZ context injected for term='${nzTermEntry.term}'")
                 }
             }
+            injectedNzContextForTurn = effectiveRagContext.takeIf { it.contains("[NZ Context:") }
+
+            // #1074: Deterministic local NZ answer — bypass inference for known NZ/Māori
+            // terms when no explicit Wikipedia request or stronger app action exists.
+            // Gemma 4 E-4B on S23U calls query_wikipedia even with NZ context injected,
+            // so answer directly from the seeded corpus to avoid Wikipedia fallthrough.
+            if (explicitWikipediaQuery == null && matchedIntent == null) {
+                val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
+                if (localNzEntry != null) {
+                    val localReply = "Morena. ${localNzEntry.definition}"
+                    Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    // Complete the streaming placeholder with the local reply
+                    _messages.update { msgs ->
+                        msgs.map { if (it.id == assistantMsgId) it.copy(content = localReply, isStreaming = false) else it }
+                    }
+                    // Persist the assistant message (no toolCallJson — this is a local answer)
+                    val savedId = conversationRepository.addMessage(convId, "assistant", localReply)
+                    // Index both user and assistant messages
+                    if (savedUserMsgId.isNotBlank()) {
+                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                    }
+                    ragRepository.indexMessage(savedId, convId, localReply)
+                    estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                        contextWindowManager.estimateTokens(localReply)
+                    turnsSinceReset++
+                    finalizeVoicePlaybackForResponse(localReply)
+                    activeStreamingMsgId = null
+                    activeStreamingContent = StringBuilder()
+                    activeStreamingThinking = StringBuilder()
+                    return@launch
+                }
+            }
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
@@ -2335,6 +2369,7 @@ class ChatViewModel @Inject constructor(
 
             try {
                 kernelAIToolSet.resetTurnState()
+                kernelAIToolSet.setInjectedNzContext(injectedNzContextForTurn)
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
@@ -2390,10 +2425,9 @@ class ChatViewModel @Inject constructor(
                                     // chain-of-thought with an empty string.
                                     if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
-
+                                    kernelAIToolSet.setInjectedNzContext(null)
                                     currentPrompt = buildString {
                                         if (systemContext != null) append("$systemContext\n\n")
-                                        append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
                                         append(text)
                                     }
                                     accumulatedContent = StringBuilder()
@@ -2499,7 +2533,12 @@ class ChatViewModel @Inject constructor(
                                     }
                                     Log.w("KernelAI", "system_only_tool_leak_suppressed")
                                 }
-                                val toolCall = rawToolCall.toVisibleToolCallInfo()
+                                val toolCall =
+                                    if (nativeToolCall != null && !kernelAIToolSet.lastToolVisibleInTranscript()) {
+                                        null
+                                    } else {
+                                        rawToolCall.toVisibleToolCallInfo()
+                                    }
                                 if (systemOnlyToolRetryAttempted && !leakedSystemToolContent) {
                                     Log.d("KernelAI", "system_only_tool_retry_succeeded")
                                 }
@@ -2532,25 +2571,27 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
-                                // Persist with toolCallJson
+                                // Persist with toolCallJson when the tool call should stay user-visible.
                                 val savedId = conversationRepository.addMessage(
                                     convId, "assistant", resultContent,
                                     thinkingText = thinking,
-                                    toolCallJson = toolCall.toJsonString(),
+                                    toolCallJson = toolCall?.toJsonString(),
                                 )
-                                // E2E marker: message persisted with tool call
-                                Log.d(
-                                    "KernelAI",
-                                    "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
-                                )
-                                // E2E marker: chip visible evidence
-                                Log.d(
-                                    "KernelAI",
-                                    "tool_chip_visible: tool=${toolCall.skillName}",
-                                )
+                                if (toolCall != null) {
+                                    // E2E marker: message persisted with tool call
+                                    Log.d(
+                                        "KernelAI",
+                                        "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
+                                    )
+                                    // E2E marker: chip visible evidence
+                                    Log.d(
+                                        "KernelAI",
+                                        "tool_chip_visible: tool=${toolCall.skillName}",
+                                    )
+                                }
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
-                                if (shouldIndexToolCallResult(toolCall.skillName)) {
+                                if (shouldIndexToolCallResult(rawToolCall.skillName)) {
                                     ragRepository.indexMessage(savedId, convId, resultContent)
                                 } else {
                                     // LLM called a device/ephemeral tool — suppress indexing of

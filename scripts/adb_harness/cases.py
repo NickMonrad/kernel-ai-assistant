@@ -561,8 +561,8 @@ TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
 LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     # ── NZ Memory-First Cases (#1074) ──────────────────────────────────────
-    # These prompts contain known NZ/Māori terms. The model should answer from
-    # the injected [NZ Context: ...] block rather than calling query_wikipedia.
+    # Known NZ/Māori cultural terms are answered with a deterministic local reply
+    # from the seeded NZ corpus — no tool call, no inference, no Wikipedia.
     LLMToolsTestCase(
         name="nz_wharepaku_memory_first",
         message="what is a wharepaku",
@@ -570,7 +570,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
-        expect_log_contains="Deterministic NZ context injected for term='Wharepaku'",
+        expect_log_contains="Deterministic NZ context answered locally",
         expected_reply_contains=["toilet", "restroom", "bathroom"],
     ),
     LLMToolsTestCase(
@@ -580,7 +580,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
-        expect_log_contains="Deterministic NZ context injected for term='Chocka'",
+        expect_log_contains="Deterministic NZ context answered locally",
         expected_reply_contains=["full", "packed", "chock-a-block"],
     ),
     LLMToolsTestCase(
@@ -590,7 +590,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
-        expect_log_contains="Deterministic NZ context injected for term='Taniwha'",
+        expect_log_contains="Deterministic NZ context answered locally",
         expected_reply_contains=["guardian", "kaitiaki", "water", "waterway", "mythology"],
     ),
     LLMToolsTestCase(
@@ -600,7 +600,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expect_no_tool_call=True,
-        expect_log_contains="Deterministic NZ context injected for term='Kumara'",
+        expect_log_contains="Deterministic NZ context answered locally",
         expected_reply_contains=["sweet potato", "hāngī", "hangi", "Sunday roast", "Māori"],
     ),
     # ── Explicit Wikipedia Control (#1074) ─────────────────────────────────
