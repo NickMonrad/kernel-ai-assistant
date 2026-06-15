@@ -12,14 +12,14 @@ The repository also includes a [`../NOTICE`](../NOTICE) file for attribution not
 
 Before Play Store release, every shipped or downloadable third-party component should be in one of these states:
 
-1. **Bundled in the APK/source distribution** — licence and required notice are included in `NOTICE`, app documentation, or an in-app notices screen.
-2. **Downloaded at runtime** — user-facing documentation explains the upstream provider and that the asset remains subject to its upstream licence/model card/terms.
-3. **Development-only** — not listed as an end-user runtime component, but documented if required for reproducible development or testing.
-4. **Research / not shipped** — clearly marked as future/research so it is not accidentally represented as launch capability.
+1. **Bundled in the APK/source distribution** - licence and required notice are included in `NOTICE`, app documentation, or an in-app notices screen.
+2. **Downloaded at runtime** - user-facing documentation explains the upstream provider and that the asset remains subject to its upstream licence/model card/terms.
+3. **Development-only** - not listed as an end-user runtime component, but documented if required for reproducible development or testing.
+4. **Research / not shipped** - clearly marked as future/research so it is not accidentally represented as launch capability.
 
 ## Launch-blocking decisions
 
-### #1258 — Semaine voice pack
+### #1258 - Semaine voice pack
 
 The app currently exposes `Semaine` as a Sherpa/Piper voice option:
 
@@ -122,7 +122,7 @@ Release action:
 | Engine / voice pack | Source | Approx. size | Status | Launch action |
 |---|---|---:|---|---|
 | Android TTS | Android platform | N/A | Safe fallback | Document platform dependency. |
-| Sherpa Piper/VITS voices other than Semaine | Sherpa-ONNX `tts-models` release assets | ~64–116 MB each | Needs exact per-voice licence verification | Record upstream model-card/dataset licence before release. |
+| Sherpa Piper/VITS voices other than Semaine | Sherpa-ONNX `tts-models` release assets | ~64-116 MB each | Needs exact per-voice licence verification | Record upstream model-card/dataset licence before release. |
 | Sherpa Piper/VITS Semaine | Sherpa-ONNX `tts-models` release assets | ~70 MB | **Launch blocker: #1258** | Verify licence and decide ship/disable/replace. |
 | Kokoro experimental | Sherpa-ONNX `kokoro-int8-multi-lang-v1_0` release asset | ~130 MB | Experimental | If exposed in release, verify model/voice licence before launch; otherwise hide as research/dev-only. |
 
