@@ -82,17 +82,20 @@ For manual setup without a host machine:
 
 The app tries the Qualcomm-optimised EmbeddingGemma variant first when the device is detected as SM8550, then falls back to the generic file when needed.
 
-## Speech model / voice-pack sizes
+## Speech, wake-word, and voice asset sources
 
-| Asset family | Approx. size | Notes |
-|--------------|--------------|-------|
-| Sherpa Zipformer STT | ~72 MB | Default streaming/offline-capable STT option |
-| Sherpa SenseVoice STT | ~100 MB | Optional offline final-only STT option |
-| Sherpa Whisper tiny.en STT | ~117 MB | Optional offline final-only STT option |
-| Sherpa Paraformer STT | ~220 MB | Optional streaming STT option |
-| Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; exact per-voice licence must be reviewed before release |
-| Semaine Piper/VITS voice pack | ~70 MB | Launch-blocking decision tracked in #1258 |
-| Kokoro experimental voice pack | ~130 MB | Experimental; verify licence before release if exposed |
+These assets are downloaded or bundled by the app rather than manually placed in this directory, but they are part of the launch attribution/licence review.
+
+| Asset family | Approx. size | Runtime/source | Notes |
+|--------------|--------------|----------------|-------|
+| Hey Jandal wake word | bundled ONNX assets | openWakeWord-derived Jandal-specific ONNX assets | openWakeWord is Apache-2.0; final release must record generated model/training-data provenance. |
+| Sherpa Zipformer STT | ~72 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | Streaming/online ONNX recogniser: encoder, decoder, joiner, tokens. |
+| Sherpa SenseVoice STT | ~100 MB | Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | Offline/final-only ONNX recogniser: model + tokens. |
+| Sherpa Whisper tiny.en STT | ~117 MB | Hugging Face `csukuangfj/sherpa-onnx-whisper-tiny.en` | Offline/final-only ONNX recogniser: encoder, decoder, tokens. |
+| Sherpa Paraformer STT | ~220 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | Streaming/online ONNX recogniser: encoder, decoder, tokens. |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Downloaded per selected voice; exact per-voice/dataset licence must be reviewed before release. |
+| Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Launch-blocking decision tracked in #1258. |
+| Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Experimental 53-speaker Kokoro pack; verify Kokoro model/voice licence before exposing in release. |
 
 ## Device-specific setup notes
 
@@ -115,4 +118,5 @@ The app tries the Qualcomm-optimised EmbeddingGemma variant first when the devic
 - Keep model source links and approximate sizes current when model choices change.
 - Keep gated-model behaviour aligned with the app UI: `Ready`, `Preparing`, `Action Required`, or `Unavailable`.
 - Resolve #1258 before shipping Semaine in any Play Store release.
+- Verify the Kokoro model/voice licence before exposing Kokoro in release.
 - See [`../docs/LEGAL_AND_ATTRIBUTION.md`](../docs/LEGAL_AND_ATTRIBUTION.md) before release packaging or Play Store publication.
