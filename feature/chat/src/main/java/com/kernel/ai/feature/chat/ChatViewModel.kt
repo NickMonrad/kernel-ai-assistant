@@ -2112,6 +2112,23 @@ class ChatViewModel @Inject constructor(
                     }
                 }
             }
+            // #1074: Deterministic local NZ answer — bypass inference/model init for known
+            // NZ/Māori terms when no explicit Wikipedia request or stronger app action exists.
+            // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
+            if (explicitWikipediaQuery == null && matchedIntent == null) {
+                val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
+                if (localNzEntry != null) {
+                    val localReply = buildKnownNzContextReply(localNzEntry)
+                    Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    // Index user message — normally deferred to LLM Complete handler
+                    if (savedUserMsgId.isNotBlank()) {
+                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                    }
+                    appendAssistantMessage(convId, localReply)
+                    return@launch
+                }
+            }
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
                 initGemma4()
@@ -2211,57 +2228,6 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
-            // #1074: Deterministic NZ term detection — when the user's message contains a
-            // known NZ truth memory term, inject the corresponding NZ cultural context
-            // before the model can choose query_wikipedia. This ensures known NZ/Māori
-            // terms are served from seeded context rather than falling through to an
-            // encyclopedia lookup that may miss the NZ cultural angle.
-            // Explicit Wikipedia requests ("look up X on Wikipedia") are preserved.
-            if (explicitWikipediaQuery == null) {
-                val nzTermEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
-                if (nzTermEntry != null) {
-                    val nzBlock = "[NZ Context: ${nzTermEntry.term}] ${nzTermEntry.definition}"
-                    effectiveRagContext = if (effectiveRagContext.isBlank()) {
-                        nzBlock
-                    } else {
-                        "$nzBlock\n\n$effectiveRagContext"
-                    }
-                    effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
-                    Log.d(TAG, "Deterministic NZ context injected for term='${nzTermEntry.term}'")
-                }
-            }
-
-            // #1074: Deterministic local NZ answer — bypass inference for known NZ/Māori
-            // terms when no explicit Wikipedia request or stronger app action exists.
-            // Gemma 4 E-4B on S23U calls query_wikipedia even with NZ context injected,
-            // so answer directly from the seeded corpus to avoid Wikipedia fallthrough.
-            if (explicitWikipediaQuery == null && matchedIntent == null) {
-                val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
-                if (localNzEntry != null) {
-                    val localReply = "buildKnownNzContextReply(localNzEntry)"
-                    Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
-                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
-                    // Complete the streaming placeholder with the local reply
-                    _messages.update { msgs ->
-                        msgs.map { if (it.id == assistantMsgId) it.copy(content = localReply, isStreaming = false) else it }
-                    }
-                    // Persist the assistant message (no toolCallJson — this is a local answer)
-                    val savedId = conversationRepository.addMessage(convId, "assistant", localReply)
-                    // Index both user and assistant messages
-                    if (savedUserMsgId.isNotBlank()) {
-                        ragRepository.indexMessage(savedUserMsgId, convId, text)
-                    }
-                    ragRepository.indexMessage(savedId, convId, localReply)
-                    estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
-                        contextWindowManager.estimateTokens(localReply)
-                    turnsSinceReset++
-                    finalizeVoicePlaybackForResponse(localReply)
-                    activeStreamingMsgId = null
-                    activeStreamingContent = StringBuilder()
-                    activeStreamingThinking = StringBuilder()
-                    return@launch
-                }
-            }
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
