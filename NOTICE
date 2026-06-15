@@ -14,3 +14,14 @@ Google LiteRT-LM
   Licensed under the Apache License, Version 2.0
   https://github.com/google-ai-edge/LiteRT-LM
   Used: LiteRT-LM Android library (com.google.ai.edge.litertlm:litertlm-android)
+
+Additional third-party libraries and downloadable model/voice assets
+  Jandal AI depends on third-party Android/Kotlin libraries, local inference runtimes,
+  optional speech engines, optional voice packs, and gated model downloads. Source
+  dependencies are declared in gradle/libs.versions.toml. Downloadable models and
+  voice assets are not distributed by this source repository unless explicitly bundled
+  in a release artefact; they remain subject to their upstream model cards, release
+  notes, licences, and provider terms.
+
+  See docs/LEGAL_AND_ATTRIBUTION.md for the launch attribution checklist and the
+  components that must be reviewed before Play Store release.
