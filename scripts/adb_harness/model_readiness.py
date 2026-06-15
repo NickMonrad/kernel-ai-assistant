@@ -39,6 +39,7 @@ from adb_harness.device import (
     logcat_start,
     logcat_stop,
     run_adb,
+    send_text,
 )
 
 
@@ -226,6 +227,74 @@ def _poll_logcat_until(
 # UI helpers
 # ═══════════════════════════════════════════════════════════════════════
 
+
+def _check_model_on_disk(model_file: str = S21_MODEL_FILE) -> bool:
+    """Check if the model file exists on the device's external storage.
+
+    Works around logcat-clear edge cases where the model was already
+    downloaded in a prior session but the ring buffer was emptied.
+    """
+    pkg = "com.kernel.ai.debug"
+    path = f"/storage/emulated/0/Android/data/{pkg}/files/models/{model_file}"
+    result = run_adb("shell", "ls", path)
+    return result == path or path in result
+# ── Permission handling ───────────────────────────────────────────
+
+
+# Dangerous permissions that trigger runtime dialogs on Android 15
+_DANGEROUS_PERMISSIONS: list[str] = [
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.READ_CONTACTS",
+    "android.permission.READ_CALENDAR",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.CALL_PHONE",
+    "android.permission.ACCESS_NOTIFICATION_POLICY",
+]
+
+
+def _grant_dangerous_permissions(pkg: str = "com.kernel.ai.debug") -> None:
+    """Pre-grant dangerous permissions via ``pm grant``.
+
+    Runs before the app requests the permission so dialogs never appear.
+    On Android 15, ``pm grant`` works pre-emptively for most dangerous
+    permissions. Failures are logged but non-fatal — fallback UI handling
+    covers any remaining dialogs.
+    """
+    for perm in _DANGEROUS_PERMISSIONS:
+        try:
+            run_adb("shell", "pm", "grant", pkg, perm)
+        except Exception as exc:
+            # Some permissions cannot be pre-granted; that's OK.
+            pass
+
+
+def _handle_permission_dialogs(timeout: float = 30.0) -> bool:
+    """Wait for and handle runtime permission dialogs one at a time.
+
+    Polls ``dumpsys activity`` for ``GrantPermissionsActivity`` in the
+    foreground. When a dialog is found, uses UIAutomator to locate and
+    tap the "Allow" or "While using the app" button.
+
+    Returns ``True`` once no more permission dialogs are visible.
+    Returns ``False`` if dialogs persist after *timeout* seconds.
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        dumpsys = run_adb("shell", "dumpsys", "activity")
+        if "GrantPermissionsActivity" not in dumpsys:
+            return True
+
+        _uiautomator_tap_text("Allow")
+        time.sleep(2.0)
+
+        # Some dialogs use "While using the app" instead of "Allow"
+        dumpsys = run_adb("shell", "dumpsys", "activity")
+        if "GrantPermissionsActivity" in dumpsys:
+            _uiautomator_tap_text("While using the app")
+            time.sleep(2.0)
+
+    return False
 _BOUNDS_RE = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
 
 
@@ -284,6 +353,7 @@ def preflight_model_readiness(
     timeout_engine: float = 120.0,
     hf_signin_timeout: float = 60.0,
     verbose: bool = True,
+    unlock_pin: str | None = None,
 ) -> ModelReadinessEvidence:
     """Run model-readiness preflight on the target device.
 
@@ -295,6 +365,8 @@ def preflight_model_readiness(
     simultaneously, so there is no logcat drain gap between phases.
 
     Returns a ``ModelReadinessEvidence`` dataclass summarising the run.
+
+    # ── Phase 1: Detect initial model state ───────────────────────────
     The caller should check ``evidence.failure_bucket`` to determine outcome.
 
     Parameters
@@ -325,6 +397,39 @@ def preflight_model_readiness(
     # ── Logcat preamble ───────────────────────────────────────────────
     logcat_start()
     clear_logcat()
+    # Clear the device ring buffer so we only see fresh entries
+    # (safe on USB ADB, not on ADB-over-TLS)
+    run_adb("logcat", "-c")
+    time.sleep(1)
+
+    # ── Permissions: pre-grant BEFORE app launch ──────────────────────
+    # Granting POST_NOTIFICATIONS before the app launches ensures the
+    # ModelDownloadWorker can call setForeground() successfully, which
+    # prevents WorkManager from falling back to non-expedited (which
+    # ── Unlock device (dismiss keyguard if possible) ─────────────────
+    if unlock_pin:
+        _print("  [readiness] Unlocking device with PIN …")
+        run_adb("shell", "input", "keyevent", "KEYCODE_POWER")
+        time.sleep(1)
+        run_adb("shell", "input", "swipe", "500", "1500", "500", "500")
+        time.sleep(1)
+        run_adb("shell", "input", "text", unlock_pin)
+        time.sleep(0.3)
+        run_adb("shell", "input", "keyevent", "KEYCODE_ENTER")
+        time.sleep(1)
+        # Verify unlock succeeded
+        keyguard = run_adb("shell", "dumpsys", "window")
+        if "isKeyguardShowing=true" in keyguard:
+            _print("  [readiness] ⚠️  PIN unlock may have failed — keyguard still showing")
+        else:
+            _print("  [readiness] ✅ Device unlocked")
+    else:
+        # Swipe attempt for swipe-to-unlock devices
+        run_adb("shell", "input", "keyevent", "KEYCODE_MENU")
+        run_adb("shell", "input", "swipe", "500", "1500", "500", "500")
+        time.sleep(2)
+    _print("  [readiness] Granting dangerous permissions before launch …")
+    _grant_dangerous_permissions()
     time.sleep(1)
 
     # ── Launch the app ────────────────────────────────────────────────
@@ -338,22 +443,45 @@ def preflight_model_readiness(
     clear_logcat()
     time.sleep(1)
 
+    # ── Handle permission dialogs (system UI layer) ─────────────────
+    # Some permissions like notification controls or overlay permissions
+    # may still show system dialogs regardless of pm grant.
+    _print("  [readiness] Handling permission dialogs …")
+    perms_ok = _handle_permission_dialogs(timeout=30.0)
+    if perms_ok:
+        _print("  [readiness] ✅ Permissions granted")
+    else:
+        _print("  [readiness] ⚠ Permission dialog may still be visible — proceeding anyway")
+    clear_logcat()
+    time.sleep(1)
+
+    # ── Trigger: send a message to activate model-readiness flow ────
+    _print("  [readiness] Sending trigger message to activate model readiness check …")
+    send_text("hello", wait_for_inference=False)
+    time.sleep(3)
+    clear_logcat()
     # ── Phase 1: Detect initial model state ───────────────────────────
     _print("  [readiness] Detecting initial model state …")
 
-    # Quick 30s poll to establish initial state
-    initial_seen = _poll_logcat_until(
-        list(_INITIAL_STATE_MAP.keys()),
-        timeout=30.0,
-    )
-
-    # Determine initial state from the first matching marker
+    # Fast path: check if model file exists on disk (~1s) before the 30s
+    # logcat poll. This handles re-runs where the ring buffer was cleared
+    # but the model is already downloaded.
     evidence.initial_state = "Unknown"
-    for marker_name, state_name in _INITIAL_STATE_MAP.items():
-        if initial_seen.get(marker_name):
-            evidence.initial_state = state_name
-            evidence.logcat_markers[marker_name] = True
-            break
+    if _check_model_on_disk():
+        evidence.initial_state = "Ready"
+        evidence.logcat_markers["model_on_disk"] = True
+
+    if evidence.initial_state != "Ready":
+        # Quick 30s poll to establish initial state from logcat markers
+        initial_seen = _poll_logcat_until(
+            list(_INITIAL_STATE_MAP.keys()),
+            timeout=30.0,
+        )
+        for marker_name, state_name in _INITIAL_STATE_MAP.items():
+            if initial_seen.get(marker_name):
+                evidence.initial_state = state_name
+                evidence.logcat_markers[marker_name] = True
+                break
 
     if evidence.initial_state == "Ready":
         _print(f"  [readiness] Initial state: {evidence.initial_state} — model already available")
@@ -362,31 +490,47 @@ def preflight_model_readiness(
         return evidence
 
     _print(f"  [readiness] Initial state: {evidence.initial_state}")
-    # ── Phase 2: Handle HuggingFace sign-in if needed ─────────────────
+
+    # If the initial state is "Preparing" the download was auto-queued
     if evidence.initial_state == "Preparing":
         evidence.download_triggered = True
 
-    if evidence.initial_state == "ActionRequired(SignInRequired)" or initial_seen.get("hf_token_missing"):
-        if _uiautomator_has_text("Sign in to HuggingFace"):
-            evidence.hf_signin_shown = True
-            _print("  [readiness] Found 'Sign in to HuggingFace' button — tapping …")
-            evidence.hf_signin_clicked = _uiautomator_tap_text("Sign in to HuggingFace")
-            if evidence.hf_signin_clicked:
-                _print("  [readiness] Tapped sign-in — waiting for sign-in to complete …")
-                signin_seen = _poll_logcat_until(
-                    ["hf_signin_approved", "auto_queue_seen", "enqueue_seen"],
-                    timeout=hf_signin_timeout,
-                )
-                if signin_seen.get("hf_signin_approved"):
-                    evidence.logcat_markers["hf_signin_approved"] = True
-                    _print("  [readiness] Sign-in approved — downloads should start")
-                if signin_seen.get("auto_queue_seen") or signin_seen.get("enqueue_seen"):
-                    evidence.download_triggered = True
-                    _print("  [readiness] Download started after sign-in")
-            else:
-                _print("  [readiness] ⚠ Could not tap sign-in button — proceeding anyway")
+    # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
+    # The conversation model (E-2B) is not gated on S21, but the embedding
+    # models (EmbeddingGemma 300M + SentencePiece) ARE gated and required.
+    # `areRequiredModelsDownloaded()` requires ALL required models, so engine
+    # init is blocked until embedding models are present. We MUST sign in.
+    signin_tapped = False
+    if _uiautomator_has_text("Sign in to Hugging Face"):
+        signin_tapped = _uiautomator_tap_text("Sign in")
+        _print("  [readiness] Tapped HF sign-in button (dialog)")
+    elif _uiautomator_has_text("Sign in"):
+        signin_tapped = _uiautomator_tap_text("Sign in")
+        _print("  [readiness] Tapped HF sign-in button")
+    if signin_tapped:
+        evidence.hf_signin_clicked = True
+        # Wait for the auth flow to complete — the `hf_signin_approved`
+        # marker confirms the OAuth callback returned a token.
+        _print("  [readiness] Waiting for HF sign-in approval …")
+        signin_seen = _poll_logcat_until(
+            ["hf_signin_approved"],
+            timeout=hf_signin_timeout,
+        )
+        if signin_seen.get("hf_signin_approved"):
+            evidence.logcat_markers["hf_signin_approved"] = True
+            _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
+            # Now wait for the gated model auto-queues to be logged
+            gated_seen = _poll_logcat_until(
+                ["auto_queue_seen", "enqueue_seen"],
+                timeout=30.0,
+            )
+            if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
+                evidence.download_triggered = True
+                _print("  [readiness] Gated model downloads enqueued after sign-in")
         else:
-            _print("  [readiness] No sign-in button in UI — may already be signed in")
+            _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
+    else:
+        _print("  [readiness] No HF sign-in dialog detected")
     # ── Phase 3+4 combined: Continuous poll for download + engine ──
     # Deadline starts NOW (after Phase 1+2), not from start_ts — avoids
     # the combined window being consumed by Phase 1's 30s initial detection.
@@ -408,6 +552,11 @@ def preflight_model_readiness(
                 evidence.logcat_markers["download_completed"] = True
                 _print(f"  [readiness] ✅ Model download completed  (t={time.time() - start_ts:.0f}s)")
                 download_matched = True
+                # Ensure the app is in the foreground for engine init
+                _print("  [readiness] Bringing app to foreground for engine initialisation …")
+                run_adb("shell", "am", "start", "-n", ACTIVITY,
+                        "--activity-clear-top", "--activity-single-top")
+                time.sleep(3)
 
         if markers.get("download_failed"):
             m = next(
@@ -430,6 +579,16 @@ def preflight_model_readiness(
         # Both done → success
         if engine_matched:
             break
+
+        # ── Keep device awake during long downloads ─────────────────
+        # The poll interval is ~3s; every 15 cycles (~45s) send a small
+        # interaction to prevent the device from dozing or locking.
+        if not engine_matched:
+            elapsed_since_poll_start = time.time() - phase34_start
+            cycles = int(elapsed_since_poll_start // _POLL_INTERVAL) if _POLL_INTERVAL > 0 else 0
+            if cycles > 0 and cycles % 15 == 0:
+                run_adb("shell", "input", "touchscreen", "swipe",
+                        "540", "1000", "540", "1004", "50")
         # Timeout check: measured from Phase 3+4 start, not total start_ts
         phase34_elapsed = time.time() - phase34_start
         if not download_matched and phase34_elapsed > timeout_download:
@@ -442,6 +601,19 @@ def preflight_model_readiness(
                 _print(f"  [readiness] ❌ Download did not complete within {timeout_download:.0f}s")
             break
 
+        # Engine-timeout check (only starts counting after download completes)
+        if download_matched and not engine_matched:
+            engine_elapsed = time.time() - phase34_start - timeout_download
+            if engine_elapsed > timeout_engine:
+                # Check if lock screen is blocking engine init
+                keyguard = run_adb("shell", "dumpsys", "window")
+                if "isKeyguardShowing=true" in keyguard:
+                    evidence.failure_bucket = "ENGINE_BLOCKED_BY_KEYGUARD"
+                    _print("  [readiness] ❌ Lock screen / keyguard blocking engine init — unlock device first")
+                else:
+                    evidence.failure_bucket = "ENGINE_NOT_READY"
+                    _print(f"  [readiness] ❌ Engine did not initialise within {timeout_engine:.0f}s")
+                break
         if download_matched and phase34_elapsed > timeout_download + timeout_engine:
             evidence.failure_bucket = "ENGINE_NOT_READY"
             _print(f"  [readiness] ❌ Engine did not initialise within {timeout_engine:.0f}s after download")
@@ -468,39 +640,19 @@ def preflight_model_readiness(
     return evidence
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# CLI entry point
-# ═══════════════════════════════════════════════════════════════════════
-
-
 def cli_main() -> int:
     """Direct CLI entry point for ``python -m adb_harness.model_readiness``."""
     import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Model readiness preflight for S21 ADB tests",
-    )
-    parser.add_argument(
-        "--serial",
-        help="Device serial (falls back to ANDROID_SERIAL / ADB_SERIAL env)",
-    )
-    parser.add_argument(
-        "--timeout-download",
-        type=float,
-        default=600.0,
-        help="Max seconds to wait for model download (default 600)",
-    )
-    parser.add_argument(
-        "--timeout-engine",
-        type=float,
-        default=120.0,
-        help="Max seconds to wait for engine initialisation (default 120)",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output evidence as JSON to stdout",
-    )
+    parser = argparse.ArgumentParser(description="Model readiness preflight for S21 ADB tests")
+    parser.add_argument("--serial", help="Device serial (falls back to ANDROID_SERIAL / ADB_SERIAL env)")
+    parser.add_argument("--timeout-download", type=float, default=360.0,
+                        help="Max seconds to wait for model download (default 360)")
+    parser.add_argument("--timeout-engine", type=float, default=120.0,
+                        help="Max seconds to wait for engine initialisation (default 120)")
+    parser.add_argument("--unlock-pin", type=str, default=None,
+                        help="Device unlock PIN to dismiss keyguard before initialisation")
+    parser.add_argument("--json", action="store_true",
+                        help="Output evidence as JSON to stdout")
     args = parser.parse_args()
 
     if args.serial:
@@ -513,6 +665,7 @@ def cli_main() -> int:
             timeout_download=args.timeout_download,
             timeout_engine=args.timeout_engine,
             verbose=not args.json,
+            unlock_pin=args.unlock_pin,
         )
     except Exception as e:
         print(f"ERROR: Model readiness preflight crashed: {e}", file=sys.stderr)
