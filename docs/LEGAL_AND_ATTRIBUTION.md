@@ -17,103 +17,116 @@ Before Play Store release, every shipped or downloadable third-party component s
 3. **Development-only** — not listed as an end-user runtime component, but documented if required for reproducible development or testing.
 4. **Research / not shipped** — clearly marked as future/research so it is not accidentally represented as launch capability.
 
-## Components to verify before launch
+## Launch-blocking decisions
 
-### Android and Kotlin libraries
+### #1258 — Semaine voice pack
+
+The app currently exposes `Semaine` as a Sherpa/Piper voice option:
+
+- display name: `Semaine`;
+- asset directory: `vits-piper-en_GB-semaine-medium`;
+- download key: `en_GB-semaine-medium`;
+- approximate download size: ~70 MB;
+- multi-speaker model with 4 speaker ids.
+
+Voice packs are downloaded from Sherpa-ONNX release assets using this pattern:
+
+```text
+https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/<assetDirectoryName>.tar.bz2
+```
+
+The launch concern is that Semaine may be derived from a non-commercial Creative Commons licence path. If the applicable licence is **CC BY-NC-SA 4.0** or similar, attribution alone is not enough: Creative Commons describes the licence as requiring attribution, restricting use to NonCommercial purposes, and requiring ShareAlike terms for adaptations.
+
+Decision required before launch:
+
+- [ ] Verify the exact upstream Semaine voice/model/dataset licence.
+- [ ] Decide whether Semaine is removed/hidden from release, kept dev-only, replaced, or shipped only with explicit compatible permission.
+- [ ] Update code/docs to match the decision.
+- [ ] Do not close #868 as fully launch-complete while #1258 remains unresolved.
+
+Suggested default: **do not ship Semaine in the Play Store release unless compatible rights are confirmed.**
+
+References:
+
+- Creative Commons BY-NC-SA 4.0 deed: https://creativecommons.org/licenses/by-nc-sa/4.0/
+- Creative Commons BY-NC-SA 4.0 legal code: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.en
+- Jandal voice definition: `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaPiperVoice.kt`
+
+## Specific component inventory
+
+### Source-code adaptations
+
+| Component | Role | Current attribution status | Action |
+|---|---|---|---|
+| Google AI Edge Gallery | Adapted LiteRT-LM inference, model download, and chat streaming patterns | Listed in `NOTICE` | Keep current. |
+| Google LiteRT-LM | Android LiteRT-LM library | Listed in `NOTICE` | Keep current. |
+
+### Gradle / Maven dependencies
 
 Declared in [`../gradle/libs.versions.toml`](../gradle/libs.versions.toml):
 
-- Android Gradle Plugin, Kotlin, KSP.
-- AndroidX / Jetpack libraries: Compose, Navigation, Core, Lifecycle, Room, DataStore, Browser, WorkManager, Glance, AndroidX Test, UIAutomator.
-- Hilt / Dagger.
-- Kotlin coroutines.
-- OkHttp.
-- AppAuth.
-- AndroidX Security Crypto.
-- JUnit, MockK, LeakCanary for test/debug use.
+| Dependency group | Examples | Launch status | Action |
+|---|---|---|---|
+| AndroidX / Jetpack | Compose, Navigation, Core, Lifecycle, Room, DataStore, Browser, WorkManager, Glance, AndroidX Test, UIAutomator | Expected standard OSS notices | Generate/review release notices. |
+| Hilt / Dagger | Hilt Android, compiler, navigation-compose | Runtime + compiler split | Include runtime notices where applicable. |
+| OkHttp | Weather / external HTTP paths | Runtime dependency | Include notice and ensure privacy disclosure matches usage. |
+| AppAuth | Hugging Face OAuth | Runtime dependency | Include notice and document gated-model sign-in behaviour. |
+| Vosk Android | STT option | Runtime dependency | Include notice and confirm bundled/downloaded model status. |
+| Apache Commons Compress | Voice-pack extraction | Runtime dependency | Include notice if bundled. |
+| ONNX Runtime Android | Wake-word / voice inference | Runtime dependency | Include notice if bundled. |
+| TensorFlow Lite / GPU | Raw `.tflite` execution paths | Runtime dependency | Include notice if bundled. |
+| MediaPipe Tasks Text | Text embedding fallback path | Runtime dependency | Include notice if bundled. |
+| Coil | Compose image loading | Runtime dependency | Include notice if bundled. |
+| LeakCanary, MockK, JUnit | Debug/test only | Should not ship in release | Exclude from end-user notices unless release artefact includes them. |
 
-Launch action:
+Release action:
 
-- [ ] Generate or manually review third-party dependency notices for release dependencies.
-- [ ] Keep debug/test-only dependencies out of end-user notices unless they are bundled in release artefacts.
-- [ ] Confirm whether the app needs an in-app open-source licences screen for Play Store readiness.
+- [ ] Generate a release dependency report from the resolved release variant.
+- [ ] Add an in-app open-source notices screen or package notices in release documentation.
+- [ ] Do not rely on this hand-written table as the final dependency SBOM.
 
-### Local inference and model runtime
+### Bundled native source and assets
 
-Runtime / implementation components:
+| Component / asset | Evidence in repo | Launch status | Action |
+|---|---|---|---|
+| `sqlite-vec` | `core/memory/src/main/cpp/sqlite-vec.c` and `.h` | Needs upstream licence verification | Add exact upstream licence/notice before launch. |
+| SQLite amalgamation | `core/memory/src/main/cpp/sqlite3.c` is referenced by CMake | Needs artefact verification | Confirm whether SQLite is actually bundled in release native artefacts. |
+| Wake-word ONNX model(s) | `.gitignore` allows `app/src/main/assets/models/wakeword/*.onnx`; `hey_jandal.onnx` is present | Needs provenance note | Record training/provenance and ownership before release. |
+| Sherpa AAR under `third_party/sherpa-onnx/` | Gitignored, downloaded by local setup script | Dev/local-only unless present in release build | Confirm release packaging. |
 
-- Google AI Edge LiteRT / LiteRT-LM.
-- TensorFlow Lite runtime / GPU delegate where used.
-- MediaPipe Tasks Text where used.
-- ONNX Runtime for wake-word / voice inference paths.
-
-Existing source NOTICE entries already cover Google AI Edge Gallery adaptation and LiteRT-LM usage. Keep them current if more code is adapted from upstream projects.
-
-Launch action:
-
-- [ ] Confirm the final release APK contains only expected runtime libraries.
-- [ ] Add any required runtime library notices to `NOTICE` or an in-app notices surface.
-- [ ] Document whether runtime libraries are bundled in APK or only used in local/dev builds.
+## Model and speech asset inventory
 
 ### Chat and embedding models
 
-Model files are not committed to the repository. Current model setup is documented in [`../models/README.md`](../models/README.md).
+| Model / file family | Source | Approx. size | Gated in app code | Launch action |
+|---|---|---:|---|---|
+| Gemma-4 E-2B LiteRT-LM | `litert-community/gemma-4-E2B-it-litert-lm` | ~2.58 GB | No | Record exact model-card/licence terms before release. |
+| Gemma-4 E-4B LiteRT-LM | `litert-community/gemma-4-E4B-it-litert-lm` | ~3.65 GB | No | Record exact model-card/licence terms before release. |
+| EmbeddingGemma 300M generic | `litert-community/embeddinggemma-300m` | ~171 MB | Yes | Keep Hugging Face sign-in/licence acceptance wording. |
+| EmbeddingGemma 300M SM8550 | same repo | ~350 MB | Yes; currently deprecated in code | Confirm whether hidden/deprecated status is intended for launch. |
+| MiniLM-L6 intent classifier | bundled in app code model catalogue | ~23 MB | No; marked bundled | Confirm file provenance, licence, and whether the asset is actually present in release artefacts. |
 
-Launch-relevant model families include:
+### Speech-to-text assets
 
-- Gemma-4 E-2B LiteRT-LM.
-- Gemma-4 E-4B LiteRT-LM.
-- EmbeddingGemma 300M.
-- Optional FunctionGemma/mobile-actions model where used.
+| Engine | Source recorded in code | Approx. size | Launch action |
+|---|---|---:|---|
+| Android native STT | Android platform recognizer | N/A | Document that offline behaviour depends on Android/device support. |
+| Vosk | Gradle dependency `com.alphacephei:vosk-android` | Dependency only; model status to verify | Confirm bundled/downloaded Vosk model provenance and licence. |
+| Sherpa Zipformer | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | ~72 MB | Record upstream model licence/source. |
+| Sherpa SenseVoice | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | ~100 MB | Record upstream model licence/source. |
+| Sherpa Whisper tiny.en | `csukuangfj/sherpa-onnx-whisper-tiny.en` | ~117 MB | Code comments say Apache 2.0; verify upstream before launch. |
+| Sherpa Paraformer | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | ~220 MB | Code comments say Apache 2.0; verify upstream before launch. |
 
-Important user-facing rule:
+### Text-to-speech assets
 
-> Some model downloads are gated. Users may need to sign in to Hugging Face and accept the upstream model licence/terms before Jandal can download or use those models.
+| Engine / voice pack | Source | Approx. size | Status | Launch action |
+|---|---|---:|---|---|
+| Android TTS | Android platform | N/A | Safe fallback | Document platform dependency. |
+| Sherpa Piper/VITS voices other than Semaine | Sherpa-ONNX `tts-models` release assets | ~64–116 MB each | Needs exact per-voice licence verification | Record upstream model-card/dataset licence before release. |
+| Sherpa Piper/VITS Semaine | Sherpa-ONNX `tts-models` release assets | ~70 MB | **Launch blocker: #1258** | Verify licence and decide ship/disable/replace. |
+| Kokoro experimental | Sherpa-ONNX `kokoro-int8-multi-lang-v1_0` release asset | ~130 MB | Experimental | If exposed in release, verify model/voice licence before launch; otherwise hide as research/dev-only. |
 
-Launch action:
-
-- [ ] For each model exposed in release builds, record the upstream repository/model card in the final launch notes.
-- [ ] Confirm which models are required, optional, or device-tier-specific.
-- [ ] Confirm download sizes shown in the app match the documented approximate sizes.
-- [ ] Confirm the app handles gated/download-pending states without implying Jandal owns or sublicenses the upstream model.
-- [ ] Add model-provider and licence/terms wording to Play Store listing/privacy/disclosure text if required.
-
-### Speech-to-text
-
-Launch STT paths currently include:
-
-- Android native STT.
-- Vosk.
-- Sherpa-ONNX Zipformer.
-- Sherpa-ONNX SenseVoice.
-- Sherpa-ONNX Whisper tiny.en.
-- Sherpa-ONNX Paraformer.
-
-Launch action:
-
-- [ ] Confirm which STT engines are available in the launch build.
-- [ ] Confirm whether each engine is bundled, downloaded, or optional.
-- [ ] Add upstream model/source references for any bundled or downloadable STT models.
-- [ ] Make it clear in docs/app UI which STT paths are fully offline and which depend on Android system services.
-
-### Text-to-speech and voice packs
-
-Launch TTS paths currently include:
-
-- Sherpa-ONNX Piper/VITS voice packs.
-- Android TTS fallback.
-- Kokoro research path where present.
-
-Current Piper/VITS voice packs are downloaded from Sherpa-ONNX release assets by voice key. Approximate sizes are encoded in `SherpaPiperVoice` and surfaced in the app UI.
-
-Launch action:
-
-- [ ] Confirm which TTS voice packs are exposed in release.
-- [ ] For each voice pack, record upstream source, licence/model-card terms, and whether attribution is required.
-- [ ] Check special dataset attribution requirements for multi-speaker voices such as VCTK and Semaine before launch.
-- [ ] Ensure any Kokoro references remain clearly marked as research if not shipped.
-
-### Native skills and external services
+## Native skills and external services
 
 Most native skills are local Android actions. Some skills use external data sources or Android platform services:
 
@@ -139,11 +152,14 @@ Avoid promising that every feature is offline if a skill may call an external so
 
 ## Release checklist
 
-- [ ] README has a concise feature overview rather than a long implementation changelog.
-- [ ] README includes the voice/STT/TTS tech stack.
-- [ ] README links to model setup and licence/attribution docs.
-- [ ] `models/README.md` documents approximate model sizes and gated-model requirements.
-- [ ] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
-- [ ] Any in-app open-source licences screen is either implemented or consciously deferred with a launch decision.
+- [x] README has a concise feature overview rather than a long implementation changelog.
+- [x] README includes the voice/STT/TTS tech stack.
+- [x] README links to model setup and licence/attribution docs.
+- [x] `models/README.md` documents approximate model sizes and gated-model requirements.
+- [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
+- [ ] #1258 Semaine launch decision is resolved.
+- [ ] Release dependency notices are generated from the release variant.
+- [ ] Native bundled source licences/provenance are verified, especially `sqlite-vec` and bundled wake-word ONNX assets.
+- [ ] Any in-app open-source licences screen is implemented or consciously deferred with a launch decision.
 - [ ] Play Store privacy/data disclosures match the actual release build.
 - [ ] #868 is closed only after the final release scope is known and the checklist above has been reviewed.
