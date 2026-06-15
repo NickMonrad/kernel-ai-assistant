@@ -366,13 +366,17 @@ class ChatViewModelSettingsApplyTest {
     }
 
     @Test
-    fun `reconfigureConversation failure does not create conversation`() = runTest(dispatcher) {
+    fun `reconfigureConversation failure does not create conversation or persist settings`() = runTest(dispatcher) {
         setupInitPrerequisites()
 
         val viewModel = createViewModel()
         advanceUntilIdle()
         isReadyFlow.value = true
         advanceUntilIdle()
+
+        // Capture the active settings BEFORE the failed apply, to verify they remain unchanged
+        val activeBeforeApply = viewModel.activeModelSettings.value
+        assertNotNull(activeBeforeApply)
 
         // Make reconfigure throw (simulates engine not initialized)
         coEvery { inferenceEngine.reconfigureConversation(any()) } throws
@@ -382,14 +386,26 @@ class ChatViewModelSettingsApplyTest {
         viewModel.applyModelSettingsAndStartNewChat(d)
         advanceUntilIdle()
 
-        // reconfigure was called but failed — no new conversation should be created
+        // reconfigure was called but failed
         coVerify(exactly = 1) { inferenceEngine.reconfigureConversation(any()) }
+
+        // No new conversation should be created — only the init conversation exists
         coVerify(exactly = 1) { conversationRepository.createConversation() }
 
-        // Messages should still exist from init (engine started one conversation)
+        // saveSettings must NOT be called when reconfigure fails
+        coVerify(exactly = 0) { modelSettingsRepository.saveSettings(any()) }
+
+        // activeModelSettings must remain at pre-apply values (NOT updated to draft)
+        assertEquals(activeBeforeApply, viewModel.activeModelSettings.value)
+        assertEquals(0.5f, viewModel.activeModelSettings.value!!.temperature)
+        assertEquals(0.85f, viewModel.activeModelSettings.value!!.topP)
+
+        // Error must be surfaced
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
         assertNotNull(state.error)
         assertTrue(state.error!!.contains("Engine not initialized", ignoreCase = true))
+
+        clearViewModel(viewModel)
     }
     @Test
     fun `isApplyingSettings tracks apply lifecycle`() = runTest(dispatcher) {

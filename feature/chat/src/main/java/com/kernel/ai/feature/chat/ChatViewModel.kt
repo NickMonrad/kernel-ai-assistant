@@ -3214,12 +3214,7 @@ class ChatViewModel @Inject constructor(
                 //    overwriting _activeModelSettings with the draft (#961).
                 val preApplyActiveSettings = _activeModelSettings.value
 
-                // 4. Persist draft settings and update reactive state
-                modelSettingsRepository.saveSettings(draft)
-                _activeModelSettings.value = draft
-                _showThinkingProcess.value = draft.showThinkingProcess
-
-                // 5. Build fresh ModelConfig from active model + draft settings
+                // 4. Build fresh ModelConfig from active model + draft settings
                 //    Only conversation-scoped fields are changed (temperature, top-p,
                 //    top-k, thinking). Engine-level fields (backend, maxTokens,
                 //    speculativeDecoding) carry over from the active model's current
@@ -3236,9 +3231,17 @@ class ChatViewModel @Inject constructor(
                     toolProvider = toolProvider,
                 )
 
-                // 5. Reconfigure the engine conversation with new settings
-                //    Throws InferenceException if engine is not initialized (#961)
+                // 5. Reconfigure the engine conversation with new settings FIRST,
+                //    before persisting. This way, if reconfigure throws, nothing has
+                //    been persisted or mutated — the apply is atomic (#961, #1253 review).
                 inferenceEngine.reconfigureConversation(newConfig)
+
+                // 6. Persist draft settings and update reactive state.
+                //    Only reached when reconfigureConversation succeeded — so the
+                //    persisted settings and engine state are consistent.
+                modelSettingsRepository.saveSettings(draft)
+                _activeModelSettings.value = draft
+                _showThinkingProcess.value = draft.showThinkingProcess
 
                 // 6. Start a fresh conversation record
                 val id = conversationRepository.createConversation()
