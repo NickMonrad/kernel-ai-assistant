@@ -117,7 +117,7 @@ Reports dir: {REPORTS_DIR}
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     elif phases_list == ["llm_tools"]:
-        sys.exit(run_llm_tools(dry_run=args.dry_run))
+        sys.exit(run_llm_tools(dry_run=args.dry_run, case_ids=case_ids_list))
     else:
         sys.exit(run_tests(
             dry_run=args.dry_run,
