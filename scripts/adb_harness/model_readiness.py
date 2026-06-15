@@ -24,6 +24,7 @@ Failure buckets:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tempfile
@@ -32,7 +33,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from adb_harness.config import ADB, ACTIVITY, ANDROID_SERIAL
+from adb_harness.config import ADB, ACTIVITY
 from adb_harness.device import (
     clear_logcat,
     logcat_snapshot,
@@ -127,10 +128,14 @@ _MARKERS: ClassVar[list[_Marker]] = [
     _Marker("engine_ready", r"Engine ready — backend:"),
 ]
 
-# Map marker name → initial state string for Phase 1 detection
+# Map marker name → initial state string for Phase 1 detection.
+# ``engine_already_ready`` is checked first — if the engine is already
+# initialised, the preflight can return immediately. ``model_already_downloaded``
+# means the model file exists but the engine may not be ready yet, so the
+# preflight continues to an engine readiness check.
 _INITIAL_STATE_MAP: dict[str, str] = {
-    "model_already_downloaded": "Ready",
-    "engine_already_ready": "Ready",
+    "engine_already_ready": "Ready",                    # engine running → true Ready
+    "model_already_downloaded": "Downloaded",            # model on disk → needs engine check
     "auto_queue_seen": "Preparing",
     "enqueue_seen": "Preparing",
     "hf_token_missing": "ActionRequired(SignInRequired)",
@@ -387,7 +392,10 @@ def preflight_model_readiness(
     ModelReadinessEvidence
     """
     evidence = ModelReadinessEvidence(
-        device_serial=serial or ANDROID_SERIAL or "unknown",
+        device_serial=(serial
+                       or os.environ.get("ANDROID_SERIAL")
+                       or os.environ.get("ADB_SERIAL")
+                       or "unknown"),
         required_model=S21_REQUIRED_MODEL,
         model_file=S21_MODEL_FILE,
     )
@@ -463,15 +471,14 @@ def preflight_model_readiness(
     # ── Phase 1: Detect initial model state ───────────────────────────
     _print("  [readiness] Detecting initial model state …")
 
-    # Fast path: check if model file exists on disk (~1s) before the 30s
-    # logcat poll. This handles re-runs where the ring buffer was cleared
-    # but the model is already downloaded.
     evidence.initial_state = "Unknown"
+    initial_seen: dict[str, bool] = {}  # used to gate Phase 2 below
+
     if _check_model_on_disk():
-        evidence.initial_state = "Ready"
+        evidence.initial_state = "Downloaded"
         evidence.logcat_markers["model_on_disk"] = True
 
-    if evidence.initial_state != "Ready":
+    if evidence.initial_state != "Downloaded":
         # Quick 30s poll to establish initial state from logcat markers
         initial_seen = _poll_logcat_until(
             list(_INITIAL_STATE_MAP.keys()),
@@ -483,80 +490,89 @@ def preflight_model_readiness(
                 evidence.logcat_markers[marker_name] = True
                 break
 
+    # Only return early when the ENGINE is confirmed ready (not just model-on-disk)
     if evidence.initial_state == "Ready":
-        _print(f"  [readiness] Initial state: {evidence.initial_state} — model already available")
+        _print(f"  [readiness] Initial state: {evidence.initial_state} — engine already ready")
         evidence.final_state = "Ready"
         evidence.readiness_wait_seconds = time.time() - start_ts
         return evidence
 
     _print(f"  [readiness] Initial state: {evidence.initial_state}")
 
-    # If the initial state is "Preparing" the download was auto-queued
+    # If initial state is "Preparing" the download was auto-queued
     if evidence.initial_state == "Preparing":
         evidence.download_triggered = True
 
     # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
-    # The conversation model (E-2B) is not gated on S21, but the embedding
-    # models (EmbeddingGemma 300M + SentencePiece) ARE gated and required.
-    # `areRequiredModelsDownloaded()` requires ALL required models, so engine
-    # init is blocked until embedding models are present. We MUST sign in.
-    signin_tapped = False
-    if _uiautomator_has_text("Sign in to Hugging Face"):
-        signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button (dialog)")
-    elif _uiautomator_has_text("Sign in"):
-        signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button")
-    if signin_tapped:
-        evidence.hf_signin_clicked = True
-        # Wait for the auth flow to complete — the `hf_signin_approved`
-        # marker confirms the OAuth callback returned a token.
-        _print("  [readiness] Waiting for HF sign-in approval …")
-        signin_seen = _poll_logcat_until(
-            ["hf_signin_approved"],
-            timeout=hf_signin_timeout,
-        )
-        if signin_seen.get("hf_signin_approved"):
-            evidence.logcat_markers["hf_signin_approved"] = True
-            _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
-            # Now wait for the gated model auto-queues to be logged
-            gated_seen = _poll_logcat_until(
-                ["auto_queue_seen", "enqueue_seen"],
-                timeout=30.0,
+    # Gate: only run when the initial state indicates sign-in is needed.
+    # Avoids false-positive taps when UIAutomator finds "Sign in" text from
+    # other parts of the UI during normal model-download flows.
+    if (evidence.initial_state == "ActionRequired(SignInRequired)"
+            or initial_seen.get("hf_token_missing")):
+        _print("  [readiness] HF sign-in required — tapping sign-in button …")
+        signin_tapped = False
+        if _uiautomator_has_text("Sign in to Hugging Face"):
+            signin_tapped = _uiautomator_tap_text("Sign in")
+            _print("  [readiness] Tapped HF sign-in button (dialog)")
+        elif _uiautomator_has_text("Sign in"):
+            signin_tapped = _uiautomator_tap_text("Sign in")
+            _print("  [readiness] Tapped HF sign-in button")
+        if signin_tapped:
+            evidence.hf_signin_clicked = True
+            _print("  [readiness] Waiting for HF sign-in approval …")
+            signin_seen = _poll_logcat_until(
+                ["hf_signin_approved"],
+                timeout=hf_signin_timeout,
             )
-            if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
-                evidence.download_triggered = True
-                _print("  [readiness] Gated model downloads enqueued after sign-in")
+            if signin_seen.get("hf_signin_approved"):
+                evidence.logcat_markers["hf_signin_approved"] = True
+                _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
+                gated_seen = _poll_logcat_until(
+                    ["auto_queue_seen", "enqueue_seen"],
+                    timeout=30.0,
+                )
+                if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
+                    evidence.download_triggered = True
+                    _print("  [readiness] Gated model downloads enqueued after sign-in")
+            else:
+                _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
         else:
-            _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
+            _print("  [readiness] ⚠️  Could not find sign-in button to tap")
     else:
         _print("  [readiness] No HF sign-in dialog detected")
+
     # ── Phase 3+4 combined: Continuous poll for download + engine ──
     # Deadline starts NOW (after Phase 1+2), not from start_ts — avoids
     # the combined window being consumed by Phase 1's 30s initial detection.
     phase34_start = time.time()
-    phase34_download_deadline = phase34_start + timeout_download
-    phase34_engine_deadline = phase34_start + timeout_download + timeout_engine
-    _print(f"  [readiness] Waiting for download + engine (download timeout: {timeout_download:.0f}s, engine: {timeout_engine:.0f}s)…")
-    download_matched = False
+    # If the model is already on disk, skip the download wait
+    download_matched = (evidence.initial_state == "Downloaded")
+    if download_matched:
+        _print("  [readiness] Model already on disk — checking engine readiness")
+        engine_deadline = phase34_start + timeout_engine
+    else:
+        engine_deadline = phase34_start + timeout_download + timeout_engine
     engine_matched = False
 
-    while time.time() < phase34_engine_deadline:
+    _print(f"  [readiness] Waiting for download + engine (download timeout: {timeout_download:.0f}s, engine: {timeout_engine:.0f}s)…")
+
+    while time.time() < engine_deadline:
         snapshot = _read_fresh_logcat()
         markers = _find_markers(snapshot, _MARKERS)
 
         # Track downloads
-        if markers.get("download_completed") or markers.get("download_succeeded"):
-            if not download_matched:
-                evidence.download_triggered = True
-                evidence.logcat_markers["download_completed"] = True
-                _print(f"  [readiness] ✅ Model download completed  (t={time.time() - start_ts:.0f}s)")
-                download_matched = True
-                # Ensure the app is in the foreground for engine init
-                _print("  [readiness] Bringing app to foreground for engine initialisation …")
-                run_adb("shell", "am", "start", "-n", ACTIVITY,
-                        "--activity-clear-top", "--activity-single-top")
-                time.sleep(3)
+        if not download_matched and (markers.get("download_completed") or markers.get("download_succeeded")):
+            evidence.download_triggered = True
+            evidence.logcat_markers["download_completed"] = True
+            _print(f"  [readiness] ✅ Model download completed  (t={time.time() - start_ts:.0f}s)")
+            download_matched = True
+            # When download just completed, engine deadline extends by timeout_engine
+            engine_deadline = time.time() + timeout_engine
+            # Ensure the app is in the foreground for engine init
+            _print("  [readiness] Bringing app to foreground for engine initialisation …")
+            run_adb("shell", "am", "start", "-n", ACTIVITY,
+                    "--activity-clear-top", "--activity-single-top")
+            time.sleep(3)
 
         if markers.get("download_failed"):
             m = next(
@@ -589,7 +605,8 @@ def preflight_model_readiness(
             if cycles > 0 and cycles % 15 == 0:
                 run_adb("shell", "input", "touchscreen", "swipe",
                         "540", "1000", "540", "1004", "50")
-        # Timeout check: measured from Phase 3+4 start, not total start_ts
+
+        # Timeout checks
         phase34_elapsed = time.time() - phase34_start
         if not download_matched and phase34_elapsed > timeout_download:
             # Download timeout
@@ -601,10 +618,9 @@ def preflight_model_readiness(
                 _print(f"  [readiness] ❌ Download did not complete within {timeout_download:.0f}s")
             break
 
-        # Engine-timeout check (only starts counting after download completes)
+        # Engine-timeout check (separate deadline for each case)
         if download_matched and not engine_matched:
-            engine_elapsed = time.time() - phase34_start - timeout_download
-            if engine_elapsed > timeout_engine:
+            if time.time() >= engine_deadline:
                 # Check if lock screen is blocking engine init
                 keyguard = run_adb("shell", "dumpsys", "window")
                 if "isKeyguardShowing=true" in keyguard:
@@ -614,10 +630,6 @@ def preflight_model_readiness(
                     evidence.failure_bucket = "ENGINE_NOT_READY"
                     _print(f"  [readiness] ❌ Engine did not initialise within {timeout_engine:.0f}s")
                 break
-        if download_matched and phase34_elapsed > timeout_download + timeout_engine:
-            evidence.failure_bucket = "ENGINE_NOT_READY"
-            _print(f"  [readiness] ❌ Engine did not initialise within {timeout_engine:.0f}s after download")
-            break
 
         time.sleep(_POLL_INTERVAL)
 
@@ -656,7 +668,6 @@ def cli_main() -> int:
     args = parser.parse_args()
 
     if args.serial:
-        import os
         os.environ["ANDROID_SERIAL"] = args.serial
 
     try:

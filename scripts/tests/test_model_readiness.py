@@ -4,11 +4,13 @@
 Covers:
 - Evidence record serialisation
 - Logcat marker detection (_find_markers)
+- Serial resolution from env vars
 - Preflight state machine with mocked ADB functions
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -27,6 +29,68 @@ from adb_harness.model_readiness import (
     _MARKERS,
     preflight_model_readiness,
 )
+from adb_harness.device import build_adb_cmd
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Serial resolution tests (build_adb_cmd)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class BuildAdbCmdTest(unittest.TestCase):
+    """Serial resolution from env vars is dynamic."""
+
+    def setUp(self) -> None:
+        self._saved_android = os.environ.pop("ANDROID_SERIAL", None)
+        self._saved_adb = os.environ.pop("ADB_SERIAL", None)
+
+    def tearDown(self) -> None:
+        for key, val in [("ANDROID_SERIAL", self._saved_android),
+                         ("ADB_SERIAL", self._saved_adb)]:
+            if val is not None:
+                os.environ[key] = val
+            else:
+                os.environ.pop(key, None)
+
+    def test_no_serial_when_no_env_var(self) -> None:
+        """No -s flag when neither env var is set."""
+        cmd = build_adb_cmd("shell", "echo", "hello")
+        self.assertNotIn("-s", cmd)
+        self.assertEqual(cmd[-3:], ["shell", "echo", "hello"])
+
+    def test_serial_from_android_serial(self) -> None:
+        """ANDROID_SERIAL produces `-s <serial>` in the command."""
+        os.environ["ANDROID_SERIAL"] = "R5CR605B71K"
+        cmd = build_adb_cmd("logcat", "-c")
+        self.assertIn("-s", cmd)
+        s_idx = cmd.index("-s")
+        self.assertEqual(cmd[s_idx + 1], "R5CR605B71K")
+
+    def test_serial_from_adb_serial(self) -> None:
+        """ADB_SERIAL produces `-s <serial>` when ANDROID_SERIAL is absent."""
+        os.environ["ADB_SERIAL"] = "FOOBAR123"
+        cmd = build_adb_cmd("shell", "ls")
+        self.assertIn("-s", cmd)
+        s_idx = cmd.index("-s")
+        self.assertEqual(cmd[s_idx + 1], "FOOBAR123")
+
+    def test_android_serial_takes_precedence(self) -> None:
+        """ANDROID_SERIAL is preferred over ADB_SERIAL when both are set."""
+        os.environ["ANDROID_SERIAL"] = "R5CR605B71K"
+        os.environ["ADB_SERIAL"] = "OTHER_DEVICE"
+        cmd = build_adb_cmd("version")
+        s_idx = cmd.index("-s")
+        self.assertEqual(cmd[s_idx + 1], "R5CR605B71K")
+
+    def test_set_env_before_call(self) -> None:
+        """Setting ANDROID_SERIAL between calls changes the target."""
+        cmd1 = build_adb_cmd("version")
+        self.assertNotIn("-s", cmd1)
+        os.environ["ANDROID_SERIAL"] = "DYNAMIC"
+        cmd2 = build_adb_cmd("version")
+        self.assertIn("-s", cmd2)
+        s_idx = cmd2.index("-s")
+        self.assertEqual(cmd2[s_idx + 1], "DYNAMIC")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -177,6 +241,28 @@ class FindMarkersTest(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Fake clock for deterministic timeout tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class _FakeClock:
+    """Fake clock used in place of ``time.time`` / ``time.sleep``.
+
+    ``sleep(N)`` advances the clock by N seconds so deadline-based loops
+    terminate deterministically in unit tests.
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self._now = start
+
+    def time(self) -> float:
+        return self._now
+
+    def sleep(self, secs: float) -> None:
+        self._now += secs
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Preflight state machine tests
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -184,15 +270,20 @@ class FindMarkersTest(unittest.TestCase):
 class PreflightStateMachineTest(unittest.TestCase):
     """Preflight logic with mocked ADB.
 
-    Tests focus on the state-machine transitions and evidence output.
+    Uses ``_FakeClock`` for ``time.time`` / ``time.sleep`` so that
+    polling loops with deadlines terminate deterministically.
     """
 
     def setUp(self) -> None:
+        self._clock = _FakeClock()
         self.patches = [
             patch("adb_harness.model_readiness.logcat_start"),
             patch("adb_harness.model_readiness.clear_logcat"),
             patch("adb_harness.model_readiness.run_adb"),
-            patch("adb_harness.model_readiness.time.sleep"),
+            patch("adb_harness.model_readiness.time.time", side_effect=self._clock.time),
+            patch("adb_harness.model_readiness.time.sleep", side_effect=self._clock.sleep),
+            patch("adb_harness.model_readiness._uiautomator_has_text", return_value=False),
+            patch("adb_harness.model_readiness._uiautomator_tap_text", return_value=False),
         ]
         for p in self.patches:
             p.start()
@@ -201,46 +292,91 @@ class PreflightStateMachineTest(unittest.TestCase):
         for p in self.patches:
             p.stop()
 
+    # ── Engine-already-ready (true fast path) ─────────────────────
+
     @patch("adb_harness.model_readiness._read_fresh_logcat")
-    def test_fast_path_already_ready(self, mock_read: MagicMock) -> None:
-        """Preflight completes quickly when model is already Ready."""
+    def test_engine_already_ready(self, mock_read: MagicMock) -> None:
+        """Fast path: engine_ready marker in logcat → immediate success."""
         mock_read.return_value = "Engine ready — backend: GPU\nInit complete"
         evidence = preflight_model_readiness(verbose=False)
         self.assertEqual(evidence.initial_state, "Ready")
         self.assertEqual(evidence.final_state, "Ready")
         self.assertIsNone(evidence.failure_bucket)
+        self.assertIn("engine_already_ready", evidence.logcat_markers)
 
+    # ── Model-on-disk scenarios ───────────────────────────────────
+
+    @patch("adb_harness.model_readiness._check_model_on_disk", return_value=True)
     @patch("adb_harness.model_readiness._read_fresh_logcat")
-    def test_timeout_no_download(self, mock_read: MagicMock) -> None:
-        """Preflight fails with MODEL_NOT_READY when no download starts."""
+    def test_model_on_disk_with_engine(
+        self, mock_read: MagicMock, mock_disk: MagicMock,
+    ) -> None:
+        """Model on disk + engine_ready marker → success."""
+        mock_read.return_value = "Engine ready — backend: GPU"
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=5.0, timeout_engine=5.0,
+        )
+        self.assertEqual(evidence.initial_state, "Downloaded")
+        self.assertEqual(evidence.final_state, "Ready")
+        self.assertIsNone(evidence.failure_bucket)
+        self.assertIn("model_on_disk", evidence.logcat_markers)
+
+    @patch("adb_harness.model_readiness._check_model_on_disk", return_value=True)
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_model_on_disk_without_engine(
+        self, mock_read: MagicMock, mock_disk: MagicMock,
+    ) -> None:
+        """Model on disk but no engine_ready → ENGINE_NOT_READY."""
         mock_read.return_value = ""
         evidence = preflight_model_readiness(
-            verbose=False, timeout_download=1.0, timeout_engine=1.0,
+            verbose=False, timeout_download=1.0, timeout_engine=0.5,
+        )
+        self.assertEqual(evidence.initial_state, "Downloaded")
+        self.assertEqual(evidence.failure_bucket, "ENGINE_NOT_READY")
+        self.assertIsNone(evidence.final_state)
+        self.assertIn("model_on_disk", evidence.logcat_markers)
+
+    # ── Timeout scenarios ─────────────────────────────────────────
+
+    @patch("adb_harness.model_readiness._check_model_on_disk", return_value=False)
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_timeout_no_download(
+        self, mock_read: MagicMock, mock_disk: MagicMock,
+    ) -> None:
+        """No download markers → MODEL_NOT_READY after timeout."""
+        mock_read.return_value = ""
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=10.0, timeout_engine=10.0,
         )
         self.assertEqual(evidence.failure_bucket, "MODEL_NOT_READY")
 
+    @patch("adb_harness.model_readiness._check_model_on_disk", return_value=False)
     @patch("adb_harness.model_readiness._read_fresh_logcat")
-    def test_download_started_but_timed_out(self, mock_read: MagicMock) -> None:
-        """Preflight fails with MODEL_DOWNLOAD_TIMEOUT when download started but didn't finish."""
+    def test_download_started_but_timed_out(
+        self, mock_read: MagicMock, mock_disk: MagicMock,
+    ) -> None:
+        """Enqueue seen but download never finishes → MODEL_DOWNLOAD_TIMEOUT."""
         mock_read.return_value = "Enqueuing download for Gemma 4 E-2B"
         evidence = preflight_model_readiness(
-            verbose=False, timeout_download=0.5, timeout_engine=0.5,
+            verbose=False, timeout_download=10.0, timeout_engine=10.0,
         )
         self.assertEqual(evidence.failure_bucket, "MODEL_DOWNLOAD_TIMEOUT")
         self.assertTrue(evidence.download_triggered)
 
     @patch("adb_harness.model_readiness._read_fresh_logcat")
     def test_download_failed(self, mock_read: MagicMock) -> None:
-        """Preflight fails with MODEL_DOWNLOAD_FAILED on download error."""
+        """Download failed marker → MODEL_DOWNLOAD_FAILED."""
         mock_read.return_value = "Download failed for Gemma 4 E-2B: Network error"
         evidence = preflight_model_readiness(
             verbose=False, timeout_download=1.0, timeout_engine=1.0,
         )
         self.assertEqual(evidence.failure_bucket, "MODEL_DOWNLOAD_FAILED")
 
+    # ── Full success path (fresh download) ────────────────────────
+
     @patch("adb_harness.model_readiness._read_fresh_logcat")
     def test_full_success_path(self, mock_read: MagicMock) -> None:
-        """Preflight succeeds through the full download + engine init flow."""
+        """Download + engine init full flow succeeds."""
         mock_read.side_effect = itertools.cycle([
             "",
             "Auto-queuing required model: Gemma 4 E-2B",
@@ -254,13 +390,13 @@ class PreflightStateMachineTest(unittest.TestCase):
         self.assertIsNone(evidence.failure_bucket)
         self.assertTrue(evidence.download_triggered)
 
+    # ── HF sign-in ────────────────────────────────────────────────
+
     @patch("adb_harness.model_readiness._read_fresh_logcat")
-    @patch("adb_harness.model_readiness._uiautomator_has_text", return_value=False)
-    @patch("adb_harness.model_readiness._uiautomator_tap_text", return_value=False)
     def test_hf_signin_needed_but_not_in_ui(
-        self, mock_tap: MagicMock, mock_has: MagicMock, mock_read: MagicMock,
+        self, mock_read: MagicMock,
     ) -> None:
-        """Initial state detected as ActionRequired even without UI button."""
+        """hf_token_missing detected → ActionRequired state."""
         mock_read.return_value = "EmbeddingGemma 300M is gated but no HF token available"
         evidence = preflight_model_readiness(
             verbose=False, timeout_download=1.0, timeout_engine=1.0,
