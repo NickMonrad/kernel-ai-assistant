@@ -504,40 +504,37 @@ def preflight_model_readiness(
         evidence.download_triggered = True
 
     # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
-    # Gate: only run when the initial state indicates sign-in is needed.
-    # Avoids false-positive taps when UIAutomator finds "Sign in" text from
-    # other parts of the UI during normal model-download flows.
-    if (evidence.initial_state == "ActionRequired(SignInRequired)"
-            or initial_seen.get("hf_token_missing")):
-        _print("  [readiness] HF sign-in required — tapping sign-in button …")
-        signin_tapped = False
-        if _uiautomator_has_text("Sign in to Hugging Face"):
-            signin_tapped = _uiautomator_tap_text("Sign in")
-            _print("  [readiness] Tapped HF sign-in button (dialog)")
-        elif _uiautomator_has_text("Sign in"):
-            signin_tapped = _uiautomator_tap_text("Sign in")
-            _print("  [readiness] Tapped HF sign-in button")
-        if signin_tapped:
-            evidence.hf_signin_clicked = True
-            _print("  [readiness] Waiting for HF sign-in approval …")
-            signin_seen = _poll_logcat_until(
-                ["hf_signin_approved"],
-                timeout=hf_signin_timeout,
+    # On S21, the conversation model (E-2B) auto-queues immediately, giving
+    # initial_state "Preparing". But the embedding models (isGated=true) show
+    # a HF sign-in dialog simultaneously. We must dismiss or tap it.
+    #
+    # Run on every non-Ready path — UIAutomator checks are ~2s and cheap.
+    signin_tapped = False
+    if _uiautomator_has_text("Sign in to Hugging Face"):
+        signin_tapped = _uiautomator_tap_text("Sign in")
+        _print("  [readiness] Tapped HF sign-in button (dialog)")
+    elif _uiautomator_has_text("Sign in"):
+        signin_tapped = _uiautomator_tap_text("Sign in")
+        _print("  [readiness] Tapped HF sign-in button")
+    if signin_tapped:
+        evidence.hf_signin_clicked = True
+        _print("  [readiness] Waiting for HF sign-in approval …")
+        signin_seen = _poll_logcat_until(
+            ["hf_signin_approved"],
+            timeout=hf_signin_timeout,
+        )
+        if signin_seen.get("hf_signin_approved"):
+            evidence.logcat_markers["hf_signin_approved"] = True
+            _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
+            gated_seen = _poll_logcat_until(
+                ["auto_queue_seen", "enqueue_seen"],
+                timeout=30.0,
             )
-            if signin_seen.get("hf_signin_approved"):
-                evidence.logcat_markers["hf_signin_approved"] = True
-                _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
-                gated_seen = _poll_logcat_until(
-                    ["auto_queue_seen", "enqueue_seen"],
-                    timeout=30.0,
-                )
-                if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
-                    evidence.download_triggered = True
-                    _print("  [readiness] Gated model downloads enqueued after sign-in")
-            else:
-                _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
+            if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
+                evidence.download_triggered = True
+                _print("  [readiness] Gated model downloads enqueued after sign-in")
         else:
-            _print("  [readiness] ⚠️  Could not find sign-in button to tap")
+            _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
     else:
         _print("  [readiness] No HF sign-in dialog detected")
 
