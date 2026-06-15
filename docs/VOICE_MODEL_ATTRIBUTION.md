@@ -12,12 +12,12 @@ This document supplements `docs/LEGAL_AND_ATTRIBUTION.md` for #868. It captures 
 
 The app catalogue downloads the Sherpa STT ONNX files from Hugging Face `csukuangfj/*` model repositories. The runtime specs in `SherpaSttModelSpec.kt` define whether each model is streaming/online or offline/final-only.
 
-| Engine | App runtime shape | App download source | Files used by app | Release action |
-|---|---|---|---|---|
-| Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Record exact model-card licence before release. |
-| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Record exact model-card licence before release. |
-| Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Code comments indicate Apache-2.0; verify upstream model card before release. |
-| Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Code comments indicate Apache-2.0; verify upstream model card before release. |
+| Engine | App runtime shape | App download source | Files used by app | Licence position | Release action |
+|---|---|---|---|---|---|
+| Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Hugging Face page lists Apache-2.0 and identifies the upstream model/training lineage | Record source/model-card link in release notices if exposed. |
+| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; exact upstream licence still needs confirmation | Keep pending until upstream SenseVoice licence is confirmed. |
+| Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Upstream Whisper tiny.en model/source is permissive, but the `csukuangfj` model card is sparse | Record both ONNX export source and original Whisper source before release. |
+| Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Hugging Face page lists Apache-2.0 and identifies ModelScope/DAMO source | Verify upstream ModelScope/DAMO terms, then record source/model-card link. |
 
 ## Sherpa-ONNX TTS voice packs
 
@@ -27,7 +27,16 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 |---|---|---:|---|---|
 | Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
 | Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | Launch decision #1258: disable, replace, keep dev-only, or ship only with compatible permission. |
-| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Licence not yet verified for release exposure | Keep dev-only/hidden unless Kokoro model and voice-pack licence is verified. |
+| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Kokoro can be considered likely permissive, but release docs should cite the upstream Kokoro model and the exact Sherpa-ONNX asset used by Jandal. |
+
+## Kokoro source notes
+
+Jandal does not download `nvidia/kokoro-82M-onnx-opt` directly. The app downloads the Sherpa-ONNX `kokoro-int8-multi-lang-v1_0.tar.bz2` release asset. The NVIDIA card is still useful attribution evidence because it points to the same upstream Kokoro 82M model family and records Apache-2.0 terms for the ONNX optimisation.
+
+For release attribution, cite both:
+
+- app package source: Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`;
+- upstream model lineage: `hexgrad/Kokoro-82M` / `nvidia/kokoro-82M-onnx-opt`, Apache-2.0.
 
 ## Code references
 
