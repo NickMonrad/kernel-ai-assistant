@@ -16,7 +16,7 @@ The app catalogue downloads the Sherpa STT ONNX files from Hugging Face `csukuan
 |---|---|---|---|---|---|
 | Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Hugging Face page lists Apache-2.0 and identifies the upstream model/training lineage | Record source/model-card link in release notices if exposed. |
 | SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; exact upstream licence still needs confirmation | Keep pending until upstream SenseVoice licence is confirmed. |
-| Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Upstream Whisper tiny.en model/source is permissive, but the `csukuangfj` model card is sparse | Record both ONNX export source and original Whisper source before release. |
+| Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Upstream `openai/whisper-tiny.en` model card lists Apache-2.0; `csukuangfj` ONNX export page is sparse but code comments identify Apache-2.0 | Record both the ONNX export source and upstream `openai/whisper-tiny.en` Apache-2.0 source before release. |
 | Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Hugging Face page lists Apache-2.0 and identifies ModelScope/DAMO source | Verify upstream ModelScope/DAMO terms, then record source/model-card link. |
 
 ## Sherpa-ONNX TTS voice packs
@@ -37,6 +37,17 @@ For release attribution, cite both:
 
 - app package source: Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`;
 - upstream model lineage: `hexgrad/Kokoro-82M` / `nvidia/kokoro-82M-onnx-opt`, Apache-2.0.
+
+## Whisper source notes
+
+Jandal does not download `openai/whisper-tiny` or `openai/whisper-tiny.en` directly. The app downloads the Sherpa-ONNX `csukuangfj/sherpa-onnx-whisper-tiny.en` ONNX export files.
+
+For release attribution, cite both:
+
+- app package source: `csukuangfj/sherpa-onnx-whisper-tiny.en`;
+- upstream model lineage: `openai/whisper-tiny.en`, Apache-2.0.
+
+Use `openai/whisper-tiny.en`, not multilingual `openai/whisper-tiny`, because Jandal's app-side model selection is the English-only `tiny.en` ONNX export.
 
 ## Code references
 
