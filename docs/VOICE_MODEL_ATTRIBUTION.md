@@ -15,7 +15,7 @@ The app catalogue downloads the Sherpa STT ONNX files from Hugging Face `csukuan
 | Engine | App runtime shape | App download source | Files used by app | Licence position | Release action |
 |---|---|---|---|---|---|
 | Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Hugging Face page lists Apache-2.0 and identifies the upstream model/training lineage | Record source/model-card link in release notices if exposed. |
-| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; exact upstream licence still needs confirmation | Keep pending until upstream SenseVoice licence is confirmed. |
+| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; that repo points to FunASR licensing, and FunASR identifies MIT licence | Record both the ONNX export source and upstream SenseVoice/FunASR MIT lineage before release. |
 | Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Upstream `openai/whisper-tiny.en` model card lists Apache-2.0; `csukuangfj` ONNX export page is sparse but code comments identify Apache-2.0 | Record both the ONNX export source and upstream `openai/whisper-tiny.en` Apache-2.0 source before release. |
 | Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Hugging Face page lists Apache-2.0 and identifies ModelScope/DAMO source | Verify upstream ModelScope/DAMO terms, then record source/model-card link. |
 
@@ -28,6 +28,17 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 | Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
 | Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | Launch decision #1258: disable, replace, keep dev-only, or ship only with compatible permission. |
 | Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Kokoro can be considered likely permissive, but release docs should cite the upstream Kokoro model and the exact Sherpa-ONNX asset used by Jandal. |
+
+## SenseVoice source notes
+
+Jandal does not download `FunAudioLLM/SenseVoice` directly. The app downloads the Sherpa-ONNX `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` ONNX export files.
+
+The ONNX export lineage points back to `FunAudioLLM/SenseVoice`. That repository's `LICENSE` file refers to the FunASR licence section, and the FunASR README identifies the toolkit as MIT licensed.
+
+For release attribution, cite both:
+
+- app package source: `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`;
+- upstream model/source lineage: `FunAudioLLM/SenseVoice` / `modelscope/FunASR`, MIT.
 
 ## Kokoro source notes
 
