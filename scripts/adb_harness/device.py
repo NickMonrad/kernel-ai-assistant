@@ -1,8 +1,8 @@
 """
-ADB Skill Harness — device interaction layer.
+ADB device interaction primitives — commands, logcat streaming, and keepalive.
 
-ADB shell commands, logcat streaming, text/action/slot input, fixture setup,
-keepalive, and result extraction helpers.
+Serial resolution is dynamic: every ADB command resolves the target device
+from ``ANDROID_SERIAL`` / ``ADB_SERIAL`` at call time, not at import time.
 """
 
 from __future__ import annotations
@@ -12,26 +12,18 @@ import os
 import re
 import shlex
 import subprocess
-import sys
 import threading
 import time
-from collections.abc import Callable
 
 from adb_harness.config import (
     ADB,
     ACTIVITY,
-    ANDROID_SERIAL,
     DIRECT_REPLY_PATTERN,
     LOGCAT_TAG,
     NATIVE_INTENT_NAME_PATTERN,
-    NATIVE_INTENT_PATTERN,
-    PARAM_EXTRACT_PATTERN,
-    PROFILE_FALLBACK_PATTERN,
-    PROFILE_LLM_PATTERN,
     WAIT_SECONDS,
     LLM_TOOLS_ASSISTANT_REPLY_PATTERN,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Host-buffered logcat
@@ -54,10 +46,16 @@ _LOGCAT_STREAM_ARGS = [
 
 
 def build_adb_cmd(*args: str) -> list[str]:
-    """Build an adb command with the selected serial applied consistently."""
+    """Build an adb command with the selected serial applied consistently.
+
+    Serial is resolved dynamically from ``ANDROID_SERIAL`` / ``ADB_SERIAL``
+    at call time, so callers can set ``os.environ["ANDROID_SERIAL"]`` before
+    invoking harness functions without worrying about import-time capture.
+    """
     cmd = [ADB]
-    if ANDROID_SERIAL:
-        cmd.extend(["-s", ANDROID_SERIAL])
+    serial = os.environ.get("ANDROID_SERIAL", "") or os.environ.get("ADB_SERIAL", "")
+    if serial:
+        cmd.extend(["-s", serial])
     cmd.extend(args)
     return cmd
 
