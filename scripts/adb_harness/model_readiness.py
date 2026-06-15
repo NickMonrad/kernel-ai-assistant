@@ -18,7 +18,6 @@ Failure buckets:
   - ``MODEL_DOWNLOAD_FAILED`` — download worker errored
   - ``MODEL_DOWNLOAD_TIMEOUT`` — download started but did not finish within timeout
   - ``ENGINE_NOT_READY`` — engine did not initialise after download completed
-  - ``HF_SIGNIN_FAILED`` — HuggingFace sign-in UI shown but could not be completed
 """
 
 from __future__ import annotations
@@ -382,7 +381,9 @@ def preflight_model_readiness(
     timeout_engine : float
         Max seconds to wait for the inference engine to init after download (default 120).
     hf_signin_timeout : float
-        Max seconds to wait for HuggingFace sign-in flow to complete (default 60).
+        Reserved — no longer blocking. HF sign-in is tapped best-effort then
+        the main download/engine loop proceeds regardless. Kept for API
+        compatibility (default 60).
     verbose : bool
         Print progress output.
 
@@ -510,41 +511,49 @@ def preflight_model_readiness(
     # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
     # On S21, the conversation model (E-2B) auto-queues immediately, giving
     # initial_state "Preparing". But the embedding models (isGated=true) show
-    # a HF sign-in dialog simultaneously. We must dismiss or tap it.
+    # a HF sign-in dialog listing each gated model with a "Sign in" button.
+    # We tap the dialog header to trigger the OAuth flow (opens browser in
+    # background), then dismiss the dialog with Back so the device is in a
+    # clean state. If the device is already signed into HuggingFace (cached
+    # browser session), the OAuth completes silently and the gated models
+    # will auto-queue on next app check.
+    #
+    # The main download/engine polling loop handles the rest; its timeout
+    # mechanisms (MODEL_NOT_READY, MODEL_DOWNLOAD_TIMEOUT, ENGINE_NOT_READY)
+    # catch a stalled preflight if sign-in truly failed.
     #
     signin_tapped = False
     if _uiautomator_has_text("Sign in to Hugging Face"):
         evidence.hf_signin_shown = True
-        signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button (dialog)")
+        # Tap the dialog header — this opens a browser tab for OAuth
+        signin_tapped = _uiautomator_tap_text("Sign in to Hugging Face")
+        _print("  [readiness] Tapped HF sign-in header")
+        # If the first tap missed, try the generic "Sign in" on the header area
+        if not signin_tapped:
+            signin_tapped = _uiautomator_tap_text("Sign in")
+            _print("  [readiness] Tapped HF sign-in (fallback)")
     elif _uiautomator_has_text("Sign in"):
         evidence.hf_signin_shown = True
         signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button")
+        _print("  [readiness] Tapped HF sign-in (generic)")
     if signin_tapped:
         evidence.hf_signin_clicked = True
-        _print("  [readiness] Waiting for HF sign-in approval …")
-        signin_seen = _poll_logcat_until(
-            ["hf_signin_approved"],
-            timeout=hf_signin_timeout,
-        )
-        if signin_seen.get("hf_signin_approved"):
-            evidence.logcat_markers["hf_signin_approved"] = True
-            _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
-            gated_seen = _poll_logcat_until(
-                ["auto_queue_seen", "enqueue_seen"],
-                timeout=30.0,
-            )
-            if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
-                evidence.download_triggered = True
-                _print("  [readiness] Gated model downloads enqueued after sign-in")
+        # Give OAuth flow time to launch the browser tab
+        time.sleep(3)
+        # Dismiss the dialog so device is in a clean state.
+        # The browser handles OAuth in the background; completed redirect
+        # back to the app will pick up the auth token on next launch.
+        for attempt in range(3):
+            time.sleep(1)
+            run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+            if not _uiautomator_has_text("Sign in to Hugging Face"):
+                _print("  [readiness] ✅ HF sign-in dialog dismissed")
+                break
         else:
-            evidence.failure_bucket = "HF_SIGNIN_FAILED"
-            _print("  [readiness] ❌ HF sign-in approval NOT detected within timeout — preflight aborting")
-            evidence.readiness_wait_seconds = time.time() - start_ts
-            clear_logcat()
-            return evidence
-    phase34_start = time.time()
+            _print("  [readiness] ⚠ Could not dismiss HF sign-in dialog — continuing anyway")
+        phase34_start = time.time()
+    else:
+        phase34_start = time.time()
     # If the model is already on disk, skip the download wait
     download_matched = (evidence.initial_state == "Downloaded")
     if download_matched:

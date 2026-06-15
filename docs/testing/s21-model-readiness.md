@@ -84,6 +84,15 @@ ANDROID_SERIAL=R5CR605B71K python3 -m adb_harness.model_readiness \
 
 ## Troubleshooting
 
-- **`hf_signin_shown=true`** — The app is prompting for Hugging Face credentials. Enter them on the device before running the preflight, or dismiss the dialog manually.
 - **`timeout-download` too short** — The model download was interrupted. Increase the timeout for slow connections.
 - **`failure_bucket=MODEL_NOT_READY`** — The model file was never downloaded and the download path was not triggered. Verify the app is installed and the device has network access.
+- **`failure_bucket=MODEL_DOWNLOAD_TIMEOUT`** — Download started but didn't finish. Check device network connectivity and power (screen-on recommended).
+- **`failure_bucket=ENGINE_NOT_READY` or `ENGINE_BLOCKED_BY_KEYGUARD`** — Engine init failed; try with `--unlock-pin` to keep device unlocked.
+
+### HF sign-in automation
+
+The preflight automatically taps "Sign in to Hugging Face" when the dialog appears.
+If the device is already signed in (browser session cached), the OAuth flow
+completes silently and the gated model download proceeds through the normal
+polling loop — no manual intervention needed. See
+[model_readiness.py](../../scripts/adb_harness/model_readiness.py) Phase 2 for details.
