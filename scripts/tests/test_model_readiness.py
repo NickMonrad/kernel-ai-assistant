@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""Tests for model_readiness.py — model readiness preflight.
+
+Covers:
+- Evidence record serialisation
+- Logcat marker detection (_find_markers)
+- Preflight state machine with mocked ADB functions
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import itertools
+
+HERE = Path(__file__).resolve().parent
+SCRIPT_DIR = HERE.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from adb_harness.model_readiness import (
+    ModelReadinessEvidence,
+    _find_markers,
+    _Marker,
+    _MARKERS,
+    preflight_model_readiness,
+)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Evidence record tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class ModelReadinessEvidenceTest(unittest.TestCase):
+    """Evidence record serialisation."""
+
+    def test_default_evidence_fields(self) -> None:
+        """Default evidence has expected required_model and model_file."""
+        e = ModelReadinessEvidence(device_serial="test_serial")
+        self.assertEqual(e.device_serial, "test_serial")
+        self.assertEqual(e.required_model, "Gemma 4 E-2B")
+        self.assertEqual(e.model_file, "gemma-4-E2B-it.litertlm")
+
+    def test_to_dict_contains_all_fields(self) -> None:
+        """to_dict() returns a dict with all expected keys."""
+        e = ModelReadinessEvidence(
+            device_serial="test_serial",
+            initial_state="Preparing",
+            hf_signin_shown=True,
+            hf_signin_clicked=True,
+            download_triggered=True,
+            readiness_wait_seconds=123.4,
+            final_state="Ready",
+            failure_bucket=None,
+            logcat_markers={"engine_ready": True},
+        )
+        d = e.to_dict()
+        self.assertEqual(d["device_serial"], "test_serial")
+        self.assertEqual(d["initial_state"], "Preparing")
+        self.assertEqual(d["hf_signin_shown"], True)
+        self.assertEqual(d["hf_signin_clicked"], True)
+        self.assertEqual(d["download_triggered"], True)
+        self.assertEqual(d["readiness_wait_seconds"], 123.4)
+        self.assertEqual(d["final_state"], "Ready")
+        self.assertIsNone(d["failure_bucket"])
+        self.assertEqual(d["logcat_markers"]["engine_ready"], True)
+
+    def test_to_dict_rounds_readiness_wait(self) -> None:
+        """readiness_wait_seconds is rounded to 1 decimal."""
+        e = ModelReadinessEvidence(
+            device_serial="s",
+            readiness_wait_seconds=45.6789,
+        )
+        self.assertEqual(e.to_dict()["readiness_wait_seconds"], 45.7)
+
+    def test_to_dict_failure_bucket_present(self) -> None:
+        """failure_bucket is serialised when set."""
+        e = ModelReadinessEvidence(
+            device_serial="s",
+            failure_bucket="MODEL_NOT_READY",
+        )
+        self.assertEqual(e.to_dict()["failure_bucket"], "MODEL_NOT_READY")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Marker detection tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class FindMarkersTest(unittest.TestCase):
+    """Logcat marker detection (_find_markers)."""
+
+    def setUp(self) -> None:
+        self.test_markers = [
+            _Marker("download_completed", r"Download succeeded:"),
+            _Marker("engine_ready", r"Engine ready — backend:"),
+            _Marker("hf_signin", r"Sign in to HuggingFace"),
+        ]
+
+    def test_find_marker_single_match(self) -> None:
+        """Single matching marker is found."""
+        text = "Some log output\nDownload succeeded: /path/to/model\nmore logs"
+        result = _find_markers(text, self.test_markers)
+        self.assertTrue(result["download_completed"])
+        self.assertFalse(result["engine_ready"])
+        self.assertFalse(result["hf_signin"])
+
+    def test_find_marker_multiple_match(self) -> None:
+        """Multiple markers can be found in the same text."""
+        text = (
+            "Engine ready — backend: GPU\n"
+            "Download succeeded: /path\n"
+            "Sign in to HuggingFace"
+        )
+        result = _find_markers(text, self.test_markers)
+        self.assertTrue(result["download_completed"])
+        self.assertTrue(result["engine_ready"])
+        self.assertTrue(result["hf_signin"])
+
+    def test_find_marker_no_match(self) -> None:
+        """No markers found in unrelated text."""
+        text = "Some unrelated logcat output"
+        result = _find_markers(text, self.test_markers)
+        for v in result.values():
+            self.assertFalse(v)
+
+    def test_find_marker_empty_text(self) -> None:
+        """Empty text produces no matches."""
+        result = _find_markers("", self.test_markers)
+        for v in result.values():
+            self.assertFalse(v)
+
+    def test_find_marker_case_sensitive_by_default(self) -> None:
+        """Default _Marker patterns are case-sensitive."""
+        text = "engine ready — backend: gpu"
+        result = _find_markers(text, self.test_markers)
+        self.assertFalse(result["engine_ready"])
+
+    def test_matches_actual_markers_auto_queue(self) -> None:
+        """_MARKERS[auto_queue_seen] matches the app's actual logcat output."""
+        text = "Auto-queuing required model: Gemma 4 E-2B"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("auto_queue_seen"))
+
+    def test_matches_actual_markers_downloaded(self) -> None:
+        """_MARKERS[download_completed] matches the app's actual log output."""
+        text = "Refreshed state for Gemma 4 E-2B: Downloaded(/path/to/model)"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("download_completed"))
+
+    def test_matches_actual_markers_engine_ready(self) -> None:
+        """_MARKERS[engine_ready] matches the app's actual log output."""
+        text = "Engine ready — backend: GPU, maxTokens: 2048"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("engine_ready"))
+
+    def test_matches_actual_markers_download_failed(self) -> None:
+        """_MARKERS[download_failed] matches the app's actual log output."""
+        text = "Download failed for Gemma 4 E-2B: Network error"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("download_failed"))
+
+    def test_matches_actual_markers_gated_no_token(self) -> None:
+        """_MARKERS[hf_token_missing] matches the app's actual log output."""
+        text = "EmbeddingGemma 300M is gated but no HF token available"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("hf_token_missing"))
+
+    def test_matches_actual_markers_hf_signin_approved(self) -> None:
+        """_MARKERS[hf_signin_approved] matches the app's actual log output."""
+        text = "Set gemma_4_e2b → APPROVED"
+        result = _find_markers(text, _MARKERS)
+        self.assertTrue(result.get("hf_signin_approved"))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Preflight state machine tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class PreflightStateMachineTest(unittest.TestCase):
+    """Preflight logic with mocked ADB.
+
+    Tests focus on the state-machine transitions and evidence output.
+    """
+
+    def setUp(self) -> None:
+        self.patches = [
+            patch("adb_harness.model_readiness.logcat_start"),
+            patch("adb_harness.model_readiness.clear_logcat"),
+            patch("adb_harness.model_readiness.run_adb"),
+            patch("adb_harness.model_readiness.time.sleep"),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self) -> None:
+        for p in self.patches:
+            p.stop()
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_fast_path_already_ready(self, mock_read: MagicMock) -> None:
+        """Preflight completes quickly when model is already Ready."""
+        mock_read.return_value = "Engine ready — backend: GPU\nInit complete"
+        evidence = preflight_model_readiness(verbose=False)
+        self.assertEqual(evidence.initial_state, "Ready")
+        self.assertEqual(evidence.final_state, "Ready")
+        self.assertIsNone(evidence.failure_bucket)
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_timeout_no_download(self, mock_read: MagicMock) -> None:
+        """Preflight fails with MODEL_NOT_READY when no download starts."""
+        mock_read.return_value = ""
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=1.0, timeout_engine=1.0,
+        )
+        self.assertEqual(evidence.failure_bucket, "MODEL_NOT_READY")
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_download_started_but_timed_out(self, mock_read: MagicMock) -> None:
+        """Preflight fails with MODEL_DOWNLOAD_TIMEOUT when download started but didn't finish."""
+        mock_read.return_value = "Enqueuing download for Gemma 4 E-2B"
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=0.5, timeout_engine=0.5,
+        )
+        self.assertEqual(evidence.failure_bucket, "MODEL_DOWNLOAD_TIMEOUT")
+        self.assertTrue(evidence.download_triggered)
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_download_failed(self, mock_read: MagicMock) -> None:
+        """Preflight fails with MODEL_DOWNLOAD_FAILED on download error."""
+        mock_read.return_value = "Download failed for Gemma 4 E-2B: Network error"
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=1.0, timeout_engine=1.0,
+        )
+        self.assertEqual(evidence.failure_bucket, "MODEL_DOWNLOAD_FAILED")
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_full_success_path(self, mock_read: MagicMock) -> None:
+        """Preflight succeeds through the full download + engine init flow."""
+        mock_read.side_effect = itertools.cycle([
+            "",
+            "Auto-queuing required model: Gemma 4 E-2B",
+            "Refreshed state for Gemma 4 E-2B: Downloaded(/path/model)",
+            "Engine ready — backend: GPU",
+        ])
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=30.0, timeout_engine=30.0,
+        )
+        self.assertEqual(evidence.final_state, "Ready")
+        self.assertIsNone(evidence.failure_bucket)
+        self.assertTrue(evidence.download_triggered)
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    @patch("adb_harness.model_readiness._uiautomator_has_text", return_value=False)
+    @patch("adb_harness.model_readiness._uiautomator_tap_text", return_value=False)
+    def test_hf_signin_needed_but_not_in_ui(
+        self, mock_tap: MagicMock, mock_has: MagicMock, mock_read: MagicMock,
+    ) -> None:
+        """Initial state detected as ActionRequired even without UI button."""
+        mock_read.return_value = "EmbeddingGemma 300M is gated but no HF token available"
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=1.0, timeout_engine=1.0,
+        )
+        self.assertEqual(evidence.initial_state, "ActionRequired(SignInRequired)")
+
+
+if __name__ == "__main__":
+    unittest.main()

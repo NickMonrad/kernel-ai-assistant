@@ -36,6 +36,11 @@ from adb_harness.config import (
     PROFILE_WAIT_SECONDS,
     REPORTS_DIR,
 )
+from adb_harness.model_readiness import (
+    preflight_model_readiness,
+    ModelReadinessEvidence,
+    EXIT_MODEL_NOT_READY,
+)
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
     capture_fresh_logcat,
@@ -409,13 +414,11 @@ def run_llm_tools(dry_run: bool = False) -> int:
     report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
     print(f"  Report saved → {report_path}")
 
-    return 1 if failures > 0 else 0
-
-
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None,
               phases: list[str] | None = None, categories: list[str] | None = None,
               tags: list[str] | None = None, exclude_tags: list[str] | None = None,
-              case_ids: list[str] | None = None) -> int:
+              case_ids: list[str] | None = None, model_readiness: bool = False) -> int:
+
     """Execute all test cases. Returns non-zero on failures."""
 
     if dry_run:
@@ -525,6 +528,30 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
     # Start host-side logcat streaming (#1102) — avoids S21 buffer rotation failures.
     logcat_start()
+
+    # ── Model readiness preflight (--model-readiness) ──────────────
+    # After a fresh install the required conversation model may not yet be
+    # downloaded. The preflight handles download wait, HuggingFace sign-in,
+    # and engine initialisation.  Fails fast with MODEL_NOT_READY (44) so
+    # the caller can distinguish setup failure from product failure.
+    if model_readiness:
+        print()
+        print("  ── Model readiness preflight ──")
+        evidence = preflight_model_readiness(verbose=True)
+        if evidence.failure_bucket:
+            print(f"  [preflight] ❌ ABORT: {evidence.failure_bucket}")
+            print(f"  [preflight]    Model readiness failed after {evidence.readiness_wait_seconds:.0f}s")
+            print(f"  [preflight]    Initial state was: {evidence.initial_state}")
+            print(f"  [preflight]    Evidence: {evidence.to_dict()}")
+            stop_keepalive()
+            run_adb("shell", "svc", "power", "stayon", "false")
+            run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+            return EXIT_MODEL_NOT_READY
+        print(f"  [preflight] ✅ Model ready ({evidence.readiness_wait_seconds:.0f}s)")
+        print(f"  [preflight]    Initial state: {evidence.initial_state}")
+        print(f"  [preflight]    Download triggered: {evidence.download_triggered}")
+        print(f"  [preflight]    HF sign-in shown: {evidence.hf_signin_shown}")
+        print()
 
     print("=" * 70)
     print("  ADB SKILL REGRESSION TEST")
