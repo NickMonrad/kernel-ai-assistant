@@ -38,6 +38,30 @@ adb push models/<filename> /sdcard/Android/data/com.kernel.ai.debug/files/models
 adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
 ```
 
+Android 11+ note: ADB can usually push to `/sdcard/Android/data/<package>/` when USB debugging is enabled. If a development device denies access, a temporary development-only workaround is:
+
+```bash
+adb shell appops set --uid shell MANAGE_EXTERNAL_STORAGE allow
+```
+
+### Fallback: push to internal storage via `run-as`
+
+```bash
+adb push models/<filename> /data/local/tmp/<filename>
+adb shell run-as com.kernel.ai.debug sh -c \
+  'mkdir -p files/models && cp /data/local/tmp/<filename> files/models/'
+adb shell rm /data/local/tmp/<filename>
+adb shell run-as com.kernel.ai.debug ls -lh files/models/
+```
+
+## Manually downloading on device
+
+For manual setup without a host machine:
+
+1. Download the model file to the device using a browser or download manager.
+2. Move the file to `Internal storage → Android → data → com.kernel.ai.debug → files → models`.
+3. Launch the app. It detects files in this folder on startup.
+
 ## Model files reference
 
 ### LiteRT-LM inference models (`.litertlm`)
@@ -55,6 +79,8 @@ adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
 | `embeddinggemma-300M_seq512_mixed-precision.tflite` | Generic GPU fallback / most devices | [litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
 | `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite` | Samsung S23 Ultra / Snapdragon 8 Gen 2 NPU path | Same repo |
 | `sentencepiece.model` | Tokeniser required with any EmbeddingGemma file | Same repo |
+
+The app tries the Qualcomm-optimised EmbeddingGemma variant first when the device is detected as SM8550, then falls back to the generic file when needed.
 
 ## Speech model / voice-pack sizes
 
