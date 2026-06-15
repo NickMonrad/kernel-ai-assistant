@@ -512,12 +512,13 @@ def preflight_model_readiness(
     # initial_state "Preparing". But the embedding models (isGated=true) show
     # a HF sign-in dialog simultaneously. We must dismiss or tap it.
     #
-    # Run on every non-Ready path — UIAutomator checks are ~2s and cheap.
     signin_tapped = False
     if _uiautomator_has_text("Sign in to Hugging Face"):
+        evidence.hf_signin_shown = True
         signin_tapped = _uiautomator_tap_text("Sign in")
         _print("  [readiness] Tapped HF sign-in button (dialog)")
     elif _uiautomator_has_text("Sign in"):
+        evidence.hf_signin_shown = True
         signin_tapped = _uiautomator_tap_text("Sign in")
         _print("  [readiness] Tapped HF sign-in button")
     if signin_tapped:
@@ -538,13 +539,11 @@ def preflight_model_readiness(
                 evidence.download_triggered = True
                 _print("  [readiness] Gated model downloads enqueued after sign-in")
         else:
-            _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
-    else:
-        _print("  [readiness] No HF sign-in dialog detected")
-
-    # ── Phase 3+4 combined: Continuous poll for download + engine ──
-    # Deadline starts NOW (after Phase 1+2), not from start_ts — avoids
-    # the combined window being consumed by Phase 1's 30s initial detection.
+            evidence.failure_bucket = "HF_SIGNIN_FAILED"
+            _print("  [readiness] ❌ HF sign-in approval NOT detected within timeout — preflight aborting")
+            evidence.readiness_wait_seconds = time.time() - start_ts
+            clear_logcat()
+            return evidence
     phase34_start = time.time()
     # If the model is already on disk, skip the download wait
     download_matched = (evidence.initial_state == "Downloaded")

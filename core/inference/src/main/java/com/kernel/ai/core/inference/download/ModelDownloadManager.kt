@@ -264,11 +264,14 @@ class ModelDownloadManager @Inject constructor(
                 KernelModel.GEMMA_4_E2B.isDownloaded(context)
             else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
         }
-        // All other required models must be present
-        // All other required models must be present.
-        // Exclude gated models when the user hasn't authenticated —
-        // they are required for RAG/vector search but not for the
-        // conversation engine to initialise and run.
+        // All other required models must be present (e.g. SentencePiece tokenizer).
+        // Gated models (EmbeddingGemma, SentencePiece, etc.) are skipped when
+        // unauthenticated because they are non-conversation dependencies used
+        // for RAG/vector search, not for conversation engine init.
+        // SAFETY: this skip-by-gated-status is correct ONLY as long as ALL gated
+        // required models are non-conversation dependencies. If a new gated model
+        // is needed for conversation init, add it to an explicit separate check
+        // that does not depend on auth status.
         val isHfAuthenticated = authRepository.isAuthenticated.value
         val otherRequiredReady = KernelModel.entries
             .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
