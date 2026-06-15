@@ -2112,6 +2112,23 @@ class ChatViewModel @Inject constructor(
                     }
                 }
             }
+            // #1074: Deterministic local NZ answer — bypass inference/model init for known
+            // NZ/Māori terms when no explicit Wikipedia request or stronger app action exists.
+            // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
+            if (explicitWikipediaQuery == null && matchedIntent == null) {
+                val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
+                if (localNzEntry != null) {
+                    val localReply = buildKnownNzContextReply(localNzEntry)
+                    Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    // Index user message — normally deferred to LLM Complete handler
+                    if (savedUserMsgId.isNotBlank()) {
+                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                    }
+                    appendAssistantMessage(convId, localReply)
+                    return@launch
+                }
+            }
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
                 initGemma4()
@@ -2179,8 +2196,8 @@ class ChatViewModel @Inject constructor(
             isToolQueryForTurn = isToolQuery
             val preferImmediateContext = prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
-            val effectiveRagContext: String
-            val effectiveRagTokenCost: Int
+            var effectiveRagContext: String
+            var effectiveRagTokenCost: Int
             when {
                 isToolQuery -> {
                     effectiveRagContext = ""
@@ -2210,6 +2227,7 @@ class ChatViewModel @Inject constructor(
                     effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
                 }
             }
+
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
@@ -2358,10 +2376,8 @@ class ChatViewModel @Inject constructor(
                                     // chain-of-thought with an empty string.
                                     if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
-
                                     currentPrompt = buildString {
                                         if (systemContext != null) append("$systemContext\n\n")
-                                        append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
                                         append(text)
                                     }
                                     accumulatedContent = StringBuilder()
@@ -2436,6 +2452,8 @@ class ChatViewModel @Inject constructor(
                                     "KernelAI",
                                     "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
                                 )
+                                // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
                                 tryExecuteToolCall(fullContent)
                             } else null
                             if (nativeToolCall != null || toolCallResult != null) {
@@ -2484,6 +2502,9 @@ class ChatViewModel @Inject constructor(
                                     else -> toolCallResult!!.second
                                 }
 
+                                // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${resultContent.take(1000).replace('\n', ' ')}")
+
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
                                     msgs.map { msg ->
@@ -2495,7 +2516,7 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
-                                // Persist with toolCallJson
+                                // Persist with toolCallJson when the tool call should stay user-visible.
                                 val savedId = conversationRepository.addMessage(
                                     convId, "assistant", resultContent,
                                     thinkingText = thinking,

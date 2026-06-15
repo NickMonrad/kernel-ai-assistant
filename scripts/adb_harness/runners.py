@@ -156,11 +156,19 @@ def _clear_conversation() -> None:
 
 
 
-def run_llm_tools(dry_run: bool = False) -> int:
+def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> int:
     """Execute the llm_tools harness phase. Returns non-zero on failures.
 
+    Args:
+        dry_run: Print selected cases without device interaction.
+        case_ids: Optional list of case names to filter on (matched against
+            ``LLMToolsTestCase.name``). When None, runs all cases.
+
+    When no filter is set, runs every case in ``LLM_TOOLS_CASES``.
+    When *case_ids* is set, only cases whose ``.name`` appears in the list
+    are executed (case-insensitive match).
+
     Requires runtime marker emission in the app code (ChatViewModel,
-    NativeIntentHandler, and the tool-call path must log
     ``llm_tools_route``, ``llm_tools_native_tool``, ``llm_tools_legacy_tool``,
     ``llm_tools_skill_result``, and ``llm_tools_message_toolcall_saved``).
     Without these markers the harness will fail every case.
@@ -168,12 +176,25 @@ def run_llm_tools(dry_run: bool = False) -> int:
     This runner is separate from run_tests() because it has different data models,
     observability requirements, and state management (conversation isolation per case).
     """
+    # Build active cases (filtered by case_ids, or all)
+    active_cases: list[LLMToolsTestCase] = LLM_TOOLS_CASES
+    if case_ids:
+        ids_lower = [c.lower() for c in case_ids]
+        active_cases = [tc for tc in LLM_TOOLS_CASES if tc.name.lower() in ids_lower]
+        if not active_cases:
+            print(f"ERROR: --case filter {case_ids!r} matched no llm_tools cases. "
+                  f"Available names: {[c.name for c in LLM_TOOLS_CASES]}", file=sys.stderr)
+            return 1
+
     if dry_run:
         print("=" * 70)
         print("  LLM TOOLS E2E — DRY RUN (no device interaction)")
         print("=" * 70)
         print()
-        for i, tc in enumerate(LLM_TOOLS_CASES, 1):
+        if case_ids:
+            print(f"  Filter: --case {','.join(case_ids)} ({len(active_cases)} of {len(LLM_TOOLS_CASES)} cases)")
+            print()
+        for i, tc in enumerate(active_cases, 1):
             print(f"  [{i:2d}] {tc.name}: \"{tc.message}\"")
             print(f"       expected → {tc.expected_top_level_tool}"
                   f"{f' (nested: {tc.expected_nested_intent})' if tc.expected_nested_intent else ''}")
@@ -184,7 +205,7 @@ def run_llm_tools(dry_run: bool = False) -> int:
                   f" no_slot_fill={tc.expect_no_slot_fill}"
                   f" no_retry={tc.expect_no_retry}")
         print()
-        print(f"  Total: {len(LLM_TOOLS_CASES)} test cases")
+        print(f"  Total: {len(active_cases)} test case{'s' if len(active_cases) != 1 else ''}")
         print("=" * 70)
         return 0
 
@@ -241,10 +262,10 @@ def run_llm_tools(dry_run: bool = False) -> int:
 
     # Run each golden prompt in isolation
     results: list[LLMToolsResult] = []
-    total = len(LLM_TOOLS_CASES)
+    total = len(active_cases)
     failures = 0
 
-    for idx, tc in enumerate(LLM_TOOLS_CASES, 1):
+    for idx, tc in enumerate(active_cases, 1):
         print(f"  [{idx:2d}/{total}] {tc.name}: \"{tc.message}\" ...", end=" ", flush=True)
 
         # Isolate: force-stop, dismiss overlays, then send prompt
@@ -257,8 +278,10 @@ def run_llm_tools(dry_run: bool = False) -> int:
         clear_logcat()
         time.sleep(0.5)
 
-        # Send the prompt (foreground keepalive handled by _poll_for_all_markers)
+        # Send the prompt, then keep foreground until inference starts (Android 15+
+        # requires the app to be foreground-eligible to start InferenceGenerationService).
         send_text(tc.message, wait_for_inference=False)
+        _keep_foreground_until_inference_starts(timeout=120.0)
         # Poll for all markers simultaneously from a single accumulated buffer,
         # avoiding the log-draining bug where sequential _poll_for_marker calls
         # consume markers that arrived together.
@@ -294,23 +317,67 @@ def run_llm_tools(dry_run: bool = False) -> int:
         # Build assertion failures
         failures_list: list[str] = []
 
-        if not chip_text:
-            failures_list.append("No tool_chip_visible marker found")
+        # #1074: When expect_no_tool_call is True, skip tool-specific checks
+        if tc.expect_no_tool_call:
+            if actual_top_level is not None:
+                failures_list.append(
+                    f"expected no tool call but got {actual_top_level!r}"
+                )
+        else:
+            # Normal tool-call checks
+            if not chip_text:
+                failures_list.append("No tool_chip_visible marker found")
 
-        # Tool name check
-        if actual_top_level != tc.expected_top_level_tool:
-            failures_list.append(
-                f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
-            )
+            if actual_top_level != tc.expected_top_level_tool:
+                failures_list.append(
+                    f"tool name: expected {tc.expected_top_level_tool!r}, got {actual_top_level!r}"
+                )
 
-        # Nested intent check
-        if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
-            failures_list.append(
-                f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
-            )
+            if tc.expected_nested_intent and actual_nested != tc.expected_nested_intent:
+                failures_list.append(
+                    f"nested intent: expected {tc.expected_nested_intent!r}, got {actual_nested!r}"
+                )
 
-        # Field checks
-        if tc.expected_fields:
+            if not (native_tool or legacy_tool):
+                failures_list.append("No native-tool or legacy-tool marker found")
+
+            if not message_saved:
+                failures_list.append("No ChatMessage.toolCall persistence marker found")
+
+            if actual_top_level and not skill_result:
+                failures_list.append("No skill_result marker found")
+
+        # #1074: Log contains check (applies to both tool and no-tool cases)
+        log_contains_match = False
+        if tc.expect_log_contains is not None:
+            log_contains_match = tc.expect_log_contains in final_log
+            if not log_contains_match:
+                failures_list.append(
+                    f"log_contains: expected {tc.expect_log_contains!r} not found in logcat"
+                )
+
+        # #1074: Reply content assertion (applies to both tool and no-tool cases)
+        reply_terms_match = False
+        if tc.expected_reply_contains:
+            if reply_text:
+                reply_lower = reply_text.lower()
+                reply_terms_match = any(
+                    term.lower() in reply_lower
+                    for term in tc.expected_reply_contains
+                )
+                if not reply_terms_match:
+                    failures_list.append(
+                        f"reply_content: expected one of {tc.expected_reply_contains!r} "
+                        f"not found in reply ({reply_text[:120]!r})"
+                    )
+            else:
+                failures_list.append(
+                    f"reply_content: expected one of {tc.expected_reply_contains!r} "
+                    f"but no reply text was extracted"
+                )
+
+        # Field checks (only when tools are called and fields are expected)
+        if tc.expected_fields and actual_top_level:
             merged_data = {**native_data, **legacy_data}
             for k, v in tc.expected_fields.items():
                 actual_v = merged_data.get(k)
@@ -340,20 +407,12 @@ def run_llm_tools(dry_run: bool = False) -> int:
         if tc.expect_no_retry and retry_seen:
             failures_list.append("Model retry observed (raw_tool_call_retry_succeeded / hallucination_retry_succeeded)")
 
-        # Positive checks
+        # Route-decision marker (always required)
         if not route_marker:
             failures_list.append("No route-decision marker found")
 
-        if not (native_tool or legacy_tool):
-            failures_list.append("No native-tool or legacy-tool marker found")
-
-        if not message_saved:
-            failures_list.append("No ChatMessage.toolCall persistence marker found")
-        if actual_top_level and not skill_result:
-            failures_list.append("No skill_result marker found")
-
-        # Result mode check
-        if tc.expected_result_mode != "unknown":
+        # Result mode check (only when tools are called)
+        if tc.expected_result_mode != "unknown" and actual_top_level:
             skill_data = _parse_tool_marker(skill_result)
             mode = skill_data.get("mode", "unknown")
             if mode != tc.expected_result_mode:
@@ -378,6 +437,11 @@ def run_llm_tools(dry_run: bool = False) -> int:
             reply_text=reply_text,
             passed=passed,
             failures=failures_list,
+            no_tool_call_requested=tc.expect_no_tool_call,
+            log_contains_required=tc.expect_log_contains,
+            log_contains_match=log_contains_match,
+            expected_reply_terms=tc.expected_reply_contains,
+            reply_terms_match=reply_terms_match,
         )
         results.append(result)
 

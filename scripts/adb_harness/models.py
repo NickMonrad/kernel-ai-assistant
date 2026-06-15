@@ -84,7 +84,14 @@ class LLMToolsTestCase:
     expect_no_classifier_match: bool = True
     expect_no_slot_fill: bool = True
     expect_no_retry: bool = True
-
+    # When True, the model should NOT call any tool — answer from injected context.
+    # Skips tool-name, marker-existence, and message-saved checks. (#1074)
+    expect_no_tool_call: bool = False
+    # When set, the accumulated logcat buffer must contain this substring. (#1074)
+    expect_log_contains: str | None = None
+    # When set, the final assistant reply must contain at least one of these
+    # substrings (case-insensitive). Proves seeded context influenced the reply. (#1074)
+    expected_reply_contains: list[str] | None = None
 
 @dataclass
 class TestResult:
@@ -268,4 +275,10 @@ class LLMToolsResult:
     passed: bool
     failures: list[str]
     phase: str = "llm_tools"
-
+    # #1074 additions
+    no_tool_call_requested: bool = False
+    log_contains_required: str | None = None
+    log_contains_match: bool = False
+    # Reply content assertion (#1074)
+    expected_reply_terms: list[str] | None = None
+    reply_terms_match: bool = False

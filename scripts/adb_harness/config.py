@@ -36,6 +36,7 @@ NATIVE_INTENT_PATTERN = re.compile(r"NativeIntentHandler\.handle: intent=([^\s]+
 NATIVE_INTENT_NAME_PATTERN = re.compile(r"NativeIntentHandler\.handle: intent=(\S+)")
 PARAM_EXTRACT_PATTERN = re.compile(r"(\w+)=([^,}]+)")
 DIRECT_REPLY_PATTERN = re.compile(r"DirectReply:\s*(.*)")
+LLM_TOOLS_ASSISTANT_REPLY_PATTERN = re.compile(r"llm_tools_assistant_reply:\s*(.*)")
 MARKER_TIMEOUT_PATTERN = re.compile(r"llm_tools_response_ready|llm_tools_native_handler_started")
 SLOT_FILL_MARKERS = re.compile(r"NeedsSlot|ConfirmationFastPath:")
 PROFILE_LLM_PATTERN = re.compile(r"ProfileExtraction\s+method=llm")

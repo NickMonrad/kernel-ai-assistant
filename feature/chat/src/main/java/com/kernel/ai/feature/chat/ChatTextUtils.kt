@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 
 /**
@@ -685,4 +686,40 @@ internal fun looksLikePersonalFact(text: String): Boolean {
            ^i\s+\w+\s+(?:allergic|intolerant|vegetarian|vegan|gluten|lactose)\b""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(lower)
+}
+
+/**
+ * Deterministically checks if [text] mentions a known NZ truth memory term.
+ * Returns the first matching [JandalPersona.NzTruthEntry] from [nzTruths], or null if no match.
+ *
+ * This is used as a deterministic pre-model check so that known NZ/Māori cultural terms get
+ * their seeded NZ context before the model can choose query_wikipedia (#1074).
+ *
+ * Matching is case-insensitive and uses word-boundary checks on the canonical term name.
+ * After STT normalisation ([com.kernel.ai.core.voice.TranscriptNormaliser]), voice-input
+ * aliases have already been replaced with canonical terms, so only canonical forms are matched.
+ */
+internal fun detectKnownNzTerm(
+    text: String,
+    nzTruths: List<JandalPersona.NzTruthEntry>,
+): JandalPersona.NzTruthEntry? {
+    if (text.isBlank()) return null
+    val lower = text.lowercase()
+    return nzTruths.firstOrNull { entry ->
+        val term = entry.term.lowercase()
+        term.length >= 3 && Regex("""\b${Regex.escape(term)}\b""").containsMatchIn(lower)
+    }
+}
+
+/**
+ * Builds a deterministic assistant reply from a seeded NZ truth entry.
+ * Used by [com.kernel.ai.feature.chat.ChatViewModel] to answer known NZ/Māori
+ * cultural terms locally without calling query_wikipedia or the inference engine.
+ *
+ * @param entry the matched NZ truth entry with term and definition.
+ * @return a complete assistant reply string.
+ */
+internal fun buildKnownNzContextReply(entry: JandalPersona.NzTruthEntry): String {
+    val definition = entry.definition.trim().trimEnd('.')
+    return "${entry.term}: $definition."
 }
