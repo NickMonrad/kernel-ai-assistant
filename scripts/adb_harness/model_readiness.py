@@ -32,8 +32,7 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import ClassVar
-
-from adb_harness.config import ADB, ACTIVITY
+from adb_harness.config import ADB, ACTIVITY, PACKAGE
 from adb_harness.device import (
     clear_logcat,
     logcat_snapshot,
@@ -436,6 +435,11 @@ def preflight_model_readiness(
         run_adb("shell", "input", "keyevent", "KEYCODE_MENU")
         run_adb("shell", "input", "swipe", "500", "1500", "500", "500")
         time.sleep(2)
+    # Force-stop the app so it starts fresh — re-runs where the app is
+    # still cached will suppress the engine-init logcat markers.
+    _print("  [readiness] Force-stopping app for clean startup …")
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(2)
     _print("  [readiness] Granting dangerous permissions before launch …")
     _grant_dangerous_permissions()
     time.sleep(1)
