@@ -2,6 +2,9 @@ package com.kernel.ai.feature.chat
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import com.kernel.ai.core.inference.JandalPersona
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -16,6 +19,49 @@ import org.junit.jupiter.params.provider.ValueSource
  * Run with: ./gradlew :feature:chat:test --tests "*.ChatTextUtilsTest"
  */
 class ChatTextUtilsTest {
+
+    private val sampleEntries = listOf(
+        JandalPersona.NzTruthEntry(
+            id = "nz_141",
+            term = "Wharepaku",
+            category = "culture",
+            definition = "Wharepaku is the te reo Māori term for a toilet, restroom, or bathroom. It's a compound word literally meaning 'small house' (whare = building/house, paku = small). Standard term found on public signage, schools, and government buildings across New Zealand.",
+            triggerContext = "When the user asks about wharepaku, bathroom, toilet, or restroom",
+            vibeLevel = 3,
+            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Māori language. New Zealand. Small house. Public signage. Māori culture. Te reo Māori.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_142",
+            term = "Chocka",
+            category = "culture",
+            definition = "Chocka (or chock-a-block) is a Kiwi colloquialism meaning full, packed, or crowded. Common usage: 'the pub was chocka', 'my schedule is chocka', or 'the car is chocka with gear'. Derived from nautical terminology where a block-and-tackle rig is fully extended ('chock-a-block').",
+            triggerContext = "When the user asks about chocka, chock-a-block, or New Zealand slang",
+            vibeLevel = 2,
+            vectorText = "Chocka. Chock-a-block. Full. Packed. Crowded. Kiwi colloquialism. New Zealand slang. Nautical origin.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_143",
+            term = "Taniwha",
+            category = "culture",
+            definition = "Taniwha are powerful supernatural beings in Māori mythology that dwell in deep rivers, dark caves, lakes, or the ocean. They can be protective guardians (kaitiaki) for an iwi or dangerous predatory monsters that kidnap women or eat people. They are complex figures that enforce respect for natural boundaries and waterways.",
+            triggerContext = "When the user asks about taniwha, Māori mythology, or supernatural beings in New Zealand",
+            vibeLevel = 4,
+            vectorText = "Taniwha. Māori mythology. Supernatural beings. Kaitiaki. Guardians. Water spirits. New Zealand. Māori culture. Iwi. Natural boundaries. Waterways.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_144",
+            term = "Kumara",
+            category = "culture",
+            definition = "Kumara (sweet potato) is a root vegetable brought to Aotearoa by early Māori. It's a staple of both traditional Māori hāngī and the classic Kiwi Sunday roast. Varieties include red (Owairaka), gold (Toka Toka), and orange (Beauregard). It holds significant cultural importance in New Zealand.",
+            triggerContext = "When the user asks about kumara, sweet potato, hāngī, or traditional Māori food",
+            vibeLevel = 3,
+            vectorText = "Kumara. Sweet potato. Māori food. Hāngī. Sunday roast. New Zealand. Aotearoa. Owairaka. Toka Toka. Beauregard. Root vegetable.",
+            metadataJson = """{}""",
+        ),
+    )
 
     // ═════════════════════════════════════════════════════════════════════════
     // STRIP MARKDOWN
@@ -1186,4 +1232,154 @@ class ChatTextUtilsTest {
         }
     }
 
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // DETERMINISTIC NZ TERM DETECTION (#1074)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("detectKnownNzTerm")
+    inner class KnownNzTermDetectionTests {
+
+
+        @Test
+        fun `detects wharepaku in question`() {
+            val result = detectKnownNzTerm("what is a wharepaku", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `detects chocka in sentence`() {
+            val result = detectKnownNzTerm("the pub is chocka tonight", sampleEntries)
+            assertEquals("Chocka", result?.term)
+        }
+
+        @Test
+        fun `detects taniwha in query`() {
+            val result = detectKnownNzTerm("tell me about taniwha", sampleEntries)
+            assertEquals("Taniwha", result?.term)
+        }
+
+        @Test
+        fun `detects kumara in cooking question`() {
+            val result = detectKnownNzTerm("how do you cook kumara", sampleEntries)
+            assertEquals("Kumara", result?.term)
+        }
+
+        @Test
+        fun `detects term with capital letters`() {
+            val result = detectKnownNzTerm("Tell me about Taniwha", sampleEntries)
+            assertEquals("Taniwha", result?.term)
+        }
+
+        @Test
+        fun `returns first match when multiple terms present`() {
+            val result = detectKnownNzTerm("kumara and taniwha", sampleEntries)
+            // Should find Kumara first (it's earlier in the list)
+            assertNotNull(result)
+            assertTrue(result?.term == "Kumara" || result?.term == "Taniwha")
+        }
+
+        @Test
+        fun `returns null for non-NZ text`() {
+            val result = detectKnownNzTerm("What is the capital of France?", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `returns null for non-NZ query that mentions Wikipedia`() {
+            // This proves detectKnownNzTerm does not itself short-circuit on
+            // the word "Wikipedia" — Battle of Hastings is simply not an NZ term.
+            val result = detectKnownNzTerm("look up the Battle of Hastings on Wikipedia", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `detects wharepaku even when Wikipedia is explicitly requested`() {
+            // detectKnownNzTerm does not understand Wikipedia intent — it only
+            // checks term presence. The Wikipedia bypass is handled by the caller
+            // (ChatViewModel) which checks extractExplicitWikipediaQuery first.
+            val result = detectKnownNzTerm("look up wharepaku on Wikipedia", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `detects taniwha even when Wikipedia is explicitly requested`() {
+            val result = detectKnownNzTerm("look up taniwha on Wikipedia", sampleEntries)
+            assertEquals("Taniwha", result?.term)
+        }
+
+        @Test
+        fun `returns null for blank text`() {
+            val result = detectKnownNzTerm("", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `returns null for whitespace text`() {
+            val result = detectKnownNzTerm("   ", sampleEntries)
+            assertNull(result)
+        }
+
+        @Test
+        fun `detects wharepaku in STT normalised follow-up`() {
+            // After TranscriptNormaliser, "fattybaku" becomes "wharepaku",
+            // so the downstream detection should find "wharepaku".
+            val result = detectKnownNzTerm("where is the wharepaku", sampleEntries)
+            assertEquals("Wharepaku", result?.term)
+        }
+
+        @Test
+        fun `does not match short terms under 3 chars`() {
+            val shortEntry = JandalPersona.NzTruthEntry(
+                id = "nz_short",
+                term = "NZ",
+                category = "culture",
+                definition = "New Zealand abbreviation.",
+                triggerContext = "When the user says NZ.",
+                vibeLevel = 1,
+                vectorText = "NZ. New Zealand.",
+                metadataJson = "{}",
+            )
+            val result = detectKnownNzTerm("I live in NZ", listOf(shortEntry))
+            assertNull(result)
+        }
+    }
+
+    @Nested
+    inner class BuildKnownNzContextReplyTests {
+
+        @Test
+        fun `builds reply for wharepaku entry`() {
+            val entry = sampleEntries.first { it.term == "Wharepaku" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Wharepaku"))
+            assertTrue(result.contains("toilet") || result.contains("restroom") || result.contains("bathroom"))
+            assertTrue(result.endsWith("."))
+        }
+
+        @Test
+        fun `builds reply for chocka entry`() {
+            val entry = sampleEntries.first { it.term == "Chocka" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Chocka"))
+            assertTrue(result.contains("full") || result.contains("packed") || result.contains("chock-a-block"))
+        }
+
+        @Test
+        fun `builds reply for taniwha entry`() {
+            val entry = sampleEntries.first { it.term == "Taniwha" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Taniwha"))
+            assertTrue(result.contains("guardian") || result.contains("kaitiaki"))
+        }
+
+        @Test
+        fun `builds reply for kumara entry`() {
+            val entry = sampleEntries.first { it.term == "Kumara" }
+            val result = buildKnownNzContextReply(entry)
+            assertTrue(result.contains("Kumara"))
+            assertTrue(result.contains("sweet potato"))
+        }
+    }
 }

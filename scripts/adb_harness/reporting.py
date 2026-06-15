@@ -69,6 +69,11 @@ def save_llm_tools_report(
                 "reply_text": r.reply_text,
                 "passed": r.passed,
                 "failures": r.failures,
+                "no_tool_call_requested": r.no_tool_call_requested,
+                "log_contains_required": r.log_contains_required,
+                "log_contains_match": r.log_contains_match,
+                "expected_reply_terms": r.expected_reply_terms,
+                "reply_terms_match": r.reply_terms_match,
             }
             for r in results
         ],

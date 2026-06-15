@@ -560,11 +560,76 @@ annotate_phases(PHASES)
 TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
 LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
+    # ── NZ Memory-First Cases (#1074) ──────────────────────────────────────
+    # Known NZ/Māori cultural terms are answered with a deterministic local reply
+    # from the seeded NZ corpus — no tool call, no inference, no Wikipedia.
+    LLMToolsTestCase(
+        name="nz_wharepaku_memory_first",
+        message="what is a wharepaku",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["toilet", "restroom", "bathroom"],
+    ),
+    LLMToolsTestCase(
+        name="nz_chocka_memory_first",
+        message="what is chocka",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["full", "packed", "chock-a-block"],
+    ),
+    LLMToolsTestCase(
+        name="nz_taniwha_memory_first",
+        message="tell me about taniwha",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["guardian", "kaitiaki", "water", "waterway", "mythology"],
+    ),
+    LLMToolsTestCase(
+        name="nz_kumara_memory_first",
+        message="what is kumara",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["sweet potato", "hāngī", "hangi", "Sunday roast", "Māori"],
+    ),
+    # ── Explicit Wikipedia Control (#1074) ─────────────────────────────────
+    # Explicit Wikipedia requests must still reach query_wikipedia.
     LLMToolsTestCase(
         name="query_wikipedia_natural",
         message="Look up the history of the Battle of Hastings on Wikipedia for me",
         expected_top_level_tool="query_wikipedia",
         expected_fields={"query": "Battle of Hastings"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
+    ),
+    LLMToolsTestCase(
+        name="explicit_wikipedia_with_wharepaku",
+        # Explicit Wikipedia request with a known NZ term must still call
+        # query_wikipedia, NOT be intercepted by NZ memory-first injection. (#1074)
+        message="look up wharepaku on Wikipedia",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "wharepaku"},
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expected_result_mode="direct_reply",
+    ),
+    LLMToolsTestCase(
+        name="explicit_wikipedia_with_taniwha",
+        message="look up taniwha on Wikipedia",
+        expected_top_level_tool="query_wikipedia",
+        expected_fields={"query": "taniwha"},
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expected_result_mode="direct_reply",

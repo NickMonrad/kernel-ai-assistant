@@ -1,8 +1,8 @@
 """
-ADB Skill Harness — device interaction layer.
+ADB device interaction primitives — commands, logcat streaming, and keepalive.
 
-ADB shell commands, logcat streaming, text/action/slot input, fixture setup,
-keepalive, and result extraction helpers.
+Serial resolution is dynamic: every ADB command resolves the target device
+from ``ANDROID_SERIAL`` / ``ADB_SERIAL`` at call time, not at import time.
 """
 
 from __future__ import annotations
@@ -12,25 +12,18 @@ import os
 import re
 import shlex
 import subprocess
-import sys
 import threading
 import time
-from collections.abc import Callable
 
 from adb_harness.config import (
     ADB,
     ACTIVITY,
-    ANDROID_SERIAL,
     DIRECT_REPLY_PATTERN,
     LOGCAT_TAG,
     NATIVE_INTENT_NAME_PATTERN,
-    NATIVE_INTENT_PATTERN,
-    PARAM_EXTRACT_PATTERN,
-    PROFILE_FALLBACK_PATTERN,
-    PROFILE_LLM_PATTERN,
     WAIT_SECONDS,
+    LLM_TOOLS_ASSISTANT_REPLY_PATTERN,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Host-buffered logcat
@@ -53,10 +46,16 @@ _LOGCAT_STREAM_ARGS = [
 
 
 def build_adb_cmd(*args: str) -> list[str]:
-    """Build an adb command with the selected serial applied consistently."""
+    """Build an adb command with the selected serial applied consistently.
+
+    Serial is resolved dynamically from ``ANDROID_SERIAL`` / ``ADB_SERIAL``
+    at call time, so callers can set ``os.environ["ANDROID_SERIAL"]`` before
+    invoking harness functions without worrying about import-time capture.
+    """
     cmd = [ADB]
-    if ANDROID_SERIAL:
-        cmd.extend(["-s", ANDROID_SERIAL])
+    serial = os.environ.get("ANDROID_SERIAL", "") or os.environ.get("ADB_SERIAL", "")
+    if serial:
+        cmd.extend(["-s", serial])
     cmd.extend(args)
     return cmd
 
@@ -397,18 +396,19 @@ def stop_keepalive() -> None:
     _KEEPALIVE_THREAD = None
     _KEEPALIVE_STOP = None
 
-
 def _keep_foreground_until_inference_starts(
     timeout: float = 30.0,
     poll_interval: float = 2.0,
 ) -> None:
-    """Keep the app foregrounded until inference actually starts."""
+    """Keep the app foregrounded until inference actually starts.
+    Uses device-side logcat reads to avoid draining the host-side buffer.
+    """
     deadline = time.time() + timeout
-    accumulated = ""
+    device_logcat_args = ["logcat", "-d", "-s", LOGCAT_TAG + ":D", "InferenceLoadingService:I"]
     while time.time() < deadline:
         time.sleep(poll_interval)
-        accumulated += "\n" + read_logcat_all()
-        if "OrchTest:" in accumulated or "InferenceGenerationService" in accumulated:
+        device_log = run_adb(*device_logcat_args)
+        if "InferenceGenerationService" in device_log or "OrchTest:" in device_log:
             return
         _tap_keepalive()
 
@@ -530,9 +530,20 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
 
 
 def extract_reply(logcat_output: str) -> str | None:
-    """Extract the latest DirectReply text from logcat, if any."""
-    matches = DIRECT_REPLY_PATTERN.findall(logcat_output)
-    return matches[-1] if matches else None
+    """Extract the latest reply text from logcat, if any.
+    Checks both DirectReply (native intent) and llm_tools_assistant_reply (LLM fallthrough) markers.
+    """
+    direct_matches = DIRECT_REPLY_PATTERN.findall(logcat_output)
+    llm_matches = LLM_TOOLS_ASSISTANT_REPLY_PATTERN.findall(logcat_output)
+    # Prefer the latest of whichever marker type fired, by return order
+    if direct_matches and llm_matches:
+        # Both present — take whichever came last by comparing last positions
+        return direct_matches[-1] if logcat_output.rfind("DirectReply:") > logcat_output.rfind("llm_tools_assistant_reply:") else llm_matches[-1]
+    if direct_matches:
+        return direct_matches[-1]
+    if llm_matches:
+        return llm_matches[-1]
+    return None
 
 
 def compare_params(

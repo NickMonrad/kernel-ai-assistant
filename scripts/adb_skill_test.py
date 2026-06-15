@@ -97,6 +97,11 @@ Reports dir: {REPORTS_DIR}
         default=None,
         help="Run only specific test case IDs (comma-separated)",
     )
+    parser.add_argument(
+        "--model-readiness",
+        action="store_true",
+        help="Run model readiness preflight before tests (handles download, HF sign-in, engine init)",
+    )
 
     args = parser.parse_args()
 
@@ -112,7 +117,7 @@ Reports dir: {REPORTS_DIR}
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     elif phases_list == ["llm_tools"]:
-        sys.exit(run_llm_tools(dry_run=args.dry_run))
+        sys.exit(run_llm_tools(dry_run=args.dry_run, case_ids=case_ids_list))
     else:
         sys.exit(run_tests(
             dry_run=args.dry_run,
@@ -123,6 +128,7 @@ Reports dir: {REPORTS_DIR}
             tags=tags_list,
             exclude_tags=exclude_tags_list,
             case_ids=case_ids_list,
+            model_readiness=args.model_readiness,
         ))
 
 
