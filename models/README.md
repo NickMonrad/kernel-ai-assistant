@@ -59,7 +59,7 @@ adb shell run-as com.kernel.ai.debug ls -lh files/models/
 For manual setup without a host machine:
 
 1. Download the model file to the device using a browser or download manager.
-2. Move the file to `Internal storage → Android → data → com.kernel.ai.debug → files → models`.
+2. Move the file to `Internal storage -> Android -> data -> com.kernel.ai.debug -> files -> models`.
 3. Launch the app. It detects files in this folder on startup.
 
 ## Model files reference
@@ -90,7 +90,7 @@ The app tries the Qualcomm-optimised EmbeddingGemma variant first when the devic
 | Sherpa SenseVoice STT | ~100 MB | Optional offline final-only STT option |
 | Sherpa Whisper tiny.en STT | ~117 MB | Optional offline final-only STT option |
 | Sherpa Paraformer STT | ~220 MB | Optional streaming STT option |
-| Sherpa Piper/VITS voice packs | ~64–116 MB each | Downloaded per selected voice; exact per-voice licence must be reviewed before release |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; exact per-voice licence must be reviewed before release |
 | Semaine Piper/VITS voice pack | ~70 MB | Launch-blocking decision tracked in #1258 |
 | Kokoro experimental voice pack | ~130 MB | Experimental; verify licence before release if exposed |
 
