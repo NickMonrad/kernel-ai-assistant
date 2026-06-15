@@ -1434,7 +1434,6 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
-            var injectedNzContextForTurn: String? = null
             var isToolQueryForTurn = false
             // Tracks whether this turn had a conversation reset (independent command).
             // Used by the history replay section to exclude previous independent-command
@@ -2243,7 +2242,6 @@ class ChatViewModel @Inject constructor(
                     Log.d(TAG, "Deterministic NZ context injected for term='${nzTermEntry.term}'")
                 }
             }
-            injectedNzContextForTurn = effectiveRagContext.takeIf { it.contains("[NZ Context:") }
 
             // #1074: Deterministic local NZ answer — bypass inference for known NZ/Māori
             // terms when no explicit Wikipedia request or stronger app action exists.
@@ -2369,7 +2367,6 @@ class ChatViewModel @Inject constructor(
 
             try {
                 kernelAIToolSet.resetTurnState()
-                kernelAIToolSet.setInjectedNzContext(injectedNzContextForTurn)
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
@@ -2425,7 +2422,6 @@ class ChatViewModel @Inject constructor(
                                     // chain-of-thought with an empty string.
                                     if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
-                                    kernelAIToolSet.setInjectedNzContext(null)
                                     currentPrompt = buildString {
                                         if (systemContext != null) append("$systemContext\n\n")
                                         append(text)
@@ -2533,12 +2529,7 @@ class ChatViewModel @Inject constructor(
                                     }
                                     Log.w("KernelAI", "system_only_tool_leak_suppressed")
                                 }
-                                val toolCall =
-                                    if (nativeToolCall != null && !kernelAIToolSet.lastToolVisibleInTranscript()) {
-                                        null
-                                    } else {
-                                        rawToolCall.toVisibleToolCallInfo()
-                                    }
+                                val toolCall = rawToolCall.toVisibleToolCallInfo()
                                 if (systemOnlyToolRetryAttempted && !leakedSystemToolContent) {
                                     Log.d("KernelAI", "system_only_tool_retry_succeeded")
                                 }
@@ -2575,23 +2566,21 @@ class ChatViewModel @Inject constructor(
                                 val savedId = conversationRepository.addMessage(
                                     convId, "assistant", resultContent,
                                     thinkingText = thinking,
-                                    toolCallJson = toolCall?.toJsonString(),
+                                    toolCallJson = toolCall.toJsonString(),
                                 )
-                                if (toolCall != null) {
-                                    // E2E marker: message persisted with tool call
-                                    Log.d(
-                                        "KernelAI",
-                                        "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
-                                    )
-                                    // E2E marker: chip visible evidence
-                                    Log.d(
-                                        "KernelAI",
-                                        "tool_chip_visible: tool=${toolCall.skillName}",
-                                    )
-                                }
+                                // E2E marker: message persisted with tool call
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
+                                )
+                                // E2E marker: chip visible evidence
+                                Log.d(
+                                    "KernelAI",
+                                    "tool_chip_visible: tool=${toolCall.skillName}",
+                                )
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
-                                if (shouldIndexToolCallResult(rawToolCall.skillName)) {
+                                if (shouldIndexToolCallResult(toolCall.skillName)) {
                                     ragRepository.indexMessage(savedId, convId, resultContent)
                                 } else {
                                     // LLM called a device/ephemeral tool — suppress indexing of
