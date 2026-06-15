@@ -15,9 +15,9 @@ The app catalogue downloads the Sherpa STT ONNX files from Hugging Face `csukuan
 | Engine | App runtime shape | App download source | Files used by app | Licence position | Release action |
 |---|---|---|---|---|---|
 | Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Hugging Face page lists Apache-2.0 and identifies the upstream model/training lineage | Record source/model-card link in release notices if exposed. |
-| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; that repo points to FunASR licensing, and FunASR identifies MIT licence | Record both the ONNX export source and upstream SenseVoice/FunASR MIT lineage before release. |
+| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Converted from `FunAudioLLM/SenseVoice`; upstream repo points to FunASR licensing. FunASR code is MIT, but FunASR model weights use the separate FunASR Model Open Source License Agreement. | Record both the ONNX export source and upstream SenseVoice/FunASR model licence before release. |
 | Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Upstream `openai/whisper-tiny.en` model card lists Apache-2.0; `csukuangfj` ONNX export page is sparse but code comments identify Apache-2.0 | Record both the ONNX export source and upstream `openai/whisper-tiny.en` Apache-2.0 source before release. |
-| Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Hugging Face page lists Apache-2.0 and identifies ModelScope/DAMO source | Verify upstream ModelScope/DAMO terms, then record source/model-card link. |
+| Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Hugging Face export page lists Apache-2.0 and identifies the ModelScope/DAMO source. The broader FunASR code repo is MIT, but FunASR model weights use the separate FunASR Model Open Source License Agreement. | Record the HF export source, ModelScope source URL, and FunASR model licence terms; do not simplify the model asset to MIT-only. |
 
 ## Sherpa-ONNX TTS voice packs
 
@@ -33,12 +33,28 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 
 Jandal does not download `FunAudioLLM/SenseVoice` directly. The app downloads the Sherpa-ONNX `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` ONNX export files.
 
-The ONNX export lineage points back to `FunAudioLLM/SenseVoice`. That repository's `LICENSE` file refers to the FunASR licence section, and the FunASR README identifies the toolkit as MIT licensed.
+The ONNX export lineage points back to `FunAudioLLM/SenseVoice`. That repository's `LICENSE` file refers to FunASR licensing. FunASR has an MIT `LICENSE` for the codebase, but it also has a separate `MODEL_LICENSE` covering model weights and derivatives. Release attribution should not describe the SenseVoice model asset as simple MIT-only.
 
-For release attribution, cite both:
+For release attribution, cite:
 
 - app package source: `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`;
-- upstream model/source lineage: `FunAudioLLM/SenseVoice` / `modelscope/FunASR`, MIT.
+- upstream model/source lineage: `FunAudioLLM/SenseVoice` / `modelscope/FunASR`;
+- licence terms: FunASR model licence for weights plus MIT for the FunASR codebase where relevant.
+
+## Paraformer source notes
+
+Jandal does not download the ModelScope/DAMO source directly. The app downloads the Sherpa-ONNX `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` ONNX export files.
+
+The Hugging Face export page lists Apache-2.0 and states the ONNX files are converted from `https://www.modelscope.cn/models/damo/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online/summary`.
+
+The broader upstream FunASR repository has an MIT `LICENSE` for code, but also has a separate `MODEL_LICENSE` for model weights and derivatives. Because Jandal uses converted model weights, release attribution should record the HF Apache-2.0 export page, the ModelScope source URL, and the FunASR model-weight licence terms. Do not simplify the Paraformer model asset to MIT-only.
+
+For release attribution, cite:
+
+- app package source: `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en`, Apache-2.0 on the HF export page;
+- upstream model source: `damo/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online` on ModelScope;
+- upstream code/toolkit licence: FunASR MIT;
+- model-weight licence terms: FunASR `MODEL_LICENSE` where applicable.
 
 ## Kokoro source notes
 
