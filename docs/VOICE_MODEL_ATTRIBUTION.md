@@ -1,0 +1,37 @@
+# Voice, speech, and activation model attribution
+
+This document supplements `docs/LEGAL_AND_ATTRIBUTION.md` for #868. It captures the concrete app-side source locations for voice, speech-to-text, text-to-speech, and voice-activation assets.
+
+## Voice activation assets
+
+| Asset family | App use | Source / lineage | Licence position | Release action |
+|---|---|---|---|---|
+| Hey Jandal ONNX activation assets | Bundled app assets used for local voice activation | Derived from the openWakeWord ecosystem | openWakeWord is Apache-2.0 | Keep openWakeWord attribution in `NOTICE`; record local generated asset provenance before Play Store release. |
+
+## Sherpa-ONNX STT models
+
+The app catalogue downloads the Sherpa STT ONNX files from Hugging Face `csukuangfj/*` model repositories. The runtime specs in `SherpaSttModelSpec.kt` define whether each model is streaming/online or offline/final-only.
+
+| Engine | App runtime shape | App download source | Files used by app | Release action |
+|---|---|---|---|---|
+| Zipformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | encoder, decoder, joiner, tokens | Record exact model-card licence before release. |
+| SenseVoice | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | model, tokens | Record exact model-card licence before release. |
+| Whisper tiny.en | Offline / final-only ONNX recogniser | `csukuangfj/sherpa-onnx-whisper-tiny.en` | encoder, decoder, tokens | Code comments indicate Apache-2.0; verify upstream model card before release. |
+| Paraformer | Streaming / online ONNX recogniser | `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | encoder, decoder, tokens | Code comments indicate Apache-2.0; verify upstream model card before release. |
+
+## Sherpa-ONNX TTS voice packs
+
+The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under the `tts-models` release path.
+
+| Voice family | App download source | Approx. size | Licence position | Release action |
+|---|---|---:|---|---|
+| Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
+| Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | Launch decision #1258: disable, replace, keep dev-only, or ship only with compatible permission. |
+| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Licence not yet verified for release exposure | Keep dev-only/hidden unless Kokoro model and voice-pack licence is verified. |
+
+## Code references
+
+- `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.
+- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaSttModelSpec.kt` records required ONNX/token file groups and online/offline runtime shape.
+- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaKokoroVoice.kt` records the Kokoro asset name, download key, approximate size, speaker count, and Sherpa-ONNX release URL pattern.
+- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaPiperVoice.kt` records Piper/VITS voice pack asset names, sizes, and download keys.
