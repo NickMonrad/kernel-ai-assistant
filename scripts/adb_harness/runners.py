@@ -278,8 +278,10 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         clear_logcat()
         time.sleep(0.5)
 
-        # Send the prompt (foreground keepalive handled by _poll_for_all_markers)
+        # Send the prompt, then keep foreground until inference starts (Android 15+
+        # requires the app to be foreground-eligible to start InferenceGenerationService).
         send_text(tc.message, wait_for_inference=False)
+        _keep_foreground_until_inference_starts(timeout=120.0)
         # Poll for all markers simultaneously from a single accumulated buffer,
         # avoiding the log-draining bug where sequential _poll_for_marker calls
         # consume markers that arrived together.

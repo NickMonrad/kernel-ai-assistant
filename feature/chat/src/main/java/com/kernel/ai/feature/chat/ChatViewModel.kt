@@ -2456,6 +2456,8 @@ class ChatViewModel @Inject constructor(
                                     "KernelAI",
                                     "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
                                 )
+                                // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
                                 tryExecuteToolCall(fullContent)
                             } else null
                             if (nativeToolCall != null || toolCallResult != null) {
@@ -2503,6 +2505,9 @@ class ChatViewModel @Inject constructor(
                                     isSystemOnlyTool -> fallbackSystemOnlyToolReply(text)
                                     else -> toolCallResult!!.second
                                 }
+
+                                // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${resultContent.take(1000).replace('\n', ' ')}")
 
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
