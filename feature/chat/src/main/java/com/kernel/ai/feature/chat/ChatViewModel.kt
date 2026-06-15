@@ -1765,38 +1765,50 @@ class ChatViewModel @Inject constructor(
                     params = mapOf("location" to it),
                     source = "conversation",
                 )
-            } ?: when (routeResult) {
-                is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
-                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                    if (routeResult.needsConfirmation) {
-                        // Store for fast-path dispatch if user affirms; let LLM ask the question.
-                        pendingConfirmationIntent = routeResult.intent
-                        Log.d("KernelAI", "ConfirmationFastPath: pending ${routeResult.intent.intentName} (conf=${routeResult.confidence})")
-                        systemContext = "[System: The user may want to run the intent '${routeResult.intent.intentName}'. " +
-                            "Offer to do it for them and wait for their confirmation.]"
-                        null
-                    } else {
-                        pendingConfirmationIntent = null
-                        routeResult.intent
+            } ?: run {
+                // #1074: Bypass QIR classification for known NZ/Māori terms so they
+                // reach the LLM with NZ context injection. Explicit Wikipedia requests
+                // ("look up X on Wikipedia") are preserved and still route normally.
+                val isKnownNzTerm = explicitWikipediaQuery == null &&
+                    detectKnownNzTerm(text, jandalPersona.nzTruths) != null
+                if (isKnownNzTerm) {
+                    Log.d(TAG, "NZ context override: detected known NZ term, forcing LLM fallthrough")
+                    null
+                } else {
+                    when (routeResult) {
+                        is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
+                        is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                            if (routeResult.needsConfirmation) {
+                                // Store for fast-path dispatch if user affirms; let LLM ask the question.
+                                pendingConfirmationIntent = routeResult.intent
+                                Log.d("KernelAI", "ConfirmationFastPath: pending ${routeResult.intent.intentName} (conf=${routeResult.confidence})")
+                                systemContext = "[System: The user may want to run the intent '${routeResult.intent.intentName}'. " +
+                                    "Offer to do it for them and wait for their confirmation.]"
+                                null
+                            } else {
+                                pendingConfirmationIntent = null
+                                routeResult.intent
+                            }
+                        }
+                        is QuickIntentRouter.RouteResult.FallThrough -> null
+                        is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                            // Intent matched but a required param is missing — ask the user for it.
+                            slotFillerManager.startSlotFill(
+                                convId,
+                                PendingSlotRequest(
+                                    intentName = routeResult.intent.intentName,
+                                    existingParams = routeResult.intent.params,
+                                    missingSlot = routeResult.missingSlot,
+                                ),
+                            )
+                            appendAssistantMessage(
+                                convId,
+                                slotFillerManager.pendingRequestFor(convId)?.promptMessage ?: "What would you like to say?",
+                                shouldIndex = false,
+                            )
+                            return@launch
+                        }
                     }
-                }
-                is QuickIntentRouter.RouteResult.FallThrough -> null
-                is QuickIntentRouter.RouteResult.NeedsSlot -> {
-                    // Intent matched but a required param is missing — ask the user for it.
-                    slotFillerManager.startSlotFill(
-                        convId,
-                        PendingSlotRequest(
-                            intentName = routeResult.intent.intentName,
-                            existingParams = routeResult.intent.params,
-                            missingSlot = routeResult.missingSlot,
-                        ),
-                    )
-                    appendAssistantMessage(
-                        convId,
-                        slotFillerManager.pendingRequestFor(convId)?.promptMessage ?: "What would you like to say?",
-                        shouldIndex = false,
-                    )
-                    return@launch
                 }
             }
             // ── E2E marker: route decision ────────────────────────────────
