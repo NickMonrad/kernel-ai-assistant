@@ -38,30 +38,6 @@ adb push models/<filename> /sdcard/Android/data/com.kernel.ai.debug/files/models
 adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
 ```
 
-Android 11+ note: ADB can usually push to `/sdcard/Android/data/<package>/` when USB debugging is enabled. If a development device denies access, a temporary development-only workaround is:
-
-```bash
-adb shell appops set --uid shell MANAGE_EXTERNAL_STORAGE allow
-```
-
-### Fallback: push to internal storage via `run-as`
-
-```bash
-adb push models/<filename> /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug sh -c \
-  'mkdir -p files/models && cp /data/local/tmp/<filename> files/models/'
-adb shell rm /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug ls -lh files/models/
-```
-
-## Manually downloading on device
-
-For manual setup without a host machine:
-
-1. Download the model file to the device using a browser or download manager.
-2. Move the file to `Internal storage → Android → data → com.kernel.ai.debug → files → models`.
-3. Launch the app. It detects files in this folder on startup.
-
 ## Model files reference
 
 ### LiteRT-LM inference models (`.litertlm`)
@@ -80,11 +56,7 @@ For manual setup without a host machine:
 | `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite` | Samsung S23 Ultra / Snapdragon 8 Gen 2 NPU path | Same repo |
 | `sentencepiece.model` | Tokeniser required with any EmbeddingGemma file | Same repo |
 
-The app tries the Qualcomm-optimised EmbeddingGemma variant first when the device is detected as SM8550, then falls back to the generic file when needed.
-
 ## Speech model / voice-pack sizes
-
-Speech assets are managed by the app rather than this directory, but the launch documentation should account for their approximate download sizes:
 
 | Asset family | Approx. size | Notes |
 |--------------|--------------|-------|
@@ -92,7 +64,9 @@ Speech assets are managed by the app rather than this directory, but the launch 
 | Sherpa SenseVoice STT | ~100 MB | Optional offline final-only STT option |
 | Sherpa Whisper tiny.en STT | ~117 MB | Optional offline final-only STT option |
 | Sherpa Paraformer STT | ~220 MB | Optional streaming STT option |
-| Sherpa Piper/VITS voice packs | ~64–116 MB each | Downloaded per selected voice |
+| Sherpa Piper/VITS voice packs | ~64–116 MB each | Downloaded per selected voice; exact per-voice licence must be reviewed before release |
+| Semaine Piper/VITS voice pack | ~70 MB | Launch-blocking decision tracked in #1258 |
+| Kokoro experimental voice pack | ~130 MB | Experimental; verify licence before release if exposed |
 
 ## Device-specific setup notes
 
@@ -114,4 +88,5 @@ Speech assets are managed by the app rather than this directory, but the launch 
 - Do not imply Jandal owns or sublicenses upstream model files.
 - Keep model source links and approximate sizes current when model choices change.
 - Keep gated-model behaviour aligned with the app UI: `Ready`, `Preparing`, `Action Required`, or `Unavailable`.
+- Resolve #1258 before shipping Semaine in any Play Store release.
 - See [`../docs/LEGAL_AND_ATTRIBUTION.md`](../docs/LEGAL_AND_ATTRIBUTION.md) before release packaging or Play Store publication.
