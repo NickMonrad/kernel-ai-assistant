@@ -6,18 +6,18 @@ Jandal AI is a local-first Android assistant. It combines on-device chat, long-t
 
 ## How it works
 
-Jandal is built around a **Brain–Memory–Action** model:
+Jandal is built around a **Brain-Memory-Action** model:
 
-- **Brain** — Gemma-4 E-2B / E-4B runs locally through Google AI Edge LiteRT / LiteRT-LM. A lightweight `QuickIntentRouter` handles deterministic fast paths for common device actions.
-- **Memory** — local Room storage plus sqlite-vec / EmbeddingGemma support semantic recall, conversation history, core memories, and episodic summaries.
-- **Action** — native Kotlin skills execute Android actions such as alarms, timers, lists, notes, weather, media controls, messages, email, calendar, navigation, Wikipedia, and unit/currency conversion.
+- **Brain** - Gemma-4 E-2B / E-4B runs locally through Google AI Edge LiteRT / LiteRT-LM. A lightweight `QuickIntentRouter` handles deterministic fast paths for common device actions.
+- **Memory** - local Room storage plus sqlite-vec / EmbeddingGemma support semantic recall, conversation history, core memories, and episodic summaries.
+- **Action** - native Kotlin skills execute Android actions such as alarms, timers, lists, notes, weather, media controls, messages, email, calendar, navigation, Wikipedia, and unit/currency conversion.
 
 ## Current launch status
 
 Launch readiness is tracked in GitHub rather than duplicated in this README:
 
-- [#1014 — Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic.
-- [#1255 — Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the canonical source of truth for current launch order.
+- [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic.
+- [#1255 - Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the canonical source of truth for current launch order.
 - [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md) is retained as a historical launch-slice snapshot, not the current plan.
 
 The current launch gates are:
@@ -76,8 +76,8 @@ Key launch-relevant examples:
 | Gemma-4 E-2B LiteRT-LM | ~2.4 GB | Required launch-compatible chat model tier |
 | Gemma-4 E-4B LiteRT-LM | ~3.4 GB | Optional flagship-tier chat model |
 | EmbeddingGemma 300M | varies by file | Required for local embedding/RAG paths where enabled |
-| Sherpa STT models | ~72–220 MB each | Downloaded per selected STT engine |
-| Sherpa Piper/VITS voice packs | ~64–116 MB each | Downloaded per selected voice |
+| Sherpa STT models | ~72-220 MB each | Downloaded per selected STT engine |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; Semaine launch decision tracked in #1258 |
 
 ## Privacy model
 
@@ -90,11 +90,11 @@ Jandal is designed as a local-first assistant:
 
 ## Documentation
 
-- [`models/README.md`](models/README.md) — model file setup, sizes, and ADB paths.
-- [`docs/LEGAL_AND_ATTRIBUTION.md`](docs/LEGAL_AND_ATTRIBUTION.md) — launch attribution and licence checklist.
-- [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) — broader product and architecture specification.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — broader roadmap notes.
-- [`docs/testing/`](docs/testing/) — automated test harness, evidence schema, and QA documentation.
+- [`models/README.md`](models/README.md) - model file setup, sizes, and ADB paths.
+- [`docs/LEGAL_AND_ATTRIBUTION.md`](docs/LEGAL_AND_ATTRIBUTION.md) - launch attribution and licence checklist.
+- [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) - broader product and architecture specification.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) - broader roadmap notes.
+- [`docs/testing/`](docs/testing/) - automated test harness, evidence schema, and QA documentation.
 
 ## Licence and attribution
 
