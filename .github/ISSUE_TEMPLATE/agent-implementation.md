@@ -6,6 +6,15 @@ labels: ''
 assignees: ''
 ---
 
+## Metadata Checklist
+<!-- Ensure the following metadata is set before handing this issue to an agent: -->
+- [ ] Type label (exactly one: `type:epic`, `type:feature`, `type:bug`, `type:chore`, `type:spike`, `type:performance`)
+- [ ] Size label (exactly one: `size:XS`, `size:S`, `size:M`, `size:L`, `size:XL`)
+- [ ] Priority label (exactly one: `priority:high`, `priority:medium`, `priority:low`)
+- [ ] Launch-status label (if on launch track: `launch:blocking`, `launch:post`, `launch:deferred`)
+- [ ] Domain label(s) (one or more from: `UX`, `ui`, `voice`, `wake-word`, `skills`, `lists`, `meal-planning`, `memory`, `model-management`, `testing`, `technical-debt`, `research`, `optimisation`)
+- [ ] Milestone assigned
+
 ## Parent Epic
 <!-- Link to parent epic issue if applicable -->
 
