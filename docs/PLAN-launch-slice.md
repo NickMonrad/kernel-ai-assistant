@@ -4,8 +4,8 @@ This document is retained as a historical snapshot from the May 2026 backlog rev
 
 Use the GitHub launch-plan issue instead:
 
-- [#1014 — Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic.
-- [#1255 — Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the canonical ordered launch plan.
+- [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic.
+- [#1255 - Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the canonical ordered launch plan.
 
 ## Why this file changed
 
@@ -17,12 +17,12 @@ Keeping the old generated table in active README links was misleading, so the RE
 
 The current plan is organised by gates rather than a single flat issue list:
 
-1. **Launch scope and backlog sanity** — keep `launch:blocking` trustworthy.
-2. **Test/evidence foundation** — make agent work and S21-first evidence reliable.
-3. **Core app and first-run reliability** — model readiness, chat reliability, and fresh-install flow.
-4. **Permissions and Android capability repair** — contextual permission/repair UX.
-5. **Voice and wake-word launch-risk validation** — battery, STT/TTS, and voice claims.
-6. **Final release QA and store readiness** — verification, docs, attribution, signing, listing, and policy checks.
+1. **Launch scope and backlog sanity** - keep `launch:blocking` trustworthy.
+2. **Test/evidence foundation** - make agent work and S21-first evidence reliable.
+3. **Core app and first-run reliability** - model readiness, chat reliability, and fresh-install flow.
+4. **Permissions and Android capability repair** - contextual permission/repair UX.
+5. **Voice and wake-word launch-risk validation** - battery, STT/TTS, and voice claims.
+6. **Final release QA and store readiness** - verification, docs, attribution, signing, listing, and policy checks.
 
 ## Historical context
 
