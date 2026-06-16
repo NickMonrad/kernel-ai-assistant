@@ -14,9 +14,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 private const val TAG = "KernelAI"
 private val Context.voiceOutputPrefsDataStore by preferencesDataStore(name = "voice_output_preferences")
@@ -25,9 +30,16 @@ private val Context.voiceOutputPrefsDataStore by preferencesDataStore(name = "vo
 class VoiceOutputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+
+    init {
+        if (isReleaseBuild) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                migrateIfNotReleaseVisible()
+            }
+        }
+    }
 
     private val spokenResponsesEnabledKey =
         booleanPreferencesKey("quick_actions_spoken_responses_enabled")
@@ -75,12 +87,7 @@ class VoiceOutputPreferences @Inject constructor(
         }
         .map { prefs ->
             val stored = SherpaPiperVoice.fromStorage(prefs[selectedSherpaVoiceKey])
-            if (isReleaseBuild && !stored.releaseVisible) {
-                Log.i(TAG, "Migrating persisted Semaine (not release-visible) to CoriHigh")
-                SherpaPiperVoice.CoriHigh
-            } else {
-                stored
-            }
+            resolveReleaseBuildVoice(stored, isReleaseBuild)
         }
 
     val selectedKokoroVoice: Flow<SherpaKokoroVoice> = context.voiceOutputPrefsDataStore.data
@@ -238,6 +245,24 @@ class VoiceOutputPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Persists the migration of a non-release-visible stored voice (e.g. Semaine)
+     * to [SherpaPiperVoice.CoriHigh] in release builds.
+     *
+     * Called once at construction time in release builds via [init]. The runtime
+     * mapping in [selectedSherpaVoice] also handles this case as a safety net.
+     */
+    private suspend fun migrateIfNotReleaseVisible() {
+        val storedName = context.voiceOutputPrefsDataStore.data.first()[selectedSherpaVoiceKey]
+        val stored = SherpaPiperVoice.fromStorage(storedName)
+        if (!stored.releaseVisible) {
+            Log.i(TAG, "Persisting migration: ${stored.name} → ${SherpaPiperVoice.CoriHigh.name}")
+            context.voiceOutputPrefsDataStore.edit { editor ->
+                editor[selectedSherpaVoiceKey] = SherpaPiperVoice.CoriHigh.name
+            }
+        }
+    }
+
     private val verboseLoggingKey = booleanPreferencesKey("verbose_logging_enabled")
 
     private val defaultVerboseLogging: Boolean
@@ -257,6 +282,18 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setVerboseLogging(enabled: Boolean) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[verboseLoggingKey] = enabled
+        }
+    }
+
+    companion object {
+        /** Maps a non-release-visible voice to [CoriHigh] in release builds; otherwise passes through. */
+        internal fun resolveReleaseBuildVoice(
+            stored: SherpaPiperVoice,
+            isReleaseBuild: Boolean,
+        ): SherpaPiperVoice = if (isReleaseBuild && !stored.releaseVisible) {
+            SherpaPiperVoice.CoriHigh
+        } else {
+            stored
         }
     }
 }
