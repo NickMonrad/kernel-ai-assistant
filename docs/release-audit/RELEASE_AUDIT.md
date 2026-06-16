@@ -11,7 +11,7 @@
 | Version name | `0.1.0` |
 | Build type | `release` (minify + shrink resources) |
 | AAB path | `app/build/outputs/bundle/release/app-release.aab` |
-| AAB size | 227 MB (uncompressed); ~238 MB extracted |
+| AAB size | 227 MB; ~238 MB extracted for inspection |
 | SHA-256 | `a090acd03a2e045dde659cee4540376c5533a05c00d4843f2f7c6ce2152764be` |
 | Gradle | `9.1.0` |
 | AGP | `9.0.1` |

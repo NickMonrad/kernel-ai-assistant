@@ -7,11 +7,11 @@ This document captures the release-attribution state after the Semaine release-v
 
 ## Status
 
-This document was updated by #1259 with the first release AAB build and artefact audit. The generated dependency evidence has been compared against the existing attribution docs.
+This document was updated by #1259 with the first release AAB build and artefact audit. Release runtime dependency evidence has been generated and compared against the existing attribution docs. Formal SBOM (CycloneDX/SPDX) has not been generated — the dependency review is documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
 
 ## Pre-release-candidate status
 
-This is still a **pre-release-candidate attribution snapshot** — Play Console pre-launch report findings may still require changes. But the key gaps identified at creation time (SBOM, dependency comparison, AAB inspection) have been addressed.
+This is still a **pre-release-candidate attribution snapshot** — Play Console pre-launch report findings may still require changes. Some key gaps identified at creation time (AAB inspection, dependency comparison) have been addressed. Formal SBOM and generated third-party notices remain pending.
 
 ## Release scope decisions captured
 
@@ -94,16 +94,14 @@ Required first-launch minimum:
 
 The following items were completed in #1259:
 
-- [x] Release AAB built from clean checkout: `app/build/outputs/bundle/release/app-release.aab`
-- [x] AAB contents inspected — no accidental model/debug bundling confirmed
-- [x] Release runtime classpath dependency tree generated and compared against attribution docs
-- [x] Dependency gap report created in `build/reports/release-audit/attribution-gap-report.md`
+- [x] Release runtime classpath dependency tree generated and compared against attribution docs — documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`
+- [x] Dependency gap report created at `build/reports/release-audit/attribution-gap-report.md` (gitignored build artifact)
 - [x] Release signing approach documented in `docs/PLAY_RELEASE_BUILD.md`
-- [x] Full audit report in `docs/release-audit/RELEASE_AUDIT.md`
-- [x] versionCode=1, versionName=0.1.0, commit=059122dc, SHA-256 recorded
+- [x] Full audit report at `docs/release-audit/RELEASE_AUDIT.md`
 
 ## Remaining before closing #1263
-
+- [ ] Formal SBOM (CycloneDX/SPDX) or generated third-party notices — not yet produced; manual dependency review is the current evidence
+- [ ] Decide whether to add an SBOM generation plugin or accept manual review as sufficient
 - [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
 - [ ] Confirm maintainer ownership/consent for Stage 3 wake-word training recordings
 - [ ] Decide in-app OSS notices screen — deferred for first launch unless pre-launch review flags it

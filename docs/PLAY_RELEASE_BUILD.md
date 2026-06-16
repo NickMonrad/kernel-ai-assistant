@@ -2,15 +2,19 @@
 
 This document describes the release build process for Jandal AI's first Play Store publication.
 
+
 ## Overview
 
 Jandal AI uses **Google Play App Signing**. The flow is:
 
-1. You generate an upload keystore and upload key on your local machine.
-2. You build an unsigned AAB and upload it to the Play Console.
-3. Google Play enrolls your app in Play App Signing, which generates and manages the signing key used for production distribution.
-4. Future releases are uploaded as unsigned AABs; Google signs them with the enrolled key.
+1. Generate an upload keystore and upload key on your local machine.
+2. Configure Gradle release signing using local-only `keystore.properties` (see [Signing Setup](#signing-setup)).
+3. Build a **signed** release AAB with the upload key.
+4. Upload the signed AAB to the Play Console.
+5. Google Play App Signing generates and manages the app signing key used to sign APKs delivered to users.
+6. Future releases are also signed with the same upload key before upload.
 
+The upload key authenticates your uploads to Play Console; Google's app signing key signs the APKs that reach users.
 Because the Play Store manages the final signing key, the upload key is only used to authenticate uploads — not to sign the APKs that reach users.
 
 ## Build Commands
@@ -100,9 +104,10 @@ Do not pass secrets through `local.properties` in CI — that file is not part o
 ## Play Console Flow
 
 1. **Create your app** in the Play Console (if not already created).
-2. **Upload the AAB** to the Internal Testing or Production track.
+2. **Upload the signed AAB** to the Internal Testing or Production track.
 3. **Play App Signing enrollment** — Google will prompt you to enroll. Follow the on-screen flow to register your upload key.
-4. Once enrolled, Google manages the production signing key. Future AAB uploads are automatically signed with the enrolled key.
+4. Once enrolled, Google manages the production signing key. Future signed AAB uploads are automatically re-signed with the enrolled app signing key for user delivery.
+
 
 ### Local validation
 
@@ -130,9 +135,29 @@ bundletool build-apks --bundle=app/build/outputs/bundle/release/app-release.aab 
 - **`versionCode`**: A monotonically increasing integer. Each release must have a higher `versionCode` than the previous one. Start at `1`.
 - **`versionName`**: A human-readable semantic version string. The initial release uses `"0.1.0"`.
 
-## Troubleshooting
+Verify the AAB is signed (not unsigned) by running:
 
-### Build fails with signing errors
+```bash
+# For AABs: verify JAR signature
+jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
+
+# If bundletool is installed: validate the bundle structure
+bundletool validate --bundle=app/build/outputs/bundle/release/app-release.aab
+```
+
+For APK validation (after extracting APKs from the AAB via bundletool):
+
+```bash
+bundletool build-apks --bundle=app/build/outputs/bundle/release/app-release.aab \
+    --output=app.apks \
+    --ks=<keystore-path> \
+    --ks-pass=pass:<store-password> \
+    --ks-key-alias=upload \
+    --key-pass=pass:<key-password>
+
+# Then verify the generated APK
+apksigner verify --verbose app/signed.apk
+```
 
 Ensure the keystore file exists at the path specified in `keystore.properties` and that the alias is correct. Run `keytool -list -v -keystore <path> -storepass <password>` to verify.
 
