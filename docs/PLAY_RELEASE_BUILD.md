@@ -163,7 +163,15 @@ Ensure the keystore file exists at the path specified in `keystore.properties` a
 
 ### AAB upload rejected by Play Console
 
-Verify the AAB is signed (not unsigned) by running `apksigner verify --verbose app/build/outputs/bundle/release/app-release.aab`.
+Verify the AAB is signed (not unsigned) by running:
+
+```bash
+# For AABs: verify JAR signature
+jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
+
+# If bundletool is installed: validate the bundle structure
+bundletool validate --bundle=app/build/outputs/bundle/release/app-release.aab
+```
 
 ### Gradle version mismatch
 
