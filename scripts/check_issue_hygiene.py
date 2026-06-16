@@ -102,13 +102,28 @@ def _has_testing_expectations(body: str) -> bool:
     return any(marker in lower for marker in TEST_MARKERS)
 
 
-def _is_milestone_intentionally_parked(body: str) -> bool:
-    lower = body.lower()
+def _is_milestone_intentionally_parked(text: str) -> bool:
+    lower = text.lower()
     return any(marker in lower for marker in PARKED_MARKERS)
 
 
-def validate_issue(issue: dict[str, Any]) -> IssueViolation | None:
-    """Return an IssueViolation when the issue does not satisfy the policy."""
+def _body_plus_comments(body: str, comment_bodies: Iterable[str] | None) -> str:
+    comments = [comment for comment in comment_bodies or [] if comment]
+    if not comments:
+        return body
+    return body + "\n\n" + "\n\n".join(comments)
+
+
+def validate_issue(
+    issue: dict[str, Any],
+    comment_bodies: Iterable[str] | None = None,
+) -> IssueViolation | None:
+    """Return an IssueViolation when the issue does not satisfy the policy.
+
+    The issue body remains the source of truth for implementation readiness.
+    Comments are only used for the explicit no-milestone/parked rationale
+    allowed by the backlog hygiene policy.
+    """
 
     # GitHub's issues endpoint returns PRs as issue-shaped records.
     if issue.get("pull_request"):
@@ -116,6 +131,7 @@ def validate_issue(issue: dict[str, Any]) -> IssueViolation | None:
 
     labels = _issue_labels(issue)
     body = issue.get("body") or ""
+    body_and_comments = _body_plus_comments(body, comment_bodies)
     messages: list[str] = []
 
     for category, allowed in (
@@ -132,7 +148,7 @@ def validate_issue(issue: dict[str, Any]) -> IssueViolation | None:
     if not domain_labels:
         messages.append("missing at least one domain label such as `UX`, `voice`, `testing`, or `technical-debt`")
 
-    if not issue.get("milestone") and not _is_milestone_intentionally_parked(body):
+    if not issue.get("milestone") and not _is_milestone_intentionally_parked(body_and_comments):
         messages.append("missing milestone or explicit parked/no-milestone rationale")
 
     if not _has_parent_or_standalone_marker(body, labels):
@@ -176,6 +192,24 @@ def _github_request(url: str, token: str | None) -> Any:
 def fetch_issue(repo: str, issue_number: int, token: str | None) -> dict[str, Any]:
     url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
     return _github_request(url, token)
+
+
+def fetch_issue_comments(repo: str, issue_number: int, token: str | None) -> list[str]:
+    """Fetch issue comment bodies for no-milestone parked rationale checks."""
+
+    comment_bodies: list[str] = []
+    page = 1
+    while True:
+        url = (
+            f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
+            f"?per_page=100&page={page}"
+        )
+        batch = _github_request(url, token)
+        if not batch:
+            break
+        comment_bodies.extend(comment.get("body") or "" for comment in batch)
+        page += 1
+    return comment_bodies
 
 
 def fetch_open_issues(repo: str, token: str | None) -> list[dict[str, Any]]:
@@ -227,6 +261,17 @@ def emit_github_annotations(violations: Iterable[IssueViolation]) -> None:
         )
 
 
+def _comment_bodies_for_issue(repo: str, issue: dict[str, Any], token: str | None) -> list[str]:
+    """Fetch comments only when they are needed for no-milestone rationale."""
+
+    if issue.get("pull_request") or issue.get("milestone"):
+        return []
+    issue_number = int(issue.get("number", 0))
+    if issue_number <= 0:
+        return []
+    return fetch_issue_comments(repo, issue_number, token)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check GitHub issue backlog hygiene metadata.")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"), help="Repository in owner/name form")
@@ -249,7 +294,12 @@ def main() -> None:
 
     token = os.environ.get(args.token_env)
     issues = [fetch_issue(args.repo, args.issue_number, token)] if args.issue_number else fetch_open_issues(args.repo, token)
-    violations = [violation for issue in issues if (violation := validate_issue(issue))]
+    violations: list[IssueViolation] = []
+    for issue in issues:
+        comment_bodies = _comment_bodies_for_issue(args.repo, issue, token)
+        violation = validate_issue(issue, comment_bodies=comment_bodies)
+        if violation:
+            violations.append(violation)
 
     summary = build_summary(violations)
     print(summary)
