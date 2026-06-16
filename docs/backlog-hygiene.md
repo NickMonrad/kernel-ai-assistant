@@ -54,7 +54,7 @@ Use the lightest validation that can prove the change safely:
 
 ## Project views and saved searches
 
-Preferred durable backlog dashboard: create a GitHub Project named **Jandal Launch Backlog** and add views using the queries below. A local/browser agent can create and maintain this Project if it has GitHub Project management permissions. Personal saved searches are optional UI shortcuts and may still need to be created manually by the signed-in user.
+Preferred durable backlog dashboard: create a GitHub Project named **Jandal Launch Backlog** and add views using the queries below. A local or browser agent can create and maintain this Project if it has GitHub Project management permissions. Personal saved searches are optional UI shortcuts and may still need to be created manually by the signed-in user.
 
 Recommended Project views:
 
@@ -70,10 +70,6 @@ Recommended Project views:
 | Deferred backlog | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:launch:deferred` | Dream/deferred backlog |
 
 If the Project implementation cannot express one of the filters as a saved Project view, keep the query in this document and create it as a personal saved search instead. The setup agent should comment on #1271 with the Project URL and any filters left as manual saved searches.
-
-## Project setup follow-up
-
-The backlog dashboard can be created after this PR lands. Create or reuse **Jandal Launch Backlog**, link it to this repository, add the views above, and add existing matching issues so the views are useful immediately.
 
 ## Automated warning signal
 
