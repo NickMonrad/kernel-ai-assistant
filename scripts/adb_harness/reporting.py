@@ -87,6 +87,7 @@ def save_report(
     elapsed: float = 0.0,
     partial: bool = False,
     run_ts: str | None = None,
+    model_readiness_evidence: dict | None = None,
 ) -> Path:
     """Serialise results to a JSON file in scripts/test-reports/ and return the path.
 
@@ -135,6 +136,7 @@ def save_report(
             "xpass": xpasses,
             "failed": failures,
         },
+        "model_readiness_evidence": model_readiness_evidence,
         "results": [
             {
                 "index": r.index,

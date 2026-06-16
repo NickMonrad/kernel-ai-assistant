@@ -1,7 +1,7 @@
 """
 ADB Harness — Model Readiness Preflight.
 
-Deterministic S21 model-readiness check for ADB/device test runs after reinstall.
+Orchestrated S21 model-readiness check for ADB/device test runs after reinstall.
 Runs after a fresh install or clean reinstall and ensures the required conversation
 model is downloaded and the inference engine is ready before test execution begins.
 
@@ -18,7 +18,7 @@ Failure buckets:
   - ``MODEL_DOWNLOAD_FAILED`` — download worker errored
   - ``MODEL_DOWNLOAD_TIMEOUT`` — download started but did not finish within timeout
   - ``ENGINE_NOT_READY`` — engine did not initialise after download completed
-  - ``HF_SIGNIN_FAILED`` — HuggingFace sign-in UI shown but could not be completed
+  - ``ENGINE_BLOCKED_BY_KEYGUARD`` — lock screen prevented engine initialisation
 """
 
 from __future__ import annotations
@@ -353,9 +353,8 @@ def _uiautomator_tap_text(target_text: str) -> bool:
 
 def preflight_model_readiness(
     serial: str | None = None,
-    timeout_download: float = 600.0,
+    timeout_download: float = 360.0,
     timeout_engine: float = 120.0,
-    hf_signin_timeout: float = 60.0,
     verbose: bool = True,
     unlock_pin: str | None = None,
 ) -> ModelReadinessEvidence:
@@ -378,13 +377,13 @@ def preflight_model_readiness(
     serial : str or None
         Device serial. Falls back to ``ANDROID_SERIAL`` / ``ADB_SERIAL`` env vars.
     timeout_download : float
-        Max seconds to wait for the model to finish downloading (default 600).
+        Max seconds to wait for model download (default 360).
     timeout_engine : float
         Max seconds to wait for the inference engine to init after download (default 120).
-    hf_signin_timeout : float
-        Max seconds to wait for HuggingFace sign-in flow to complete (default 60).
     verbose : bool
-        Print progress output.
+        Print progress lines (default True).
+    unlock_pin : str | None
+        Device PIN to dismiss keyguard before starting (default None).
 
     Returns
     -------
@@ -510,42 +509,49 @@ def preflight_model_readiness(
     # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
     # On S21, the conversation model (E-2B) auto-queues immediately, giving
     # initial_state "Preparing". But the embedding models (isGated=true) show
-    # a HF sign-in dialog simultaneously. We must dismiss or tap it.
+    # a HF sign-in dialog listing each gated model with a "Sign in" button.
+    # We tap the dialog header to trigger the OAuth flow (opens browser in
+    # background), then dismiss the dialog with Back so the device is in a
+    # clean state. If the device is already signed into HuggingFace (cached
+    # browser session), the OAuth completes silently and the gated models
+    # will auto-queue on next app check.
     #
-    # Run on every non-Ready path — UIAutomator checks are ~2s and cheap.
+    # The main download/engine polling loop handles the rest; its timeout
+    # mechanisms (MODEL_NOT_READY, MODEL_DOWNLOAD_TIMEOUT, ENGINE_NOT_READY)
+    # catch a stalled preflight if sign-in truly failed.
+    #
     signin_tapped = False
     if _uiautomator_has_text("Sign in to Hugging Face"):
-        signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button (dialog)")
+        evidence.hf_signin_shown = True
+        # Tap the dialog header — this opens a browser tab for OAuth
+        signin_tapped = _uiautomator_tap_text("Sign in to Hugging Face")
+        _print("  [readiness] Tapped HF sign-in header")
+        # If the first tap missed, try the generic "Sign in" on the header area
+        if not signin_tapped:
+            signin_tapped = _uiautomator_tap_text("Sign in")
+            _print("  [readiness] Tapped HF sign-in (fallback)")
     elif _uiautomator_has_text("Sign in"):
+        evidence.hf_signin_shown = True
         signin_tapped = _uiautomator_tap_text("Sign in")
-        _print("  [readiness] Tapped HF sign-in button")
+        _print("  [readiness] Tapped HF sign-in (generic)")
     if signin_tapped:
         evidence.hf_signin_clicked = True
-        _print("  [readiness] Waiting for HF sign-in approval …")
-        signin_seen = _poll_logcat_until(
-            ["hf_signin_approved"],
-            timeout=hf_signin_timeout,
-        )
-        if signin_seen.get("hf_signin_approved"):
-            evidence.logcat_markers["hf_signin_approved"] = True
-            _print("  [readiness] ✅ HF sign-in approved — awaiting gated model auto-queues")
-            gated_seen = _poll_logcat_until(
-                ["auto_queue_seen", "enqueue_seen"],
-                timeout=30.0,
-            )
-            if gated_seen.get("auto_queue_seen") or gated_seen.get("enqueue_seen"):
-                evidence.download_triggered = True
-                _print("  [readiness] Gated model downloads enqueued after sign-in")
+        # Give OAuth flow time to launch the browser tab
+        time.sleep(3)
+        # Dismiss the dialog so device is in a clean state.
+        # The browser handles OAuth in the background; completed redirect
+        # back to the app will pick up the auth token on next launch.
+        for attempt in range(3):
+            time.sleep(1)
+            run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+            if not _uiautomator_has_text("Sign in to Hugging Face"):
+                _print("  [readiness] ✅ HF sign-in dialog dismissed")
+                break
         else:
-            _print("  [readiness] ⚠️  HF sign-in approval NOT detected within timeout")
+            _print("  [readiness] ⚠ Could not dismiss HF sign-in dialog — continuing anyway")
+        phase34_start = time.time()
     else:
-        _print("  [readiness] No HF sign-in dialog detected")
-
-    # ── Phase 3+4 combined: Continuous poll for download + engine ──
-    # Deadline starts NOW (after Phase 1+2), not from start_ts — avoids
-    # the combined window being consumed by Phase 1's 30s initial detection.
-    phase34_start = time.time()
+        phase34_start = time.time()
     # If the model is already on disk, skip the download wait
     download_matched = (evidence.initial_state == "Downloaded")
     if download_matched:

@@ -477,11 +477,28 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
     print(f"  Report saved → {report_path}")
+    return 1 if failures > 0 else 0
+
+def _save_readiness_failure(evidence: ModelReadinessEvidence) -> None:
+    """Persist model-readiness failure evidence to a JSON file before exit."""
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    path = REPORTS_DIR / f"{ts}_model-readiness-failure.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        __import__("json").dumps(evidence.to_dict(), indent=2)
+    )
+    print(f"  [preflight] Failure evidence saved → {path}")
+
+
 
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None,
               phases: list[str] | None = None, categories: list[str] | None = None,
               tags: list[str] | None = None, exclude_tags: list[str] | None = None,
-              case_ids: list[str] | None = None, model_readiness: bool = False) -> int:
+              case_ids: list[str] | None = None, model_readiness: bool = False,
+              serial: str | None = None, unlock_pin: str | None = None,
+              timeout_download: float | None = None,
+              timeout_engine: float | None = None) -> int:
 
     """Execute all test cases. Returns non-zero on failures."""
 
@@ -598,11 +615,25 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     # downloaded. The preflight handles download wait, HuggingFace sign-in,
     # and engine initialisation.  Fails fast with MODEL_NOT_READY (44) so
     # the caller can distinguish setup failure from product failure.
+    model_readiness_evidence = None
+
     if model_readiness:
         print()
         print("  ── Model readiness preflight ──")
-        evidence = preflight_model_readiness(verbose=True)
+        mr_kwargs = {}
+        if serial is not None:
+            mr_kwargs["serial"] = serial
+        if unlock_pin is not None:
+            mr_kwargs["unlock_pin"] = unlock_pin
+        if timeout_download is not None:
+            mr_kwargs["timeout_download"] = timeout_download
+        if timeout_engine is not None:
+            mr_kwargs["timeout_engine"] = timeout_engine
+        evidence = preflight_model_readiness(verbose=True, **mr_kwargs)
+        model_readiness_evidence = evidence
         if evidence.failure_bucket:
+            # Persist failure evidence before early return
+            _save_readiness_failure(evidence)
             print(f"  [preflight] ❌ ABORT: {evidence.failure_bucket}")
             print(f"  [preflight]    Model readiness failed after {evidence.readiness_wait_seconds:.0f}s")
             print(f"  [preflight]    Initial state was: {evidence.initial_state}")
@@ -611,6 +642,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             run_adb("shell", "svc", "power", "stayon", "false")
             run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
             return EXIT_MODEL_NOT_READY
+
         print(f"  [preflight] ✅ Model ready ({evidence.readiness_wait_seconds:.0f}s)")
         print(f"  [preflight]    Initial state: {evidence.initial_state}")
         print(f"  [preflight]    Download triggered: {evidence.download_triggered}")
@@ -1070,6 +1102,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         elapsed=time.time() - suite_start,
         partial=False,
         run_ts=run_ts,
+        model_readiness_evidence=model_readiness_evidence.to_dict() if model_readiness_evidence else None,
     )
     print(f"  Report saved → {report_path}")
     print()
