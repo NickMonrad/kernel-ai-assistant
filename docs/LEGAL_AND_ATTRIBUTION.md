@@ -6,6 +6,8 @@ This document supports #868 and the Play Store launch gate. It is a practical en
 
 This PR now records the known licence position for the components we can identify from the repo and public upstream metadata. Final release still needs an automated release-variant notice/SBOM pass to catch transitive dependencies and confirm exactly what is bundled in the APK/AAB.
 
+The current release-attribution snapshot for #1263 is [`RELEASE_ATTRIBUTION_SIGNOFF.md`](RELEASE_ATTRIBUTION_SIGNOFF.md). Use that document as the short-form launch sign-off view, and use this document as the detailed inventory.
+
 ## Source licence
 
 Jandal AI source code is distributed under the Apache License 2.0. See [`../LICENSE`](../LICENSE).
@@ -68,7 +70,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | sqlite-vec | Local vector search extension in `core/memory/src/main/cpp` | Dual MIT OR Apache-2.0 upstream | Include chosen licence text/notice if source/native library is bundled. |
 | SQLite amalgamation | SQLite C source referenced by native build | Public domain / blessing text upstream | Confirm bundling; include SQLite public-domain notice/blessing if bundled. |
 | Sherpa-ONNX AAR/runtime | Local STT/TTS runtime when AAR is packaged | Apache-2.0 | Confirm whether packaged in release; include notice if bundled. |
-| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | Jandal-owned/provenance not yet documented | Record provenance/training data and ownership before launch. |
+| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Keep openWakeWord notice; before final release, maintainer should confirm real-recording ownership/consent for the generated Stage 3 model. |
 | Local model binaries under `models/` | Dev/test local model cache | Not committed / not shipped from source | Keep gitignored; release artefact still needs audit. |
 
 ### Downloaded or bundled model assets
@@ -78,7 +80,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Gemma-4 E-2B LiteRT-LM | Required launch-compatible chat tier | Hugging Face page lists `apache-2.0` | Document model card/source and include Apache-2.0 notice if redistributed. |
 | Gemma-4 E-4B LiteRT-LM | Optional flagship chat tier | Hugging Face page lists `apache-2.0` | Document model card/source and include Apache-2.0 notice if redistributed. |
 | EmbeddingGemma 300M generic | Embedding/RAG model | Hugging Face page lists `gemma`; gated terms must be accepted | Keep gated-model language; do not present as Apache-2.0. |
-| EmbeddingGemma 300M SM8550 | Qualcomm-optimised EmbeddingGemma variant | Hugging Face page lists `gemma`; gated terms must be accepted | Confirm if hidden/deprecated for launch; if exposed, document terms. |
+| EmbeddingGemma 300M SM8550 | Qualcomm-optimised EmbeddingGemma variant | Hugging Face page lists `gemma`; gated terms must be accepted | Deprecated/hidden from generic model management; if exposed, document terms. |
 | FunctionGemma / mobile actions model | Optional/experimental mobile-actions model | Hugging Face page lists `gemma`; gated terms must be accepted | Keep optional/experimental; document terms if exposed. |
 | MiniLM-L6 intent classifier | Bundled/fallback intent classifier asset | `sentence-transformers/all-MiniLM-L6-v2` page lists `apache-2.0` | Confirm exact converted asset provenance and include Apache-2.0 notice if bundled. |
 
@@ -102,7 +104,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled. |
 | rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; keep per-voice review. |
 | en_GB-cori-high Piper voice | Release-safe British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
-| Kokoro experimental voice pack | Experimental TTS path | Must verify Kokoro model/voice licence if exposed | Keep research/dev-only unless licence is confirmed and documented. |
+| Kokoro experimental voice pack | Experimental TTS path | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is Apache-2.0 | Consider licence trace acceptable if release-exposed, but keep product wording experimental/conservative. |
 
 ## External services and data sources
 
@@ -124,7 +126,7 @@ These are not all OSS attribution items, but they must be reflected in Play Stor
 Decision implemented in #1268:
 - Semaine is hidden from release builds (releaseVisible=false).
 - Retained for debug/internal research and future licence review.
-- Replacement: en_GB-cori-high voice pack (~116 MB, LibriVox public-domain voice, MIT Piper code).
+- Replacement: en_GB-cori-high voice pack (~116 MB, `rhasspy/piper-voices` MIT repository, upstream model card lists LibriVox public-domain dataset).
 
 Semaine is not deleted. If compatible rights are later obtained, Semaine can be re-enabled by setting releaseVisible=true.
 
@@ -144,10 +146,12 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] `models/README.md` documents approximate model sizes and gated-model requirements.
 - [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
 - [x] Direct dependency licence classes are recorded in this document.
-- [ ] Generate release dependency notices/SBOM from the resolved release variant and compare against this table.
 - [x] #1268: Semaine hidden from release; CoriHigh promoted as release-safe British English alternative.
-- [ ] Confirm per-model/per-voice licences for every release-exposed STT/TTS asset.
-- [ ] Record wake-word ONNX model provenance/training-data ownership.
-- [ ] Decide whether an in-app open-source licences screen is required for release.
+- [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
+- [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
+- [ ] Generate release dependency notices/SBOM from the resolved release variant and compare against this table.
+- [ ] Confirm exact bundled/downloaded Vosk model provenance if Vosk model files are exposed in the release build.
+- [ ] Confirm maintainer ownership/consent for real recordings used in the generated Hey Jandal Stage 3 wake-word model.
+- [ ] Decide whether an in-app open-source licences screen is required after the generated release notice/SBOM is reviewed.
 - [ ] Play Store privacy/data disclosures match the actual release build.
-- [ ] #868 is closed only after the final release scope is known and the checklist above has been reviewed.
+- [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.
