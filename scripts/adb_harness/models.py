@@ -96,6 +96,7 @@ class LLMToolsTestCase:
     # substrings (case-insensitive). Proves seeded context influenced the reply. (#1074)
     expected_reply_contains: list[str] | None = None
 
+
 @dataclass
 class TestResult:
     """Structured outcome of a single test case."""
@@ -126,6 +127,8 @@ class TestResult:
     forbidden_intents: list[str] = field(default_factory=list)
     forbidden_intent_triggered: bool = False
     forbidden_intent_observed: list[str] = field(default_factory=list)
+    allowed_intent_observed: str | None = None
+    expect_llm_fallthrough: bool = False
     fallthrough_observed: bool = False
 
 
@@ -179,19 +182,37 @@ def derive_status(r: TestResult) -> str:
       * xfail + unexpectedly satisfies real success criteria → "xpass"
       * non-xfail clean pass → "pass"
       * non-xfail failure → "fail"
-      * false-positive test with no forbidden intent but no fallthrough
-        evidence either → "indeterminate"
-
+      *
+      * False-positive tests (forbidden_intents set):
+      *   • forbidden intent observed → fail (forbidden wins)
+      *   • allowed safe route observed → pass
+      *   • expect_llm_fallthrough + fallthrough observed → pass
+      *   • expect_llm_fallthrough + no fallthrough → indeterminate
+      *   • no forbidden, no fallthrough required → pass
+      *
+      * The forbidden-intent check takes priority over all others.
+      *
     xpass does NOT affect the process exit code by default — it is
     informational, signalling that an expected failure may now be resolveable.
     Set XPASS_IS_FAILURE=1 environment variable to make xpass exit non-zero.
+    indeterminate does affect the exit code — oracle/observability failures
+    always return non-zero.
     """
-    # False-positive tests: require fallthrough evidence for pass
+    # ── False-positive tests ─────────────────────────────────────────────
     if r.forbidden_intents:
+        # forbidden intent observed → fail (forbidden always wins)
         if r.forbidden_intent_triggered:
             return "xfail" if r.xfail else "fail"
-        if not r.fallthrough_observed:
+        # Safe native route took precedence → pass
+        if r.allowed_intent_observed:
+            return "xpass" if r.xfail else "pass"
+        # LLM fallthrough required and observed → pass
+        if r.expect_llm_fallthrough and r.fallthrough_observed:
+            return "xpass" if r.xfail else "pass"
+        # LLM fallthrough required but not observed → indeterminate
+        if r.expect_llm_fallthrough:
             return "indeterminate"
+        # No fallthrough required, no forbidden → pass
         return "xpass" if r.xfail else "pass"
     # Existing logic for normal tests
     if r.xfail:

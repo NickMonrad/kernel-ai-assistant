@@ -122,6 +122,7 @@ def save_report(
     xfails = sum(1 for r in prepared if r.status == "xfail")
     xpasses = sum(1 for r in prepared if r.status == "xpass")
     failures = sum(1 for r in prepared if r.status == "fail")
+    indeterminates = sum(1 for r in prepared if r.status == "indeterminate")
 
     report = {
         "suite": suite,
@@ -134,6 +135,7 @@ def save_report(
             "xfail": xfails,
             "xpass": xpasses,
             "failed": failures,
+            "indeterminate": indeterminates,
         },
         "results": [
             {
@@ -162,6 +164,8 @@ def save_report(
                 "forbidden_intent_triggered": r.forbidden_intent_triggered,
                 "forbidden_intent_observed": r.forbidden_intent_observed,
                 "fallthrough_observed": r.fallthrough_observed,
+                "allowed_intent_observed": r.allowed_intent_observed,
+                "expect_llm_fallthrough": r.expect_llm_fallthrough,
             }
             for r in prepared
         ],
@@ -189,18 +193,30 @@ def analyse_results(results: list[TestResult]) -> None:
 
     failures = [r for r in prepared if r.status == "fail"]
     xpasses = [r for r in prepared if r.status == "xpass"]
-    if not failures and not xpasses:
-        print("\n  ✅ No failures to analyse.")
+    indeterminates = [r for r in prepared if r.status == "indeterminate"]
+    if not failures and not xpasses and not indeterminates:
+        print("\n  ✅ No failures or oracle gaps to analyse.")
         return
 
     print("\n  FAILURE ANALYSIS")
     print("  " + "-" * 68)
 
+    # ── Indeterminate / oracle failures ─────────────────────────────────
+    if indeterminates:
+        print(f"\n  ⚠️  Oracle/observability gaps — indeterminate results ({len(indeterminates)}):")
+        for r in indeterminates:
+            bucket = f" [{r.failure_bucket}]" if r.failure_bucket else ""
+            print(f"    [? {r.index:3d}] \"{r.message}\"{bucket}")
+            if r.forbidden_intents:
+                print(f"          forbidden={r.forbidden_intents}  fallthrough={r.fallthrough_observed}")
+        print()
+
+    # ── Failures ────────────────────────────────────────────────────────
     if failures:
         by_bucket: dict[str, list[TestResult]] = {}
         for r in failures:
             by_bucket.setdefault(r.failure_bucket or "unclassified", []).append(r)
-        print(f"\n  Failure buckets ({len(failures)}):")
+        print(f"  Failure buckets ({len(failures)}):")
         for bucket, group in sorted(by_bucket.items(), key=lambda x: (-len(x[1]), x[0])):
             print(f"    {bucket}: {len(group)}")
 
@@ -320,8 +336,8 @@ def build_comment_markdown(
     xfails = sum(1 for r in prepared if r.status == "xfail")
     xpasses = sum(1 for r in prepared if r.status == "xpass")
     failed = sum(1 for r in prepared if r.status == "fail")
+    indeterminates = sum(1 for r in prepared if r.status == "indeterminate")
     pass_rate = passed / max(total - xfails, 1) * 100
-
     lines: list[str] = [
         "## 🧪 Jandal Skill Regression Results",
         "",
@@ -331,6 +347,10 @@ def build_comment_markdown(
         f"| ❌ Failed | {failed} |",
         f"| ⚠️ Expected failures | {xfails} |",
         f"| 🟡 Unexpected passes | {xpasses} |",
+    ]
+    if indeterminates:
+        lines.append(f"| ⚠️ Oracle gaps | {indeterminates} |")
+    lines += [
         f"| **Total** | **{total}** |",
         "",
         f"**Pass rate: {pass_rate:.1f}%** • Run time: {_fmt_elapsed(elapsed)}",
@@ -363,11 +383,26 @@ def build_comment_markdown(
         for bucket, count in bucket_counts.most_common():
             lines.append(f"| `{bucket}` | {count} |")
 
+    indeterminates_list = [r for r in prepared if r.status == "indeterminate"]
+    if indeterminates_list:
+        lines += [
+            "",
+            "### Oracle gaps (indeterminate)",
+            "| # | Input | Forbidden | Fallthrough | Bucket |",
+            "|---|---|---|---|---|",
+        ]
+        for r in indeterminates_list:
+            forbidden = ", ".join(r.forbidden_intents) if r.forbidden_intents else "—"
+            fallthrough = "yes" if r.fallthrough_observed else "no"
+            lines.append(
+                f"| {r.index} | {r.message} | `{forbidden}` | {fallthrough} | `{r.failure_bucket or 'unclassified'}` |"
+            )
+
     phases_present = [r.phase for r in prepared if r.phase]
     if phases_present:
         from collections import defaultdict
         phase_data: dict[str, dict[str, float]] = defaultdict(
-            lambda: {"pass": 0, "fail": 0, "xfail": 0, "xpass": 0, "time": 0.0}
+            lambda: {"pass": 0, "fail": 0, "xfail": 0, "xpass": 0, "indeterminate": 0, "time": 0.0}
         )
         for r in prepared:
             key = r.phase or "unknown"
@@ -378,14 +413,11 @@ def build_comment_markdown(
             "<details>",
             "<summary>Phase breakdown</summary>",
             "",
-            "| Phase | Pass | Fail | XFail | XPass |",
-            "|---|---|---|---|---|",
+            "| Phase | Pass | Fail | XFail | XPass | Indet |",
         ]
         for phase_name in dict.fromkeys(r.phase for r in prepared if r.phase):
             d = phase_data[phase_name]
-            lines.append(
-                f"| {phase_name} | {int(d['pass'])} | {int(d['fail'])} | {int(d['xfail'])} | {int(d['xpass'])} |"
-            )
+            lines.append(f"| {phase_name} | {int(d['pass'])} | {int(d['fail'])} | {int(d['xfail'])} | {int(d['xpass'])} | {int(d['indeterminate'])} |")
         lines += ["", "</details>"]
 
     dt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

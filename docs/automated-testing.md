@@ -99,8 +99,7 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
   "suite": "skills",
   "status": "complete",         // or "in_progress" for partial
   "timestamp": "2026-06-07T01-39-59Z",
-  "elapsed_seconds": 3545.0,
-  "summary": { "total": 199, "passed": 73, "xfail": 5, "failed": 121 },
+  "summary": { "total": 199, "passed": 73, "xfail": 5, "xpass": 0, "failed": 121, "indeterminate": 0 },
   "results": [
     {
       "index": 1,
@@ -113,8 +112,7 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
       "xfail": false,
       "reply_warn": null,
       "log_check_warn": null,
-      "phase": "alarm_timer",
-      "status": "pass"          // "pass", "fail", or "xfail"
+      "status": "pass"          // "pass", "fail", "xfail", "xpass", or "indeterminate"
     }
   ]
 }
@@ -210,21 +208,35 @@ forbidden native intents. This is a P0 regression suite (issue #1272) covering:
 
 - Sends prompt, captures logcat with extended timeout (30s+) to wait for LLM fallthrough
 - Scans **all** `NativeIntentHandler.handle: intent=...` lines in the captured output
-- **Fails** if any `forbidden_intent` appears in any intent line
-- **Passes** only when no forbidden intent is observed **and** positive fallthrough
-  evidence is found (`NO_MATCH` intent or `Generation complete` logcat marker)
-- **Reports indeterminate/oracle failure** when no forbidden intent fires but no
-  fallthrough evidence is observed either (possible observability gap or timeout)
+- **Fails** if any `forbidden_intent` appears — forbidden intent **always wins**, even
+  when an allowed safe native route was also observed
+- **Passes via allowed safe route** when `allowed_intents` is configured and the safe
+  intent was observed — no fallthrough evidence required
+- **Passes via LLM fallthrough** when `expect_llm_fallthrough=True` and positive evidence
+  is found (`NO_MATCH` intent or `Generation complete` marker)
+- **Reports indeterminate/oracle failure** when `expect_llm_fallthrough=True` but no
+  forbidden intent and no fallthrough evidence (possible observability gap or timeout)
+- **Passes without evidence** when `expect_llm_fallthrough=False` and no forbidden
+  intent observed — "didn't fire" is sufficient
+
+**Oracle semantics (priority order):**
+
+| Condition | Result | Rationale |
+|-----------|--------|-----------|
+| Forbidden intent observed (with or without allowed intent) | `fail` | Forbidden always wins |
+| Allowed safe route observed (`allowed_intents` set) | `pass` | Safe native route handled the query |
+| `expect_llm_fallthrough=True` + fallthrough evidence | `pass` | LLM handled query correctly |
+| `expect_llm_fallthrough=True` + no fallthrough | `indeterminate` | Oracle gap — fails suite exit code |
+| `expect_llm_fallthrough=False` + no forbidden | `pass` | "Didn't fire" is sufficient |
 
 **Status values for false-positive results:**
 
 | Status | Meaning |
 |--------|---------|
-| `pass` | No forbidden intent triggered + fallthrough evidence confirmed |
-| `fail` | A forbidden intent was triggered |
-| `indeterminate` | No forbidden intent, but no fallthrough evidence either |
+| `pass` | No forbidden intent + pass criteria met (fallthrough, allowed route, or no requirement) |
+| `fail` | A forbidden intent was triggered (product regression) |
+| `indeterminate` | No forbidden intent but required fallthrough evidence missing (oracle gap) |
 | `xfail` / `xpass` | Same semantics as normal tests, applied to false-positive assertions |
-
 **Failure buckets:**
 
 | Bucket | Meaning |

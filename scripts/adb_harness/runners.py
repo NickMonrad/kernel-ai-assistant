@@ -923,6 +923,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 )
             # ── Intent extraction & assertion ──
             # False-positive analysis state (populated only when forbidden_intents is set)
+            allowed_intent_observed: str | None = None
             forbidden_intent_triggered = False
             forbidden_intent_observed: list[str] = []
             fallthrough_observed = False
@@ -934,8 +935,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 triggered = [fi for fi in tc.forbidden_intents if fi in all_intents]
                 forbidden_intent_triggered = len(triggered) > 0
                 forbidden_intent_observed = triggered
-                if tc.allowed_intents and actual_intent:
-                    intent_passed = actual_intent in tc.allowed_intents
+                # Track allowed intent (safe native route) if present
+                allowed_intent_observed = next(
+                    (ai for ai in (tc.allowed_intents or []) if ai in all_intents),
+                    None,
+                )
+                if tc.allowed_intents and allowed_intent_observed:
+                    intent_passed = True
                 else:
                     intent_passed = not forbidden_intent_triggered
                 has_no_match = "NO_MATCH" in all_intents
@@ -962,8 +968,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.expect_log_contains is not None:
                 if tc.expect_log_contains not in logcat:
                     log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
-            # False-positive: warn if no fallthrough evidence observed
-            if tc.forbidden_intents and not fallthrough_observed and not forbidden_intent_triggered:
+            # False-positive: warn if no fallthrough evidence and no safe native route
+            if tc.forbidden_intents and not allowed_intent_observed and not fallthrough_observed and not forbidden_intent_triggered:
                 fp_warn = "no fallthrough/LLM generation evidence"
                 log_check_warn = fp_warn if log_check_warn is None else log_check_warn + "; " + fp_warn
             # Merge first-turn warning (e.g. AskConfirmation not found before confirm_reply)
@@ -998,6 +1004,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 forbidden_intent_triggered=forbidden_intent_triggered,
                 forbidden_intent_observed=forbidden_intent_observed,
                 fallthrough_observed=fallthrough_observed,
+                allowed_intent_observed=allowed_intent_observed,
+                expect_llm_fallthrough=tc.expect_llm_fallthrough,
             )
             result.status = derive_status(result)
             result.failure_bucket = derive_failure_bucket(result)
@@ -1155,7 +1163,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("done")
 
     xpass_is_failure = os.environ.get("XPASS_IS_FAILURE", "").strip() in ("1", "true", "yes")
-    effective_exit = 1 if (failures > 0 or (xpass_is_failure and xpasses > 0)) else 0
+    effective_exit = 1 if (
+        failures > 0
+        or indeterminates > 0
+        or (xpass_is_failure and xpasses > 0)
+    ) else 0
     return effective_exit
 
 

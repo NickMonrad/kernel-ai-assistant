@@ -129,6 +129,7 @@ class FalsePositiveStatusDeriveTest(unittest.TestCase):
             log_check_warn="no fallthrough/LLM generation evidence",
             forbidden_intents=["get_time"],
             forbidden_intent_triggered=False,
+            expect_llm_fallthrough=True,
             fallthrough_observed=False,
         )
         self.assertEqual(derive_status(r), "indeterminate")
@@ -172,9 +173,122 @@ class FalsePositiveStatusDeriveTest(unittest.TestCase):
             log_check_warn=None,
             forbidden_intents=["get_time"],
             forbidden_intent_triggered=False,
+            expect_llm_fallthrough=True,
             fallthrough_observed=True,
         )
-        self.assertEqual(derive_status(r), "xpass")
+
+    # ── New oracle semantics (review fixes) ─────────────────────────────
+
+    def test_allowed_intent_safe_route_pass(self) -> None:
+        """Allowed safe native route observed → pass (no fallthrough needed)."""
+        r = TestResult(
+            index=1,
+            message="Set a 5 minute egg timer",
+            expect_intent="",
+            actual_intent="set_timer",
+            expect_params=None,
+            actual_params={},
+            intent_passed=True,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+            log_check_warn=None,
+            forbidden_intents=["set_alarm"],
+            allowed_intent_observed="set_timer",
+            forbidden_intent_triggered=False,
+            fallthrough_observed=False,
+        )
+        self.assertEqual(derive_status(r), "pass")
+
+    def test_forbidden_wins_over_allowed(self) -> None:
+        """Both forbidden and allowed observed → forbidden wins (fail)."""
+        r = TestResult(
+            index=1,
+            message="Set a 5 minute egg timer",
+            expect_intent="",
+            actual_intent="set_alarm",
+            expect_params=None,
+            actual_params={},
+            intent_passed=False,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+            log_check_warn="forbidden intent 'set_alarm' was triggered",
+            forbidden_intents=["set_alarm"],
+            allowed_intent_observed="set_timer",
+            forbidden_intent_triggered=True,
+            forbidden_intent_observed=["set_alarm"],
+            fallthrough_observed=False,
+        )
+        self.assertEqual(derive_status(r), "fail")
+
+    def test_no_fallthrough_not_required(self) -> None:
+        """No forbidden, expect_llm_fallthrough=False → pass even without fallthrough."""
+        r = TestResult(
+            index=1,
+            message="What year is this movie set in",
+            expect_intent="",
+            actual_intent=None,
+            expect_params=None,
+            actual_params={},
+            intent_passed=True,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+            log_check_warn=None,
+            forbidden_intents=["get_time"],
+            forbidden_intent_triggered=False,
+            expect_llm_fallthrough=False,
+            fallthrough_observed=False,
+        )
+        self.assertEqual(derive_status(r), "pass")
+
+    def test_fallthrough_required_not_observed(self) -> None:
+        """expect_llm_fallthrough without fallthrough evidence → indeterminate."""
+        r = TestResult(
+            index=1,
+            message="What year is this movie set in",
+            expect_intent="",
+            actual_intent=None,
+            expect_params=None,
+            actual_params={},
+            intent_passed=True,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+            log_check_warn="no fallthrough/LLM generation evidence",
+            forbidden_intents=["get_time"],
+            forbidden_intent_triggered=False,
+            expect_llm_fallthrough=True,
+            fallthrough_observed=False,
+        )
+        self.assertEqual(derive_status(r), "indeterminate")
+
+    def test_fallthrough_required_and_observed(self) -> None:
+        """expect_llm_fallthrough with fallthrough evidence → pass."""
+        r = TestResult(
+            index=1,
+            message="What year is this movie set in",
+            expect_intent="",
+            actual_intent=None,
+            expect_params=None,
+            actual_params={},
+            intent_passed=True,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+            log_check_warn=None,
+            forbidden_intents=["get_time"],
+            forbidden_intent_triggered=False,
+            expect_llm_fallthrough=True,
+            fallthrough_observed=True,
+        )
+        self.assertEqual(derive_status(r), "pass")
 
     def test_normal_test_unaffected(self) -> None:
         """Normal (non-false-positive) tests still work the same way."""

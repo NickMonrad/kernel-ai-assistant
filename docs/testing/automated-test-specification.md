@@ -70,10 +70,12 @@
 
 These tests assert that a phrase does **NOT** trigger a specific QIR intent and instead
 falls through to the LLM (`intent=NO_MATCH` or no `NativeIntentHandler.handle` line at all).
-
 > **✅ Implemented in #1272.** The 16 test cases below are wired as the `false_positives` harness phase.
 > The dataclass design from §2.1 has been integrated into the existing `TestCase` model
 > (adding `forbidden_intents`, `allowed_intents`, and `expect_llm_fallthrough` fields).
+> **Oracle semantics updated in review:** `indeterminate` results fail the suite exit code;
+> `allowed_intents` safe native routes can pass without fallthrough; `expect_llm_fallthrough`
+> controls whether fallthrough evidence is required; forbidden intent always wins.
 > See [`docs/automated-testing.md`](../automated-testing.md#false_positives-phase) for run commands.
 
 ### 2.1 Dataclass Definition
