@@ -36,13 +36,16 @@ from product regression.
 ## Standalone preflight (diagnostic only)
 
 ```bash
-ANDROID_SERIAL=R5CR605B71K python3 -m adb_harness.model_readiness \
+PYTHONPATH=scripts ANDROID_SERIAL=R5CR605B71K python3 -m adb_harness.model_readiness \
   --serial R5CR605B71K \
   --unlock-pin <PIN> \
   --timeout-download 480 \
   --timeout-engine 120 \
   --json
 ```
+
+> `PYTHONPATH=scripts` is required when running the module from repo root.
+> Alternatively, `cd scripts && python3 -m adb_harness.model_readiness ...`.
 
 ### Flags
 
