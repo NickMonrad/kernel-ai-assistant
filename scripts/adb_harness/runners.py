@@ -566,6 +566,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             if tc.confirm_reply:
                 extra.append(f"confirm_reply={tc.confirm_reply!r}")
+            if tc.forbidden_intents:
+                extra.append(f"forbidden={tc.forbidden_intents}")
+            if tc.allowed_intents:
+                extra.append(f"allowed={tc.allowed_intents}")
+            if tc.expect_llm_fallthrough:
+                extra.append("expect_llm_fallthrough")
             if tc.expect_initial_log_contains:
                 extra.append(f"init_log={tc.expect_initial_log_contains!r}")
             if tc.expect_log_contains:
@@ -899,6 +905,15 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     expected=final_signal,
                     keep_foreground=True,
                 )
+            elif tc.forbidden_intents:
+                # False-positive test: send prompt, capture logcat with longer timeout
+                # for LLM fallthrough, without waiting for a specific intent signal.
+                logcat = capture_fresh_logcat(
+                    lambda: send_text(tc.message),
+                    timeout=max(WAIT_SECONDS * 2, 30),
+                    expected=None,
+                    keep_foreground=True,
+                )
             else:
                 logcat = capture_fresh_logcat(
                     lambda: send_text(tc.message),
@@ -906,9 +921,32 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     expected=final_signal,
                     keep_foreground=True,
                 )
-            actual_intent, actual_params = extract_intent(logcat)
-            intent_passed = (actual_intent or "") == tc.expect_intent
-            params_ok, param_failures = check_params(tc.expect_params, actual_params)
+            # ── Intent extraction & assertion ──
+            # False-positive analysis state (populated only when forbidden_intents is set)
+            forbidden_intent_triggered = False
+            forbidden_intent_observed: list[str] = []
+            fallthrough_observed = False
+
+            if tc.forbidden_intents:
+                all_intents = re.findall(r"NativeIntentHandler\.handle: intent=(\S+)", logcat)
+                actual_intent = all_intents[-1] if all_intents else None
+                actual_params = {}
+                triggered = [fi for fi in tc.forbidden_intents if fi in all_intents]
+                forbidden_intent_triggered = len(triggered) > 0
+                forbidden_intent_observed = triggered
+                if tc.allowed_intents and actual_intent:
+                    intent_passed = actual_intent in tc.allowed_intents
+                else:
+                    intent_passed = not forbidden_intent_triggered
+                has_no_match = "NO_MATCH" in all_intents
+                has_llm_generation = "Generation complete" in logcat
+                fallthrough_observed = has_no_match or has_llm_generation
+                params_ok = True
+                param_failures = []
+            else:
+                actual_intent, actual_params = extract_intent(logcat)
+                intent_passed = (actual_intent or "") == tc.expect_intent
+                params_ok, param_failures = check_params(tc.expect_params, actual_params)
 
 
             # DirectReply verification — best-effort, warn but don't fail the test
@@ -924,6 +962,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.expect_log_contains is not None:
                 if tc.expect_log_contains not in logcat:
                     log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
+            # False-positive: warn if no fallthrough evidence observed
+            if tc.forbidden_intents and not fallthrough_observed and not forbidden_intent_triggered:
+                fp_warn = "no fallthrough/LLM generation evidence"
+                log_check_warn = fp_warn if log_check_warn is None else log_check_warn + "; " + fp_warn
             # Merge first-turn warning (e.g. AskConfirmation not found before confirm_reply)
             # into the final result so phase_results has exactly one entry per test.
             if first_turn_warn is not None:
@@ -952,6 +994,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 fixture=tc.fixture,
                 xfail_reason=tc.xfail_reason,
                 expect_log_contains=tc.expect_log_contains,
+                forbidden_intents=tc.forbidden_intents,
+                forbidden_intent_triggered=forbidden_intent_triggered,
+                forbidden_intent_observed=forbidden_intent_observed,
+                fallthrough_observed=fallthrough_observed,
             )
             result.status = derive_status(result)
             result.failure_bucket = derive_failure_bucket(result)
@@ -975,6 +1021,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 bucket = result.failure_bucket
                 bucket_suffix = f" [{bucket}]" if bucket else ""
                 print(f"✗ (xfail — not yet implemented){bucket_suffix}")
+            elif status == "indeterminate":
+                bucket = result.failure_bucket
+                bucket_suffix = f" [{bucket}]" if bucket else ""
+                print(f"? (indeterminate — no fallthrough evidence)" + bucket_suffix)
             elif not result.intent_passed:
                 bucket = result.failure_bucket
                 bucket_suffix = f" [{bucket}]" if bucket else ""
@@ -992,10 +1042,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         n_xfail = sum(1 for r in phase_results if r.status == "xfail")
         n_xpass = sum(1 for r in phase_results if r.status == "xpass")
         n_fail  = sum(1 for r in phase_results if r.status == "fail")
-        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass
+        n_indet = sum(1 for r in phase_results if r.status == "indeterminate")
+        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass - n_indet
         xpass_suffix = f"  {n_xpass} xpass" if n_xpass else ""
+        indet_suffix = f"  {n_indet} indeterminate" if n_indet else ""
         print(
-            f"  \u2192 {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}"
+            f"  \u2192 {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}{indet_suffix}"
             f"  ({phase_elapsed:.1f}s)"
         )
 
@@ -1026,10 +1078,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     failures = 0
     xfails = 0
     xpasses = 0
+    indeterminates = 0
     for r in results:
         status = r.status
         if status == "pass":
             icon = "  ✓"
+        elif status == "indeterminate":
+            icon = "  ?"
         else:
             icon = "  ✗"
         actual_str = r.actual_intent or "NO_MATCH"
@@ -1040,7 +1095,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         elif status == "xpass":
             suffix = " (xpass)"
             detail = actual_str
-            xpasses += 1
+        elif status == "indeterminate":
+            suffix = " (indeterminate)"
+            detail = actual_str
+            indeterminates += 1
         elif status == "fail":
             suffix = ""
             if not r.intent_passed:
@@ -1057,8 +1115,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
     print("-" * 70)
     total = len(results)
-    n_pass = total - failures - xfails - xpasses
-    print(f"  PASSED: {n_pass}/{total}  XFAIL: {xfails}/{total}  XPASS: {xpasses}/{total}  FAILED: {failures}/{total}")
+    n_pass = total - failures - xfails - xpasses - indeterminates
+    summary_parts = [f"PASSED: {n_pass}/{total}"]
+    if xfails: summary_parts.append(f"XFAIL: {xfails}/{total}")
+    if xpasses: summary_parts.append(f"XPASS: {xpasses}/{total}")
+    if indeterminates: summary_parts.append(f"INDETERMINATE: {indeterminates}/{total}")
+    if failures: summary_parts.append(f"FAILED: {failures}/{total}")
+    print(f"  {'  '.join(summary_parts)}")
     print("=" * 70)
     print("=" * 70)
 

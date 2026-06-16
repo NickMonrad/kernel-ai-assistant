@@ -4,6 +4,7 @@
 > **Harness:** `scripts/adb_skill_test.py`
 > **Date:** 2025-07-17
 > **Status:** Design / Draft — many test cases not yet wired into the current harness.
+> **§2 False-Positive Suite (16 cases):** ✅ Implemented as `false_positives` phase — see #1272.
 > See [`docs/automated-testing.md`](../automated-testing.md) for current operational docs.
 
 ---
@@ -69,6 +70,11 @@
 
 These tests assert that a phrase does **NOT** trigger a specific QIR intent and instead
 falls through to the LLM (`intent=NO_MATCH` or no `NativeIntentHandler.handle` line at all).
+
+> **✅ Implemented in #1272.** The 16 test cases below are wired as the `false_positives` harness phase.
+> The dataclass design from §2.1 has been integrated into the existing `TestCase` model
+> (adding `forbidden_intents`, `allowed_intents`, and `expect_llm_fallthrough` fields).
+> See [`docs/automated-testing.md`](../automated-testing.md#false_positives-phase) for run commands.
 
 ### 2.1 Dataclass Definition
 

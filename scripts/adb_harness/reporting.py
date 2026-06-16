@@ -158,6 +158,10 @@ def save_report(
                 "phase": r.phase,
                 "status": r.status,
                 "failure_bucket": r.failure_bucket,
+                "forbidden_intents": r.forbidden_intents,
+                "forbidden_intent_triggered": r.forbidden_intent_triggered,
+                "forbidden_intent_observed": r.forbidden_intent_observed,
+                "fallthrough_observed": r.fallthrough_observed,
             }
             for r in prepared
         ],

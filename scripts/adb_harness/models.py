@@ -41,6 +41,10 @@ class TestCase:
     slot_replies: list[str] | None = None
     expect_log_contains: str | None = None
     confirm_reply: str | None = None
+    # False-positive / negative-routing metadata (issue #1272)
+    forbidden_intents: list[str] = field(default_factory=list)
+    allowed_intents: list[str] | None = None
+    expect_llm_fallthrough: bool = False
     # Audit metadata (issue #1163)
     id: str = ""
     category: str = "deterministic"
@@ -48,7 +52,6 @@ class TestCase:
     fixture: str | None = None
     xfail_reason: str | None = None
     expect_initial_log_contains: str | None = None
-
     def __post_init__(self) -> None:
         if not self.id:
             self.id = _slugify(self.message)
@@ -119,6 +122,11 @@ class TestResult:
     status: str = ""
     failure_bucket: str | None = None
     expect_log_contains: str | None = None
+    # False-positive / negative-routing evidence (issue #1272)
+    forbidden_intents: list[str] = field(default_factory=list)
+    forbidden_intent_triggered: bool = False
+    forbidden_intent_observed: list[str] = field(default_factory=list)
+    fallthrough_observed: bool = False
 
 
 def is_clean_pass(r: TestResult) -> bool:
@@ -171,18 +179,26 @@ def derive_status(r: TestResult) -> str:
       * xfail + unexpectedly satisfies real success criteria → "xpass"
       * non-xfail clean pass → "pass"
       * non-xfail failure → "fail"
+      * false-positive test with no forbidden intent but no fallthrough
+        evidence either → "indeterminate"
 
     xpass does NOT affect the process exit code by default — it is
     informational, signalling that an expected failure may now be resolveable.
     Set XPASS_IS_FAILURE=1 environment variable to make xpass exit non-zero.
     """
+    # False-positive tests: require fallthrough evidence for pass
+    if r.forbidden_intents:
+        if r.forbidden_intent_triggered:
+            return "xfail" if r.xfail else "fail"
+        if not r.fallthrough_observed:
+            return "indeterminate"
+        return "xpass" if r.xfail else "pass"
+    # Existing logic for normal tests
     if r.xfail:
         if _observed_expected_failure(r):
             return "xfail"
-        # xfail + clean pass that doesn't match any failure pattern = xpass
         if is_clean_pass(r):
             return "xpass"
-        # xfail + non-clean-pass but no failure pattern matched — still xfail
         return "xfail"
     if is_clean_pass(r):
         return "pass"
@@ -194,22 +210,30 @@ def derive_failure_bucket(r: TestResult) -> str | None:
 
     Precedence (first match wins):
     1. clean pass → None
-    2. xfail_reason has a leading <bucket>: prefix → that bucket
-    3. first_turn_warn or log_check_warn mentioning missing slot prompt / NeedsSlot → slot_fill_missing
-    4. tag slot_fill_invalid_answer → slot_fill_invalid_reply
-    5. param_failures → field_mismatch
-    6. category is 'ambiguous' or tag 'ambiguous' → stale_or_ambiguous_expectation
-    7. tag media_context → media_context_missing
-    8. tag location_context or fixture starts with 'location:' → location_or_permission_missing
-    9. tag fixture_required / contact_fixture_required or fixture starts with 'contacts:' / 'apps:' → fixture_missing
-    10. tag device_state → device_state_side_effect
-    11. actual_intent present and differs from expect_intent → wrong_tool
-    12. log_check_warn present → harness_or_logcat_issue
-    13. actual_intent empty → regex_or_qir_miss
-    14. fallback → harness_or_logcat_issue
+    2. false-positive: forbidden intent fired → forbidden_intent_fired
+    3. false-positive: no fallthrough evidence → false_positive_no_fallthrough
+    4. xfail_reason has a leading <bucket>: prefix → that bucket
+    5. first_turn_warn or log_check_warn mentioning missing slot prompt / NeedsSlot → slot_fill_missing
+    6. tag slot_fill_invalid_answer → slot_fill_invalid_reply
+    7. param_failures → field_mismatch
+    8. category is 'ambiguous' or tag 'ambiguous' → stale_or_ambiguous_expectation
+    9. tag media_context → media_context_missing
+    10. tag location_context or fixture starts with 'location:' → location_or_permission_missing
+    11. tag fixture_required / contact_fixture_required or fixture starts with 'contacts:' / 'apps:' → fixture_missing
+    12. tag device_state → device_state_side_effect
+    13. actual_intent present and differs from expect_intent → wrong_tool
+    14. log_check_warn present → harness_or_logcat_issue
+    15. actual_intent empty → regex_or_qir_miss
+    16. fallback → harness_or_logcat_issue
     """
     if is_clean_pass(r):
         return None
+    # False-positive buckets (high priority)
+    if r.forbidden_intent_triggered:
+        return "forbidden_intent_fired"
+    if r.forbidden_intents and not r.fallthrough_observed:
+        return "false_positive_no_fallthrough"
+    # xfail_reason-based bucket extraction
     if r.xfail_reason and ":" in r.xfail_reason:
         bucket = r.xfail_reason.split(":", 1)[0].strip()
         if bucket:

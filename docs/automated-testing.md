@@ -47,7 +47,9 @@ Supported harness phases today:
 8. `system`
 9. `misc`
 10. `slot_fill`
-The `llm_tools` harness is a separate special mode (see below) — it is not one of the ten
+11. `orchestrator_recovery`
+12. `false_positives`  — 16 false-positive / negative-routing cases
+The `llm_tools` harness is a separate special mode (see below) — it is not one of the
 QIR skill-routing phases and is not included in a normal full-suite run.
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
@@ -186,6 +188,67 @@ python3 scripts/adb_skill_test.py --phases=llm_tools
 | Memory save | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field present |
 | System info | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Same, no args expected |
 
+### `false_positives` phase
+
+The `false_positives` phase validates that ambiguous phrasings do **not** trigger
+forbidden native intents. This is a P0 regression suite (issue #1272) covering:
+
+- **Date/Time** (6 cases): Phrases containing time words that should not trigger `get_time`
+  — e.g. *"What year is this movie set in"*, *"What time should I leave"*
+- **Calendar** (1 case): *"Send a calendar invite to John"* must not trigger `create_calendar_event`
+- **Alarm/Timer** (1 case): *"Set a 5 minute egg timer"* must not trigger `set_alarm`;
+  `allowed_intents` includes `set_timer` for disambiguation
+- **List** (3 cases): *"List all the capitals of Europe"* must not trigger `create_list`
+  or `get_list_items`; *"Create a plan for my week"* must not trigger `create_list`;
+  *"Add some detail to your explanation"* must not trigger `add_to_list`
+- **Memory** (2 cases): *"I remember when we talked about this"* and
+  *"Don't forget to add milk"* must not trigger `save_memory`
+- **Weather** (3 cases): *"How hot was the summer of '69"*, *"Is it going to be a long winter"*,
+  *"What's the weather like in Game of Thrones"* — must not trigger `get_weather`
+
+**What validates per case:**
+
+- Sends prompt, captures logcat with extended timeout (30s+) to wait for LLM fallthrough
+- Scans **all** `NativeIntentHandler.handle: intent=...` lines in the captured output
+- **Fails** if any `forbidden_intent` appears in any intent line
+- **Passes** only when no forbidden intent is observed **and** positive fallthrough
+  evidence is found (`NO_MATCH` intent or `Generation complete` logcat marker)
+- **Reports indeterminate/oracle failure** when no forbidden intent fires but no
+  fallthrough evidence is observed either (possible observability gap or timeout)
+
+**Status values for false-positive results:**
+
+| Status | Meaning |
+|--------|---------|
+| `pass` | No forbidden intent triggered + fallthrough evidence confirmed |
+| `fail` | A forbidden intent was triggered |
+| `indeterminate` | No forbidden intent, but no fallthrough evidence either |
+| `xfail` / `xpass` | Same semantics as normal tests, applied to false-positive assertions |
+
+**Failure buckets:**
+
+| Bucket | Meaning |
+|--------|---------|
+| `forbidden_intent_fired` | A forbidden intent was dispatched (product regression) |
+| `false_positive_no_fallthrough` | No forbidden intent but no LLM fallthrough evidence (observability concern) |
+
+**Run commands:**
+
+```bash
+# Preview without a device
+python3 scripts/adb_skill_test.py --dry-run --phases false_positives
+python3 scripts/adb_skill_test.py --dry-run --categories false_positive
+
+# Run on device (selective — ~2 min for 16 cases)
+python3 scripts/adb_skill_test.py --phases false_positives
+
+# With S21 USB ADB
+ANDROID_SERIAL=<S21_SERIAL> python3 scripts/adb_skill_test.py --phases false_positives
+```
+
+16 false-positive cases + 1 complementary positive test in the `lists` phase
+(*"Don't forget to add milk"* routes to `add_to_list`, not `save_memory`).
+
 ### On-device validation
 
 Run the harness against a physical device by setting `ANDROID_SERIAL`:
@@ -276,11 +339,15 @@ Evidence schema reference: [`docs/testing/test-evidence-schema.md`](./testing/te
 | `NO_MATCH` / conversational response | Model gave plain-text instead of a tool call | Model/tool-call generation miss, not a harness bug |
 | Retry marker present | Unexpected hallucination retry path triggered | Spurious retry from the model |
 | Slot-fill marker present | QIR slot-fill path used instead of LLM tool call | Prompt did not stay on the expected LLM tool-call path |
+| `forbidden_intent_fired` | False-positive test triggered a forbidden intent | QIR/regex/classifier incorrectly routed an ambiguous phrase |
+| `false_positive_no_fallthrough` | No forbidden intent but no LLM generation evidence either | Timeout, observability gap, or harness issue |
+| `indeterminate` status | False-positive test with no evidence either way | Oracle observability concern — see [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
 
 ### Runtime markers
 
 The harness reads structured logcat markers emitted by the app. These are the signals that
 determine pass/fail for `llm_tools` cases:
+
 
 | Marker | Report field | When it appears | Required to pass |
 |--------|-------------|----------------|:---:|
@@ -299,6 +366,12 @@ The repository already contains a much larger long-form test specification in
 [`docs/testing/automated-test-specification.md`](./testing/automated-test-specification.md),
 including proposed UI Automator coverage and future suite expansion. Not every item in that
 document is wired into a single runnable repo command yet.
+
+**Recently implemented:**
+
+| Item | Status | Issue/PR |
+|------|--------|----------|
+| False-positive / negative-routing ADB suite (§2 of test spec) | ✅ Implemented as `false_positives` phase (16 cases) | [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
 
 Treat this file as the "what exists today" index, and the detailed testing specification as
 the "where we want to grow next" design document.
