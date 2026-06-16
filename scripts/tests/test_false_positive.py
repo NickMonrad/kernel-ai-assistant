@@ -176,6 +176,7 @@ class FalsePositiveStatusDeriveTest(unittest.TestCase):
             expect_llm_fallthrough=True,
             fallthrough_observed=True,
         )
+        self.assertEqual(derive_status(r), "xpass")
 
     # ── New oracle semantics (review fixes) ─────────────────────────────
 
