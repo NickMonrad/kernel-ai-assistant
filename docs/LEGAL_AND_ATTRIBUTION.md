@@ -101,8 +101,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Android TTS | Platform TTS fallback | Android platform/system service | Safe fallback; document platform dependency. |
 | Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled. |
 | rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; keep per-voice review. |
-| Sherpa Piper/VITS voices excluding Semaine | Downloaded voice packs | Usually permissive at repo level, but per-voice/dataset provenance must be checked | Record source and licence for each release-exposed voice pack before launch. |
-| Semaine Piper/VITS voice pack | Downloadable voice option currently exposed | Potential non-commercial / CC BY-NC-SA path | Launch blocker #1258: disable/replace/permission before launch. |
+| en_GB-cori-high Piper voice | Release-safe British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
 | Kokoro experimental voice pack | Experimental TTS path | Must verify Kokoro model/voice licence if exposed | Keep research/dev-only unless licence is confirmed and documented. |
 
 ## External services and data sources
@@ -120,20 +119,14 @@ These are not all OSS attribution items, but they must be reflected in Play Stor
 
 ## Launch-blocking decisions
 
-### #1258 - Semaine voice pack
+### #1258 / #1268 - Semaine voice pack
 
-The app currently exposes `Semaine` as a Sherpa/Piper voice option. The voice entry is roughly 70 MB and uses the `vits-piper-en_GB-semaine-medium` release asset.
+Decision implemented in #1268:
+- Semaine is hidden from release builds (releaseVisible=false).
+- Retained for debug/internal research and future licence review.
+- Replacement: en_GB-cori-high voice pack (~116 MB, LibriVox public-domain voice, MIT Piper code).
 
-The launch concern is that Semaine may be derived from a non-commercial Creative Commons licence path. If the applicable licence is **CC BY-NC-SA 4.0** or similar, attribution alone is not enough: the NonCommercial term may conflict with Play Store distribution, monetisation, paid add-ons, or commercial user contexts.
-
-Decision required before launch:
-
-- [ ] Verify the exact upstream Semaine voice/model/dataset licence.
-- [ ] Decide whether Semaine is removed/hidden from release, kept dev-only, replaced, or shipped only with explicit compatible permission.
-- [ ] Update code/docs to match the decision.
-- [ ] Do not close #868 as fully launch-complete while #1258 remains unresolved.
-
-Suggested default: **do not ship Semaine in the Play Store release unless compatible rights are confirmed.**
+Semaine is not deleted. If compatible rights are later obtained, Semaine can be re-enabled by setting releaseVisible=true.
 
 ## Suggested README / Play Store wording
 
@@ -152,7 +145,7 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
 - [x] Direct dependency licence classes are recorded in this document.
 - [ ] Generate release dependency notices/SBOM from the resolved release variant and compare against this table.
-- [ ] Resolve #1258 Semaine launch decision.
+- [x] #1268: Semaine hidden from release; CoriHigh promoted as release-safe British English alternative.
 - [ ] Confirm per-model/per-voice licences for every release-exposed STT/TTS asset.
 - [ ] Record wake-word ONNX model provenance/training-data ownership.
 - [ ] Decide whether an in-app open-source licences screen is required for release.
