@@ -25,6 +25,10 @@ private val Context.voiceOutputPrefsDataStore by preferencesDataStore(name = "vo
 class VoiceOutputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+
+    private val isReleaseBuild: Boolean =
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+
     private val spokenResponsesEnabledKey =
         booleanPreferencesKey("quick_actions_spoken_responses_enabled")
     private val selectedEngineKey = stringPreferencesKey("selected_voice_output_engine")
@@ -69,7 +73,15 @@ class VoiceOutputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> SherpaPiperVoice.fromStorage(prefs[selectedSherpaVoiceKey]) }
+        .map { prefs ->
+            val stored = SherpaPiperVoice.fromStorage(prefs[selectedSherpaVoiceKey])
+            if (isReleaseBuild && !stored.releaseVisible) {
+                Log.i(TAG, "Migrating persisted Semaine (not release-visible) to CoriHigh")
+                SherpaPiperVoice.CoriHigh
+            } else {
+                stored
+            }
+        }
 
     val selectedKokoroVoice: Flow<SherpaKokoroVoice> = context.voiceOutputPrefsDataStore.data
         .catch { e ->

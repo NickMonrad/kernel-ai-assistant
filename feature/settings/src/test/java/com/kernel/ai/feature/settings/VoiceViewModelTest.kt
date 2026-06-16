@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import android.content.pm.ApplicationInfo
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VoiceViewModelTest {
@@ -131,6 +132,9 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
+        every { context.applicationInfo } returns ApplicationInfo().apply {
+            flags = ApplicationInfo.FLAG_DEBUGGABLE
+        }
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -348,6 +352,29 @@ class VoiceViewModelTest {
             viewModel.uiState.value.sherpaVoices.first { it.voice == SherpaPiperVoice.NorthernEnglishMale }.downloadState,
         )
     }
+    @Test
+    fun `release builds filter non-release Sherpa voices from ui state`() = runTest {
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            releaseContext,
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            releaseViewModel.uiState.value.sherpaVoices.none { row ->
+                row.voice == SherpaPiperVoice.SemaineMedium
+            }
+        )
+    }
 
     @Test
     fun `setVoiceOutputEngine updates ui state immediately`() = runTest {
@@ -390,6 +417,36 @@ class VoiceViewModelTest {
             voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
         }
     }
+    @Test
+    fun `release builds ignore setSherpaVoice for hidden voices`() = runTest {
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.SemaineMedium to VoicePackDownloadState.Downloaded("/voices/semaine"),
+        )
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            releaseContext,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        releaseViewModel.setSherpaVoice(SherpaPiperVoice.SemaineMedium)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            SherpaPiperVoice.JennyDioco,
+            releaseViewModel.uiState.value.selectedSherpaVoice,
+        )
+        coVerify(exactly = 0) {
+            voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.SemaineMedium)
+        }
+    }
 
     @Test
     fun `Sherpa download flags reflect available and selected voices`() = runTest {
@@ -408,6 +465,28 @@ class VoiceViewModelTest {
         viewModel.downloadSherpaVoice(SherpaPiperVoice.JennyDioco)
 
         io.mockk.verify { sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco) }
+    }
+    @Test
+    fun `release builds ignore downloadSherpaVoice for hidden voices`() = runTest {
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            releaseContext,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        releaseViewModel.downloadSherpaVoice(SherpaPiperVoice.SemaineMedium)
+
+        io.mockk.verify(exactly = 0) {
+            sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.SemaineMedium)
+        }
     }
 
     @Test

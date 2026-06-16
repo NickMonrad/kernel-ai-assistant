@@ -26,7 +26,8 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 | Voice family | App download source | Approx. size | Licence position | Release action |
 |---|---|---:|---|---|
 | Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
-| Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | Launch decision #1258: disable, replace, keep dev-only, or ship only with compatible permission. |
+| Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | #1268: Hidden from release builds; retained for debug/internal research. Replacement voice: en_GB-cori-high (public domain voice, MIT code). |
+| Cori high-quality (en_GB-cori-high) | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-cori-high.tar.bz2` | ~116 MB | Voice: public domain (LibriVox recordings, "no further restrictions"). HF repo: MIT. Piper code: MIT. | Release-visible. Document provenance and public-domain status. |
 | Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Kokoro can be considered likely permissive, but release docs should cite the upstream Kokoro model and the exact Sherpa-ONNX asset used by Jandal. |
 
 ## SenseVoice source notes
@@ -81,4 +82,4 @@ Use `openai/whisper-tiny.en`, not multilingual `openai/whisper-tiny`, because Ja
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.
 - `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaSttModelSpec.kt` records required ONNX/token file groups and online/offline runtime shape.
 - `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaKokoroVoice.kt` records the Kokoro asset name, download key, approximate size, speaker count, and Sherpa-ONNX release URL pattern.
-- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaPiperVoice.kt` records Piper/VITS voice pack asset names, sizes, and download keys.
+- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaPiperVoice.kt` records Piper/VITS voice pack asset names, sizes, download keys, and the `releaseVisible` field used by `entriesForBuild()` to filter release vs debug/internal catalogues.
