@@ -71,6 +71,10 @@ Recommended Project views:
 
 If the Project implementation cannot express one of the filters as a saved Project view, keep the query in this document and create it as a personal saved search instead. The setup agent should comment on #1271 with the Project URL and any filters left as manual saved searches.
 
+## Project setup follow-up
+
+The backlog dashboard can be created after this PR lands. Create or reuse **Jandal Launch Backlog**, link it to this repository, add the views above, and add existing matching issues so the views are useful immediately.
+
 ## Automated warning signal
 
 The repository includes `scripts/check_issue_hygiene.py` and the `Backlog hygiene` workflow.
