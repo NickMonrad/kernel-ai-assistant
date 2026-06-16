@@ -18,8 +18,9 @@ def _issue(
     *,
     labels: list[str],
     body: str | None = None,
-    milestone: dict[str, object] | None = {"number": 3, "title": "Launch"},
+    milestone: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    resolved_milestone = milestone if milestone is not None else {"number": 3, "title": "Launch"}
     return {
         "number": 123,
         "title": "Test issue",
@@ -37,8 +38,14 @@ Do the thing.
 ## Testing
 - [ ] Unit tests pass.
 """,
-        "milestone": milestone,
+        "milestone": resolved_milestone,
     }
+
+
+def _issue_without_milestone(*, labels: list[str], body: str | None = None) -> dict[str, object]:
+    issue = _issue(labels=labels, body=body)
+    issue["milestone"] = None
+    return issue
 
 
 class ValidateIssueTest(unittest.TestCase):
@@ -66,9 +73,8 @@ class ValidateIssueTest(unittest.TestCase):
         self.assertIn("domain label", messages)
 
     def test_detects_missing_milestone(self) -> None:
-        issue = _issue(
-            labels=["type:bug", "size:XS", "priority:high", "launch:blocking", "testing"],
-            milestone=None,
+        issue = _issue_without_milestone(
+            labels=["type:bug", "size:XS", "priority:high", "launch:blocking", "testing"]
         )
 
         violation = cih.validate_issue(issue)
@@ -77,10 +83,9 @@ class ValidateIssueTest(unittest.TestCase):
         messages = "\n".join(violation.messages) if violation else ""
         self.assertIn("missing milestone", messages)
 
-    def test_parked_issue_can_omit_milestone(self) -> None:
-        issue = _issue(
+    def test_parked_issue_can_omit_milestone_from_body_rationale(self) -> None:
+        issue = _issue_without_milestone(
             labels=["type:spike", "size:S", "priority:low", "launch:deferred", "research"],
-            milestone=None,
             body="""Standalone issue.
 
 Milestone intentionally omitted: intentionally parked until post-launch.
@@ -94,6 +99,47 @@ Milestone intentionally omitted: intentionally parked until post-launch.
         )
 
         self.assertIsNone(cih.validate_issue(issue))
+
+    def test_parked_issue_can_omit_milestone_from_comment_rationale(self) -> None:
+        issue = _issue_without_milestone(
+            labels=["type:spike", "size:S", "priority:low", "launch:deferred", "research"],
+            body="""Standalone issue.
+
+## Acceptance criteria
+- [ ] Decision is captured.
+
+## Testing
+- [ ] No device testing required for research-only spike.
+""",
+        )
+
+        self.assertIsNone(
+            cih.validate_issue(
+                issue,
+                comment_bodies=["Milestone intentionally omitted: parked until the post-launch review."],
+            )
+        )
+
+    def test_comment_rationale_only_applies_to_milestone_check(self) -> None:
+        issue = _issue_without_milestone(
+            labels=["type:spike", "size:S", "priority:low", "launch:deferred", "research"],
+            body="""Standalone issue.
+
+## Summary
+Needs decision.
+""",
+        )
+
+        violation = cih.validate_issue(
+            issue,
+            comment_bodies=["Milestone intentionally omitted: parked until post-launch."],
+        )
+
+        self.assertIsNotNone(violation)
+        messages = "\n".join(violation.messages) if violation else ""
+        self.assertNotIn("missing milestone", messages)
+        self.assertIn("Acceptance criteria", messages)
+        self.assertIn("testing/device", messages)
 
     def test_epic_does_not_need_parent_marker(self) -> None:
         issue = _issue(
