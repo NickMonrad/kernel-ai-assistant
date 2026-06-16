@@ -27,7 +27,7 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 |---|---|---:|---|---|
 | Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
 | Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | #1268: Hidden from release builds; retained for debug/internal research. Replacement voice: en_GB-cori-high (training data public domain, model permissive MIT). |
-| Cori high-quality (en_GB-cori-high) | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-cori-high.tar.bz2` | ~116 MB | Training data: LibriVox public-domain recordings. Voice model: permissive — creator states "no further restrictions". HF repo: MIT. Piper code: MIT. | Release-visible. Document provenance and permissive terms. |
+| Cori high-quality (en_GB-cori-high) | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-cori-high.tar.bz2` | ~116 MB | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
 | Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Kokoro can be considered likely permissive, but release docs should cite the upstream Kokoro model and the exact Sherpa-ONNX asset used by Jandal. |
 
 ## SenseVoice source notes
