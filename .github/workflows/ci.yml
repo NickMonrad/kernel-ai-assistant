@@ -25,8 +25,8 @@ jobs:
           echo "Repo structure OK"
 
       # ── Repository script tests ──────────────────────────────────────
-      - name: Python script tests
-        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Backlog hygiene checker tests
+        run: python3 -m unittest scripts/tests/test_check_issue_hygiene.py
 
       # ── Android build ──────────────────────────────────────────────
       - name: Set up JDK 21
