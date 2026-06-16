@@ -1,24 +1,27 @@
 # Backlog hygiene and triage policy
 
-This policy keeps Jandal issues ready for agent handoff without adding heavy project-management ceremony. It supports issue #1251 and applies to every open issue unless the issue is intentionally parked with an explicit rationale.
+> **Status:** Active policy
+> **Related:** #1251 and launch plan #1255
+
+This policy keeps the Jandal AI backlog trustworthy for agent-driven development without adding heavy project-management ceremony. Agents rely on issue metadata, milestones, parent epics, acceptance criteria, and test evidence expectations to pick the right work and produce reviewable changes.
 
 ## Required issue metadata
 
 Every open issue should have exactly one label from each required category:
 
-| Category | Allowed labels |
-| --- | --- |
-| Type | `type:epic`, `type:feature`, `type:bug`, `type:chore`, `type:spike`, `type:performance` |
-| Size | `size:XS`, `size:S`, `size:M`, `size:L`, `size:XL` |
-| Priority | `priority:high`, `priority:medium`, `priority:low` |
-| Launch status | `launch:blocking`, `launch:post`, `launch:deferred` |
+| Category | Allowed labels | Notes |
+| --- | --- | --- |
+| Type | `type:epic`, `type:feature`, `type:bug`, `type:chore`, `type:spike`, `type:performance` | Exactly one. |
+| Size | `size:XS`, `size:S`, `size:M`, `size:L`, `size:XL` | Exactly one. |
+| Priority | `priority:high`, `priority:medium`, `priority:low` | Exactly one. Never duplicate. |
+| Launch status | `launch:blocking`, `launch:post`, `launch:deferred` | Exactly one for launch-track work. Parked/dream backlog items should normally be `launch:deferred`. |
 
 Each open issue should also have:
 
 - one or more domain labels, for example `UX`, `ui`, `voice`, `wake-word`, `skills`, `lists`, `meal-planning`, `memory`, `model-management`, `testing`, `technical-debt`, `research`, or `optimisation`;
-- a milestone, unless the issue body or comment clearly states why the issue is parked without one;
+- a milestone, unless the issue body or a comment clearly states why the issue is parked without one;
 - a parent epic/workstream reference, or an explicit note that it is standalone;
-- clear acceptance criteria;
+- observable acceptance criteria;
 - testing expectations, including when S21 or S23U validation is required.
 
 ## Issue readiness checklist
@@ -33,14 +36,21 @@ Before giving an issue to an agent, confirm:
 - [ ] The issue states automated, manual, and device validation expectations.
 - [ ] The issue is implementation-ready; otherwise create or keep it as a `type:spike`.
 
+## Spike vs implementation issue
+
+Use `type:spike` when the implementation path, risk, licensing, store-policy impact, or test strategy is not yet clear. A spike should produce a decision, recommendation, evidence bundle, or concrete child issue; it should not quietly turn into broad production implementation.
+
+Use `type:feature`, `type:bug`, `type:chore`, or `type:performance` when the approach is understood and the acceptance criteria are concrete enough for an agent to implement and test.
+
 ## Device validation expectations
 
 Use the lightest validation that can prove the change safely:
 
-- S21 is the default device for permission, QIR, navigation, and test-harness work.
-- S23U should be used only for high-risk model/runtime comparison or where explicitly required.
-- Manual device evidence remains important for STT/TTS quality, wake-word behaviour, model availability, UI alignment, and any flow that automated tests cannot prove reliably.
+- S21 is the default device for permission, QIR, navigation, test-harness, and model-readiness work.
+- S23U should be used only for high-risk model/runtime/voice comparison or where explicitly required.
+- Manual device evidence remains important for STT/TTS quality, wake-word behaviour, model availability, UI alignment, and flows that automated tests cannot prove reliably.
 - Routine docs/process-only changes do not need physical device validation; state this explicitly in the issue or PR.
+- Every PR with device evidence should state the device used, Android version when relevant, commands run, and evidence artifact paths.
 
 ## Saved searches / project views
 
@@ -85,14 +95,17 @@ Local usage:
 python3 scripts/check_issue_hygiene.py --repo NickMonrad/kernel-ai-assistant
 python3 scripts/check_issue_hygiene.py --repo NickMonrad/kernel-ai-assistant --issue-number 1251
 python3 scripts/check_issue_hygiene.py --repo NickMonrad/kernel-ai-assistant --fail-on-violations
+python3 -m unittest scripts/tests/test_check_issue_hygiene.py
 ```
 
 ## Triage cadence
 
-- Weekly: review the workflow summary plus missing-label and missing-milestone saved searches.
-- Before assigning work to an agent: confirm the readiness checklist above.
-- After PR merge: close or update the linked issue, and update the parent epic child status.
-- Monthly: review `launch:deferred` and old `priority:low` issues for closure, consolidation, or promotion.
+| Frequency | Activity |
+| --- | --- |
+| Weekly, or before agent handoff | Review workflow warnings plus the missing-label and missing-milestone saved searches. Fix anything that blocks clean agent handoff. |
+| Before assigning work to an agent | Verify parent epic/workstream, labels, milestone, acceptance criteria, and test expectations. Add a comment if anything is missing; do not let the agent discover ambiguity mid-turn. |
+| After PR merge | Close or update the linked issue, update the parent epic child status, and close completed child trackers where appropriate. |
+| Monthly | Review `launch:deferred` and old `priority:low` items for closure, consolidation, or promotion to active work. |
 
 ## Parent epic update convention
 
@@ -103,8 +116,43 @@ When a child issue is created, completed, superseded, or deferred:
 - close duplicate or superseded children with the correct state reason where appropriate;
 - leave a short comment when an issue is intentionally parked without a milestone.
 
-## Spike vs implementation issue
+## Launch reclassification rules
 
-Use `type:spike` when the implementation path, risk, licensing, store-policy impact, or test strategy is not yet clear.
+When reclassifying an issue's launch status:
 
-Convert or replace the spike with a `type:feature`, `type:bug`, `type:chore`, or `type:performance` implementation issue when the outcome is known and acceptance criteria are concrete.
+- Keep `launch:blocking` if the issue affects first-run reliability, Store compliance, model readiness, permission UX, release evidence, or any launch claim.
+- Move to `launch:post` if the issue is valuable but not launch-critical and should not block release.
+- Move to `launch:deferred` if the issue is a dream feature, depends on unavailable technology, or has no clear implementation path within the next two milestones.
+- Close as `not_planned` if the issue is superseded, a duplicate, or no longer relevant.
+- If uncertain, leave the current label and add a comment explaining what decision or evidence is needed.
+
+## Launch-blocking audit baseline
+
+The #1255 Gate 0 audit grouped launch-track issues as follows:
+
+**Keep as `launch:blocking`:**
+
+- #1014 — Launch readiness parent epic
+- #441 — Play Store publish
+- #427 — Verification matrix
+- #824 — Voice QA gate
+- #1142 — Wake-word battery drain
+- #1140 — Permission UX epic
+- #428 — Memory profiling decision spike
+
+**Already non-blocking / post-launch / deferred:**
+
+- #928 — Lists UX, `launch:post`
+- #885 — Messaging reply, `launch:post`
+- #886 — Group chat, `launch:post`
+- #756 — Piper voice, `launch:deferred`
+- #713 — Vision, `launch:deferred`
+- #432 — Compat swap, `launch:post`
+- #430 — Dynamic loading, `launch:post`
+
+**Closed / completed baseline:**
+
+- #868 — completed
+- #1245 — completed by PR #1256
+
+Use this baseline as a starting point, not a permanent truth. Reclassify launch blockers when evidence changes, especially after S21 model-readiness and verification-matrix work lands.
