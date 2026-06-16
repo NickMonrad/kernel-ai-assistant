@@ -154,4 +154,4 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [ ] Confirm maintainer ownership/consent for real recordings used in the generated Hey Jandal Stage 3 wake-word model.
 - [ ] Decide whether an in-app open-source licences screen is required after the generated release notice/SBOM is reviewed.
 - [ ] Play Store privacy/data disclosures match the actual release build.
-- [ ] #868 is closed only after the final release scope is known and the checklist above has been reviewed.
+- [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.
