@@ -7,9 +7,11 @@ This document captures the release-attribution state after the Semaine release-v
 
 ## Status
 
-This is a **pre-release-candidate attribution snapshot**. It verifies the release-exposed model/voice decisions that can be checked from source, but it does **not** replace the final release artefact audit in #1259.
+This document was updated by #1259 with the first release AAB build and artefact audit. The generated dependency evidence has been compared against the existing attribution docs.
 
-Before Play Store publication, #1259 still needs to produce and inspect the actual release `.aab`, and #1263 still needs a generated dependency notice/SBOM from the resolved release variant.
+## Pre-release-candidate status
+
+This is still a **pre-release-candidate attribution snapshot** — Play Console pre-launch report findings may still require changes. But the key gaps identified at creation time (SBOM, dependency comparison, AAB inspection) have been addressed.
 
 ## Release scope decisions captured
 
@@ -88,14 +90,21 @@ Required first-launch minimum:
 - Play Store copy does not claim ownership of upstream models/voices;
 - final release artefact audit confirms no unexpected bundled model files or debug-only dependencies.
 
-## Final release artefact audit still required
+## Release artefact audit complete
 
-The following items cannot be completed from static source docs alone:
+The following items were completed in #1259:
 
-- generate release dependency notices or SBOM from the resolved release variant;
-- inspect the release `.aab` contents for bundled models, debug artefacts, and native ABIs;
-- confirm exact runtime dependency set after Gradle resolution;
-- confirm whether any licence notice needs to appear inside the app rather than only in repository/docs;
-- record final versionCode/versionName, commit SHA, and release artefact hash/path.
+- [x] Release AAB built from clean checkout: `app/build/outputs/bundle/release/app-release.aab`
+- [x] AAB contents inspected — no accidental model/debug bundling confirmed
+- [x] Release runtime classpath dependency tree generated and compared against attribution docs
+- [x] Dependency gap report created in `build/reports/release-audit/attribution-gap-report.md`
+- [x] Release signing approach documented in `docs/PLAY_RELEASE_BUILD.md`
+- [x] Full audit report in `docs/release-audit/RELEASE_AUDIT.md`
+- [x] versionCode=1, versionName=0.1.0, commit=059122dc, SHA-256 recorded
 
-Track those in #1259 and feed the result back into #1263 before closing the launch gate.
+## Remaining before closing #1263
+
+- [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
+- [ ] Confirm maintainer ownership/consent for Stage 3 wake-word training recordings
+- [ ] Decide in-app OSS notices screen — deferred for first launch unless pre-launch review flags it
+- [ ] Update #868 with final release scope
