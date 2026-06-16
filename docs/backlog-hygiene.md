@@ -52,30 +52,24 @@ Use the lightest validation that can prove the change safely:
 - Routine docs/process-only changes do not need physical device validation; state this explicitly in the issue or PR.
 - Every PR with device evidence should state the device used, Android version when relevant, commands run, and evidence artifact paths.
 
-## Saved searches / project views
+## Project views and saved searches
 
-Create GitHub saved searches or Project views for the following queries:
+Preferred durable backlog dashboard: create a GitHub Project named **Jandal Launch Backlog** and add views using the queries below. A local/browser agent can create and maintain this Project if it is authenticated with GitHub permissions that can manage Projects. Personal saved searches are optional UI shortcuts and may still need to be created manually by the signed-in user.
 
-```text
-repo:NickMonrad/kernel-ai-assistant is:issue is:open no:label
-repo:NickMonrad/kernel-ai-assistant is:issue is:open no:milestone
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:launch:blocking
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:type:epic
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:priority:high label:launch:post
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:launch:deferred
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:testing
-repo:NickMonrad/kernel-ai-assistant is:issue is:open label:technical-debt
-```
+Recommended Project views:
 
-Recommended dashboard sections:
+| View | Query / filter | Purpose |
+| --- | --- | --- |
+| Launch blockers | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:launch:blocking` | Current release blockers |
+| High-priority post-launch | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:priority:high label:launch:post` | Valuable work that should not block launch |
+| Epics and parent streams | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:type:epic` | Parent workstreams and child status |
+| Missing labels | `repo:NickMonrad/kernel-ai-assistant is:issue is:open no:label` | Metadata cleanup queue |
+| Missing milestones | `repo:NickMonrad/kernel-ai-assistant is:issue is:open no:milestone` | Planning cleanup queue |
+| Testing / evidence | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:testing` | Test harness and evidence reliability |
+| Technical debt | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:technical-debt` | Maintenance work |
+| Deferred backlog | `repo:NickMonrad/kernel-ai-assistant is:issue is:open label:launch:deferred` | Dream/deferred backlog |
 
-1. Launch blockers
-2. High-priority post-launch
-3. Ready for agent
-4. Needs design / spike
-5. Missing metadata
-6. Deferred / dream backlog
-7. Epics and parent streams
+If the Project implementation cannot express one of the filters as a saved Project view, keep the query in this document and create it as a personal saved search instead.
 
 ## Automated warning signal
 
@@ -102,7 +96,7 @@ python3 -m unittest scripts/tests/test_check_issue_hygiene.py
 
 | Frequency | Activity |
 | --- | --- |
-| Weekly, or before agent handoff | Review workflow warnings plus the missing-label and missing-milestone saved searches. Fix anything that blocks clean agent handoff. |
+| Weekly, or before agent handoff | Review workflow warnings plus the missing-label and missing-milestone Project views or saved searches. Fix anything that blocks clean agent handoff. |
 | Before assigning work to an agent | Verify parent epic/workstream, labels, milestone, acceptance criteria, and test expectations. Add a comment if anything is missing; do not let the agent discover ambiguity mid-turn. |
 | After PR merge | Close or update the linked issue, update the parent epic child status, and close completed child trackers where appropriate. |
 | Monthly | Review `launch:deferred` and old `priority:low` items for closure, consolidation, or promotion to active work. |
