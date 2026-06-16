@@ -127,12 +127,6 @@ Reports dir: {REPORTS_DIR}
         default=None,
         help="Max seconds to wait for engine init after download (model readiness preflight)",
     )
-    parser.add_argument(
-        "--hf-signin-timeout",
-        type=float,
-        default=None,
-        help="Max seconds to wait for HuggingFace sign-in flow (model readiness preflight)",
-    )
     args = parser.parse_args()
 
     # Set ANDROID_SERIAL early so all ADB calls use the selected device
@@ -167,7 +161,6 @@ Reports dir: {REPORTS_DIR}
             unlock_pin=args.unlock_pin,
             timeout_download=args.timeout_download,
             timeout_engine=args.timeout_engine,
-            hf_signin_timeout=args.hf_signin_timeout,
         ))
 
 

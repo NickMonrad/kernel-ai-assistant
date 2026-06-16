@@ -498,8 +498,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
               case_ids: list[str] | None = None, model_readiness: bool = False,
               serial: str | None = None, unlock_pin: str | None = None,
               timeout_download: float | None = None,
-              timeout_engine: float | None = None,
-              hf_signin_timeout: float | None = None) -> int:
+              timeout_engine: float | None = None) -> int:
 
     """Execute all test cases. Returns non-zero on failures."""
 
@@ -630,14 +629,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             mr_kwargs["timeout_download"] = timeout_download
         if timeout_engine is not None:
             mr_kwargs["timeout_engine"] = timeout_engine
-        if hf_signin_timeout is not None:
-            mr_kwargs["hf_signin_timeout"] = hf_signin_timeout
         evidence = preflight_model_readiness(verbose=True, **mr_kwargs)
-        # Persist failure evidence before early return
-        _save_readiness_failure(evidence)
         model_readiness_evidence = evidence
-
         if evidence.failure_bucket:
+            # Persist failure evidence before early return
+            _save_readiness_failure(evidence)
             print(f"  [preflight] ❌ ABORT: {evidence.failure_bucket}")
             print(f"  [preflight]    Model readiness failed after {evidence.readiness_wait_seconds:.0f}s")
             print(f"  [preflight]    Initial state was: {evidence.initial_state}")
@@ -646,6 +642,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             run_adb("shell", "svc", "power", "stayon", "false")
             run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
             return EXIT_MODEL_NOT_READY
+
         print(f"  [preflight] ✅ Model ready ({evidence.readiness_wait_seconds:.0f}s)")
         print(f"  [preflight]    Initial state: {evidence.initial_state}")
         print(f"  [preflight]    Download triggered: {evidence.download_triggered}")

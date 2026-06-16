@@ -1,7 +1,7 @@
 """
 ADB Harness — Model Readiness Preflight.
 
-Deterministic S21 model-readiness check for ADB/device test runs after reinstall.
+Orchestrated S21 model-readiness check for ADB/device test runs after reinstall.
 Runs after a fresh install or clean reinstall and ensures the required conversation
 model is downloaded and the inference engine is ready before test execution begins.
 
@@ -18,6 +18,7 @@ Failure buckets:
   - ``MODEL_DOWNLOAD_FAILED`` — download worker errored
   - ``MODEL_DOWNLOAD_TIMEOUT`` — download started but did not finish within timeout
   - ``ENGINE_NOT_READY`` — engine did not initialise after download completed
+  - ``ENGINE_BLOCKED_BY_KEYGUARD`` — lock screen prevented engine initialisation
 """
 
 from __future__ import annotations
@@ -352,9 +353,8 @@ def _uiautomator_tap_text(target_text: str) -> bool:
 
 def preflight_model_readiness(
     serial: str | None = None,
-    timeout_download: float = 600.0,
+    timeout_download: float = 360.0,
     timeout_engine: float = 120.0,
-    hf_signin_timeout: float = 60.0,
     verbose: bool = True,
     unlock_pin: str | None = None,
 ) -> ModelReadinessEvidence:
@@ -377,15 +377,13 @@ def preflight_model_readiness(
     serial : str or None
         Device serial. Falls back to ``ANDROID_SERIAL`` / ``ADB_SERIAL`` env vars.
     timeout_download : float
-        Max seconds to wait for the model to finish downloading (default 600).
+        Max seconds to wait for model download (default 360).
     timeout_engine : float
         Max seconds to wait for the inference engine to init after download (default 120).
-    hf_signin_timeout : float
-        Reserved — no longer blocking. HF sign-in is tapped best-effort then
-        the main download/engine loop proceeds regardless. Kept for API
-        compatibility (default 60).
     verbose : bool
-        Print progress output.
+        Print progress lines (default True).
+    unlock_pin : str | None
+        Device PIN to dismiss keyguard before starting (default None).
 
     Returns
     -------
