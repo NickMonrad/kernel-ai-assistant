@@ -78,6 +78,10 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         _kokoroDownloadStates.asStateFlow()
 
     init {
+        // Cancel any legacy Semaine downloads in release builds (not release-visible)
+        if (isReleaseBuild) {
+            workManager.cancelUniqueWork(SherpaPiperVoice.SemaineMedium.workerTag)
+        }
         // Resume observing any in-progress workers from a previous process lifecycle
         SherpaPiperVoice.entries.forEach { voice -> ensureObserving(voice) }
         SherpaKokoroVoice.entries.forEach { voice -> ensureObservingKokoro(voice) }

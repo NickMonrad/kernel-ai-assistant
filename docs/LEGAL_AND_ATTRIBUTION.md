@@ -101,9 +101,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Android TTS | Platform TTS fallback | Android platform/system service | Safe fallback; document platform dependency. |
 | Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled. |
 | rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; keep per-voice review. |
-| Sherpa Piper/VITS voices excluding Semaine | Downloaded voice packs | Usually permissive at repo level, but per-voice/dataset provenance must be checked | Record source and licence for each release-exposed voice pack before launch. |
-| en_GB-cori-high Piper voice | Release-safe British English female voice | Voice: public domain (LibriVox recordings). Piper code and HF repo: MIT. | Document provenance; no known restrictions. |
-| Semaine Piper/VITS voice pack | Downloadable voice option currently exposed | Potential non-commercial / CC BY-NC-SA path | Launch blocker #1258: disable/replace/permission before launch. |
+| en_GB-cori-high Piper voice | Release-safe British English female voice | Training data: LibriVox public-domain recordings. Voice model: permissive — creator states "no further restrictions". Piper code and HF repo: MIT. | Document provenance; permissive terms. |
 | Kokoro experimental voice pack | Experimental TTS path | Must verify Kokoro model/voice licence if exposed | Keep research/dev-only unless licence is confirmed and documented. |
 
 ## External services and data sources
