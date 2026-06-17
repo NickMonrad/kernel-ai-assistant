@@ -395,12 +395,12 @@ The lifecycle decision logic is extracted into a pure helper:
 
 - `ClockAlertLifecyclePolicy.kt` — `resolveAlertLifecycleAction(type, isSnoozeRetrigger)`
   and `lifecycleTimeoutDurationMs(type, isSnoozeRetrigger)`.
-- `ClockAlertLifecyclePolicyTest.kt` — unit tests covering timer auto-stop,
+- `ClockAlertLifecyclePolicyTest.kt` — 14 unit tests covering timer auto-stop,
   alarm auto-snooze vs. auto-stop, snooze re-trigger flag resolution,
   pre-alarm no-op, and duration constant values.
 - `ClockRepositoryImplTest` — verifies `snoozeAlarm()` produces scheduled
-  events with `isSnoozeRetrigger = true` and `restoreScheduledEntries()`
-  persists snoozed future events with the durable flag.
+  events with `isSnoozeRetrigger = true`, primary alarms have
+  `isSnoozeRetrigger = false`, and `restoreScheduledEntries()`
 
 ---
 
