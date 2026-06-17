@@ -313,6 +313,78 @@ Foreground service for active timer countdowns:
 
 Full-screen UI for alarm ringing and locked-device timer completion.
 
+
+### 6.3 Alert lifecycle policy (implemented in #1275)
+
+To prevent alarms and timers from ringing/vibrating indefinitely if the user does not
+dismiss them, `ClockAlertService` implements an explicit per-alert lifecycle timeout.
+
+#### 6.3.1 Timer lifecycle
+
+- **Ringing duration:** ~60 seconds (`TIMER_AUTO_STOP_DURATION_MS = 60_000L`).
+- If not dismissed, the timer **auto-stops** after the ringing duration.
+- Auto-stop stops playback, cancels vibration, removes the foreground notification,
+  and leaves the timer marked as completed in the database (already handled by
+  `ClockRepository.handleScheduledEvent`).
+- Tapping **`+1 min`** cancels the pending auto-stop for the current alert and
+  creates a new timer with its own independent lifecycle.
+
+#### 6.3.2 Alarm lifecycle
+
+- **First ring ringing duration:** ~60 seconds (`ALARM_AUTO_SNOOZE_DURATION_MS = 60_000L`).
+- If not dismissed, the alarm **auto-snoozes** for 10 minutes (`ALARM_SNOOZE_MS`)
+  via `ClockRepository.snoozeAlarm`.
+- The snoozed alarm rings again after the snooze duration.
+- If the snoozed alarm is still not dismissed, it **auto-stops** after ~60 seconds
+  and does not repeat for that one-off occurrence.
+
+#### 6.3.3 Snooze re-trigger detection
+
+To distinguish a snooze re-trigger from a first ring, the service uses a companion-level
+`snoozedOwnerIds: Set<String>`. When an alarm is snoozed (manually or automatically),
+the owner ID is added to this set. When the next `TRIGGER_ALERT` arrives, the set is
+checked and consumed:
+
+- **OwnerId in set:** Snooze re-trigger → schedule auto-stop after ringing duration.
+- **OwnerId not in set:** First ring → schedule auto-snooze after ringing duration.
+
+The entry is consumed (removed) during `TRIGGER_ALERT` processing so the next
+occurrence (e.g. tomorrow's repeating alarm) starts fresh as a first ring.
+
+#### 6.3.4 Cancellation rules
+
+The pending lifecycle timeout for an alert is cancelled when any of these occur:
+
+- **Dismiss (manual or voice):** `removeSnoozedOwnerId` + lifecycle job cancelled.
+- **Snooze (manual or auto):** lifecycle job cancelled, ownerId added to snoozed set.
+- **+1 min:** lifecycle job cancelled, new timer/alarm scheduled.
+- **Service destroyed / all alerts dismissed:** all lifecycle jobs cancelled.
+
+#### 6.3.5 Constants summary
+
+| Constant | Value | Effect |
+|---|---|---|
+| `TIMER_AUTO_STOP_DURATION_MS` | 60 000 ms (60 s) | Time before timer auto-stops |
+| `ALARM_AUTO_SNOOZE_DURATION_MS` | 60 000 ms (60 s) | Time before alarm auto-snoozes |
+| `ALARM_SNOOZE_MS` | 600 000 ms (10 min) | Snooze duration |
+| `ALERT_ADD_MINUTE_MS` | 60 000 ms (60 s) | +1 min extension duration |
+
+#### 6.3.6 Repeating alarm behaviour
+
+For repeating alarms, the auto-stop/snooze lifecycle applies only to the **current
+occurrence**. Future scheduled occurrences (next day, next weekday) remain active
+unless the user explicitly disables the alarm. The snooze re-trigger set is per-service
+session and does not carry over between occurrences.
+
+#### 6.3.7 Testability
+
+The lifecycle decision logic is extracted into a pure helper:
+
+- `ClockAlertLifecyclePolicy.kt` — `resolveAlertLifecycleAction(type, isSnoozeRetrigger)`
+  and `lifecycleTimeoutDurationMs(type, isSnoozeRetrigger)`.
+- `ClockAlertLifecyclePolicyTest.kt` — 10 unit tests covering timer auto-stop,
+  alarm auto-snooze vs. auto-stop, snooze re-trigger detection, pre-alarm no-op,
+  and duration constant values.
 ---
 
 ## 7. Data model
