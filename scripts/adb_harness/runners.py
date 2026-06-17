@@ -40,12 +40,14 @@ from adb_harness.model_readiness import (
     preflight_model_readiness,
     ModelReadinessEvidence,
     EXIT_MODEL_NOT_READY,
+    EXIT_CLEANUP_FAILED,
 )
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
     capture_fresh_logcat,
     check_oracle,
     check_logcat_stream,
+    cleanup_clock_alerts,
     cleanup_side_effects,
     clear_logcat,
     dismiss_notifications,
@@ -253,11 +255,14 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
     print("ready")
-    # Pre-run cleanup
+    # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
-    for pkg in ("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock"):
-        run_adb("shell", "am", "force-stop", pkg)
-    cleanup_side_effects()
+    if not cleanup_clock_alerts(force_stop_last=False):
+        print("FAILED")
+        print("  [preflight] ❌ Pre-run cleanup failed — aborting to avoid buzzing device.",
+              file=sys.stderr)
+        logcat_stop()
+        return EXIT_CLEANUP_FAILED
     print("done")
     clear_logcat()
     time.sleep(WAIT_SECONDS)
@@ -583,6 +588,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             if tc.confirm_reply:
                 extra.append(f"confirm_reply={tc.confirm_reply!r}")
+            if tc.forbidden_intents:
+                extra.append(f"forbidden={tc.forbidden_intents}")
+            if tc.allowed_intents:
+                extra.append(f"allowed={tc.allowed_intents}")
+            if tc.expect_llm_fallthrough:
+                extra.append("expect_llm_fallthrough")
             if tc.expect_initial_log_contains:
                 extra.append(f"init_log={tc.expect_initial_log_contains!r}")
             if tc.expect_log_contains:
@@ -695,16 +706,15 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
-    # Pre-run cleanup: silence any already-fired timers first, then cancel pending ones
+    # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
-    for pkg in (
-        "com.sec.android.app.clockpackage",
-        "com.android.deskclock",
-        "com.google.android.deskclock",
-    ):
-        run_adb("shell", "am", "force-stop", pkg)
-    cleanup_side_effects()
+    if not cleanup_clock_alerts(force_stop_last=False):
+        print("FAILED")
+        print("  [init] ❌ Pre-run cleanup failed — aborting to avoid buzzing device.",
+              file=sys.stderr)
+        return EXIT_CLEANUP_FAILED
     print("done")
+    time.sleep(1)
 
     # Insert contact alias fixture for alias resolution tests
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
@@ -853,6 +863,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
+    case_cleanup_failed = False
+
 
     total_tests = len(selected_tests)
 
@@ -931,6 +943,15 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     expected=final_signal,
                     keep_foreground=True,
                 )
+            elif tc.forbidden_intents:
+                # False-positive test: send prompt, capture logcat with longer timeout
+                # for LLM fallthrough, without waiting for a specific intent signal.
+                logcat = capture_fresh_logcat(
+                    lambda: send_text(tc.message),
+                    timeout=max(WAIT_SECONDS * 2, 30),
+                    expected=None,
+                    keep_foreground=True,
+                )
             else:
                 logcat = capture_fresh_logcat(
                     lambda: send_text(tc.message),
@@ -938,9 +959,38 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     expected=final_signal,
                     keep_foreground=True,
                 )
-            actual_intent, actual_params = extract_intent(logcat)
-            intent_passed = (actual_intent or "") == tc.expect_intent
-            params_ok, param_failures = check_params(tc.expect_params, actual_params)
+            # ── Intent extraction & assertion ──
+            # False-positive analysis state (populated only when forbidden_intents is set)
+            allowed_intent_observed: str | None = None
+            forbidden_intent_triggered = False
+            forbidden_intent_observed: list[str] = []
+            fallthrough_observed = False
+
+            if tc.forbidden_intents:
+                all_intents = re.findall(r"NativeIntentHandler\.handle: intent=(\S+)", logcat)
+                actual_intent = all_intents[-1] if all_intents else None
+                actual_params = {}
+                triggered = [fi for fi in tc.forbidden_intents if fi in all_intents]
+                forbidden_intent_triggered = len(triggered) > 0
+                forbidden_intent_observed = triggered
+                # Track allowed intent (safe native route) if present
+                allowed_intent_observed = next(
+                    (ai for ai in (tc.allowed_intents or []) if ai in all_intents),
+                    None,
+                )
+                if tc.allowed_intents and allowed_intent_observed:
+                    intent_passed = True
+                else:
+                    intent_passed = not forbidden_intent_triggered
+                has_no_match = "NO_MATCH" in all_intents
+                has_llm_generation = "Generation complete" in logcat
+                fallthrough_observed = has_no_match or has_llm_generation
+                params_ok = True
+                param_failures = []
+            else:
+                actual_intent, actual_params = extract_intent(logcat)
+                intent_passed = (actual_intent or "") == tc.expect_intent
+                params_ok, param_failures = check_params(tc.expect_params, actual_params)
 
 
             # DirectReply verification — best-effort, warn but don't fail the test
@@ -956,6 +1006,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.expect_log_contains is not None:
                 if tc.expect_log_contains not in logcat:
                     log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
+            # False-positive: warn if no fallthrough evidence and no safe native route
+            if tc.forbidden_intents and not allowed_intent_observed and not fallthrough_observed and not forbidden_intent_triggered:
+                fp_warn = "no fallthrough/LLM generation evidence"
+                log_check_warn = fp_warn if log_check_warn is None else log_check_warn + "; " + fp_warn
             # Merge first-turn warning (e.g. AskConfirmation not found before confirm_reply)
             # into the final result so phase_results has exactly one entry per test.
             if first_turn_warn is not None:
@@ -984,6 +1038,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 fixture=tc.fixture,
                 xfail_reason=tc.xfail_reason,
                 expect_log_contains=tc.expect_log_contains,
+                forbidden_intents=tc.forbidden_intents,
+                forbidden_intent_triggered=forbidden_intent_triggered,
+                forbidden_intent_observed=forbidden_intent_observed,
+                fallthrough_observed=fallthrough_observed,
+                allowed_intent_observed=allowed_intent_observed,
+                expect_llm_fallthrough=tc.expect_llm_fallthrough,
             )
             result.status = derive_status(result)
             result.failure_bucket = derive_failure_bucket(result)
@@ -1007,6 +1067,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 bucket = result.failure_bucket
                 bucket_suffix = f" [{bucket}]" if bucket else ""
                 print(f"✗ (xfail — not yet implemented){bucket_suffix}")
+            elif status == "indeterminate":
+                bucket = result.failure_bucket
+                bucket_suffix = f" [{bucket}]" if bucket else ""
+                print(f"? (indeterminate — no fallthrough evidence)" + bucket_suffix)
             elif not result.intent_passed:
                 bucket = result.failure_bucket
                 bucket_suffix = f" [{bucket}]" if bucket else ""
@@ -1016,6 +1080,30 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 bucket_suffix = f" [{bucket}]" if bucket else ""
                 print(f"✗ (params: {'; '.join(result.param_failures)})" + bucket_suffix)
 
+            # Post-case timer/alarm cleanup: if this case created a timer or alarm
+            # intent (allowed safe route, forbidden trigger, or direct intent match),
+            # immediately cancel/stop the alert so it does not fire later or leave
+            # the device buzzing.
+            _timer_alarm_intents = {"set_timer", "set_alarm", "cancel_timer", "cancel_alarm",
+                                    "dismiss_alarm", "snooze_alarm", "add_minute_timer",
+                                    "start_timer", "start_alarm", "stop_timer", "stop_alarm"}
+            _needs_cleanup = (
+                (result.actual_intent or "") in _timer_alarm_intents
+                or (tc.allowed_intents and any(
+                    a in _timer_alarm_intents for a in tc.allowed_intents))
+                or (tc.forbidden_intents and any(
+                    f in _timer_alarm_intents for f in tc.forbidden_intents))
+            )
+            if _needs_cleanup:
+                print("  [cleanup] timer/alarm route — cleaning up alerts ...", end=" ", flush=True)
+                if not cleanup_clock_alerts(force_stop_last=True):
+                    print("FAILED — continuing but will report cleanup failure")
+                    print("  [cleanup]   Force-stopped Jandal intentionally for test safety after timer/alarm route.")
+                    case_cleanup_failed = True
+                else:
+                    print("done")
+                time.sleep(1)
+
             # Hang up after call tests so they don't stay open
             if tc.expect_intent == "make_call":
                 time.sleep(2)
@@ -1024,10 +1112,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         n_xfail = sum(1 for r in phase_results if r.status == "xfail")
         n_xpass = sum(1 for r in phase_results if r.status == "xpass")
         n_fail  = sum(1 for r in phase_results if r.status == "fail")
-        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass
+        n_indet = sum(1 for r in phase_results if r.status == "indeterminate")
+        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass - n_indet
         xpass_suffix = f"  {n_xpass} xpass" if n_xpass else ""
+        indet_suffix = f"  {n_indet} indeterminate" if n_indet else ""
         print(
-            f"  \u2192 {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}"
+            f"  \u2192 {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail{xpass_suffix}{indet_suffix}"
             f"  ({phase_elapsed:.1f}s)"
         )
 
@@ -1058,10 +1148,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     failures = 0
     xfails = 0
     xpasses = 0
+    indeterminates = 0
     for r in results:
         status = r.status
         if status == "pass":
             icon = "  ✓"
+        elif status == "indeterminate":
+            icon = "  ?"
         else:
             icon = "  ✗"
         actual_str = r.actual_intent or "NO_MATCH"
@@ -1072,7 +1165,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         elif status == "xpass":
             suffix = " (xpass)"
             detail = actual_str
-            xpasses += 1
+        elif status == "indeterminate":
+            suffix = " (indeterminate)"
+            detail = actual_str
+            indeterminates += 1
         elif status == "fail":
             suffix = ""
             if not r.intent_passed:
@@ -1085,12 +1181,18 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         else:  # pass
             suffix = ""
             detail = actual_str
-        print(f"  {r.index:3d}  {icon:>6}  {r.expect_intent:<24}  {detail:<24}  \"{r.message}\"{suffix}")
+        _expect_str = r.expect_intent or "N/A"
+        print(f"  {r.index:3d}  {icon:>6}  {_expect_str:<24}  {detail:<24}  \"{r.message}\"{suffix}")
 
     print("-" * 70)
     total = len(results)
-    n_pass = total - failures - xfails - xpasses
-    print(f"  PASSED: {n_pass}/{total}  XFAIL: {xfails}/{total}  XPASS: {xpasses}/{total}  FAILED: {failures}/{total}")
+    n_pass = total - failures - xfails - xpasses - indeterminates
+    summary_parts = [f"PASSED: {n_pass}/{total}"]
+    if xfails: summary_parts.append(f"XFAIL: {xfails}/{total}")
+    if xpasses: summary_parts.append(f"XPASS: {xpasses}/{total}")
+    if indeterminates: summary_parts.append(f"INDETERMINATE: {indeterminates}/{total}")
+    if failures: summary_parts.append(f"FAILED: {failures}/{total}")
+    print(f"  {'  '.join(summary_parts)}")
     print("=" * 70)
     print("=" * 70)
 
@@ -1113,8 +1215,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     # Post-run cleanup: cancel any timers/alarms set during testing
     print()
     print("  [cleanup] Cancelling timers/alarms ...", end=" ", flush=True)
-    cleanup_side_effects()
-    print("done")
+    cleanup_ok = cleanup_clock_alerts(force_stop_last=True)
+    print("done" if cleanup_ok else "FAILED — device may still be buzzing!")
     print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
     teardown_contact_alias_fixture()
     print("done")
@@ -1125,7 +1227,22 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("done")
 
     xpass_is_failure = os.environ.get("XPASS_IS_FAILURE", "").strip() in ("1", "true", "yes")
-    effective_exit = 1 if (failures > 0 or (xpass_is_failure and xpasses > 0)) else 0
+    if not cleanup_ok:
+        print()
+        print("  [cleanup] ❌ CLEANUP FAILED — device may still have active alerts!")
+        print("  [cleanup]    Run manually if buzzing persists:")
+        print("  [cleanup]      adb shell am force-stop com.kernel.ai.debug")
+        return EXIT_CLEANUP_FAILED
+    if case_cleanup_failed:
+        print()
+        print("  [cleanup] ❌ POST-CASE CLEANUP FAILED — timer/alarm alert may not have been stopped")
+        print("  [cleanup]    Force-stop of Jandal failed. Returning EXIT_CLEANUP_FAILED.")
+        return EXIT_CLEANUP_FAILED
+    effective_exit = 1 if (
+        failures > 0
+        or indeterminates > 0
+        or (xpass_is_failure and xpasses > 0)
+    ) else 0
     return effective_exit
 
 

@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import threading
 import time
 
@@ -21,6 +22,7 @@ from adb_harness.config import (
     DIRECT_REPLY_PATTERN,
     LOGCAT_TAG,
     NATIVE_INTENT_NAME_PATTERN,
+    PACKAGE,
     WAIT_SECONDS,
     LLM_TOOLS_ASSISTANT_REPLY_PATTERN,
 )
@@ -72,6 +74,39 @@ def run_adb(*args: str) -> str:
     except subprocess.TimeoutExpired:
         return ""
     return result.stdout.strip()
+
+
+def run_adb_checked(*args: str, timeout: float = 10.0) -> tuple[bool, str]:
+    """Run an ADB command and return (success, output_or_error).
+
+    Captures both stdout and stderr, returns success based on the process
+    return code.  On timeout the command is killed and ``(False, "timeout")``
+    is returned.  Does not raise exceptions — the caller can trust a
+    ``False`` first element without wrapping in try/except.
+
+    Intended for cleanup/safety-critical commands where the harness must
+    distinguish success from failure.
+    """
+    try:
+        result = subprocess.run(
+            build_adb_cmd(*args),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except FileNotFoundError:
+        return False, "adb not found"
+    except OSError as exc:
+        return False, str(exc)
+
+    if result.returncode == 0:
+        return True, result.stdout.strip()
+
+    # Build error message from stderr (if any) or non-zero stdout tail
+    err = (result.stderr or result.stdout or "").strip()
+    return False, err or f"exit code {result.returncode}"
 
 
 def _tap_keepalive() -> None:
@@ -500,8 +535,135 @@ def dismiss_notifications() -> None:
     run_adb("shell", "cmd", "notification", "dismiss", "--all")
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Clock/timer alert cleanup
+# ═══════════════════════════════════════════════════════════════════════
+
+# Jandal ClockAlertService intent actions (from ClockAlertContract.kt)
+_STOP_TIMER_ALERTS = "com.kernel.ai.alarm.action.STOP_TIMER_ALERTS"
+_STOP_ALERT = "com.kernel.ai.alarm.action.STOP_ALERT"
+_CLOCK_SERVICE = f"{PACKAGE}/.alarm.ClockAlertService"
+
+_DISMISS_TIMEOUT = 10.0
+_FORCE_STOP_TIMEOUT = 15.0
+_INTENT_TIMEOUT = 5.0
+
+
+# Third-party clock packages that may have inherited a Jandal timer via AlarmManager
+_CLOCK_PKGS = (
+    "com.sec.android.app.clockpackage",
+    "com.android.deskclock",
+    "com.google.android.deskclock",
+)
+
+
+def cleanup_clock_alerts(force_stop_last: bool = True) -> bool:
+    """Attempt to cancel/stop any active Jandal timer or alarm alerts.
+
+    Tries, in order:
+      1. Send ``ACTION_STOP_TIMER_ALERTS`` to ClockAlertService (best-effort).
+      2. Send ``ACTION_STOP_ALERT`` to dismiss any non-timer alert activity (best-effort).
+      3. Dismiss all system notifications (best-effort — may not be available on all ROMs).
+      4. Force-stop third-party clock packages that may hold leaked timers (best-effort).
+      5. Force-stop the Jandal app itself as a last resort (critical — failure fails cleanup).
+
+    Uses ``run_adb_checked()`` so each command is verified via its exit code.
+    Stderr from failed commands is printed for debugging.
+
+    Steps 1-3 are best-effort: the ClockAlertService may not be running (app force-stopped),
+    and ``cmd notification dismiss`` is not available on all ROMs (e.g. Samsung OneUI).
+    Only step 5 (force-stop Jandal) failing counts as a total cleanup failure.
+
+    Returns ``True`` iff the critical force-stop step succeeded (or was skipped).
+    """
+    success = True
+    attempts: list[str] = []
+
+    # ── Best-effort service intents ──────────────────────────────────
+    # These send stop signals to Jandal's ClockAlertService.  If the app
+    # was force-stopped the service won't be running — that is benign
+    # (the device is already clean).  We log the failure but do NOT fail
+    # the overall result.
+    ok, err = run_adb_checked(
+        "shell", "am", "startservice", "-n", _CLOCK_SERVICE,
+        "-a", _STOP_TIMER_ALERTS,
+        timeout=_INTENT_TIMEOUT,
+    )
+    if ok:
+        attempts.append("stop_timer_alerts")
+    else:
+        print(f"  [cleanup] stop_timer_alerts (best-effort): {err}", file=sys.stderr)
+
+    ok, err = run_adb_checked(
+        "shell", "am", "startservice", "-n", _CLOCK_SERVICE,
+        "-a", _STOP_ALERT,
+        timeout=_INTENT_TIMEOUT,
+    )
+    if ok:
+        attempts.append("stop_alert")
+    else:
+        print(f"  [cleanup] stop_alert (best-effort): {err}", file=sys.stderr)
+
+    # Brief settle time for service intents to be processed
+    time.sleep(1)
+
+    # ── Best-effort notification dismiss ────────────────────────────
+    # ``cmd notification dismiss`` is not available on all ROMs
+    # (notably Samsung OneUI).  The force-stop below handles leftovers.
+    ok, err = run_adb_checked(
+        "shell", "cmd", "notification", "dismiss", "--all",
+        timeout=_DISMISS_TIMEOUT,
+    )
+    if ok:
+        attempts.append("dismiss_notifications")
+    else:
+        print(f"  [cleanup] dismiss_notifications (best-effort): {err}", file=sys.stderr)
+
+    # ── Best-effort third-party clock force-stops ────────────────────
+    for pkg in _CLOCK_PKGS:
+        ok, err = run_adb_checked(
+            "shell", "am", "force-stop", pkg,
+            timeout=_FORCE_STOP_TIMEOUT,
+        )
+        if ok:
+            attempts.append(f"force-stop:{pkg}")
+        else:
+            print(f"  [cleanup] force-stop {pkg} (best-effort): {err}", file=sys.stderr)
+
+    # ── Critical: force-stop Jandal ──────────────────────────────────
+    # This is the last-resort action.  If this fails the device may
+    # still be buzzing.
+    if force_stop_last:
+        ok, err = run_adb_checked(
+            "shell", "am", "force-stop", PACKAGE,
+            timeout=_FORCE_STOP_TIMEOUT,
+        )
+        if ok:
+            attempts.append(f"force-stop:{PACKAGE}")
+        else:
+            print(f"  [cleanup] force-stop {PACKAGE} FAILED: {err}", file=sys.stderr)
+            print(f"  [cleanup]   This is the last-resort action — device may still be buzzing!",
+                  file=sys.stderr)
+            success = False
+
+    print(f"  [cleanup] clock alerts: {' | '.join(attempts)}"
+          + ("  ✓" if success else "  ✗"))
+    return success
+
+
 def cleanup_side_effects(wait_for_inference: bool = False) -> None:
-    """Run a no-op weather query to flush pending state."""
+    """Send a harmless query to flush pending LLM state.
+
+    This does **not** cancel timers, alarms, or other active device alerts.
+    Use ``cleanup_clock_alerts()`` for that purpose.
+
+    The query ("what time is it") is a get_time route — safe, fast, and
+    produces no device side effects.  It is used to clear the model's
+    current working state between test cases so inference starts from an
+    idle context.
+    """
     send_text("what time is it", wait_for_inference=wait_for_inference)
 
 

@@ -272,3 +272,51 @@ python3 scripts/adb_skill_test.py --dry-run --phases=llm_tools
 
 See [`docs/automated-testing.md`](./automated-testing.md) for detailed output format and
 [`docs/testing/llm-tools-harness.md`](./testing/llm-tools-harness.md) for deep reference.
+
+---
+
+## 10. Running the `false_positives` Harness
+
+The `false_positives` harness phase (phase 11) validates negative routing — queries that
+resemble intent-driven commands but should NOT trigger a native intent.
+
+```bash
+# Run just the false_positives phase
+ANDROID_SERIAL=R5CR605B71K python3 scripts/adb_skill_test.py --phases false_positives
+
+# Dry run (no device needed)
+python3 scripts/adb_skill_test.py --dry-run --phases false_positives
+```
+
+### Timer/alarm cleanup
+
+The `false_positives` phase includes a `Set a 5 minute egg timer` case (`id:
+set_a_5_minute_egg_timer`) with `allowed_intents=["set_timer"]` — the model may
+legitimately create a real timer. The harness automatically stops Jandal ClockAlertService
+alerts:
+
+- **Before the run:** Pre-run cleanup cancels any active alerts. Uses **checked ADB**
+  commands — if cleanup fails the run aborts immediately (exit code 46).
+- **After the timer case:** The harness immediately cleans up if a timer/alarm intent fired.
+  A cleanup failure here is tracked and causes non-zero exit at the end.
+- **After the run:** Final cleanup stops all alerts, dismisses notifications, and
+  force-stops the app as a last resort. Failure returns exit code 46.
+- **On cleanup failure:** Exit code 46 (`EXIT_CLEANUP_FAILED`) is returned, and the
+  harness prints which ADB command failed and why. Manually stop the app if buzzing
+  persists:
+
+  ```bash
+  adb shell am force-stop com.kernel.ai.debug
+  ```
+
+See [`docs/automated-testing.md`](./automated-testing.md) for the full oracle semantics
+and failure interpretation.
+
+### S21/S23U runs
+
+The harness must not leave active timers/alarms on the device after any run. If you hear
+buzzing after a test completes:
+
+1. The post-run cleanup should have stopped it — check the exit code.
+2. If exit code was 46, run `adb shell am force-stop com.kernel.ai.debug` manually.
+3. File a bug for any persistent cleanup gaps (tracked in #1275).
