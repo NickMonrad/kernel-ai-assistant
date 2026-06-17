@@ -5,7 +5,7 @@ This document is retained as a historical snapshot from the May 2026 backlog rev
 Use GitHub launch tracking instead:
 
 - [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic and current launch tracking issue.
-- The `launch:blocking` label and **Jandal Launch Backlog** project views are the live work queue.
+- The `launch:blocking` label and [Jandal Launch Backlog](https://github.com/users/NickMonrad/projects/5) project views are the live work queue.
 
 > Note: older references to `#1255` as the canonical launch plan are stale. #1255 is now the completed model-readiness preflight tracker, not the active launch-plan source of truth.
 
