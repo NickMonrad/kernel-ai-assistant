@@ -97,7 +97,7 @@ private val allToolSearchEntries = listOf(
         keywords = listOf("birthday", "anniversary", "recurring", "reminder")),
     ToolSearchEntry("people_contacts", "People & Contacts", "Contact aliases and people Jandal can recognise", "People",
         keywords = listOf("contacts", "people", "aliases", "address book")),
-    ToolSearchEntry("convert", "Convert", "Units, currency, and quick calculations", "Utilities",
+    ToolSearchEntry("convert", "Convert", "Currency, units, and cooking conversions", "Utilities",
         keywords = listOf("unit", "currency", "measurement", "cooking", "calculate")),
     ToolSearchEntry("user_profile", "User Profile", "Tell Jandal about yourself", "Personalisation",
         keywords = listOf("profile", "name", "about me", "preferences")),
@@ -390,6 +390,18 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(alarms.id) },
                     onNavigate = onNavigateToRoute,
                 )
+                val worldClock = ShortcutRegistry.clockWorldClock
+                ClockSubFeatureRow(
+                    testTag = "tools_row_clock_world_clock",
+                    title = worldClock.label,
+                    subtitle = "Clock",
+                    route = worldClock.route,
+                    canFavourite = worldClock.canFavourite,
+                    isFavourite = worldClock.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(worldClock.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                HorizontalDivider()
                 val (datesCanFav, datesIsFav, datesOnFav) = favouriteParams("important_dates", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_important_dates",
@@ -439,11 +451,46 @@ fun ToolsHubScreen(
                     testTag = "tools_row_convert",
                     icon = Icons.Default.Calculate,
                     title = "Convert",
-                    subtitle = "Units, currency, and quick calculations",
+                    subtitle = "Currency, units, and cooking conversions",
                     onClick = { onNavigateToRoute(ROUTE_CONVERT) },
                     canFavourite = convertCanFav,
                     isFavourite = convertIsFav,
                     onToggleFavourite = convertOnFav,
+                )
+
+                // Convert sub-feature shortcuts (indented, with favourite toggles)
+                val convertCurrency = ShortcutRegistry.convertCurrency
+                val convertUnit = ShortcutRegistry.convertUnit
+                val convertCooking = ShortcutRegistry.convertCooking
+                ClockSubFeatureRow(
+                    testTag = "tools_row_convert_currency",
+                    title = convertCurrency.label,
+                    subtitle = "Convert",
+                    route = convertCurrency.route,
+                    canFavourite = convertCurrency.canFavourite,
+                    isFavourite = convertCurrency.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertCurrency.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                ClockSubFeatureRow(
+                    testTag = "tools_row_convert_unit",
+                    title = convertUnit.label,
+                    subtitle = "Convert",
+                    route = convertUnit.route,
+                    canFavourite = convertUnit.canFavourite,
+                    isFavourite = convertUnit.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertUnit.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                ClockSubFeatureRow(
+                    testTag = "tools_row_convert_cooking",
+                    title = convertCooking.label,
+                    subtitle = "Convert",
+                    route = convertCooking.route,
+                    canFavourite = convertCooking.canFavourite,
+                    isFavourite = convertCooking.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertCooking.id) },
+                    onNavigate = onNavigateToRoute,
                 )
                 HorizontalDivider()
 

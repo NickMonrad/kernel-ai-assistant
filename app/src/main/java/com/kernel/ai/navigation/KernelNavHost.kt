@@ -59,6 +59,7 @@ import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.convert.ConvertScreen
+import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
@@ -150,6 +151,9 @@ internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
 internal fun buildSidePanelTabRoute(tab: String): String =
     "$ROUTE_SIDE_PANEL?tab=$tab"
 
+internal fun buildConvertTabRoute(tab: String): String =
+    "$ROUTE_CONVERT?tab=$tab"
+
 internal fun buildActionsDraftRoute(draftQuery: String): String =
     "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}"
 
@@ -178,9 +182,13 @@ private fun NavHostController.navigateToPrimaryRoute(route: String) {
 }
 
 private fun NavHostController.navigateToToolsDestination(route: String) {
-    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
-    val targetBaseRoute = route.substringBefore('?')
-    if (currentBaseRoute == targetBaseRoute) return
+    val currentRoute = currentBackStackEntry?.destination?.route ?: ""
+    val currentBase = currentRoute.substringBefore('?')
+    val targetBase = route.substringBefore('?')
+    val targetQuery = route.substringAfter('?', "")
+
+    // Skip if same base route AND no differentiating query params
+    if (currentBase == targetBase && targetQuery.isEmpty()) return
 
     navigate(route) {
         launchSingleTop = true
@@ -744,7 +752,14 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_CONVERT) {
+                composable(
+                    route = "$ROUTE_CONVERT?tab={tab}",
+                    arguments = listOf(
+                        navArgument("tab") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) { backStackEntry ->
+                    val tabParam = backStackEntry.arguments?.getString("tab") ?: ""
+                    val initialTab = mapQueryParamToConvertTab(tabParam)
                     ConvertScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
@@ -753,6 +768,7 @@ fun KernelNavHost(
                                 launchSingleTop = true
                             }
                         },
+                        initialTab = initialTab,
                     )
                 }
                 composable(ROUTE_TOOLS) {
@@ -813,6 +829,9 @@ fun KernelNavHost(
 
 /**
  * Dynamic drawer content that shows favourites, recents, defaults, and settings.
+ *
+ * Uses [buildDrawerSections] to produce a sectioned layout with labelled headers
+ * for Favourites, Recently Used, More Shortcuts, and Settings.
  */
 @Composable
 private fun DrawerContent(
@@ -834,10 +853,10 @@ private fun DrawerContent(
         else -> recentShortcutTracker.observeAll().collectAsState(initial = emptyList())
     }
 
-    // Compute the ordered display list
-    val displayItems by remember(favouriteIds, recentIds) {
+    // Compute the sectioned display model
+    val sections by remember(favouriteIds, recentIds) {
         derivedStateOf {
-            buildDrawerItems(
+            buildDrawerSections(
                 favouriteIds = favouriteIds.map { it.id },
                 recentIds = recentIds.map { it.id },
             )
@@ -853,29 +872,59 @@ private fun DrawerContent(
     HorizontalDivider()
     Spacer(modifier = Modifier.padding(4.dp))
 
-    // Render items with a divider before Settings
-    displayItems.forEach { item ->
-        if (item.isSettings) {
+    // Render sections
+    sections.forEach { section ->
+        // Section header (null for Settings section)
+        if (section.header != null) {
+            Text(
+                text = section.header,
+                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .padding(horizontal = 28.dp, vertical = 8.dp)
+                    .testTag("drawer_section_${section.header.lowercase().replace(' ', '_')}"),
+            )
+        }
+
+        if (section.items.isEmpty() && section.emptyMessage != null) {
+            // Empty state helper row
+            Text(
+                text = section.emptyMessage,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(horizontal = 28.dp, vertical = 8.dp)
+                    .testTag("drawer_favourites_empty"),
+            )
+        }
+
+        if (section.header == null && section.items.any { it.isSettings }) {
+            // Divider before Settings
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
         }
-        NavigationDrawerItem(
-            label = { Text(item.label) },
-            icon = { Icon(item.icon, contentDescription = null) },
-            selected = currentBaseRoute == item.route.substringBefore('?'),
-            onClick = {
-                scope.launch {
-                    drawerState.close()
-                    // Record recent (defence-in-depth: honour canRecordRecent)
-                    if (!item.isSettings && recentShortcutTracker != null &&
-                        item.canRecordRecent
-                    ) {
-                        recentShortcutTracker.record(item.id)
+
+        section.items.forEach { item ->
+            NavigationDrawerItem(
+                label = { Text(item.label) },
+                icon = { Icon(item.icon, contentDescription = null) },
+                selected = currentBaseRoute == item.route.substringBefore('?'),
+                onClick = {
+                    scope.launch {
+                        drawerState.close()
+                        // Record recent (defence-in-depth: honour canRecordRecent)
+                        if (!item.isSettings && recentShortcutTracker != null &&
+                            item.canRecordRecent
+                        ) {
+                            recentShortcutTracker.record(item.id)
+                        }
+                        navController.navigateToDrawerDestination(item.route)
                     }
-                    navController.navigateToDrawerDestination(item.route)
-                }
-            },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-        )
+                },
+                modifier = Modifier
+                    .padding(NavigationDrawerItemDefaults.ItemPadding)
+                    .testTag("drawer_item_${item.id}"),
+            )
+        }
     }
 }
 
@@ -921,4 +970,85 @@ internal fun buildDrawerItems(
     result.add(ShortcutRegistry.settings)
 
     return result
+}
+
+/**
+ * A section in the quick-access drawer.
+ *
+ * @param header Label shown as section header, or null for unlabeled sections (e.g. Settings).
+ * @param items Shortcuts in this section.
+ * @param emptyMessage Shown when [items] is empty and this is the Favourites section.
+ */
+internal data class DrawerSection(
+    val header: String?,
+    val items: List<ShortcutDef>,
+    val emptyMessage: String? = null,
+)
+
+/**
+ * Build the sectioned drawer shortcut model.
+ *
+ * Sections:
+ * 1. Favourites — only favourite shortcuts
+ * 2. Recently Used — non-favourite recents
+ * 3. More Shortcuts — defaults not already shown in favourites or recents
+ * 4. Settings — always pinned last with a divider
+ *
+ * Each section header has a stable [testTag] for UI test assertions.
+ */
+internal fun buildDrawerSections(
+    favouriteIds: List<String>,
+    recentIds: List<String>,
+): List<DrawerSection> {
+    val favouriteSet = favouriteIds.toSet()
+    val recentSet = recentIds.toSet()
+
+    // 1. Favourites
+    val favouriteDefs = favouriteIds.mapNotNull { ShortcutRegistry.byId(it) }
+        .filter { !it.isSettings }
+
+    // 2. Recents (non-favourite)
+    val recentDefs = recentIds
+        .filter { it !in favouriteSet }
+        .mapNotNull { ShortcutRegistry.byId(it) }
+        .filter { !it.isSettings }
+
+    // 3. More Shortcuts — from defaults, deduped against favourites + recents
+    val alreadyShown = favouriteSet + recentSet
+    val moreDefs = ShortcutRegistry.drawerDefaults
+        .filter { it.id !in alreadyShown }
+
+    val sections = mutableListOf<DrawerSection>()
+
+    sections.add(
+        DrawerSection(
+            header = "Favourites",
+            items = favouriteDefs,
+            emptyMessage = if (favouriteDefs.isEmpty()) "Star tools from Tools to add them here." else null,
+        )
+    )
+
+    sections.add(
+        DrawerSection(
+            header = "Recently Used",
+            items = recentDefs,
+        )
+    )
+
+    sections.add(
+        DrawerSection(
+            header = "More Shortcuts",
+            items = moreDefs,
+        )
+    )
+
+    // 4. Settings (pinned last)
+    sections.add(
+        DrawerSection(
+            header = null,
+            items = listOf(ShortcutRegistry.settings),
+        )
+    )
+
+    return sections
 }

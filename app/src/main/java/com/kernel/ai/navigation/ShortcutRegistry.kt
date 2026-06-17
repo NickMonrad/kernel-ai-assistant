@@ -132,12 +132,45 @@ object ShortcutRegistry {
         parentToolId = "clock",
     )
 
-    /** All registered shortcuts indexed by ID. */
+    val clockWorldClock = ShortcutDef(
+        id = "clock.world_clock",
+        label = "World Clock",
+        icon = Icons.Default.Timer,
+        route = buildSidePanelTabRoute("world_clock"),
+        parentToolId = "clock",
+    )
+
+    /** Convert sub-feature shortcuts (eligible for favourites/recents). */
+    val convertCurrency = ShortcutDef(
+        id = "convert.currency",
+        label = "Currency",
+        icon = Icons.Default.Calculate,
+        route = buildConvertTabRoute("currency"),
+        parentToolId = "convert",
+    )
+
+    val convertUnit = ShortcutDef(
+        id = "convert.unit",
+        label = "Unit conversion",
+        icon = Icons.Default.Calculate,
+        route = buildConvertTabRoute("unit"),
+        parentToolId = "convert",
+    )
+
+    val convertCooking = ShortcutDef(
+        id = "convert.cooking",
+        label = "Cooking conversion",
+        icon = Icons.Default.Calculate,
+        route = buildConvertTabRoute("cooking"),
+        parentToolId = "convert",
+    )
+
     val allById: Map<String, ShortcutDef> = listOf(
         lists, notes, mealPlans,
         clock, importantDates, peopleContacts, convert,
         settings,
-        clockStopwatch, clockTimer, clockAlarms,
+        clockStopwatch, clockTimer, clockAlarms, clockWorldClock,
+        convertCurrency, convertUnit, convertCooking,
     ).associateBy { it.id }
 
     /** All top-level (non-sub-feature) shortcuts that can appear in the drawer. */
