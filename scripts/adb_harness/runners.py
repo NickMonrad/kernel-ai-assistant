@@ -863,6 +863,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
+    case_cleanup_failed = False
+
 
     total_tests = len(selected_tests)
 
@@ -1094,8 +1096,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             )
             if _needs_cleanup:
                 print("  [cleanup] timer/alarm route — cleaning up alerts ...", end=" ", flush=True)
-                if not cleanup_clock_alerts(force_stop_last=False):
+                if not cleanup_clock_alerts(force_stop_last=True):
                     print("FAILED — continuing but will report cleanup failure")
+                    print("  [cleanup]   Force-stopped Jandal intentionally for test safety after timer/alarm route.")
                     case_cleanup_failed = True
                 else:
                     print("done")
@@ -1143,7 +1146,6 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("-" * 70)
 
     failures = 0
-    case_cleanup_failed = False
     xfails = 0
     xpasses = 0
     indeterminates = 0
@@ -1179,7 +1181,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         else:  # pass
             suffix = ""
             detail = actual_str
-        print(f"  {r.index:3d}  {icon:>6}  {r.expect_intent:<24}  {detail:<24}  \"{r.message}\"{suffix}")
+        _expect_str = r.expect_intent or "N/A"
+        print(f"  {r.index:3d}  {icon:>6}  {_expect_str:<24}  {detail:<24}  \"{r.message}\"{suffix}")
 
     print("-" * 70)
     total = len(results)
@@ -1230,10 +1233,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print("  [cleanup]    Run manually if buzzing persists:")
         print("  [cleanup]      adb shell am force-stop com.kernel.ai.debug")
         return EXIT_CLEANUP_FAILED
+    if case_cleanup_failed:
+        print()
+        print("  [cleanup] ❌ POST-CASE CLEANUP FAILED — timer/alarm alert may not have been stopped")
+        print("  [cleanup]    Force-stop of Jandal failed. Returning EXIT_CLEANUP_FAILED.")
+        return EXIT_CLEANUP_FAILED
     effective_exit = 1 if (
         failures > 0
         or indeterminates > 0
-        or case_cleanup_failed
         or (xpass_is_failure and xpasses > 0)
     ) else 0
     return effective_exit

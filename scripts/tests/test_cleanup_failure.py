@@ -223,6 +223,13 @@ class CleanupClockAlertsTest(unittest.TestCase):
         result = cleanup_clock_alerts(force_stop_last=True)
         self.assertTrue(result)
 
+    def test_force_stop_included_when_true(self) -> None:
+        """When force_stop_last=True, Jandal force-stop IS called (7 commands)."""
+        self._mock_checked.side_effect = [(True, "")] * 7
+        cleanup_clock_alerts(force_stop_last=True)
+        # 7 calls = 2 service intents + 1 dismiss + 3 third-party + 1 Jandal force-stop
+        self.assertEqual(self._mock_checked.call_count, 7)
+
 
 
 class ExitCleanupFailedTest(unittest.TestCase):
@@ -240,3 +247,136 @@ class ExitCleanupFailedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunnerCleanupFailureTest(unittest.TestCase):
+    """run_tests() post-case cleanup failure exit-code integration tests.
+
+    These tests run the full ``run_tests()`` function with heavy mocking of all
+    ADB/device/harness dependencies, then verify that a post-case cleanup failure
+    correctly propagates through the exit code.
+    """
+
+    def _make_timer_test_case(self) -> MagicMock:
+        """Create a minimal test case with forbidden set_timer intent.
+
+        This test case triggers the post-case timer/alarm cleanup path in
+        ``run_tests()``, allowing us to verify cleanup-failure exit-code
+        semantics.
+        """
+        tc = MagicMock()
+        tc.id = "test_fp_cleanup"
+        tc.message = "Set a 5 minute egg timer"
+        tc.category = "false_positive"
+        tc.tags = {"false_positive"}
+        tc.forbidden_intents = ["set_timer"]
+        tc.allowed_intents = None
+        tc.expect_intent = None
+        tc.expect_params = None
+        tc.xfail = False
+        tc.xfail_reason = None
+        tc.fixture = None
+        tc.expect_initial_log_contains = None
+        tc.expect_llm_fallthrough = False
+        tc.effective_slot_replies = None
+        tc.confirm_reply = None
+        tc.expect_reply_contains = None
+        tc.expect_log_contains = None
+        return tc
+
+    def _run_tests_with_cleanup_result(
+        self, cleanup_results: list[bool],
+    ) -> int:
+        """Run ``run_tests()`` with heavy mocking and a single timer test case.
+
+        Args:
+            cleanup_results: ``side_effect`` for ``cleanup_clock_alerts`` mock.
+                Order: pre-run, post-case, post-run.
+
+        Returns the exit code from ``run_tests()``.
+        """
+        tc = self._make_timer_test_case()
+
+        # Satisfies all ``read_logcat()`` warmup-phase checks in one call
+        _warmed_logcat = (
+            "NativeIntentHandler.handle: intent=get_time\n"
+            "Ready:"
+        )
+
+        with patch("os.path.isfile", return_value=True), \
+             patch("time.sleep"), \
+             patch("adb_harness.runners.logcat_start"), \
+             patch("adb_harness.runners.run_adb", return_value=""), \
+             patch("adb_harness.runners.start_keepalive"), \
+             patch("adb_harness.runners.stop_keepalive"), \
+             patch("adb_harness.runners.setup_contact_alias_fixture"), \
+             patch("adb_harness.runners.teardown_contact_alias_fixture"), \
+             patch("adb_harness.runners.check_oracle", return_value=True), \
+             patch("adb_harness.runners.check_logcat_stream", return_value=True), \
+             patch("adb_harness.runners.save_report", return_value=""), \
+             patch("adb_harness.runners.capture_fresh_logcat", return_value=""), \
+             patch("adb_harness.runners.send_text"), \
+             patch("adb_harness.runners.extract_intent", return_value=(None, {})), \
+             patch("adb_harness.runners.clear_logcat"), \
+             patch("adb_harness.runners.read_logcat", return_value=_warmed_logcat), \
+             patch("adb_harness.runners._select_tests",
+                   return_value=[(0, 0, tc)]), \
+             patch("adb_harness.runners.cleanup_clock_alerts",
+                   side_effect=cleanup_results):
+            from adb_harness.runners import run_tests
+            return run_tests()
+
+    def test_post_case_cleanup_failure_returns_exit_46(self) -> None:
+        """Post-case cleanup failure → run_tests returns EXIT_CLEANUP_FAILED (46)."""
+        exit_code = self._run_tests_with_cleanup_result(
+            [True, False, True],  # pre-run OK, post-case FAIL, post-run OK
+        )
+        self.assertEqual(exit_code, EXIT_CLEANUP_FAILED)
+
+    def test_post_case_cleanup_success_returns_0(self) -> None:
+        """All cleanup succeeds, no test failure → exit code 0."""
+        exit_code = self._run_tests_with_cleanup_result(
+            [True, True, True],  # all succeed
+        )
+        self.assertEqual(exit_code, 0)
+
+    def test_post_case_cleanup_invokes_force_stop_true(self) -> None:
+        """The post-case cleanup invocation uses force_stop_last=True."""
+        tc = self._make_timer_test_case()
+        _warmed_logcat = (
+            "NativeIntentHandler.handle: intent=get_time\n"
+            "Ready:"
+        )
+
+        with patch("os.path.isfile", return_value=True), \
+             patch("time.sleep"), \
+             patch("adb_harness.runners.logcat_start"), \
+             patch("adb_harness.runners.run_adb", return_value=""), \
+             patch("adb_harness.runners.start_keepalive"), \
+             patch("adb_harness.runners.stop_keepalive"), \
+             patch("adb_harness.runners.setup_contact_alias_fixture"), \
+             patch("adb_harness.runners.teardown_contact_alias_fixture"), \
+             patch("adb_harness.runners.check_oracle", return_value=True), \
+             patch("adb_harness.runners.check_logcat_stream", return_value=True), \
+             patch("adb_harness.runners.save_report", return_value=""), \
+             patch("adb_harness.runners.capture_fresh_logcat", return_value=""), \
+             patch("adb_harness.runners.send_text"), \
+             patch("adb_harness.runners.extract_intent", return_value=(None, {})), \
+             patch("adb_harness.runners.clear_logcat"), \
+             patch("adb_harness.runners.read_logcat", return_value=_warmed_logcat), \
+             patch("adb_harness.runners._select_tests",
+                   return_value=[(0, 0, tc)]), \
+             patch("adb_harness.runners.cleanup_clock_alerts",
+                   return_value=True) as mock_cleanup:
+            from adb_harness.runners import run_tests
+            run_tests()
+
+        # The second call to cleanup_clock_alerts (post-case) should use
+        # force_stop_last=True
+        self.assertGreaterEqual(mock_cleanup.call_count, 2)
+        _post_case_call = mock_cleanup.call_args_list[1]
+        _kwargs = _post_case_call[1]  # keyword arguments dict
+        self.assertTrue(
+            _kwargs.get("force_stop_last", False),
+            "Post-case cleanup should use force_stop_last=True",
+        )
