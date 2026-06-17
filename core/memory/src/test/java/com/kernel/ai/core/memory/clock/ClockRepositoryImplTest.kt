@@ -84,7 +84,7 @@ class ClockRepositoryImplTest {
                     it.timeZoneId == zoneId
             })
         }
-        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM && !it.isSnoozeRetrigger }) }
         verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
     }
 
@@ -221,7 +221,14 @@ class ClockRepositoryImplTest {
 
         assertTrue(snoozed)
         coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.snoozedUntilMs == snoozeAt && !it.fired }) }
-        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.triggerAtMillis == snoozeAt }) }
+        verify(exactly = 1) {
+            scheduler.schedule(match {
+                it.type == ClockEventType.ALARM &&
+                    it.triggerAtMillis == snoozeAt &&
+                    it.occurrenceTriggerAtMillis == snoozeAt &&
+                    it.isSnoozeRetrigger
+            })
+        }
         verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.triggerAtMillis == firedOneOff.triggerAtMillis }) }
     }
 
@@ -341,13 +348,37 @@ class ClockRepositoryImplTest {
         coEvery { scheduledAlarmDao.getUnfiredElapsed(now) } returns listOf(repeatingExpired)
         coEvery { scheduledAlarmDao.getUnfiredFuture(now) } returns emptyList()
         coEvery { scheduledAlarmDao.insert(any()) } just Runs
-
         val report = repository.restoreScheduledEntries(nowMillis = now)
 
         assertEquals(1, report.restoredCount)
         assertEquals(0, report.expiredCount)
         coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.triggerAtMillis > now }) }
         verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+    }
+
+
+    @Test
+    fun `restoreScheduledEntries schedules future snooze with durable re-trigger flag`() = runTest {
+        val now = System.currentTimeMillis()
+        val snoozeAt = now + 10 * 60_000L
+        val snoozed = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = now - 60_000L,
+        ).copy(snoozedUntilMs = snoozeAt)
+        coEvery { scheduledAlarmDao.getUnfiredElapsed(now) } returns emptyList()
+        coEvery { scheduledAlarmDao.getUnfiredFuture(now) } returns listOf(snoozed)
+
+        val report = repository.restoreScheduledEntries(nowMillis = now)
+
+        assertEquals(1, report.restoredCount)
+        verify(exactly = 1) {
+            scheduler.schedule(match {
+                it.type == ClockEventType.ALARM &&
+                    it.triggerAtMillis == snoozeAt &&
+                    it.occurrenceTriggerAtMillis == snoozeAt &&
+                    it.isSnoozeRetrigger
+            })
+        }
     }
 
     @Test
