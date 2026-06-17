@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -53,6 +54,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
@@ -102,6 +105,7 @@ import java.time.format.DateTimeFormatter
 fun SidePanelScreen(
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    onNavigateToClockSettings: () -> Unit = {},
     initialTab: String? = null,
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
@@ -124,6 +128,7 @@ fun SidePanelScreen(
     var showCreateAlarmDialog by remember { mutableStateOf(false) }
     var showCreateTimerDialog by remember { mutableStateOf(false) }
     var showAddWorldClockDialog by remember { mutableStateOf(false) }
+    var showClockOverflow by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -195,12 +200,37 @@ fun SidePanelScreen(
                         }
                     },
                 )
-            } else {
                 TopAppBar(
                     title = { Text("Clock") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(
+                                onClick = { showClockOverflow = true },
+                                modifier = Modifier.testTag("clock_overflow_button"),
+                            ) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "Clock options",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showClockOverflow,
+                                onDismissRequest = { showClockOverflow = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Clock settings") },
+                                    onClick = {
+                                        showClockOverflow = false
+                                        onNavigateToClockSettings()
+                                    },
+                                    modifier = Modifier.testTag("clock_overflow_settings"),
+                                )
+                            }
                         }
                     },
                 )
@@ -274,8 +304,6 @@ fun SidePanelScreen(
                     nowMs = nowMs,
                     inSelectionMode = isInSelectionMode,
                     selectedIds = selectedIds,
-                    timerSoundUri = clockSoundConfig.timerSoundUri,
-                    onTimerSoundSelected = viewModel::setTimerSoundUri,
                     onCreateCustomTimer = { showCreateTimerDialog = true },
                     onPresetTimer = { durationMs ->
                         viewModel.scheduleTimer(durationMs, null) { success ->
@@ -302,8 +330,6 @@ fun SidePanelScreen(
                     alarms = alarms,
                     inSelectionMode = isInSelectionMode,
                     selectedIds = selectedIds,
-                    defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
-                    onDefaultAlarmSoundSelected = viewModel::setDefaultAlarmSoundUri,
                     onNewAlarm = { showCreateAlarmDialog = true },
                     onAlarmTap = { alarm ->
                         if (isInSelectionMode) viewModel.toggleSelection(alarm.id) else editingAlarm = alarm
@@ -751,8 +777,6 @@ private fun TimerDashboard(
     nowMs: Long,
     inSelectionMode: Boolean,
     selectedIds: Set<String>,
-    timerSoundUri: String?,
-    onTimerSoundSelected: (String?) -> Unit,
     onCreateCustomTimer: () -> Unit,
     onPresetTimer: (Long) -> Unit,
     onTimerTap: (ClockTimer) -> Unit,
@@ -768,8 +792,6 @@ private fun TimerDashboard(
     ) {
         item {
             TimerQuickStartCard(
-                timerSoundUri = timerSoundUri,
-                onTimerSoundSelected = onTimerSoundSelected,
                 onCreateCustomTimer = onCreateCustomTimer,
                 onPresetTimer = onPresetTimer,
             )
@@ -825,8 +847,6 @@ private fun TimerDashboard(
 
 @Composable
 private fun TimerQuickStartCard(
-    timerSoundUri: String?,
-    onTimerSoundSelected: (String?) -> Unit,
     onCreateCustomTimer: () -> Unit,
     onPresetTimer: (Long) -> Unit,
 ) {
@@ -844,11 +864,6 @@ private fun TimerQuickStartCard(
                 text = "Start a timer fast, keep multiple timers running, and revisit finished timers without retyping durations.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ClockSoundSettingCard(
-                title = "Timer sound",
-                currentSoundUri = timerSoundUri,
-                onSoundSelected = onTimerSoundSelected,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TIMER_PRESETS.take(2).forEach { preset ->
@@ -1216,8 +1231,6 @@ private fun AlarmDashboard(
     alarms: List<ClockAlarm>,
     inSelectionMode: Boolean,
     selectedIds: Set<String>,
-    defaultAlarmSoundUri: String?,
-    onDefaultAlarmSoundSelected: (String?) -> Unit,
     onNewAlarm: () -> Unit,
     onAlarmTap: (ClockAlarm) -> Unit,
     onAlarmLongPress: (ClockAlarm) -> Unit,
@@ -1227,12 +1240,6 @@ private fun AlarmDashboard(
     if (alarms.isEmpty()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             SectionHeader(title = "Alarms")
-            ClockSoundSettingCard(
-                title = "Default alarm sound",
-                currentSoundUri = defaultAlarmSoundUri,
-                onSoundSelected = onDefaultAlarmSoundSelected,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
             EmptyStateCard(
                 title = "No active alarms",
                 body = "Create one-time or repeating alarms here. Repeating alarms get a Skip today reminder 30 minutes before they ring.",
@@ -1248,14 +1255,6 @@ private fun AlarmDashboard(
             SectionHeader(
                 title = "Alarms",
                 supportingText = alarms.firstOrNull()?.let { "Next: ${formatClockTime(it.triggerAtMillis)}" } ?: "",
-            )
-        }
-        item {
-            ClockSoundSettingCard(
-                title = "Default alarm sound",
-                currentSoundUri = defaultAlarmSoundUri,
-                onSoundSelected = onDefaultAlarmSoundSelected,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         items(alarms, key = { it.id }) { alarm ->

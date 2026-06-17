@@ -15,23 +15,29 @@ internal enum class ClockAlertLifecycleAction {
 }
 
 /**
- * Decides the lifecycle action for an alert type given whether this is a
- * snooze re-trigger.
+ * Decides the lifecycle action for an alert type given the number of
+ * unattended auto-snoozes already taken for this occurrence and the
+ * max auto-snooze policy.
  *
  * - **Timer:** always auto-stops after the ringing duration.
- * - **Alarm (first ring):** auto-snoozes after the ringing duration.
- * - **Alarm (snooze re-trigger):** auto-stops after the ringing duration
- *   (no second snooze for the same occurrence).
+ * - **Alarm:** if [autoSnoozeCount] < [maxAutoSnoozes] → auto-snooze;
+ *   if [autoSnoozeCount] >= [maxAutoSnoozes] → auto-stop.
  * - **Pre-alarm:** no auto-timeout (it's a notification only).
+ *
+ * @param autoSnoozeCount number of automatic snoozes already taken for this occurrence
+ *   (0 = first ring, 1 = first snooze re-trigger, etc.).
+ * @param maxAutoSnoozes maximum unattended auto-snoozes allowed before auto-stop.
+ *   Default 1 preserves the #1277 behaviour.
  */
 internal fun resolveAlertLifecycleAction(
     type: ClockEventType,
-    isSnoozeRetrigger: Boolean,
+    autoSnoozeCount: Int = 0,
+    maxAutoSnoozes: Int = 1,
 ): ClockAlertLifecycleAction? = when (type) {
     ClockEventType.TIMER -> ClockAlertLifecycleAction.AUTO_STOP
     ClockEventType.ALARM -> {
-        if (isSnoozeRetrigger) ClockAlertLifecycleAction.AUTO_STOP
-        else ClockAlertLifecycleAction.AUTO_SNOOZE
+        if (autoSnoozeCount < maxAutoSnoozes) ClockAlertLifecycleAction.AUTO_SNOOZE
+        else ClockAlertLifecycleAction.AUTO_STOP
     }
     ClockEventType.PRE_ALARM -> null
 }
@@ -39,14 +45,14 @@ internal fun resolveAlertLifecycleAction(
 /**
  * Duration the ringtone/vibration plays before the lifecycle action fires.
  *
- * - Timer: [TIMER_AUTO_STOP_DURATION_MS] (default 60 s)
- * - Alarm first ring: [ALARM_AUTO_SNOOZE_DURATION_MS] (default 60 s)
- * - Alarm snooze re-trigger: [TIMER_AUTO_STOP_DURATION_MS] (default 60 s)
+ * Default durations are the #1277 hardcoded values. These should be
+ * replaced by configured values from [com.kernel.ai.core.memory.clock.ClockAlertConfig] at runtime.
  */
 internal fun lifecycleTimeoutDurationMs(
     type: ClockEventType,
-    isSnoozeRetrigger: Boolean,
-): Long = when (resolveAlertLifecycleAction(type, isSnoozeRetrigger)) {
+    autoSnoozeCount: Int = 0,
+    maxAutoSnoozes: Int = 1,
+): Long = when (resolveAlertLifecycleAction(type, autoSnoozeCount, maxAutoSnoozes)) {
     ClockAlertLifecycleAction.AUTO_STOP -> TIMER_AUTO_STOP_DURATION_MS
     ClockAlertLifecycleAction.AUTO_SNOOZE -> ALARM_AUTO_SNOOZE_DURATION_MS
     null -> 0L
