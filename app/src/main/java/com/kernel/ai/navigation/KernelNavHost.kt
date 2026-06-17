@@ -185,6 +185,30 @@ internal fun isDrawerShortcutSelected(
     }
 }
 
+/** True when a shortcut click should perform navigation instead of being treated as a no-op. */
+internal fun shouldNavigateForShortcut(
+    currentBaseRoute: String?,
+    currentTab: String?,
+    targetRoute: String,
+): Boolean {
+    val targetBase = targetRoute.substringBefore('?')
+    val targetQuery = targetRoute.substringAfter("?", missingDelimiterValue = "")
+    val targetTab = targetQuery
+        .split("&")
+        .mapNotNull { pair ->
+            val key = pair.substringBefore("=")
+            val value = pair.substringAfter("=", missingDelimiterValue = "")
+            value.takeIf { key == "tab" && it.isNotBlank() }
+        }
+        .firstOrNull()
+
+    return when {
+        currentBaseRoute != targetBase -> true
+        targetQuery.isNotBlank() && targetTab == null -> true
+        else -> currentTab != targetTab
+    }
+}
+
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
@@ -205,18 +229,18 @@ private fun NavHostController.navigateToPrimaryRoute(route: String) {
     }
 }
 
-private fun NavHostController.navigateToToolsDestination(route: String) {
-    val currentRoute = currentBackStackEntry?.destination?.route ?: ""
-    val currentBase = currentRoute.substringBefore('?')
-    val targetBase = route.substringBefore('?')
-    val targetQuery = route.substringAfter('?', "")
+private fun NavHostController.navigateToToolsDestination(route: String): Boolean {
+    val entry = currentBackStackEntry
+    val currentRoute = entry?.destination?.route
+    val currentBase = currentRoute?.substringBefore('?')
+    val currentTab = entry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
 
-    // Skip if same base route AND no differentiating query params
-    if (currentBase == targetBase && targetQuery.isEmpty()) return
+    if (!shouldNavigateForShortcut(currentBase, currentTab, route)) return false
 
     navigate(route) {
         launchSingleTop = true
     }
+    return true
 }
 
 /**
@@ -231,15 +255,13 @@ private fun NavHostController.navigateToToolsDestination(route: String) {
  * by comparing the full route when parameters are present — allows tab-switching
  * within the same base destination.
  */
-private fun NavHostController.navigateToDrawerDestination(route: String) {
+private fun NavHostController.navigateToDrawerDestination(route: String): Boolean {
     val entry = currentBackStackEntry
-    val currentRoute = entry?.destination?.route ?: ""
-    val currentBase = currentRoute.substringBefore('?')
-    val targetBase = route.substringBefore('?')
-    val targetQuery = route.substringAfter('?', "")
+    val currentRoute = entry?.destination?.route
+    val currentBase = currentRoute?.substringBefore('?')
+    val currentTab = entry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
 
-    // Skip if same base route AND no differentiating query params
-    if (currentBase == targetBase && targetQuery.isEmpty()) return
+    if (!shouldNavigateForShortcut(currentBase, currentTab, route)) return false
 
     navigate(route) {
         popUpTo(ROUTE_LIST) {
@@ -248,6 +270,7 @@ private fun NavHostController.navigateToDrawerDestination(route: String) {
         launchSingleTop = true
         restoreState = false
     }
+    return true
 }
 
 /**
@@ -808,8 +831,9 @@ fun KernelNavHost(
                                 coroutineScope.launch { drawerState.open() }
                             },
                             onNavigateToRoute = { route ->
-                                navController.navigateToToolsDestination(route)
+                                val didNavigate = navController.navigateToToolsDestination(route)
                                 val shortcut = ShortcutRegistry.byRoute(route)
+                                    ?.takeIf { didNavigate }
                                     ?.takeIf { shouldRecordRecentShortcut(it, toolsFavouriteIds) }
                                 if (shortcut != null) {
                                     scope.launch {
@@ -941,12 +965,13 @@ private fun DrawerContent(
                     scope.launch {
                         drawerState.close()
                         // Record recent (defence-in-depth: honour canRecordRecent)
-                        val shouldRecordRecent = recentShortcutTracker != null &&
+                        val didNavigate = navController.navigateToDrawerDestination(item.route)
+                        val shouldRecordRecent = didNavigate &&
+                            recentShortcutTracker != null &&
                             shouldRecordRecentShortcut(item, drawerFavouriteIds)
                         if (shouldRecordRecent) {
                             recentShortcutTracker.record(item.id)
                         }
-                        navController.navigateToDrawerDestination(item.route)
                     }
                 },
                 modifier = Modifier

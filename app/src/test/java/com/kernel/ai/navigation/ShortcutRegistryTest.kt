@@ -676,6 +676,51 @@ class ShortcutRegistryTest {
     }
 
     @Nested
+    @DisplayName("shouldNavigateForShortcut")
+    inner class ShouldNavigateForShortcut {
+
+        @Test
+        fun `top-level Clock from top-level Clock may skip`() {
+            assertFalse(shouldNavigateForShortcut("settings/side_panel", null, "settings/side_panel"))
+        }
+
+        @Test
+        fun `top-level Clock from Timer tab navigates`() {
+            assertTrue(shouldNavigateForShortcut("settings/side_panel", "timer", "settings/side_panel"))
+        }
+
+        @Test
+        fun `Clock Timer from Timer tab may skip`() {
+            assertFalse(shouldNavigateForShortcut("settings/side_panel", "timer", "settings/side_panel?tab=timer"))
+        }
+
+        @Test
+        fun `Clock Alarms from Timer tab navigates`() {
+            assertTrue(shouldNavigateForShortcut("settings/side_panel", "timer", "settings/side_panel?tab=alarms"))
+        }
+
+        @Test
+        fun `top-level Convert from top-level Convert may skip`() {
+            assertFalse(shouldNavigateForShortcut("convert", null, "convert"))
+        }
+
+        @Test
+        fun `top-level Convert from Currency tab navigates`() {
+            assertTrue(shouldNavigateForShortcut("convert", "currency", "convert"))
+        }
+
+        @Test
+        fun `Convert Currency from Currency tab may skip`() {
+            assertFalse(shouldNavigateForShortcut("convert", "currency", "convert?tab=currency"))
+        }
+
+        @Test
+        fun `Convert Unit from Currency tab navigates`() {
+            assertTrue(shouldNavigateForShortcut("convert", "currency", "convert?tab=unit"))
+        }
+    }
+
+    @Nested
     @DisplayName("Recent recording policy")
     inner class RecentRecordingPolicy {
 
