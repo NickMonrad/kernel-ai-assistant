@@ -231,6 +231,45 @@ class ShortcutRegistryTest {
             assertTrue("convert.unit" in ShortcutRegistry.allFavouriteEligibleIds)
             assertTrue("convert.cooking" in ShortcutRegistry.allFavouriteEligibleIds)
         }
+
+        @Test
+        fun `byRoute resolves top-level routes`() {
+            assertEquals("clock", ShortcutRegistry.byRoute(ROUTE_SIDE_PANEL)?.id)
+            assertEquals("convert", ShortcutRegistry.byRoute(ROUTE_CONVERT)?.id)
+        }
+
+        @Test
+        fun `byRoute resolves side panel tab routes`() {
+            assertEquals("clock.timer", ShortcutRegistry.byRoute("settings/side_panel?tab=timer")?.id)
+            assertEquals("clock.world_clock", ShortcutRegistry.byRoute("settings/side_panel?tab=world_clock")?.id)
+        }
+
+        @Test
+        fun `byRoute resolves convert tab routes`() {
+            assertEquals("convert.currency", ShortcutRegistry.byRoute("convert?tab=currency")?.id)
+            assertEquals("convert.unit", ShortcutRegistry.byRoute("convert?tab=unit")?.id)
+        }
+
+        @Test
+        fun `byRoute resolves recordable Tools destinations`() {
+            assertEquals("user_profile", ShortcutRegistry.byRoute(ROUTE_USER_PROFILE)?.id)
+            assertEquals("chat_preferences", ShortcutRegistry.byRoute(ROUTE_CHAT_PREFERENCES)?.id)
+            assertEquals("learn", ShortcutRegistry.byRoute(ROUTE_TOOLS_LEARN)?.id)
+        }
+
+        @Test
+        fun `byRoute resolves model management variants`() {
+            assertEquals("models", ShortcutRegistry.byRoute(buildModelManagementRoute())?.id)
+            assertEquals("models", ShortcutRegistry.byRoute(buildModelManagementRoute(scrollTo = true))?.id)
+            assertEquals("models", ShortcutRegistry.byRoute("settings/model_management?scrollTo={scrollTo}")?.id)
+        }
+
+        @Test
+        fun `byRoute returns null for unknown or invalid tab routes`() {
+            assertNull(ShortcutRegistry.byRoute("unknown"))
+            assertNull(ShortcutRegistry.byRoute("settings/side_panel?tab=unknown"))
+            assertNull(ShortcutRegistry.byRoute("convert?tab=unknown"))
+        }
     }
 
     @DisplayName("All shortcuts")
@@ -251,11 +290,28 @@ class ShortcutRegistryTest {
             val expected = setOf(
                 "lists", "notes", "meal_plans",
                 "clock", "important_dates", "people_contacts", "convert",
+                "learn", "user_profile", "memory", "voice", "chat_preferences",
+                "models", "permissions", "about",
                 "settings",
                 "clock.stopwatch", "clock.timer", "clock.alarms", "clock.world_clock",
                 "convert.currency", "convert.unit", "convert.cooking",
             )
             assertEquals(expected, ShortcutRegistry.allById.keys)
+        }
+
+        @Test
+        fun `normal Tools destinations are recordable but not favourite eligible`() {
+            val ids = listOf(
+                "learn", "user_profile", "memory", "voice", "chat_preferences",
+                "models", "permissions", "about",
+            )
+
+            for (id in ids) {
+                val shortcut = ShortcutRegistry.byId(id)
+                assertNotNull(shortcut, "Shortcut should exist: $id")
+                assertTrue(shortcut?.canRecordRecent ?: false, "Shortcut should record recents: $id")
+                assertFalse(shortcut?.canFavourite ?: true, "Shortcut should not be favourite-eligible: $id")
+            }
         }
     }
 
@@ -393,6 +449,19 @@ class ShortcutRegistryTest {
             assertEquals("More Shortcuts", sections[2].header)
             for (def in ShortcutRegistry.drawerDefaults) {
                 assertTrue(sections[2].items.any { it.id == def.id }, "Default should be in More Shortcuts: ${def.id}")
+            }
+        }
+
+        @Test
+        fun `buildDrawerSections ignores invalid recents when filling More Shortcuts`() {
+            val sections = buildDrawerSections(
+                favouriteIds = emptyList(),
+                recentIds = listOf("unknown", "settings"),
+            )
+
+            assertTrue(sections[1].items.isEmpty(), "Invalid/settings recents should not be visible")
+            for (def in ShortcutRegistry.drawerDefaults) {
+                assertTrue(sections[2].items.any { it.id == def.id }, "Default should remain visible: ${def.id}")
             }
         }
 
@@ -603,6 +672,55 @@ class ShortcutRegistryTest {
             assertTrue(isDrawerShortcutSelected("settings", null, "settings"))
             assertTrue(isDrawerShortcutSelected("lists", null, "lists"))
             assertTrue(isDrawerShortcutSelected("notes", null, "notes"))
+        }
+    }
+
+    @Nested
+    @DisplayName("Recent recording policy")
+    inner class RecentRecordingPolicy {
+
+        @Test
+        fun `favourited Clock open does not mutate visible recents`() {
+            val favouriteIds = setOf("clock")
+            val visibleBefore = buildDrawerSections(
+                favouriteIds = favouriteIds.toList(),
+                recentIds = listOf("convert", "notes"),
+            )[1].items.map { it.id }
+
+            val clock = ShortcutRegistry.byRoute(ROUTE_SIDE_PANEL)
+            assertNotNull(clock)
+            assertFalse(shouldRecordRecentShortcut(clock!!, favouriteIds))
+
+            val visibleAfter = buildDrawerSections(
+                favouriteIds = favouriteIds.toList(),
+                recentIds = listOf("convert", "notes"),
+            )[1].items.map { it.id }
+            assertEquals(visibleBefore, visibleAfter)
+        }
+
+        @Test
+        fun `unknown route cannot record recent`() {
+            assertNull(ShortcutRegistry.byRoute("unknown"))
+        }
+
+        @Test
+        fun `non-favourited Clock sub-item records and appears in Recently Used`() {
+            val timer = ShortcutRegistry.byRoute("settings/side_panel?tab=timer")
+            assertNotNull(timer)
+            assertTrue(shouldRecordRecentShortcut(timer!!, emptySet()))
+
+            val sections = buildDrawerSections(
+                favouriteIds = emptyList(),
+                recentIds = listOf(timer.id),
+            )
+            assertEquals(listOf("clock.timer"), sections[1].items.map { it.id })
+        }
+
+        @Test
+        fun `settings route is deliberately non-recordable`() {
+            val settings = ShortcutRegistry.byRoute(ROUTE_SETTINGS)
+            assertNotNull(settings)
+            assertFalse(shouldRecordRecentShortcut(settings!!, emptySet()))
         }
     }
 

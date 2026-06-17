@@ -809,12 +809,11 @@ fun KernelNavHost(
                             },
                             onNavigateToRoute = { route ->
                                 navController.navigateToToolsDestination(route)
-                                // Record recent — only if the shortcut allows it
-                                val entry = ShortcutRegistry.allById.entries
-                                    .firstOrNull { it.value.route == route }
-                                if (entry != null && entry.value.canRecordRecent) {
+                                val shortcut = ShortcutRegistry.byRoute(route)
+                                    ?.takeIf { shouldRecordRecentShortcut(it, toolsFavouriteIds) }
+                                if (shortcut != null) {
                                     scope.launch {
-                                        recentShortcutTracker?.record(entry.key)
+                                        recentShortcutTracker?.record(shortcut.id)
                                     }
                                 }
                             },
@@ -880,11 +879,13 @@ private fun DrawerContent(
         else -> recentShortcutTracker.observeAll().collectAsState(initial = emptyList())
     }
 
+    val drawerFavouriteIds = favouriteIds.map { it.id }.toSet()
+
     // Compute the sectioned display model
-    val sections by remember(favouriteIds, recentIds) {
+    val sections by remember(drawerFavouriteIds, recentIds) {
         derivedStateOf {
             buildDrawerSections(
-                favouriteIds = favouriteIds.map { it.id },
+                favouriteIds = drawerFavouriteIds.toList(),
                 recentIds = recentIds.map { it.id },
             )
         }
@@ -940,9 +941,9 @@ private fun DrawerContent(
                     scope.launch {
                         drawerState.close()
                         // Record recent (defence-in-depth: honour canRecordRecent)
-                        if (!item.isSettings && recentShortcutTracker != null &&
-                            item.canRecordRecent
-                        ) {
+                        val shouldRecordRecent = recentShortcutTracker != null &&
+                            shouldRecordRecentShortcut(item, drawerFavouriteIds)
+                        if (shouldRecordRecent) {
                             recentShortcutTracker.record(item.id)
                         }
                         navController.navigateToDrawerDestination(item.route)
@@ -955,6 +956,12 @@ private fun DrawerContent(
         }
     }
 }
+
+/** True when opening [shortcut] should mutate Recently Used storage. */
+internal fun shouldRecordRecentShortcut(
+    shortcut: ShortcutDef,
+    favouriteIds: Set<String>,
+): Boolean = shortcut.canRecordRecent && !shortcut.isSettings && shortcut.id !in favouriteIds
 
 /**
  * Build the ordered list of drawer shortcut items.
@@ -1029,7 +1036,6 @@ internal fun buildDrawerSections(
     recentIds: List<String>,
 ): List<DrawerSection> {
     val favouriteSet = favouriteIds.toSet()
-    val recentSet = recentIds.toSet()
 
     // 1. Favourites
     val favouriteDefs = favouriteIds.mapNotNull { ShortcutRegistry.byId(it) }
@@ -1041,8 +1047,8 @@ internal fun buildDrawerSections(
         .mapNotNull { ShortcutRegistry.byId(it) }
         .filter { !it.isSettings }
 
-    // 3. More Shortcuts — from defaults, deduped against favourites + recents
-    val alreadyShown = favouriteSet + recentSet
+    // 3. More Shortcuts — from defaults, deduped against visible favourites + recents
+    val alreadyShown = (favouriteDefs + recentDefs).map { it.id }.toSet()
     val moreDefs = ShortcutRegistry.drawerDefaults
         .filter { it.id !in alreadyShown }
 

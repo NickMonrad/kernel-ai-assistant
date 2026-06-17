@@ -1,14 +1,21 @@
 package com.kernel.ai.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -96,6 +103,73 @@ object ShortcutRegistry {
         route = ROUTE_CONVERT,
     )
 
+    /** Learn catalogue shortcut (recordable from Tools, not favourite-eligible). */
+    val learn = ShortcutDef(
+        id = "learn",
+        label = "Learn what Jandal can do",
+        icon = Icons.AutoMirrored.Filled.MenuBook,
+        route = ROUTE_TOOLS_LEARN,
+        canFavourite = false,
+    )
+
+    /** Personalisation shortcuts (recordable from Tools, not favourite-eligible). */
+    val userProfile = ShortcutDef(
+        id = "user_profile",
+        label = "User Profile",
+        icon = Icons.Default.Person,
+        route = ROUTE_USER_PROFILE,
+        canFavourite = false,
+    )
+
+    val memory = ShortcutDef(
+        id = "memory",
+        label = "Memory",
+        icon = Icons.Default.Bookmarks,
+        route = ROUTE_MEMORY,
+        canFavourite = false,
+    )
+
+    val voice = ShortcutDef(
+        id = "voice",
+        label = "Voice",
+        icon = Icons.Default.Tune,
+        route = ROUTE_VOICE,
+        canFavourite = false,
+    )
+
+    val chatPreferences = ShortcutDef(
+        id = "chat_preferences",
+        label = "Chat Preferences",
+        icon = Icons.Default.Forum,
+        route = ROUTE_CHAT_PREFERENCES,
+        canFavourite = false,
+    )
+
+    /** App setup shortcuts (recordable from Tools, not favourite-eligible). */
+    val models = ShortcutDef(
+        id = "models",
+        label = "Models",
+        icon = Icons.Default.SmartToy,
+        route = buildModelManagementRoute(),
+        canFavourite = false,
+    )
+
+    val permissions = ShortcutDef(
+        id = "permissions",
+        label = "Permissions",
+        icon = Icons.Default.Security,
+        route = ROUTE_APP_PERMISSIONS,
+        canFavourite = false,
+    )
+
+    val about = ShortcutDef(
+        id = "about",
+        label = "About",
+        icon = Icons.Default.Info,
+        route = ROUTE_ABOUT,
+        canFavourite = false,
+    )
+
     /** Settings (always pinned, not favourite-able, not recent-able). */
     val settings = ShortcutDef(
         id = "settings",
@@ -168,10 +242,14 @@ object ShortcutRegistry {
     val allById: Map<String, ShortcutDef> = listOf(
         lists, notes, mealPlans,
         clock, importantDates, peopleContacts, convert,
+        learn, userProfile, memory, voice, chatPreferences,
+        models, permissions, about,
         settings,
         clockStopwatch, clockTimer, clockAlarms, clockWorldClock,
         convertCurrency, convertUnit, convertCooking,
     ).associateBy { it.id }
+
+    private val allByRoute: Map<String, ShortcutDef> = allById.values.associateBy { it.route }
 
     /** All top-level (non-sub-feature) shortcuts that can appear in the drawer. */
     val allTopLevel: List<ShortcutDef> = listOf(
@@ -190,6 +268,45 @@ object ShortcutRegistry {
 
     /** Resolve a shortcut by ID, returning null for unknown IDs. */
     fun byId(id: String): ShortcutDef? = allById[id]
+
+    /** Resolve a shortcut by navigation route, including supported tabbed route variants. */
+    fun byRoute(route: String): ShortcutDef? {
+        val normalized = route.trim()
+        if (normalized.isBlank()) return null
+
+        val baseRoute = normalized.substringBefore("?")
+        return when (baseRoute) {
+            ROUTE_SIDE_PANEL -> when (normalized.queryParam("tab").orEmpty()) {
+                "" -> clock
+                "stopwatch" -> clockStopwatch
+                "timer" -> clockTimer
+                "alarms" -> clockAlarms
+                "world_clock" -> clockWorldClock
+                else -> null
+            }
+            ROUTE_CONVERT -> when (normalized.queryParam("tab").orEmpty()) {
+                "" -> convert
+                "currency" -> convertCurrency
+                "unit" -> convertUnit
+                "cooking" -> convertCooking
+                else -> null
+            }
+            buildModelManagementRoute().substringBefore("?") -> models
+            else -> allByRoute[normalized]
+        }
+    }
+
+    private fun String.queryParam(name: String): String? {
+        val query = substringAfter("?", missingDelimiterValue = "")
+        if (query.isBlank()) return null
+        return query.split("&")
+            .mapNotNull { pair ->
+                val key = pair.substringBefore("=")
+                val value = pair.substringAfter("=", missingDelimiterValue = "")
+                value.takeIf { key == name }
+            }
+            .firstOrNull()
+    }
 
     /** Check whether an ID is a known shortcut. */
     fun isValidId(id: String): Boolean = id in allById
