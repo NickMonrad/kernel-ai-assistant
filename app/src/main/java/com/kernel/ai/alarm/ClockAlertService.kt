@@ -176,7 +176,6 @@ class ClockAlertService : Service() {
         autoStartVoiceJob?.cancel()
         lifecycleJobs.values.forEach { it.cancel() }
         lifecycleJobs.clear()
-        clearSnoozedOwnerIds()
         serviceScope.cancel()
         stopPlayback()
         activeAlerts.clear()
@@ -663,10 +662,6 @@ class ClockAlertService : Service() {
             snoozedOwnerIds = snoozedOwnerIds - ownerId
         }
 
-        /** Clear all snoozed tracking (called during destroy). */
-        internal fun clearSnoozedOwnerIds() {
-            snoozedOwnerIds = emptySet()
-        }
 
         internal fun trigger(context: Context, alert: TriggeredClockAlert) {
             ContextCompat.startForegroundService(
