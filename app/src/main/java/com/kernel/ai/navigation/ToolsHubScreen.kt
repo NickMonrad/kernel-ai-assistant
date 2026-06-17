@@ -97,7 +97,7 @@ private val allToolSearchEntries = listOf(
         keywords = listOf("birthday", "anniversary", "recurring", "reminder")),
     ToolSearchEntry("people_contacts", "People & Contacts", "Contact aliases and people Jandal can recognise", "People",
         keywords = listOf("contacts", "people", "aliases", "address book")),
-    ToolSearchEntry("convert", "Convert", "Units, currency, and quick calculations", "Utilities",
+    ToolSearchEntry("convert", "Convert", "Currency, units, and cooking conversions", "Utilities",
         keywords = listOf("unit", "currency", "measurement", "cooking", "calculate")),
     ToolSearchEntry("user_profile", "User Profile", "Tell Jandal about yourself", "Personalisation",
         keywords = listOf("profile", "name", "about me", "preferences")),
@@ -360,8 +360,9 @@ fun ToolsHubScreen(
                 val stopwatch = ShortcutRegistry.clockStopwatch
                 val timer = ShortcutRegistry.clockTimer
                 val alarms = ShortcutRegistry.clockAlarms
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_stopwatch",
+                    icon = stopwatch.icon,
                     title = stopwatch.label,
                     subtitle = "Clock",
                     route = stopwatch.route,
@@ -370,8 +371,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(stopwatch.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_timer",
+                    icon = timer.icon,
                     title = timer.label,
                     subtitle = "Clock",
                     route = timer.route,
@@ -380,8 +382,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(timer.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_alarms",
+                    icon = alarms.icon,
                     title = alarms.label,
                     subtitle = "Clock",
                     route = alarms.route,
@@ -390,6 +393,19 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(alarms.id) },
                     onNavigate = onNavigateToRoute,
                 )
+                val worldClock = ShortcutRegistry.clockWorldClock
+                SubFeatureRow(
+                    testTag = "tools_row_clock_world_clock",
+                    icon = worldClock.icon,
+                    title = worldClock.label,
+                    subtitle = "Clock",
+                    route = worldClock.route,
+                    canFavourite = worldClock.canFavourite,
+                    isFavourite = worldClock.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(worldClock.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                HorizontalDivider()
                 val (datesCanFav, datesIsFav, datesOnFav) = favouriteParams("important_dates", favouriteIds, onToggleFavourite)
                 ToolsListItem(
                     testTag = "tools_row_important_dates",
@@ -439,11 +455,49 @@ fun ToolsHubScreen(
                     testTag = "tools_row_convert",
                     icon = Icons.Default.Calculate,
                     title = "Convert",
-                    subtitle = "Units, currency, and quick calculations",
+                    subtitle = "Currency, units, and cooking conversions",
                     onClick = { onNavigateToRoute(ROUTE_CONVERT) },
                     canFavourite = convertCanFav,
                     isFavourite = convertIsFav,
                     onToggleFavourite = convertOnFav,
+                )
+
+                // Convert sub-feature shortcuts (indented, with favourite toggles)
+                val convertCurrency = ShortcutRegistry.convertCurrency
+                val convertUnit = ShortcutRegistry.convertUnit
+                val convertCooking = ShortcutRegistry.convertCooking
+                SubFeatureRow(
+                    testTag = "tools_row_convert_currency",
+                    icon = convertCurrency.icon,
+                    title = convertCurrency.label,
+                    subtitle = "Convert",
+                    route = convertCurrency.route,
+                    canFavourite = convertCurrency.canFavourite,
+                    isFavourite = convertCurrency.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertCurrency.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                SubFeatureRow(
+                    testTag = "tools_row_convert_unit",
+                    icon = convertUnit.icon,
+                    title = convertUnit.label,
+                    subtitle = "Convert",
+                    route = convertUnit.route,
+                    canFavourite = convertUnit.canFavourite,
+                    isFavourite = convertUnit.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertUnit.id) },
+                    onNavigate = onNavigateToRoute,
+                )
+                SubFeatureRow(
+                    testTag = "tools_row_convert_cooking",
+                    icon = convertCooking.icon,
+                    title = convertCooking.label,
+                    subtitle = "Convert",
+                    route = convertCooking.route,
+                    canFavourite = convertCooking.canFavourite,
+                    isFavourite = convertCooking.id in favouriteIds,
+                    onToggleFavourite = { onToggleFavourite(convertCooking.id) },
+                    onNavigate = onNavigateToRoute,
                 )
                 HorizontalDivider()
 
@@ -692,15 +746,18 @@ private fun ToolsListItem(
     )
 }
 
+
 /**
- * An indented sub-feature row for clock shortcuts (Stopwatch, Timer, Alarms).
+ * An indented sub-feature row for tool shortcuts (Stopwatch, Timer, Currency, etc.).
  *
- * Shows a compact row with a favourite star toggle. Clicking the row navigates
- * to the parent Clock screen with the corresponding tab selected via query param.
+ * Shows a compact row with a favourite star toggle and the shortcut's icon.
+ * Clicking the row navigates to the parent screen with the corresponding
+ * tab selected via query param.
  */
 @Composable
-private fun ClockSubFeatureRow(
+private fun SubFeatureRow(
     testTag: String,
+    icon: ImageVector,
     title: String,
     subtitle: String,
     route: String,
@@ -730,7 +787,7 @@ private fun ClockSubFeatureRow(
         },
         leadingContent = {
             Icon(
-                imageVector = Icons.Default.Timer,
+                imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

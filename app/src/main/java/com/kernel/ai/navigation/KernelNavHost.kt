@@ -1,5 +1,9 @@
 package com.kernel.ai.navigation
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.RecentShortcutEntity
@@ -59,6 +63,7 @@ import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.convert.ConvertScreen
+import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
@@ -150,12 +155,63 @@ internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
 internal fun buildSidePanelTabRoute(tab: String): String =
     "$ROUTE_SIDE_PANEL?tab=$tab"
 
+internal fun buildConvertTabRoute(tab: String): String =
+    "$ROUTE_CONVERT?tab=$tab"
+
 internal fun buildActionsDraftRoute(draftQuery: String): String =
     "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}"
 
 internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
         .replace("+", "%20")
+
+/**
+ * Determine whether a drawer shortcut should render as selected given the current
+ * navigation destination.
+ *
+ * When the shortcut's route includes a `tab=` query parameter (sub-feature routes
+ * like `convert?tab=currency` or `settings/side_panel?tab=stopwatch`), both the
+ * base route and the tab must match. Top-level shortcuts with no tab parameter
+ * use base-route matching only.
+ */
+internal fun isDrawerShortcutSelected(
+    currentBaseRoute: String?,
+    currentTab: String?,
+    itemRoute: String,
+): Boolean {
+    val itemBase = itemRoute.substringBefore('?')
+    val itemTab = itemRoute
+        .substringAfter("tab=", "")
+        .takeIf { it.isNotBlank() }
+    return when {
+        itemTab != null -> currentBaseRoute == itemBase && currentTab == itemTab
+        else -> currentBaseRoute == itemBase && currentTab == null
+    }
+}
+
+/** True when a shortcut click should perform navigation instead of being treated as a no-op. */
+internal fun shouldNavigateForShortcut(
+    currentBaseRoute: String?,
+    currentTab: String?,
+    targetRoute: String,
+): Boolean {
+    val targetBase = targetRoute.substringBefore('?')
+    val targetQuery = targetRoute.substringAfter("?", missingDelimiterValue = "")
+    val targetTab = targetQuery
+        .split("&")
+        .mapNotNull { pair ->
+            val key = pair.substringBefore("=")
+            val value = pair.substringAfter("=", missingDelimiterValue = "")
+            value.takeIf { key == "tab" && it.isNotBlank() }
+        }
+        .firstOrNull()
+
+    return when {
+        currentBaseRoute != targetBase -> true
+        targetQuery.isNotBlank() && targetTab == null -> true
+        else -> currentTab != targetTab
+    }
+}
 
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -177,14 +233,18 @@ private fun NavHostController.navigateToPrimaryRoute(route: String) {
     }
 }
 
-private fun NavHostController.navigateToToolsDestination(route: String) {
-    val currentBaseRoute = currentBackStackEntry?.destination?.route?.substringBefore('?')
-    val targetBaseRoute = route.substringBefore('?')
-    if (currentBaseRoute == targetBaseRoute) return
+private fun NavHostController.navigateToToolsDestination(route: String): Boolean {
+    val entry = currentBackStackEntry
+    val currentRoute = entry?.destination?.route
+    val currentBase = currentRoute?.substringBefore('?')
+    val currentTab = entry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
+
+    if (!shouldNavigateForShortcut(currentBase, currentTab, route)) return false
 
     navigate(route) {
         launchSingleTop = true
     }
+    return true
 }
 
 /**
@@ -199,15 +259,13 @@ private fun NavHostController.navigateToToolsDestination(route: String) {
  * by comparing the full route when parameters are present — allows tab-switching
  * within the same base destination.
  */
-private fun NavHostController.navigateToDrawerDestination(route: String) {
+private fun NavHostController.navigateToDrawerDestination(route: String): Boolean {
     val entry = currentBackStackEntry
-    val currentRoute = entry?.destination?.route ?: ""
-    val currentBase = currentRoute.substringBefore('?')
-    val targetBase = route.substringBefore('?')
-    val targetQuery = route.substringAfter('?', "")
+    val currentRoute = entry?.destination?.route
+    val currentBase = currentRoute?.substringBefore('?')
+    val currentTab = entry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
 
-    // Skip if same base route AND no differentiating query params
-    if (currentBase == targetBase && targetQuery.isEmpty()) return
+    if (!shouldNavigateForShortcut(currentBase, currentTab, route)) return false
 
     navigate(route) {
         popUpTo(ROUTE_LIST) {
@@ -216,6 +274,7 @@ private fun NavHostController.navigateToDrawerDestination(route: String) {
         launchSingleTop = true
         restoreState = false
     }
+    return true
 }
 
 /**
@@ -288,6 +347,7 @@ fun KernelNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
+    val currentTab = navBackStackEntry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -325,6 +385,7 @@ fun KernelNavHost(
                     navController = navController,
                     drawerState = drawerState,
                     currentBaseRoute = currentBaseRoute,
+                    currentTab = currentTab,
                     favouriteShortcutRepository = favouriteShortcutRepository,
                     recentShortcutTracker = recentShortcutTracker,
                 )
@@ -744,7 +805,14 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_CONVERT) {
+                composable(
+                    route = "$ROUTE_CONVERT?tab={tab}",
+                    arguments = listOf(
+                        navArgument("tab") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) { backStackEntry ->
+                    val tabParam = backStackEntry.arguments?.getString("tab") ?: ""
+                    val initialTab = mapQueryParamToConvertTab(tabParam)
                     ConvertScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
@@ -753,6 +821,7 @@ fun KernelNavHost(
                                 launchSingleTop = true
                             }
                         },
+                        initialTab = initialTab,
                     )
                 }
                 composable(ROUTE_TOOLS) {
@@ -766,13 +835,13 @@ fun KernelNavHost(
                                 coroutineScope.launch { drawerState.open() }
                             },
                             onNavigateToRoute = { route ->
-                                navController.navigateToToolsDestination(route)
-                                // Record recent — only if the shortcut allows it
-                                val entry = ShortcutRegistry.allById.entries
-                                    .firstOrNull { it.value.route == route }
-                                if (entry != null && entry.value.canRecordRecent) {
+                                val didNavigate = navController.navigateToToolsDestination(route)
+                                val shortcut = ShortcutRegistry.byRoute(route)
+                                    ?.takeIf { didNavigate }
+                                    ?.takeIf { shouldRecordRecentShortcut(it, toolsFavouriteIds) }
+                                if (shortcut != null) {
                                     scope.launch {
-                                        recentShortcutTracker?.record(entry.key)
+                                        recentShortcutTracker?.record(shortcut.id)
                                     }
                                 }
                             },
@@ -813,12 +882,16 @@ fun KernelNavHost(
 
 /**
  * Dynamic drawer content that shows favourites, recents, defaults, and settings.
+ *
+ * Uses [buildDrawerSections] to produce a sectioned layout with labelled headers
+ * for Favourites, Recently Used, More Shortcuts, and Settings.
  */
 @Composable
-private fun DrawerContent(
+internal fun DrawerContent(
     navController: NavHostController,
     drawerState: androidx.compose.material3.DrawerState,
     currentBaseRoute: String?,
+    currentTab: String?,
     favouriteShortcutRepository: FavouriteShortcutRepository?,
     recentShortcutTracker: RecentShortcutTracker?,
 ) {
@@ -834,50 +907,98 @@ private fun DrawerContent(
         else -> recentShortcutTracker.observeAll().collectAsState(initial = emptyList())
     }
 
-    // Compute the ordered display list
-    val displayItems by remember(favouriteIds, recentIds) {
+    val drawerFavouriteIds = favouriteIds.map { it.id }.toSet()
+
+    // Compute the sectioned display model
+    val sections by remember(drawerFavouriteIds, recentIds) {
         derivedStateOf {
-            buildDrawerItems(
-                favouriteIds = favouriteIds.map { it.id },
+            buildDrawerSections(
+                favouriteIds = drawerFavouriteIds.toList(),
                 recentIds = recentIds.map { it.id },
             )
         }
     }
 
-    // Header
-    Text(
-        text = "Jandal",
-        style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
-    )
-    HorizontalDivider()
-    Spacer(modifier = Modifier.padding(4.dp))
-
-    // Render items with a divider before Settings
-    displayItems.forEach { item ->
-        if (item.isSettings) {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-        }
-        NavigationDrawerItem(
-            label = { Text(item.label) },
-            icon = { Icon(item.icon, contentDescription = null) },
-            selected = currentBaseRoute == item.route.substringBefore('?'),
-            onClick = {
-                scope.launch {
-                    drawerState.close()
-                    // Record recent (defence-in-depth: honour canRecordRecent)
-                    if (!item.isSettings && recentShortcutTracker != null &&
-                        item.canRecordRecent
-                    ) {
-                        recentShortcutTracker.record(item.id)
-                    }
-                    navController.navigateToDrawerDestination(item.route)
-                }
-            },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(bottom = 16.dp)
+            .testTag("drawer_content_scroll"),
+    ) {
+        // Header
+        Text(
+            text = "Jandal",
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
         )
+        HorizontalDivider()
+        Spacer(modifier = Modifier.padding(4.dp))
+
+        sections.forEach { section ->
+            // Skip empty sections without helper content (e.g. empty Recently Used)
+            if (section.items.isEmpty() && section.emptyMessage == null) return@forEach
+            // Section header (null for Settings section)
+            if (section.header != null) {
+                Text(
+                    text = section.header,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp, vertical = 8.dp)
+                        .testTag("drawer_section_${section.header.lowercase().replace(' ', '_')}"),
+                )
+            }
+
+            if (section.items.isEmpty() && section.emptyMessage != null) {
+                // Empty state helper row
+                Text(
+                    text = section.emptyMessage,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp, vertical = 8.dp)
+                        .testTag("drawer_favourites_empty"),
+                )
+            }
+
+            if (section.header == null && section.items.any { it.isSettings }) {
+                // Divider before Settings
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            }
+
+            section.items.forEach { item ->
+                NavigationDrawerItem(
+                    label = { Text(item.label) },
+                    icon = { Icon(item.icon, contentDescription = null) },
+                    selected = isDrawerShortcutSelected(currentBaseRoute, currentTab, item.route),
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            // Record recent (defence-in-depth: honour canRecordRecent)
+                            val didNavigate = navController.navigateToDrawerDestination(item.route)
+                            val shouldRecordRecent = didNavigate &&
+                                recentShortcutTracker != null &&
+                                shouldRecordRecentShortcut(item, drawerFavouriteIds)
+                            if (shouldRecordRecent) {
+                                recentShortcutTracker.record(item.id)
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(NavigationDrawerItemDefaults.ItemPadding)
+                        .testTag("drawer_item_${item.id}"),
+                )
+            }
+        }
     }
 }
+
+/** True when opening [shortcut] should mutate Recently Used storage. */
+internal fun shouldRecordRecentShortcut(
+    shortcut: ShortcutDef,
+    favouriteIds: Set<String>,
+): Boolean = shortcut.canRecordRecent && !shortcut.isSettings && shortcut.id !in favouriteIds
 
 /**
  * Build the ordered list of drawer shortcut items.
@@ -921,4 +1042,84 @@ internal fun buildDrawerItems(
     result.add(ShortcutRegistry.settings)
 
     return result
+}
+
+/**
+ * A section in the quick-access drawer.
+ *
+ * @param header Label shown as section header, or null for unlabeled sections (e.g. Settings).
+ * @param items Shortcuts in this section.
+ * @param emptyMessage Shown when [items] is empty and this is the Favourites section.
+ */
+internal data class DrawerSection(
+    val header: String?,
+    val items: List<ShortcutDef>,
+    val emptyMessage: String? = null,
+)
+
+/**
+ * Build the sectioned drawer shortcut model.
+ *
+ * Sections:
+ * 1. Favourites — only favourite shortcuts
+ * 2. Recently Used — non-favourite recents
+ * 3. More Shortcuts — defaults not already shown in favourites or recents
+ * 4. Settings — always pinned last with a divider
+ *
+ * Each section header has a stable [testTag] for UI test assertions.
+ */
+internal fun buildDrawerSections(
+    favouriteIds: List<String>,
+    recentIds: List<String>,
+): List<DrawerSection> {
+    val favouriteSet = favouriteIds.toSet()
+
+    // 1. Favourites
+    val favouriteDefs = favouriteIds.mapNotNull { ShortcutRegistry.byId(it) }
+        .filter { !it.isSettings }
+
+    // 2. Recents (non-favourite)
+    val recentDefs = recentIds
+        .filter { it !in favouriteSet }
+        .mapNotNull { ShortcutRegistry.byId(it) }
+        .filter { !it.isSettings }
+
+    // 3. More Shortcuts — from defaults, deduped against visible favourites + recents
+    val alreadyShown = (favouriteDefs + recentDefs).map { it.id }.toSet()
+    val moreDefs = ShortcutRegistry.drawerDefaults
+        .filter { it.id !in alreadyShown }
+
+    val sections = mutableListOf<DrawerSection>()
+
+    sections.add(
+        DrawerSection(
+            header = "Favourites",
+            items = favouriteDefs,
+            emptyMessage = if (favouriteDefs.isEmpty()) "Star tools from Tools to add them here." else null,
+        )
+    )
+
+    sections.add(
+        DrawerSection(
+            header = "Recently Used",
+            items = recentDefs,
+        )
+    )
+
+    sections.add(
+        DrawerSection(
+            header = "More Shortcuts",
+            items = moreDefs,
+        )
+    )
+
+    // 4. Settings (pinned last)
+    sections.add(
+        DrawerSection(
+            header = null,
+            items = listOf(ShortcutRegistry.settings),
+        )
+    )
+
+    return sections
 }
