@@ -7,9 +7,11 @@ This document captures the release-attribution state after the Semaine release-v
 
 ## Status
 
-This is a **pre-release-candidate attribution snapshot**. It verifies the release-exposed model/voice decisions that can be checked from source, but it does **not** replace the final release artefact audit in #1259.
+This document was updated by #1259 with the first release AAB build and artefact audit. Release runtime dependency evidence has been generated and compared against the existing attribution docs. Formal SBOM (CycloneDX/SPDX) has not been generated — the dependency review is documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
 
-Before Play Store publication, #1259 still needs to produce and inspect the actual release `.aab`, and #1263 still needs a generated dependency notice/SBOM from the resolved release variant.
+## Pre-release-candidate status
+
+This is still a **pre-release-candidate attribution snapshot** — Play Console pre-launch report findings may still require changes. Some key gaps identified at creation time (AAB inspection, dependency comparison) have been addressed. Formal SBOM and generated third-party notices remain pending.
 
 ## Release scope decisions captured
 
@@ -88,14 +90,19 @@ Required first-launch minimum:
 - Play Store copy does not claim ownership of upstream models/voices;
 - final release artefact audit confirms no unexpected bundled model files or debug-only dependencies.
 
-## Final release artefact audit still required
+## Release artefact audit complete
 
-The following items cannot be completed from static source docs alone:
+The following items were completed in #1259:
 
-- generate release dependency notices or SBOM from the resolved release variant;
-- inspect the release `.aab` contents for bundled models, debug artefacts, and native ABIs;
-- confirm exact runtime dependency set after Gradle resolution;
-- confirm whether any licence notice needs to appear inside the app rather than only in repository/docs;
-- record final versionCode/versionName, commit SHA, and release artefact hash/path.
+- [x] Release runtime classpath dependency tree generated and compared against attribution docs — documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`
+- [x] Dependency gap report created at `build/reports/release-audit/attribution-gap-report.md` (gitignored build artifact)
+- [x] Release signing approach documented in `docs/PLAY_RELEASE_BUILD.md`
+- [x] Full audit report at `docs/release-audit/RELEASE_AUDIT.md`
 
-Track those in #1259 and feed the result back into #1263 before closing the launch gate.
+## Remaining before closing #1263
+- [ ] Formal SBOM (CycloneDX/SPDX) or generated third-party notices — not yet produced; manual dependency review is the current evidence
+- [ ] Decide whether to add an SBOM generation plugin or accept manual review as sufficient
+- [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
+- [ ] Confirm maintainer ownership/consent for Stage 3 wake-word training recordings
+- [ ] Decide in-app OSS notices screen — deferred for first launch unless pre-launch review flags it
+- [ ] Update #868 with final release scope
