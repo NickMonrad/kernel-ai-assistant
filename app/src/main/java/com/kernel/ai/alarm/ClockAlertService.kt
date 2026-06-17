@@ -441,7 +441,7 @@ class ClockAlertService : Service() {
         val job = serviceScope.launch {
             kotlinx.coroutines.delay(timeoutMs)
             val activeAlert = findActiveAlert(alert.ownerId) ?: return@launch
-            handleLifecycleTimeout(activeAlert)
+            handleLifecycleTimeout(activeAlert, isSnoozeRetrigger)
         }
         lifecycleJobs[alert.ownerId] = job
     }
@@ -454,10 +454,10 @@ class ClockAlertService : Service() {
     /**
      * Dispatches the lifecycle timeout to auto-stop or auto-snooze
      * based on the alert type and whether this was a snooze re-trigger.
-     * The snoozed-owner-id is consumed so the next trigger starts fresh.
+     * [isSnoozeRetrigger] is preserved from the original TRIGGER_ALERT processing
+     * — it is NOT re-consumed from the companion set, which was already consumed.
      */
-    private suspend fun handleLifecycleTimeout(alert: TriggeredClockAlert) {
-        val isSnoozeRetrigger = consumeSnoozedOwnerId(alert.ownerId)
+    private suspend fun handleLifecycleTimeout(alert: TriggeredClockAlert, isSnoozeRetrigger: Boolean) {
         when (resolveAlertLifecycleAction(alert.type, isSnoozeRetrigger)) {
             ClockAlertLifecycleAction.AUTO_STOP -> performAutoStop(alert)
             ClockAlertLifecycleAction.AUTO_SNOOZE -> performAutoSnooze(alert)
