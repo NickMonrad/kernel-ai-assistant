@@ -10,7 +10,7 @@ internal object ClockAlertContract {
     const val EXTRA_TIMER_ID = "timer_id"
     const val EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS = "occurrence_trigger_at_millis"
     const val EXTRA_SOUND_URI = "sound_uri"
-
+    const val EXTRA_IS_SNOOZE_RETRIGGER = "is_snooze_retrigger"
     const val ACTION_TRIGGER_ALERT = "com.kernel.ai.alarm.action.TRIGGER_ALERT"
     const val ACTION_STOP_ALERT = "com.kernel.ai.alarm.action.STOP_ALERT"
     const val ACTION_STOP_TIMER_ALERTS = "com.kernel.ai.alarm.action.STOP_TIMER_ALERTS"
@@ -41,4 +41,5 @@ internal data class TriggeredClockAlert(
     val label: String,
     val occurrenceTriggerAtMillis: Long? = null,
     val soundUri: String? = null,
+    val isSnoozeRetrigger: Boolean = false,
 )
