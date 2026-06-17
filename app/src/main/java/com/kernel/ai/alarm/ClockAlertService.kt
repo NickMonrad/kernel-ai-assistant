@@ -446,7 +446,7 @@ class ClockAlertService : Service() {
     /** Schedules a coroutine that fires after the ringing timeout for this alert. */
     private fun scheduleLifecycleTimeout(alert: TriggeredClockAlert, autoSnoozeCount: Int) {
         cancelLifecycleTimeout(alert.ownerId)
-        val timeoutMs = lifecycleTimeoutDurationMs(alert.type, autoSnoozeCount, maxAutoSnoozes)
+        val timeoutMs = lifecycleTimeoutDurationMs(alert.type, autoSnoozeCount, maxAutoSnoozes, timerAutoStopDurationMs, alarmRingDurationMs)
         if (timeoutMs <= 0L) return
         val job = serviceScope.launch {
             kotlinx.coroutines.delay(timeoutMs)

@@ -45,16 +45,20 @@ internal fun resolveAlertLifecycleAction(
 /**
  * Duration the ringtone/vibration plays before the lifecycle action fires.
  *
- * Default durations are the #1277 hardcoded values. These should be
- * replaced by configured values from [com.kernel.ai.core.memory.clock.ClockAlertConfig] at runtime.
+ * @param timerDurationMs duration for auto-stop actions (timers and snooze re-triggers).
+ *   Default: [TIMER_AUTO_STOP_DURATION_MS].
+ * @param alarmDurationMs duration for auto-snooze actions (first alarm ring).
+ *   Default: [ALARM_AUTO_SNOOZE_DURATION_MS].
  */
 internal fun lifecycleTimeoutDurationMs(
     type: ClockEventType,
     autoSnoozeCount: Int = 0,
     maxAutoSnoozes: Int = 1,
+    timerDurationMs: Long = TIMER_AUTO_STOP_DURATION_MS,
+    alarmDurationMs: Long = ALARM_AUTO_SNOOZE_DURATION_MS,
 ): Long = when (resolveAlertLifecycleAction(type, autoSnoozeCount, maxAutoSnoozes)) {
-    ClockAlertLifecycleAction.AUTO_STOP -> TIMER_AUTO_STOP_DURATION_MS
-    ClockAlertLifecycleAction.AUTO_SNOOZE -> ALARM_AUTO_SNOOZE_DURATION_MS
+    ClockAlertLifecycleAction.AUTO_STOP -> timerDurationMs
+    ClockAlertLifecycleAction.AUTO_SNOOZE -> alarmDurationMs
     null -> 0L
 }
 

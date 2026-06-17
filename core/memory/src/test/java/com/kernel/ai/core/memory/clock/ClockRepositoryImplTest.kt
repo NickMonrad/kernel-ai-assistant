@@ -36,6 +36,7 @@ class ClockRepositoryImplTest {
     private val stopwatchDao = mockk<StopwatchDao>()
     private val worldClockDao = mockk<WorldClockDao>()
     private val clockSoundPreferences = mockk<ClockSoundPreferences>()
+    private val clockAlertPreferences = mockk<ClockAlertPreferences>()
 
     private lateinit var repository: ClockRepositoryImpl
 
@@ -47,6 +48,7 @@ class ClockRepositoryImplTest {
             stopwatchDao,
             scheduler,
             clockSoundPreferences,
+            clockAlertPreferences,
         )
         every {
             scheduler.getPlatformState()
@@ -56,6 +58,7 @@ class ClockRepositoryImplTest {
             canUseFullScreenIntent = false,
         )
         every { clockSoundPreferences.soundConfig } returns flowOf(ClockSoundConfig())
+        every { clockAlertPreferences.alertConfig } returns flowOf(ClockAlertConfig())
     }
 
     @Test
@@ -84,7 +87,7 @@ class ClockRepositoryImplTest {
                     it.timeZoneId == zoneId
             })
         }
-        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM && !it.isSnoozeRetrigger }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.autoSnoozeCount == 0 }) }
         verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
     }
 
@@ -226,7 +229,7 @@ class ClockRepositoryImplTest {
                 it.type == ClockEventType.ALARM &&
                     it.triggerAtMillis == snoozeAt &&
                     it.occurrenceTriggerAtMillis == snoozeAt &&
-                    it.isSnoozeRetrigger
+                    it.autoSnoozeCount == 1
             })
         }
         verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.triggerAtMillis == firedOneOff.triggerAtMillis }) }
@@ -376,7 +379,7 @@ class ClockRepositoryImplTest {
                 it.type == ClockEventType.ALARM &&
                     it.triggerAtMillis == snoozeAt &&
                     it.occurrenceTriggerAtMillis == snoozeAt &&
-                    it.isSnoozeRetrigger
+                    it.autoSnoozeCount == 1
             })
         }
     }
