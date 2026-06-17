@@ -66,9 +66,11 @@ internal val SNOOZE_DURATION_OPTIONS = listOf(
     1_800_000L to "30 minutes",
 )
 
-internal val MAX_AUTO_SNOOZE_OPTIONS = listOf(
+val MAX_AUTO_SNOOZE_OPTIONS = listOf(
     0 to "0 — auto-stop on first ring",
     1 to "1 — snooze once, then stop",
+    2 to "2 — snooze twice, stop third",
+    3 to "3 — snooze thrice, stop fourth",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
