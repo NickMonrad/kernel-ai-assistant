@@ -258,7 +258,7 @@ class GetWeatherSkill @Inject constructor(
     override val description =
         "Get current weather or a multi-day forecast. Uses device GPS by default — only pass a " +
             "location if the user explicitly names a place or says 'at home'. " +
-            "Profile location is a fallback only when GPS is unavailable. " +
+            "Future #1164 work will add profile/home-location fallback and contextual permission prompt + retry. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     override val examples = listOf(
         "Current location weather → get_weather_gps()",
@@ -328,6 +328,14 @@ class GetWeatherSkill @Inject constructor(
             is LiveFetchResult.Failed -> {
                 val failureReason = freshResult.reason
 
+                if (failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED) {
+                    // TODO(#1164): Replace this interim current-location guidance with the
+                    // contextual capability prompt + retry flow.
+                    Log.i(TAG, "Skipping stale GPS cache because Location permission is denied")
+                    Log.i(TAG, "Returning interim current-location guidance pending #1164")
+                    return SkillResult.DirectReply(weatherFailureMessage(failureReason))
+                }
+
                 getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
                     Log.i(TAG, "Serving stale weather cache for key '$cacheKey' after ${failureReason.name}")
                     return try {
@@ -345,10 +353,7 @@ class GetWeatherSkill @Inject constructor(
                 }
 
                 Log.i(TAG, "Weather cache miss for key '$cacheKey' after ${failureReason.name}")
-                if (
-                    failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED ||
-                    failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE
-                ) {
+                if (failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE) {
                     // TODO(#1164): Replace this interim current-location guidance with the
                     // contextual capability prompt + retry flow.
                     Log.i(TAG, "Returning interim current-location guidance pending #1164")
