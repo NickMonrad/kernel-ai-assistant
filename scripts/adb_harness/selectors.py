@@ -70,6 +70,7 @@ def annotate_phases(phases: list[tuple[str, list[TestCase]]]) -> None:
         "misc": None,
         "slot_fill": {"category": "slot_fill", "tags": ["slot_fill"]},
         "orchestrator_recovery": {"category": "recovery", "tags": ["orchestrator_recovery"]},
+        "false_positives": {"category": "false_positive", "tags": ["false_positive", "safe_smoke", "s21_usb_safe", "s23u_tcp_safe"]},
     }
     _INTENT_OVERRIDES: dict[str, dict] = {
         "pause_media":    {"category": "fixture", "tags": ["fixture_required", "media_context"]},

@@ -1,0 +1,137 @@
+name: Jandal work item
+description: Create a Jandal feature, bug, chore, spike, performance item, or epic with implementation-ready metadata.
+title: "type(scope): concise summary"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for backlog items that may be handed to an agent or linked from a parent epic.
+
+        After the issue is created, apply the matching GitHub labels and milestone selected below.
+
+  - type: dropdown
+    id: type_label
+    attributes:
+      label: Type label
+      description: Apply exactly one matching type label after creating the issue.
+      options:
+        - type:epic
+        - type:feature
+        - type:bug
+        - type:chore
+        - type:spike
+        - type:performance
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size_label
+    attributes:
+      label: Size label
+      description: Apply exactly one matching size label after creating the issue.
+      options:
+        - size:XS
+        - size:S
+        - size:M
+        - size:L
+        - size:XL
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority_label
+    attributes:
+      label: Priority label
+      description: Apply exactly one matching priority label after creating the issue.
+      options:
+        - priority:high
+        - priority:medium
+        - priority:low
+    validations:
+      required: true
+
+  - type: dropdown
+    id: launch_label
+    attributes:
+      label: Launch status label
+      description: Apply exactly one launch-status label after creating the issue.
+      options:
+        - launch:blocking
+        - launch:post
+        - launch:deferred
+    validations:
+      required: true
+
+  - type: input
+    id: domain_labels
+    attributes:
+      label: Domain labels
+      description: Add one or more domain labels such as UX, voice, testing, technical-debt, skills, memory, or model-management.
+      placeholder: "technical-debt, testing"
+    validations:
+      required: true
+
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone
+      description: Add the intended milestone, or state the parked/no-milestone rationale.
+      placeholder: "Launch readiness / Post-launch / Milestone intentionally omitted: parked until ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: parent_context
+    attributes:
+      label: Parent epic / workstream
+      description: Link the parent epic, launch plan, or state that this is standalone.
+      placeholder: "Parent epic: #123"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should change, and why is it valuable?
+      placeholder: "Describe the desired outcome in a few sentences."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Include in-scope and not-in-scope notes so agents stay focused.
+      value: |
+        ## In scope
+        - 
+
+        ## Not in scope
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: Use a checklist with observable outcomes.
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing / device validation expectations
+      description: State unit, instrumentation, manual testing, and whether S21/S23U validation is required.
+      value: |
+        - [ ] Unit tests: 
+        - [ ] Instrumentation/UIAutomator tests: 
+        - [ ] Device validation: S21 default unless this is high-risk model/runtime work or explicitly requires S23U.
+        - [ ] Evidence to attach: 
+    validations:
+      required: true

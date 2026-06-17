@@ -31,7 +31,6 @@ from adb_harness.model_readiness import (
 )
 from adb_harness.device import build_adb_cmd
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Serial resolution tests (build_adb_cmd)
 # ═══════════════════════════════════════════════════════════════════════
@@ -403,6 +402,37 @@ class PreflightStateMachineTest(unittest.TestCase):
         )
         self.assertEqual(evidence.initial_state, "ActionRequired(SignInRequired)")
 
+
+    # ── HF sign-in field accuracy tests ────────────────────────────
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_hf_signin_shown_when_dialog_present(
+        self, mock_read: MagicMock,
+    ) -> None:
+        """hf_signin_shown=True when HF dialog text is detected."""
+        # Must NOT return engine_ready marker — that triggers early return before Phase 2.
+        # Return empty logcat (model not on disk) so preflight reaches Phase 2 HF handling.
+        mock_read.return_value = ""
+        with patch("adb_harness.model_readiness._uiautomator_has_text",
+                    side_effect=lambda text: "Sign in to Hugging Face" in text):
+            with patch("adb_harness.model_readiness._uiautomator_tap_text", return_value=True):
+                evidence = preflight_model_readiness(
+                    verbose=False, timeout_download=1.0, timeout_engine=1.0,
+                )
+                self.assertTrue(evidence.hf_signin_shown)
+                self.assertTrue(evidence.hf_signin_clicked)
+
+    @patch("adb_harness.model_readiness._read_fresh_logcat")
+    def test_hf_signin_not_shown_when_no_dialog(
+        self, mock_read: MagicMock,
+    ) -> None:
+        """hf_signin_shown=False when no HF dialog text is detected."""
+        mock_read.return_value = ""
+        evidence = preflight_model_readiness(
+            verbose=False, timeout_download=1.0, timeout_engine=1.0,
+        )
+        self.assertFalse(evidence.hf_signin_shown)
+        self.assertFalse(evidence.hf_signin_clicked)
 
 if __name__ == "__main__":
     unittest.main()
