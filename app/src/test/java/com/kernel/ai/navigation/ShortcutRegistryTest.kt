@@ -450,6 +450,128 @@ class ShortcutRegistryTest {
             assertEquals(3, sections[0].items.size)
             assertTrue(sections[1].items.isEmpty(), "Recents should not contain already-favourited items")
         }
+
+        @Test
+        fun `Recently Used section has empty items and no emptyMessage when no recents`() {
+            val sections = buildDrawerSections(
+                favouriteIds = emptyList(),
+                recentIds = emptyList(),
+            )
+            val recentSection = sections[1]
+            assertEquals("Recently Used", recentSection.header)
+            assertTrue(recentSection.items.isEmpty(), "Recently Used items should be empty when no recents")
+            assertNull(recentSection.emptyMessage, "Recently Used should not have emptyMessage")
+        }
+
+        @Test
+        fun `Recently Used appears when there is at least one non-favourite recent`() {
+            val sections = buildDrawerSections(
+                favouriteIds = emptyList(),
+                recentIds = listOf("convert"),
+            )
+            assertEquals("Recently Used", sections[1].header)
+            assertTrue(sections[1].items.isNotEmpty(), "Recently Used should have items when there are non-favourite recents")
+            assertEquals(listOf("convert"), sections[1].items.map { it.id })
+        }
+
+        @Test
+        fun `recents that are already favourites are deduped and do not cause empty section items`() {
+            val sections = buildDrawerSections(
+                favouriteIds = listOf("clock", "notes"),
+                recentIds = listOf("clock", "notes"),
+            )
+            assertTrue(sections[1].items.isEmpty(), "Recently Used items should be empty when all recents are favourites")
+        }
+
+        @Test
+        fun `Favourites empty helper remains present when there are no favourites`() {
+            val sections = buildDrawerSections(
+                favouriteIds = emptyList(),
+                recentIds = listOf("convert"),
+            )
+            assertNotNull(sections[0].emptyMessage, "Favourites section should have emptyMessage when no favourites")
+            assertEquals("Star tools from Tools to add them here.", sections[0].emptyMessage)
+        }
+    }
+
+    @Nested
+    @DisplayName("isDrawerShortcutSelected")
+    inner class DrawerShortcutSelected {
+
+        @Test
+        fun `convert tab currency selects convert dot currency only`() {
+            assertTrue(isDrawerShortcutSelected("convert", "currency", "convert?tab=currency"))
+        }
+
+        @Test
+        fun `convert tab unit selects convert dot unit only`() {
+            assertTrue(isDrawerShortcutSelected("convert", "unit", "convert?tab=unit"))
+        }
+
+        @Test
+        fun `convert tab cooking selects convert dot cooking only`() {
+            assertTrue(isDrawerShortcutSelected("convert", "cooking", "convert?tab=cooking"))
+        }
+
+        @Test
+        fun `convert tab currency does not select convert dot unit`() {
+            assertFalse(isDrawerShortcutSelected("convert", "currency", "convert?tab=unit"))
+        }
+
+        @Test
+        fun `convert tab currency does not select convert dot cooking`() {
+            assertFalse(isDrawerShortcutSelected("convert", "currency", "convert?tab=cooking"))
+        }
+
+        @Test
+        fun `top-level convert selection does not select all convert sub-features`() {
+            assertFalse(isDrawerShortcutSelected("convert", "currency", "convert?tab=unit"))
+            assertFalse(isDrawerShortcutSelected("convert", "currency", "convert?tab=cooking"))
+            assertFalse(isDrawerShortcutSelected("convert", null, "convert?tab=currency"))
+        }
+
+        @Test
+        fun `top-level convert without tab selects only base route`() {
+            assertTrue(isDrawerShortcutSelected("convert", null, "convert"))
+        }
+
+        @Test
+        fun `settings side panel tab world clock selects clock dot world clock only`() {
+            assertTrue(isDrawerShortcutSelected("settings/side_panel", "world_clock", "settings/side_panel?tab=world_clock"))
+        }
+
+        @Test
+        fun `settings side panel tab timer selects clock dot timer only`() {
+            assertTrue(isDrawerShortcutSelected("settings/side_panel", "timer", "settings/side_panel?tab=timer"))
+        }
+
+        @Test
+        fun `settings side panel tab alarms selects clock dot alarms only`() {
+            assertTrue(isDrawerShortcutSelected("settings/side_panel", "alarms", "settings/side_panel?tab=alarms"))
+        }
+
+        @Test
+        fun `settings side panel tab world clock does not select clock timer`() {
+            assertFalse(isDrawerShortcutSelected("settings/side_panel", "world_clock", "settings/side_panel?tab=timer"))
+        }
+
+        @Test
+        fun `top-level clock without tab selects only base route`() {
+            assertTrue(isDrawerShortcutSelected("settings/side_panel", null, "settings/side_panel"))
+        }
+
+        @Test
+        fun `no query tab falls back sensibly for top-level shortcuts`() {
+            assertTrue(isDrawerShortcutSelected("settings/side_panel", null, "settings/side_panel"))
+            assertTrue(isDrawerShortcutSelected("convert", null, "convert"))
+            assertTrue(isDrawerShortcutSelected("tools", null, "tools"))
+        }
+
+        @Test
+        fun `non-matching base route returns false`() {
+            assertFalse(isDrawerShortcutSelected("convert", null, "settings/side_panel"))
+            assertFalse(isDrawerShortcutSelected("settings/side_panel", "alarms", "convert"))
+        }
     }
 
     @Nested

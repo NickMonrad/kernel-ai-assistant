@@ -161,6 +161,30 @@ internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
         .replace("+", "%20")
 
+/**
+ * Determine whether a drawer shortcut should render as selected given the current
+ * navigation destination.
+ *
+ * When the shortcut's route includes a `tab=` query parameter (sub-feature routes
+ * like `convert?tab=currency` or `settings/side_panel?tab=stopwatch`), both the
+ * base route and the tab must match. Top-level shortcuts with no tab parameter
+ * use base-route matching only.
+ */
+internal fun isDrawerShortcutSelected(
+    currentBaseRoute: String?,
+    currentTab: String?,
+    itemRoute: String,
+): Boolean {
+    val itemBase = itemRoute.substringBefore('?')
+    val itemTab = itemRoute
+        .substringAfter("tab=", "")
+        .takeIf { it.isNotBlank() }
+    return when {
+        itemTab != null -> currentBaseRoute == itemBase && currentTab == itemTab
+        else -> currentBaseRoute == itemBase
+    }
+}
+
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
@@ -296,6 +320,7 @@ fun KernelNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
+    val currentTab = navBackStackEntry?.arguments?.getString("tab")?.takeIf { it.isNotBlank() }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -333,6 +358,7 @@ fun KernelNavHost(
                     navController = navController,
                     drawerState = drawerState,
                     currentBaseRoute = currentBaseRoute,
+                    currentTab = currentTab,
                     favouriteShortcutRepository = favouriteShortcutRepository,
                     recentShortcutTracker = recentShortcutTracker,
                 )
@@ -838,6 +864,7 @@ private fun DrawerContent(
     navController: NavHostController,
     drawerState: androidx.compose.material3.DrawerState,
     currentBaseRoute: String?,
+    currentTab: String?,
     favouriteShortcutRepository: FavouriteShortcutRepository?,
     recentShortcutTracker: RecentShortcutTracker?,
 ) {
@@ -872,8 +899,9 @@ private fun DrawerContent(
     HorizontalDivider()
     Spacer(modifier = Modifier.padding(4.dp))
 
-    // Render sections
     sections.forEach { section ->
+        // Skip empty sections without helper content (e.g. empty Recently Used)
+        if (section.items.isEmpty() && section.emptyMessage == null) return@forEach
         // Section header (null for Settings section)
         if (section.header != null) {
             Text(
@@ -906,8 +934,7 @@ private fun DrawerContent(
         section.items.forEach { item ->
             NavigationDrawerItem(
                 label = { Text(item.label) },
-                icon = { Icon(item.icon, contentDescription = null) },
-                selected = currentBaseRoute == item.route.substringBefore('?'),
+                selected = isDrawerShortcutSelected(currentBaseRoute, currentTab, item.route),
                 onClick = {
                     scope.launch {
                         drawerState.close()
