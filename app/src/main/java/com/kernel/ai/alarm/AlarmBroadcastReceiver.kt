@@ -41,18 +41,22 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             -1L,
         ).takeIf { it > 0L }
         val soundUri = intent.getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
+        val isSnoozeRetrigger = intent.getBooleanExtra(
+            ClockAlertContract.EXTRA_IS_SNOOZE_RETRIGGER,
+            false,
+        )
 
         when (type) {
             ClockEventType.TIMER -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.timerNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, isSnoozeRetrigger)
             }
 
             ClockEventType.ALARM -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.preAlarmNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, isSnoozeRetrigger)
             }
 
             ClockEventType.PRE_ALARM -> {
@@ -97,6 +101,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         label: String,
         occurrenceTriggerAtMillis: Long?,
         soundUri: String?,
+        isSnoozeRetrigger: Boolean,
     ) {
         ClockAlertService.trigger(
             context,
@@ -107,6 +112,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
                 label = label,
                 occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
                 soundUri = soundUri,
+                isSnoozeRetrigger = isSnoozeRetrigger,
             ),
         )
     }

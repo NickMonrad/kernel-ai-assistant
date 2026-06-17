@@ -71,6 +71,7 @@ import java.time.ZoneId
 fun ConvertScreen(
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    initialTab: ConvertTab? = null,
     viewModel: ConvertViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -87,6 +88,14 @@ fun ConvertScreen(
     LaunchedEffect(uiState.currencyFavourites) {
         if (uiState.currencyFavourites.isNotEmpty()) {
             viewModel.fetchFavouriteRates()
+        }
+    }
+
+    // Set initial tab from navigation argument, if provided.
+    // Fires only once (initialTab is not updated on recomposition).
+    LaunchedEffect(initialTab) {
+        if (initialTab != null) {
+            viewModel.onTabSelected(initialTab)
         }
     }
 
