@@ -150,6 +150,52 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
 }
 ```
 
+### `false_positives` phase
+
+The `false_positives` harness phase (phase 11) validates that the model does NOT trigger a
+forbidden native intent for queries that merely *resemble* an intent-driven command. Each case
+defines `forbidden_intents` (intents that must NOT fire), optional `allowed_intents` (safe
+native routes that are acceptable), and `expect_llm_fallthrough` (whether the model must fall
+through to a conversational LLM reply).
+
+**Oracle semantics priority (first match wins):**
+
+| Condition | Status | Meaning |
+|-----------|--------|---------|
+| Forbidden intent observed | `fail` / `xfail` | Forbidden intent fired — product regression (#1272) |
+| Allowed safe native route | `pass` / `xpass` | Safe intent took precedence |
+| `expect_llm_fallthrough` + fallthrough observed | `pass` / `xpass` | Model fell through to LLM generation |
+| `expect_llm_fallthrough` + no fallthrough | `indeterminate` | Oracle/observability failure — exit non-zero |
+| No forbidden, no fallthrough required | `pass` | No regression |
+
+**`indeterminate` status** always produces a non-zero exit code, unlike `xpass` which is
+informational only.
+
+**Additional report fields (present when `forbidden_intents` was set on the case):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `forbidden_intents` | `list[str]` | Intents that must not fire |
+| `forbidden_intent_triggered` | `bool` | Whether a forbidden intent was observed |
+| `forbidden_intent_observed` | `list[str]` | Which forbidden intents fired |
+| `allowed_intent_observed` | `str | null` | Safe native route that fired, if any |
+| `fallthrough_observed` | `bool` | Whether LLM fallthrough evidence was found |
+| `expect_llm_fallthrough` | `bool` | Whether fallthrough was required |
+
+**Run commands:**
+
+```bash
+# Preview without a device
+python3 scripts/adb_skill_test.py --dry-run --phases false_positives
+python3 scripts/adb_skill_test.py --dry-run --categories false_positive
+
+# Run on device
+python3 scripts/adb_skill_test.py --phases false_positives
+```
+
+**16 cases:** date/time negative disambiguation (6), calendar (1), alarm/timer disambiguation
+(1: `Set a 5 minute egg timer`), list operations (3), memory (2), weather (3).
+
 ### `llm_tools` phase
 
 The `llm_tools` harness phase validates E2E model tool-call generation after the query bypasses
@@ -284,6 +330,28 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.
+
+**Timer/alarm cleanup:** The `false_positives` phase includes a `Set a 5 minute egg timer`
+case that can legitimately route to `set_timer` as an allowed safe native route. When this
+happens, a real 5-minute timer is created on the device. The harness now performs automatic
+clock alert cleanup:
+
+1. **Pre-run:** Cancels any active Jandal ClockAlertService alerts and force-stops
+   third-party clock packages.
+2. **Post-case:** After any test case that routes to a timer or alarm intent, cleanup is
+   attempted immediately so the alert cannot fire during subsequent tests.
+3. **Post-run:** Final cleanup stops all timer/alarm alerts, dismisses notifications, and
+   force-stops clock packages as a last resort.
+4. **On cleanup failure:** The harness returns exit code **46** (EXIT_CLEANUP_FAILED) and
+   prints a warning if the device may still be buzzing.
+
+If cleanup fails and the device is still buzzing after a run:
+```bash
+adb shell am force-stop com.kernel.ai.debug
+```
+
+This is tracked in [#1275](https://github.com/NickMonrad/kernel-ai-assistant/issues/1275)
+for the product-side fix (timers should auto-stop, alarms should auto-snooze/expire).
 
 **Expected pass-rate variance:** Model tool-call generation reliability differs across SoCs
 and inference backends. A case that passes on S23 Ultra NPU may fail on S21 Exynos GPU due

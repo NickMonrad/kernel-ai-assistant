@@ -53,6 +53,7 @@ S21_MODEL_FILE = "gemma-4-E2B-it.litertlm"
 # ── Exit codes ──
 EXIT_SUCCESS = 0
 EXIT_MODEL_NOT_READY = 44  # matches MODEL_NOT_READY bucket
+EXIT_CLEANUP_FAILED = 46   # clock/timer alert cleanup could not silence device
 EXIT_PREFLIGHT_CRASHED = 45
 
 # ── Poll defaults ──

@@ -40,12 +40,14 @@ from adb_harness.model_readiness import (
     preflight_model_readiness,
     ModelReadinessEvidence,
     EXIT_MODEL_NOT_READY,
+    EXIT_CLEANUP_FAILED,
 )
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
     capture_fresh_logcat,
     check_oracle,
     check_logcat_stream,
+    cleanup_clock_alerts,
     cleanup_side_effects,
     clear_logcat,
     dismiss_notifications,
@@ -253,11 +255,9 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
     print("ready")
-    # Pre-run cleanup
+    # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
-    for pkg in ("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock"):
-        run_adb("shell", "am", "force-stop", pkg)
-    cleanup_side_effects()
+    cleanup_clock_alerts(force_stop_last=False)
     print("done")
     clear_logcat()
     time.sleep(WAIT_SECONDS)
@@ -701,16 +701,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
-    # Pre-run cleanup: silence any already-fired timers first, then cancel pending ones
+    # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
-    for pkg in (
-        "com.sec.android.app.clockpackage",
-        "com.android.deskclock",
-        "com.google.android.deskclock",
-    ):
-        run_adb("shell", "am", "force-stop", pkg)
-    cleanup_side_effects()
+    cleanup_clock_alerts(force_stop_last=False)
     print("done")
+    time.sleep(1)
 
     # Insert contact alias fixture for alias resolution tests
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
@@ -1074,6 +1069,26 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 bucket_suffix = f" [{bucket}]" if bucket else ""
                 print(f"✗ (params: {'; '.join(result.param_failures)})" + bucket_suffix)
 
+            # Post-case timer/alarm cleanup: if this case created a timer or alarm
+            # intent (allowed safe route, forbidden trigger, or direct intent match),
+            # immediately cancel/stop the alert so it does not fire later or leave
+            # the device buzzing.
+            _timer_alarm_intents = {"set_timer", "set_alarm", "cancel_timer", "cancel_alarm",
+                                    "dismiss_alarm", "snooze_alarm", "add_minute_timer",
+                                    "start_timer", "start_alarm", "stop_timer", "stop_alarm"}
+            _needs_cleanup = (
+                (result.actual_intent or "") in _timer_alarm_intents
+                or (tc.allowed_intents and any(
+                    a in _timer_alarm_intents for a in tc.allowed_intents))
+                or (tc.forbidden_intents and any(
+                    f in _timer_alarm_intents for f in tc.forbidden_intents))
+            )
+            if _needs_cleanup:
+                print("  [cleanup] timer/alarm route — cleaning up alerts ...", end=" ", flush=True)
+                cleanup_clock_alerts(force_stop_last=False)
+                print("  done")
+                time.sleep(1)
+
             # Hang up after call tests so they don't stay open
             if tc.expect_intent == "make_call":
                 time.sleep(2)
@@ -1184,8 +1199,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     # Post-run cleanup: cancel any timers/alarms set during testing
     print()
     print("  [cleanup] Cancelling timers/alarms ...", end=" ", flush=True)
-    cleanup_side_effects()
-    print("done")
+    cleanup_ok = cleanup_clock_alerts(force_stop_last=True)
+    print("done" if cleanup_ok else "FAILED — device may still be buzzing!")
     print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
     teardown_contact_alias_fixture()
     print("done")
@@ -1196,6 +1211,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("done")
 
     xpass_is_failure = os.environ.get("XPASS_IS_FAILURE", "").strip() in ("1", "true", "yes")
+    if not cleanup_ok:
+        print()
+        print("  [cleanup] ❌ CLEANUP FAILED — device may still have active alerts!")
+        print("  [cleanup]    Run manually if buzzing persists:")
+        print("  [cleanup]      adb shell am force-stop com.kernel.ai.debug")
+        return EXIT_CLEANUP_FAILED
     effective_exit = 1 if (
         failures > 0
         or indeterminates > 0

@@ -21,6 +21,7 @@ from adb_harness.config import (
     DIRECT_REPLY_PATTERN,
     LOGCAT_TAG,
     NATIVE_INTENT_NAME_PATTERN,
+    PACKAGE,
     WAIT_SECONDS,
     LLM_TOOLS_ASSISTANT_REPLY_PATTERN,
 )
@@ -498,6 +499,93 @@ def teardown_contact_alias_fixture() -> None:
 def dismiss_notifications() -> None:
     """Dismiss all system notifications via ADB."""
     run_adb("shell", "cmd", "notification", "dismiss", "--all")
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Clock/timer alert cleanup
+# ═══════════════════════════════════════════════════════════════════════
+
+# Jandal ClockAlertService intent actions (from ClockAlertContract.kt)
+_STOP_TIMER_ALERTS = "com.kernel.ai.alarm.action.STOP_TIMER_ALERTS"
+_STOP_ALERT = "com.kernel.ai.alarm.action.STOP_ALERT"
+_CLOCK_SERVICE = f"{PACKAGE}/.alarm.ClockAlertService"
+
+# Third-party clock packages that may have inherited a Jandal timer via AlarmManager
+_CLOCK_PKGS = (
+    "com.sec.android.app.clockpackage",
+    "com.android.deskclock",
+    "com.google.android.deskclock",
+)
+
+
+def cleanup_clock_alerts(force_stop_last: bool = True) -> bool:
+    """Attempt to cancel/stop any active Jandal timer or alarm alerts.
+
+    Tries, in order:
+      1. Send ``ACTION_STOP_TIMER_ALERTS`` to ClockAlertService.
+      2. Send ``ACTION_STOP_ALERT`` to dismiss any non-timer alert activity.
+      3. Dismiss all system notifications (dismiss_notifications).
+      4. Force-stop third-party clock packages that may hold leaked timers.
+      5. Force-stop the Jandal app as a last resort (when *force_stop_last*).
+
+    Returns True iff every step that was attempted succeeded (no ADB errors).
+    """
+    success = True
+    attempts: list[str] = []
+
+    # 1. Stop all timer alerts via ClockAlertService intent
+    try:
+        run_adb("shell", "am", "startservice", "-n", _CLOCK_SERVICE,
+                "-a", _STOP_TIMER_ALERTS)
+        attempts.append("stop_timer_alerts")
+    except Exception as exc:
+        print(f"  [cleanup] stop_timer_alerts failed: {exc}", file=sys.stderr)
+        success = False
+
+    # 2. Stop all active alerts via ACTION_STOP_ALERT (without extras → stops all)
+    try:
+        run_adb("shell", "am", "startservice", "-n", _CLOCK_SERVICE,
+                "-a", _STOP_ALERT)
+        attempts.append("stop_alert")
+    except Exception as exc:
+        print(f"  [cleanup] stop_alert failed: {exc}", file=sys.stderr)
+        success = False
+
+    # Brief settle time for service intents to be processed
+    time.sleep(1)
+
+    # 3. Dismiss all system notifications
+    try:
+        dismiss_notifications()
+        attempts.append("dismiss_notifications")
+    except Exception as exc:
+        print(f"  [cleanup] dismiss_notifications failed: {exc}", file=sys.stderr)
+        success = False
+
+    # 4. Force-stop third-party clock packages that may have inherited
+    #    AlarmManager schedules from Jandal
+    for pkg in _CLOCK_PKGS:
+        try:
+            run_adb("shell", "am", "force-stop", pkg)
+            attempts.append(f"force-stop:{pkg}")
+        except Exception as exc:
+            print(f"  [cleanup] force-stop {pkg} failed: {exc}", file=sys.stderr)
+            success = False
+
+    # 5. Force-stop the Jandal app itself as a last resort
+    if force_stop_last:
+        try:
+            run_adb("shell", "am", "force-stop", PACKAGE)
+            attempts.append(f"force-stop:{PACKAGE}")
+        except Exception as exc:
+            print(f"  [cleanup] force-stop {PACKAGE} failed: {exc}", file=sys.stderr)
+            success = False
+
+    print(f"  [cleanup] clock alerts: {' | '.join(attempts)}"
+          + ("  ✗" if not success else "  ✓"))
+    return success
 
 
 def cleanup_side_effects(wait_for_inference: bool = False) -> None:
