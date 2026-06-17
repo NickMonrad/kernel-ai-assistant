@@ -9,6 +9,7 @@
 | [`docs/testing/test-evidence-schema.md`](./test-evidence-schema.md) | Normalised evidence schema, `ci` vs `on_device` definitions, field reference |
 | [`.docs/agents/test-evidence-workflow.md`](../../.docs/agents/test-evidence-workflow.md) | Agent guidance on evidence lifecycle — generation, reporting, publishing, dashboard |
 | [`docs/testing/llm-tools-harness.md`](./llm-tools-harness.md) | Deep reference for the `llm_tools` harness phase — markers, assertions, troubleshooting |
+| [`docs/testing/s21-model-readiness.md`](./s21-model-readiness.md) | S21 model readiness preflight — after reinstall, run this before accepting model-backed ADB evidence |
 
 ## Design / specification docs
 
