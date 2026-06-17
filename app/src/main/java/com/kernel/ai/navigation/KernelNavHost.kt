@@ -934,6 +934,7 @@ private fun DrawerContent(
         section.items.forEach { item ->
             NavigationDrawerItem(
                 label = { Text(item.label) },
+                icon = { Icon(item.icon, contentDescription = null) },
                 selected = isDrawerShortcutSelected(currentBaseRoute, currentTab, item.route),
                 onClick = {
                     scope.launch {

@@ -360,8 +360,9 @@ fun ToolsHubScreen(
                 val stopwatch = ShortcutRegistry.clockStopwatch
                 val timer = ShortcutRegistry.clockTimer
                 val alarms = ShortcutRegistry.clockAlarms
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_stopwatch",
+                    icon = stopwatch.icon,
                     title = stopwatch.label,
                     subtitle = "Clock",
                     route = stopwatch.route,
@@ -370,8 +371,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(stopwatch.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_timer",
+                    icon = timer.icon,
                     title = timer.label,
                     subtitle = "Clock",
                     route = timer.route,
@@ -380,8 +382,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(timer.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_alarms",
+                    icon = alarms.icon,
                     title = alarms.label,
                     subtitle = "Clock",
                     route = alarms.route,
@@ -391,8 +394,9 @@ fun ToolsHubScreen(
                     onNavigate = onNavigateToRoute,
                 )
                 val worldClock = ShortcutRegistry.clockWorldClock
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_clock_world_clock",
+                    icon = worldClock.icon,
                     title = worldClock.label,
                     subtitle = "Clock",
                     route = worldClock.route,
@@ -462,8 +466,9 @@ fun ToolsHubScreen(
                 val convertCurrency = ShortcutRegistry.convertCurrency
                 val convertUnit = ShortcutRegistry.convertUnit
                 val convertCooking = ShortcutRegistry.convertCooking
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_convert_currency",
+                    icon = convertCurrency.icon,
                     title = convertCurrency.label,
                     subtitle = "Convert",
                     route = convertCurrency.route,
@@ -472,8 +477,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(convertCurrency.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_convert_unit",
+                    icon = convertUnit.icon,
                     title = convertUnit.label,
                     subtitle = "Convert",
                     route = convertUnit.route,
@@ -482,8 +488,9 @@ fun ToolsHubScreen(
                     onToggleFavourite = { onToggleFavourite(convertUnit.id) },
                     onNavigate = onNavigateToRoute,
                 )
-                ClockSubFeatureRow(
+                SubFeatureRow(
                     testTag = "tools_row_convert_cooking",
+                    icon = convertCooking.icon,
                     title = convertCooking.label,
                     subtitle = "Convert",
                     route = convertCooking.route,
@@ -739,15 +746,18 @@ private fun ToolsListItem(
     )
 }
 
+
 /**
- * An indented sub-feature row for clock shortcuts (Stopwatch, Timer, Alarms).
+ * An indented sub-feature row for tool shortcuts (Stopwatch, Timer, Currency, etc.).
  *
- * Shows a compact row with a favourite star toggle. Clicking the row navigates
- * to the parent Clock screen with the corresponding tab selected via query param.
+ * Shows a compact row with a favourite star toggle and the shortcut's icon.
+ * Clicking the row navigates to the parent screen with the corresponding
+ * tab selected via query param.
  */
 @Composable
-private fun ClockSubFeatureRow(
+private fun SubFeatureRow(
     testTag: String,
+    icon: ImageVector,
     title: String,
     subtitle: String,
     route: String,
@@ -777,7 +787,7 @@ private fun ClockSubFeatureRow(
         },
         leadingContent = {
             Icon(
-                imageVector = Icons.Default.Timer,
+                imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
