@@ -1,5 +1,9 @@
 package com.kernel.ai.navigation
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.RecentShortcutEntity
@@ -883,7 +887,7 @@ fun KernelNavHost(
  * for Favourites, Recently Used, More Shortcuts, and Settings.
  */
 @Composable
-private fun DrawerContent(
+internal fun DrawerContent(
     navController: NavHostController,
     drawerState: androidx.compose.material3.DrawerState,
     currentBaseRoute: String?,
@@ -915,69 +919,77 @@ private fun DrawerContent(
         }
     }
 
-    // Header
-    Text(
-        text = "Jandal",
-        style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
-    )
-    HorizontalDivider()
-    Spacer(modifier = Modifier.padding(4.dp))
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(bottom = 16.dp)
+            .testTag("drawer_content_scroll"),
+    ) {
+        // Header
+        Text(
+            text = "Jandal",
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+        )
+        HorizontalDivider()
+        Spacer(modifier = Modifier.padding(4.dp))
 
-    sections.forEach { section ->
-        // Skip empty sections without helper content (e.g. empty Recently Used)
-        if (section.items.isEmpty() && section.emptyMessage == null) return@forEach
-        // Section header (null for Settings section)
-        if (section.header != null) {
-            Text(
-                text = section.header,
-                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .padding(horizontal = 28.dp, vertical = 8.dp)
-                    .testTag("drawer_section_${section.header.lowercase().replace(' ', '_')}"),
-            )
-        }
+        sections.forEach { section ->
+            // Skip empty sections without helper content (e.g. empty Recently Used)
+            if (section.items.isEmpty() && section.emptyMessage == null) return@forEach
+            // Section header (null for Settings section)
+            if (section.header != null) {
+                Text(
+                    text = section.header,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp, vertical = 8.dp)
+                        .testTag("drawer_section_${section.header.lowercase().replace(' ', '_')}"),
+                )
+            }
 
-        if (section.items.isEmpty() && section.emptyMessage != null) {
-            // Empty state helper row
-            Text(
-                text = section.emptyMessage,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 28.dp, vertical = 8.dp)
-                    .testTag("drawer_favourites_empty"),
-            )
-        }
+            if (section.items.isEmpty() && section.emptyMessage != null) {
+                // Empty state helper row
+                Text(
+                    text = section.emptyMessage,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp, vertical = 8.dp)
+                        .testTag("drawer_favourites_empty"),
+                )
+            }
 
-        if (section.header == null && section.items.any { it.isSettings }) {
-            // Divider before Settings
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-        }
+            if (section.header == null && section.items.any { it.isSettings }) {
+                // Divider before Settings
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            }
 
-        section.items.forEach { item ->
-            NavigationDrawerItem(
-                label = { Text(item.label) },
-                icon = { Icon(item.icon, contentDescription = null) },
-                selected = isDrawerShortcutSelected(currentBaseRoute, currentTab, item.route),
-                onClick = {
-                    scope.launch {
-                        drawerState.close()
-                        // Record recent (defence-in-depth: honour canRecordRecent)
-                        val didNavigate = navController.navigateToDrawerDestination(item.route)
-                        val shouldRecordRecent = didNavigate &&
-                            recentShortcutTracker != null &&
-                            shouldRecordRecentShortcut(item, drawerFavouriteIds)
-                        if (shouldRecordRecent) {
-                            recentShortcutTracker.record(item.id)
+            section.items.forEach { item ->
+                NavigationDrawerItem(
+                    label = { Text(item.label) },
+                    icon = { Icon(item.icon, contentDescription = null) },
+                    selected = isDrawerShortcutSelected(currentBaseRoute, currentTab, item.route),
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            // Record recent (defence-in-depth: honour canRecordRecent)
+                            val didNavigate = navController.navigateToDrawerDestination(item.route)
+                            val shouldRecordRecent = didNavigate &&
+                                recentShortcutTracker != null &&
+                                shouldRecordRecentShortcut(item, drawerFavouriteIds)
+                            if (shouldRecordRecent) {
+                                recentShortcutTracker.record(item.id)
+                            }
                         }
-                    }
-                },
-                modifier = Modifier
-                    .padding(NavigationDrawerItemDefaults.ItemPadding)
-                    .testTag("drawer_item_${item.id}"),
-            )
+                    },
+                    modifier = Modifier
+                        .padding(NavigationDrawerItemDefaults.ItemPadding)
+                        .testTag("drawer_item_${item.id}"),
+                )
+            }
         }
     }
 }
