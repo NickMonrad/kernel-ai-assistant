@@ -8,6 +8,7 @@ Delegates to the ``adb_harness`` package modules for all logic.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from adb_harness.config import (
@@ -102,8 +103,35 @@ Reports dir: {REPORTS_DIR}
         action="store_true",
         help="Run model readiness preflight before tests (handles download, HF sign-in, engine init)",
     )
-
+    parser.add_argument(
+        "--serial",
+        metavar="SERIAL",
+        default=None,
+        help="Device serial (overrides ANDROID_SERIAL env var)",
+    )
+    parser.add_argument(
+        "--unlock-pin",
+        metavar="PIN",
+        default=None,
+        help="Device unlock PIN for model readiness preflight",
+    )
+    parser.add_argument(
+        "--timeout-download",
+        type=float,
+        default=None,
+        help="Max seconds to wait for model download (model readiness preflight)",
+    )
+    parser.add_argument(
+        "--timeout-engine",
+        type=float,
+        default=None,
+        help="Max seconds to wait for engine init after download (model readiness preflight)",
+    )
     args = parser.parse_args()
+
+    # Set ANDROID_SERIAL early so all ADB calls use the selected device
+    if args.serial:
+        os.environ["ANDROID_SERIAL"] = args.serial
 
     if args.start_phase and args.phases:
         parser.error("--start-phase and --phases are mutually exclusive. Use one or the other.")
@@ -129,6 +157,10 @@ Reports dir: {REPORTS_DIR}
             exclude_tags=exclude_tags_list,
             case_ids=case_ids_list,
             model_readiness=args.model_readiness,
+            serial=args.serial,
+            unlock_pin=args.unlock_pin,
+            timeout_download=args.timeout_download,
+            timeout_engine=args.timeout_engine,
         ))
 
 

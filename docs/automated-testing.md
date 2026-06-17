@@ -47,7 +47,9 @@ Supported harness phases today:
 8. `system`
 9. `misc`
 10. `slot_fill`
-The `llm_tools` harness is a separate special mode (see below) — it is not one of the ten
+11. `orchestrator_recovery`
+12. `false_positives`  — 16 false-positive / negative-routing cases
+The `llm_tools` harness is a separate special mode (see below) — it is not one of the
 QIR skill-routing phases and is not included in a normal full-suite run.
 
 Reports are written to [`scripts/test-reports/`](../scripts/test-reports/) as JSON artifacts.
@@ -97,8 +99,7 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
   "suite": "skills",
   "status": "complete",         // or "in_progress" for partial
   "timestamp": "2026-06-07T01-39-59Z",
-  "elapsed_seconds": 3545.0,
-  "summary": { "total": 199, "passed": 73, "xfail": 5, "failed": 121 },
+  "summary": { "total": 199, "passed": 73, "xfail": 5, "xpass": 0, "failed": 121, "indeterminate": 0 },
   "results": [
     {
       "index": 1,
@@ -111,8 +112,7 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
       "xfail": false,
       "reply_warn": null,
       "log_check_warn": null,
-      "phase": "alarm_timer",
-      "status": "pass"          // "pass", "fail", or "xfail"
+      "status": "pass"          // "pass", "fail", "xfail", "xpass", or "indeterminate"
     }
   ]
 }
@@ -150,6 +150,52 @@ jq '.results[] | select(.passed == false) | {name, expected_top_level_tool, actu
 }
 ```
 
+### `false_positives` phase
+
+The `false_positives` harness phase (phase 11) validates that the model does NOT trigger a
+forbidden native intent for queries that merely *resemble* an intent-driven command. Each case
+defines `forbidden_intents` (intents that must NOT fire), optional `allowed_intents` (safe
+native routes that are acceptable), and `expect_llm_fallthrough` (whether the model must fall
+through to a conversational LLM reply).
+
+**Oracle semantics priority (first match wins):**
+
+| Condition | Status | Meaning |
+|-----------|--------|---------|
+| Forbidden intent observed | `fail` / `xfail` | Forbidden intent fired — product regression (#1272) |
+| Allowed safe native route | `pass` / `xpass` | Safe intent took precedence |
+| `expect_llm_fallthrough` + fallthrough observed | `pass` / `xpass` | Model fell through to LLM generation |
+| `expect_llm_fallthrough` + no fallthrough | `indeterminate` | Oracle/observability failure — exit non-zero |
+| No forbidden, no fallthrough required | `pass` | No regression |
+
+**`indeterminate` status** always produces a non-zero exit code, unlike `xpass` which is
+informational only.
+
+**Additional report fields (present when `forbidden_intents` was set on the case):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `forbidden_intents` | `list[str]` | Intents that must not fire |
+| `forbidden_intent_triggered` | `bool` | Whether a forbidden intent was observed |
+| `forbidden_intent_observed` | `list[str]` | Which forbidden intents fired |
+| `allowed_intent_observed` | `str | null` | Safe native route that fired, if any |
+| `fallthrough_observed` | `bool` | Whether LLM fallthrough evidence was found |
+| `expect_llm_fallthrough` | `bool` | Whether fallthrough was required |
+
+**Run commands:**
+
+```bash
+# Preview without a device
+python3 scripts/adb_skill_test.py --dry-run --phases false_positives
+python3 scripts/adb_skill_test.py --dry-run --categories false_positive
+
+# Run on device
+python3 scripts/adb_skill_test.py --phases false_positives
+```
+
+**16 cases:** date/time negative disambiguation (6), calendar (1), alarm/timer disambiguation
+(1: `Set a 5 minute egg timer`), list operations (3), memory (2), weather (3).
+
 ### `llm_tools` phase
 
 The `llm_tools` harness phase validates E2E model tool-call generation after the query bypasses
@@ -186,6 +232,81 @@ python3 scripts/adb_skill_test.py --phases=llm_tools
 | Memory save | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field present |
 | System info | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Same, no args expected |
 
+### `false_positives` phase
+
+The `false_positives` phase validates that ambiguous phrasings do **not** trigger
+forbidden native intents. This is a P0 regression suite (issue #1272) covering:
+
+- **Date/Time** (6 cases): Phrases containing time words that should not trigger `get_time`
+  — e.g. *"What year is this movie set in"*, *"What time should I leave"*
+- **Calendar** (1 case): *"Send a calendar invite to John"* must not trigger `create_calendar_event`
+- **Alarm/Timer** (1 case): *"Set a 5 minute egg timer"* must not trigger `set_alarm`;
+  `allowed_intents` includes `set_timer` for disambiguation
+- **List** (3 cases): *"List all the capitals of Europe"* must not trigger `create_list`
+  or `get_list_items`; *"Create a plan for my week"* must not trigger `create_list`;
+  *"Add some detail to your explanation"* must not trigger `add_to_list`
+- **Memory** (2 cases): *"I remember when we talked about this"* and
+  *"Don't forget to add milk"* must not trigger `save_memory`
+- **Weather** (3 cases): *"How hot was the summer of '69"*, *"Is it going to be a long winter"*,
+  *"What's the weather like in Game of Thrones"* — must not trigger `get_weather`
+
+**What validates per case:**
+
+- Sends prompt, captures logcat with extended timeout (30s+) to wait for LLM fallthrough
+- Scans **all** `NativeIntentHandler.handle: intent=...` lines in the captured output
+- **Fails** if any `forbidden_intent` appears — forbidden intent **always wins**, even
+  when an allowed safe native route was also observed
+- **Passes via allowed safe route** when `allowed_intents` is configured and the safe
+  intent was observed — no fallthrough evidence required
+- **Passes via LLM fallthrough** when `expect_llm_fallthrough=True` and positive evidence
+  is found (`NO_MATCH` intent or `Generation complete` marker)
+- **Reports indeterminate/oracle failure** when `expect_llm_fallthrough=True` but no
+  forbidden intent and no fallthrough evidence (possible observability gap or timeout)
+- **Passes without evidence** when `expect_llm_fallthrough=False` and no forbidden
+  intent observed — "didn't fire" is sufficient
+
+**Oracle semantics (priority order):**
+
+| Condition | Result | Rationale |
+|-----------|--------|-----------|
+| Forbidden intent observed (with or without allowed intent) | `fail` | Forbidden always wins |
+| Allowed safe route observed (`allowed_intents` set) | `pass` | Safe native route handled the query |
+| `expect_llm_fallthrough=True` + fallthrough evidence | `pass` | LLM handled query correctly |
+| `expect_llm_fallthrough=True` + no fallthrough | `indeterminate` | Oracle gap — fails suite exit code |
+| `expect_llm_fallthrough=False` + no forbidden | `pass` | "Didn't fire" is sufficient |
+
+**Status values for false-positive results:**
+
+| Status | Meaning |
+|--------|---------|
+| `pass` | No forbidden intent + pass criteria met (fallthrough, allowed route, or no requirement) |
+| `fail` | A forbidden intent was triggered (product regression) |
+| `indeterminate` | No forbidden intent but required fallthrough evidence missing (oracle gap) |
+| `xfail` / `xpass` | Same semantics as normal tests, applied to false-positive assertions |
+**Failure buckets:**
+
+| Bucket | Meaning |
+|--------|---------|
+| `forbidden_intent_fired` | A forbidden intent was dispatched (product regression) |
+| `false_positive_no_fallthrough` | No forbidden intent but no LLM fallthrough evidence (observability concern) |
+
+**Run commands:**
+
+```bash
+# Preview without a device
+python3 scripts/adb_skill_test.py --dry-run --phases false_positives
+python3 scripts/adb_skill_test.py --dry-run --categories false_positive
+
+# Run on device (selective — ~2 min for 16 cases)
+python3 scripts/adb_skill_test.py --phases false_positives
+
+# With S21 USB ADB
+ANDROID_SERIAL=<S21_SERIAL> python3 scripts/adb_skill_test.py --phases false_positives
+```
+
+16 false-positive cases + 1 complementary positive test in the `lists` phase
+(*"Don't forget to add milk"* routes to `add_to_list`, not `save_memory`).
+
 ### On-device validation
 
 Run the harness against a physical device by setting `ANDROID_SERIAL`:
@@ -209,6 +330,30 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.
+
+**Timer/alarm cleanup:** The `false_positives` phase includes a `Set a 5 minute egg timer`
+case that can legitimately route to `set_timer` as an allowed safe native route. When this
+happens, a real 5-minute timer is created on the device. The harness performs automatic
+clock alert cleanup using **checked ADB commands** (verified via exit code):
+
+1. **Pre-run:** Cancels any active Jandal ClockAlertService alerts and force-stops
+   third-party clock packages. Uses checked ADB commands — if this fails the run aborts
+   with exit code **46** to avoid buzzing the device during testing.
+2. **Post-case:** After any test case that routes to a timer or alarm intent, cleanup is
+   attempted immediately. If cleanup fails the failure is tracked and causes a non-zero
+   exit code at the end of the run.
+3. **Post-run:** Final cleanup stops all timer/alarm alerts, dismisses notifications, and
+   force-stops clock packages as a last resort. Failure returns exit code **46**.
+4. **On cleanup failure:** The harness returns exit code **46** (EXIT_CLEANUP_FAILED) and
+   prints detailed error output including which ADB command failed and why.
+
+If cleanup fails and the device is still buzzing after a run:
+```bash
+adb shell am force-stop com.kernel.ai.debug
+```
+
+This is tracked in [#1275](https://github.com/NickMonrad/kernel-ai-assistant/issues/1275)
+for the product-side fix (timers should auto-stop, alarms should auto-snooze/expire).
 
 **Expected pass-rate variance:** Model tool-call generation reliability differs across SoCs
 and inference backends. A case that passes on S23 Ultra NPU may fail on S21 Exynos GPU due
@@ -276,11 +421,15 @@ Evidence schema reference: [`docs/testing/test-evidence-schema.md`](./testing/te
 | `NO_MATCH` / conversational response | Model gave plain-text instead of a tool call | Model/tool-call generation miss, not a harness bug |
 | Retry marker present | Unexpected hallucination retry path triggered | Spurious retry from the model |
 | Slot-fill marker present | QIR slot-fill path used instead of LLM tool call | Prompt did not stay on the expected LLM tool-call path |
+| `forbidden_intent_fired` | False-positive test triggered a forbidden intent | QIR/regex/classifier incorrectly routed an ambiguous phrase |
+| `false_positive_no_fallthrough` | No forbidden intent but no LLM generation evidence either | Timeout, observability gap, or harness issue |
+| `indeterminate` status | False-positive test with no evidence either way | Oracle observability concern — see [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
 
 ### Runtime markers
 
 The harness reads structured logcat markers emitted by the app. These are the signals that
 determine pass/fail for `llm_tools` cases:
+
 
 | Marker | Report field | When it appears | Required to pass |
 |--------|-------------|----------------|:---:|
@@ -299,6 +448,12 @@ The repository already contains a much larger long-form test specification in
 [`docs/testing/automated-test-specification.md`](./testing/automated-test-specification.md),
 including proposed UI Automator coverage and future suite expansion. Not every item in that
 document is wired into a single runnable repo command yet.
+
+**Recently implemented:**
+
+| Item | Status | Issue/PR |
+|------|--------|----------|
+| False-positive / negative-routing ADB suite (§2 of test spec) | ✅ Implemented as `false_positives` phase (16 cases) | [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
 
 Treat this file as the "what exists today" index, and the detailed testing specification as
 the "where we want to grow next" design document.

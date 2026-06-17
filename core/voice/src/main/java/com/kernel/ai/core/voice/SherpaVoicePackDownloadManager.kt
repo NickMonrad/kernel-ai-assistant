@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.util.Log
 import androidx.work.Constraints
+import android.content.pm.ApplicationInfo
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -45,6 +46,8 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val observerJobs = ConcurrentHashMap<SherpaPiperVoice, Job>()
     private val observerJobsKokoro = ConcurrentHashMap<SherpaKokoroVoice, Job>()
+    private val isReleaseBuild: Boolean =
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
 
     private val _downloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
@@ -75,6 +78,10 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         _kokoroDownloadStates.asStateFlow()
 
     init {
+        // Cancel any legacy Semaine downloads in release builds (not release-visible)
+        if (isReleaseBuild) {
+            workManager.cancelUniqueWork(SherpaPiperVoice.SemaineMedium.workerTag)
+        }
         // Resume observing any in-progress workers from a previous process lifecycle
         SherpaPiperVoice.entries.forEach { voice -> ensureObserving(voice) }
         SherpaKokoroVoice.entries.forEach { voice -> ensureObservingKokoro(voice) }
@@ -87,6 +94,10 @@ class SherpaVoicePackDownloadManager @Inject constructor(
      * Pass [force] = true to re-download.
      */
     fun startDownload(voice: SherpaPiperVoice, force: Boolean = false) {
+        if (!canDownloadVoice(isReleaseBuild, voice)) {
+            Log.w(TAG, "Blocked download of ${voice.displayName} (not release-visible in release build)")
+            return
+        }
         if (!force && voice.isDownloaded(context)) {
             updateState(voice, VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath))
             return
@@ -386,6 +397,15 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                 }
                 updateKokoroState(voice, newState)
             }
+    }
+
+    companion object {
+        /**
+         * Returns true if [voice] can be downloaded in the current build type.
+         * Release builds block non-release-visible voices (e.g. Semaine).
+         */
+        internal fun canDownloadVoice(isReleaseBuild: Boolean, voice: SherpaPiperVoice): Boolean =
+            !(isReleaseBuild && !voice.releaseVisible)
     }
 }
 
