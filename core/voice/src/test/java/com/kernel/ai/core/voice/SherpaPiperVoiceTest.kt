@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -43,4 +44,29 @@ class SherpaPiperVoiceTest {
             },
         )
     }
-}
+
+    @Test
+    fun `SemaineMedium is not releaseVisible`() {
+        assertFalse(SherpaPiperVoice.SemaineMedium.releaseVisible)
+    }
+
+    @Test
+    fun `all other voices are releaseVisible by default`() {
+        val nonReleaseVoices = SherpaPiperVoice.entries.filter { !it.releaseVisible }
+        assertEquals(listOf(SherpaPiperVoice.SemaineMedium), nonReleaseVoices)
+    }
+
+    @Test
+    fun `entriesForBuild debug returns all entries`() {
+        val debugEntries = SherpaPiperVoice.entriesForBuild(false)
+        assertEquals(SherpaPiperVoice.entries.size, debugEntries.size)
+    }
+
+    @Test
+    fun `entriesForBuild release excludes non-release-visible voices`() {
+        val releaseEntries = SherpaPiperVoice.entriesForBuild(true)
+        assertTrue(releaseEntries.none { !it.releaseVisible })
+        assertFalse(releaseEntries.contains(SherpaPiperVoice.SemaineMedium))
+    }
+
+    }

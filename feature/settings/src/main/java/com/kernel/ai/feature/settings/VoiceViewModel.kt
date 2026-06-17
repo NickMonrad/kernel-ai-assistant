@@ -70,9 +70,7 @@ data class VoiceUiState(
     val sherpaGain: Float = 1.5f,
     val autoSpeak: Boolean = true,
     val maxSpokenSentences: Int = 0,
-    val sherpaVoices: List<SherpaVoiceRowUiState> = SherpaPiperVoice.entries.map { voice ->
-        SherpaVoiceRowUiState(voice = voice)
-    },
+    val sherpaVoices: List<SherpaVoiceRowUiState>,
     val autoStartAlertVoiceCommandsEnabled: Boolean = true,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
@@ -152,9 +150,20 @@ class VoiceViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
+    private val isReleaseBuild: Boolean =
+        (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
+    private val visibleSherpaVoices: List<SherpaPiperVoice> =
+        SherpaPiperVoice.entriesForBuild(isReleaseBuild)
 
-    private val _uiState = MutableStateFlow(VoiceUiState())
+    private val _uiState = MutableStateFlow(
+        VoiceUiState(
+            sherpaVoices = visibleSherpaVoices.map { voice ->
+                SherpaVoiceRowUiState(voice = voice)
+            },
+        )
+    )
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
+
 
     init {
         viewModelScope.launch {
@@ -215,7 +224,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             sherpaVoicePackDownloadManager.downloadStates.collect { states ->
                 _uiState.update {
-                    val sherpaRows = SherpaPiperVoice.entries.map { voice ->
+                    val sherpaRows = visibleSherpaVoices.map { voice ->
                         SherpaVoiceRowUiState(
                             voice = voice,
                             downloadState = states[voice] ?: VoicePackDownloadState.NotDownloaded,
@@ -228,7 +237,7 @@ class VoiceViewModel @Inject constructor(
                         },
                         isSelectedSherpaVoiceDownloaded =
                             states[it.selectedSherpaVoice] is VoicePackDownloadState.Downloaded,
-                        sherpaVoiceAvailability = SherpaPiperVoice.entries.associateWith { voice ->
+                        sherpaVoiceAvailability = visibleSherpaVoices.associateWith { voice ->
                             (states[voice] ?: VoicePackDownloadState.NotDownloaded).toModelAvailability()
                         },
                     )
@@ -427,6 +436,9 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun setSherpaVoice(voice: SherpaPiperVoice) {
+        if (isReleaseBuild && !voice.releaseVisible) {
+            return
+        }
         val row = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }
         if (row?.downloadState !is VoicePackDownloadState.Downloaded) {
             return
@@ -438,6 +450,9 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun downloadSherpaVoice(voice: SherpaPiperVoice) {
+        if (isReleaseBuild && !voice.releaseVisible) {
+            return
+        }
         sherpaVoicePackDownloadManager.startDownload(voice)
     }
 

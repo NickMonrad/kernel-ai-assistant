@@ -1,0 +1,62 @@
+name: Backlog hygiene
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+      - labeled
+      - unlabeled
+      - milestoned
+      - demilestoned
+  schedule:
+    # Weekly lightweight audit for stale metadata drift.
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Optional issue number to check instead of the whole open backlog
+        required: false
+        type: string
+      fail_on_violations:
+        description: Fail the workflow when hygiene warnings are found
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check:
+    name: Check issue metadata
+    runs-on: ubuntu-latest
+    if: github.event_name != 'issues' || github.event.issue.pull_request == null
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run backlog hygiene check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          FAIL_ON_VIOLATIONS: ${{ inputs.fail_on_violations }}
+        run: |
+          set -euo pipefail
+
+          args=(--repo "$GITHUB_REPOSITORY")
+
+          if [[ -n "${EVENT_ISSUE_NUMBER:-}" ]]; then
+            args+=(--issue-number "$EVENT_ISSUE_NUMBER")
+          elif [[ -n "${INPUT_ISSUE_NUMBER:-}" ]]; then
+            args+=(--issue-number "$INPUT_ISSUE_NUMBER")
+          fi
+
+          if [[ "${FAIL_ON_VIOLATIONS:-false}" == "true" ]]; then
+            args+=(--fail-on-violations)
+          fi
+
+          python3 scripts/check_issue_hygiene.py "${args[@]}"

@@ -11,6 +11,11 @@ enum class SherpaPiperVoice(
     /** Approximate compressed download size in bytes (used for progress UI). */
     val approxDownloadBytes: Long,
     /**
+     * Whether this voice can appear in release (Play Store) builds.
+     * `false` = debug/internal only (e.g. Semaine — non-commercial licence).
+     */
+    val releaseVisible: Boolean = true,
+    /**
      * Number of speakers in the Piper model. Single-speaker voices always use sid=0; the stored
      * [activeSpeakerId] preference must not be applied to them.
      */
@@ -71,6 +76,10 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-semaine-medium",
         downloadKey = "en_GB-semaine-medium",
         approxDownloadBytes = 70_000_000L,
+        // releaseVisible = false: Semaine's licence path appears to carry non-commercial /
+        // share-alike risk.  Hidden from release builds; retained for debug/internal
+        // research (http://github.com/NickMonrad/kernel-ai-assistant/issues/1268).
+        releaseVisible = false,
         // The model has 4 speakers (sid 0–3). Only the two female speakers are exposed in the UI;
         // speakerCount = 4 so that effectiveSid correctly clamps to 0..3.
         speakerCount = 4,
@@ -130,5 +139,9 @@ enum class SherpaPiperVoice(
     companion object {
         fun fromStorage(value: String?): SherpaPiperVoice =
             entries.firstOrNull { it.name == value } ?: JennyDioco
+
+        /** Returns entries visible for the given build type. */
+        fun entriesForBuild(isRelease: Boolean): List<SherpaPiperVoice> =
+            entries.filter { it.releaseVisible || !isRelease }
     }
 }
