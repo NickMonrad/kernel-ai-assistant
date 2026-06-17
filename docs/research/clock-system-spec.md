@@ -908,13 +908,16 @@ Scope:
   - Timer sound duration (15s / 30s / 60s / 2m / 5m), default 60s.
   - Alarm ring duration (30s / 60s / 2m / 5m), default 60s.
   - Snooze duration (5m / 10m / 15m / 30m), default 10m.
-- **Configurable auto-snooze count:**
   - `0` — auto-stop on first unattended ring (timer behaviour).
   - `1` — snooze once on first unattended ring, then auto-stop on
     re-trigger (default, matches legacy behaviour).
-  - Counts 2 and 3 are excluded until durable persistence of the
-    per-occurrence auto-snooze count across process death/reboot is
-    implemented.
+  - `2` — first two unattended auto-snoozes, third ring auto-stops.
+  - `3` — first three unattended auto-snoozes, fourth ring auto-stops.
+  - Durable via AlarmManager PendingIntent extras — count is incremented
+    in `toSnoozeScheduledEvent()`, propagated through the scheduling/
+    receiver/service lifecycle, and survives app/service process death
+    (AlarmManager preserves PendingIntent extras). Resets to 0 for each
+    new primary occurrence of a repeating alarm.
 - **Lifecycle treatment of max auto-snoozes:**
   - 0: `ClockAlertLifecyclePolicy.resolveAlertLifecycleAction` returns
     `AUTO_STOP` immediately (no auto-snooze).
@@ -955,18 +958,23 @@ Test coverage:
   action and extras contract.
 - `ClockSettingsScreen.kt` composables (`DurationSetting`,
   `MaxAutoSnoozeSetting`, `SoundSetting`, `ClockSettingsContent`) tested
-  via `ClockOverflowSettingsUiTest` — ~30 UI tests covering overflow
-  display, settings screen visibility, and option selection.
+  via `ClockOverflowSettingsUiTest` — 23 UI tests covering toolbar
+  (back button, Clock title, overflow), settings content visibility,
+  and option selection.
 
 Manual and automated validation:
 
-- Manual UI check on device (S21): overflow on all 4 tabs, Clock settings
-  opens, controls work, sound cards removed from tabs.
-- Automated S21 lifecycle validation: timer duration obeys configured
-  setting, alarm ring duration obeys configured setting, snooze duration
-  obeys configured setting, max auto-snoozes 0/1 work.
-- Repeating alarms preserve future occurrences regardless of auto-snooze
-  behaviour on a single occurrence.
+    - Manual UI check on device (S21): overflow on all 4 tabs, Clock settings
+      opens, controls work, sound cards removed from tabs.
+    - Automated S21 lifecycle validation: timer duration obeys configured
+      setting, alarm ring duration obeys configured setting, snooze duration
+      obeys configured setting.
+    - Max auto-snoozes validation: 0 (first ring auto-stops), 1 (snooze once
+      then stop), 2 (snooze twice then stop), 3 (snooze thrice then stop) all
+      work durably — counts tracked via PendingIntent extras and survive
+      app/service process death. Count resets per primary occurrence.
+    - Repeating alarms preserve future occurrences regardless of auto-snooze
+      behaviour on a single occurrence.
 
 ---
 
