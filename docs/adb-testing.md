@@ -295,12 +295,15 @@ set_a_5_minute_egg_timer`) with `allowed_intents=["set_timer"]` — the model ma
 legitimately create a real timer. The harness automatically stops Jandal ClockAlertService
 alerts:
 
-- **Before the run:** Pre-run cleanup cancels any active alerts.
+:- **Before the run:** Pre-run cleanup cancels any active alerts. Uses **checked ADB**
+  commands — if cleanup fails the run aborts immediately (exit code 46).
 - **After the timer case:** The harness immediately cleans up if a timer/alarm intent fired.
+  A cleanup failure here is tracked and causes non-zero exit at the end.
 - **After the run:** Final cleanup stops all alerts, dismisses notifications, and
-  force-stops the app as a last resort.
-- **If cleanup fails:** Exit code 46 (`EXIT_CLEANUP_FAILED`) is returned, and a message
-  is printed. Manually stop the app if buzzing persists:
+  force-stops the app as a last resort. Failure returns exit code 46.
+- **On cleanup failure:** Exit code 46 (`EXIT_CLEANUP_FAILED`) is returned, and the
+  harness prints which ADB command failed and why. Manually stop the app if buzzing
+  persists:
 
   ```bash
   adb shell am force-stop com.kernel.ai.debug

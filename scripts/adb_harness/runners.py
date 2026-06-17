@@ -257,7 +257,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     print("ready")
     # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [preflight] Cleaning up timers/alarms ...", end=" ", flush=True)
-    cleanup_clock_alerts(force_stop_last=False)
+    if not cleanup_clock_alerts(force_stop_last=False):
+        print("FAILED")
+        print("  [preflight] ❌ Pre-run cleanup failed — aborting to avoid buzzing device.",
+              file=sys.stderr)
+        logcat_stop()
+        return EXIT_CLEANUP_FAILED
     print("done")
     clear_logcat()
     time.sleep(WAIT_SECONDS)
@@ -703,7 +708,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
     # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
     print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
-    cleanup_clock_alerts(force_stop_last=False)
+    if not cleanup_clock_alerts(force_stop_last=False):
+        print("FAILED")
+        print("  [init] ❌ Pre-run cleanup failed — aborting to avoid buzzing device.",
+              file=sys.stderr)
+        return EXIT_CLEANUP_FAILED
     print("done")
     time.sleep(1)
 
@@ -1085,8 +1094,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             )
             if _needs_cleanup:
                 print("  [cleanup] timer/alarm route — cleaning up alerts ...", end=" ", flush=True)
-                cleanup_clock_alerts(force_stop_last=False)
-                print("  done")
+                if not cleanup_clock_alerts(force_stop_last=False):
+                    print("FAILED — continuing but will report cleanup failure")
+                    case_cleanup_failed = True
+                else:
+                    print("done")
                 time.sleep(1)
 
             # Hang up after call tests so they don't stay open
@@ -1131,6 +1143,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("-" * 70)
 
     failures = 0
+    case_cleanup_failed = False
     xfails = 0
     xpasses = 0
     indeterminates = 0
@@ -1220,6 +1233,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     effective_exit = 1 if (
         failures > 0
         or indeterminates > 0
+        or case_cleanup_failed
         or (xpass_is_failure and xpasses > 0)
     ) else 0
     return effective_exit

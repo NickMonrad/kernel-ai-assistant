@@ -333,17 +333,19 @@ gotcha troubleshooting.
 
 **Timer/alarm cleanup:** The `false_positives` phase includes a `Set a 5 minute egg timer`
 case that can legitimately route to `set_timer` as an allowed safe native route. When this
-happens, a real 5-minute timer is created on the device. The harness now performs automatic
-clock alert cleanup:
+happens, a real 5-minute timer is created on the device. The harness performs automatic
+clock alert cleanup using **checked ADB commands** (verified via exit code):
 
 1. **Pre-run:** Cancels any active Jandal ClockAlertService alerts and force-stops
-   third-party clock packages.
+   third-party clock packages. Uses checked ADB commands — if this fails the run aborts
+   with exit code **46** to avoid buzzing the device during testing.
 2. **Post-case:** After any test case that routes to a timer or alarm intent, cleanup is
-   attempted immediately so the alert cannot fire during subsequent tests.
+   attempted immediately. If cleanup fails the failure is tracked and causes a non-zero
+   exit code at the end of the run.
 3. **Post-run:** Final cleanup stops all timer/alarm alerts, dismisses notifications, and
-   force-stops clock packages as a last resort.
+   force-stops clock packages as a last resort. Failure returns exit code **46**.
 4. **On cleanup failure:** The harness returns exit code **46** (EXIT_CLEANUP_FAILED) and
-   prints a warning if the device may still be buzzing.
+   prints detailed error output including which ADB command failed and why.
 
 If cleanup fails and the device is still buzzing after a run:
 ```bash
