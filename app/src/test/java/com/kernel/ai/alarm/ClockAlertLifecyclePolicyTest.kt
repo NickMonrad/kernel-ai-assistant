@@ -2,9 +2,7 @@ package com.kernel.ai.alarm
 
 import com.kernel.ai.core.memory.clock.ClockEventType
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ClockAlertLifecyclePolicyTest {
@@ -93,68 +91,45 @@ class ClockAlertLifecyclePolicyTest {
     }
 
 
-    // ── Snoozed re-trigger flag preservation regression ──────────────
-    // This test simulates the full flow that was broken by double-
-    // consumption of the snoozed owner ID marker. The flag from
-    // consumeSnoozedOwnerId() at TRIGGER_ALERT time must be preserved
-    // and passed to resolveAlertLifecycleAction() at timeout time.
-    // See PR #1277, bug fix commit after review.
+    // ── Durable snooze re-trigger flag (integration) ─────────────────
+    // The isSnoozeRetrigger flag comes from the scheduled event model,
+    // not from a companion set. These tests verify the lifecycle decision
+    // driven by the durable flag in TriggeredClockAlert.
 
     @Test
-    fun `snoozed alarm re-trigger flag consumed once and used for timeout`() {
-        // Simulate auto-snooze: performAutoSnooze adds the ownerId
-        ClockAlertService.addSnoozedOwnerId("alarm-retrigger-test")
-
-        // Simulate TRIGGER_ALERT: onStartCommand consumes the marker once
-        val isSnoozeRetrigger = ClockAlertService.consumeSnoozedOwnerId("alarm-retrigger-test")
-        assertTrue(isSnoozeRetrigger, "snoozed marker must be consumed on re-trigger")
-
-        // Verify marker is consumed: second call returns false
-        assertFalse(
-            ClockAlertService.consumeSnoozedOwnerId("alarm-retrigger-test"),
-            "marker should only be consumable once",
+    fun `alarm with isSnoozeRetrigger true resolves to auto-stop`() {
+        val alert = TriggeredClockAlert(
+            ownerId = "alarm-1",
+            type = ClockEventType.ALARM,
+            title = "Test alarm",
+            label = "Test",
+            isSnoozeRetrigger = true,
         )
-
-        // Simulate lifecycle timeout: the preserved flag drives the action
-        val action = resolveAlertLifecycleAction(ClockEventType.ALARM, isSnoozeRetrigger)
+        val action = resolveAlertLifecycleAction(alert.type, alert.isSnoozeRetrigger)
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP, action,
-            "snoozed re-trigger must auto-stop, not auto-snooze again",
+            "durably-flagged snooze re-trigger must auto-stop, not auto-snooze",
         )
     }
 
     @Test
-    fun `full snoozed alarm lifecycle first snoozes then re-trigger auto-stops`() {
-        // Phase 1: First alarm ring — no snoozed marker
-        assertFalse(
-            ClockAlertService.consumeSnoozedOwnerId("alarm-1"),
-            "first ring has no snoozed marker",
+    fun `alarm with isSnoozeRetrigger false resolves to auto-snooze`() {
+        val alert = TriggeredClockAlert(
+            ownerId = "alarm-2",
+            type = ClockEventType.ALARM,
+            title = "Test alarm",
+            label = "Test",
+            isSnoozeRetrigger = false,
         )
-
-        // First timeout: isSnoozeRetrigger = false → auto-snooze
+        val action = resolveAlertLifecycleAction(alert.type, alert.isSnoozeRetrigger)
         assertEquals(
-            ClockAlertLifecycleAction.AUTO_SNOOZE,
-            resolveAlertLifecycleAction(ClockEventType.ALARM, isSnoozeRetrigger = false),
-        )
-
-        // Simulate auto-snooze: performAutoSnooze saves the ownerId
-        ClockAlertService.addSnoozedOwnerId("alarm-1")
-
-        // Clean up the companion state for test isolation
-        // Phase 2: Snoozed alarm re-triggers — marker exists
-        val isSnoozeRetrigger = ClockAlertService.consumeSnoozedOwnerId("alarm-1")
-        assertTrue(isSnoozeRetrigger, "re-trigger has snoozed marker")
-
-        // Second timeout: preserved flag is true → auto-stop
-        assertEquals(
-            ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.ALARM, isSnoozeRetrigger),
+            ClockAlertLifecycleAction.AUTO_SNOOZE, action,
+            "first-ring alarm must auto-snooze",
         )
     }
 
     @Test
-    fun `timer auto-stop unaffected by snoozed marker`() {
-        // Even with a stale snoozed marker, timer always auto-stops
+    fun `timer auto-stops regardless of isSnoozeRetrigger`() {
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
             resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = true),
@@ -163,6 +138,12 @@ class ClockAlertLifecyclePolicyTest {
             ClockAlertLifecycleAction.AUTO_STOP,
             resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = false),
         )
+    }
+
+    @Test
+    fun `pre-alarm has no lifecycle timeout regardless of flag`() {
+        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = false))
+        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = true))
     }
     @Test
     fun `ALARM_AUTO_SNOOZE_DURATION_MS is about one minute`() {

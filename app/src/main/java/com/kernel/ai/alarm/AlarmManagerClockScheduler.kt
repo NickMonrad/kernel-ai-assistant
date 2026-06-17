@@ -71,6 +71,7 @@ class AlarmManagerClockScheduler @Inject constructor(
                 event.occurrenceTriggerAtMillis ?: event.triggerAtMillis,
             )
             putExtra(ClockAlertContract.EXTRA_SOUND_URI, event.soundUri)
+            putExtra(ClockAlertContract.EXTRA_IS_SNOOZE_RETRIGGER, event.isSnoozeRetrigger)
         }
 
     private fun defaultLabel(type: ClockEventType): String =

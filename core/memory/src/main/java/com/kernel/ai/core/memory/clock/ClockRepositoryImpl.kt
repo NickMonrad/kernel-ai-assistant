@@ -719,6 +719,7 @@ private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockS
         label = label,
         occurrenceTriggerAtMillis = snoozeAt,
         soundUri = soundUri,
+        isSnoozeRetrigger = true,
     )
 }
 

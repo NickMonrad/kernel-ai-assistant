@@ -114,7 +114,7 @@ class ClockAlertService : Service() {
         when (intent?.action) {
             ClockAlertContract.ACTION_TRIGGER_ALERT -> {
                 val alert = intent.toTriggeredClockAlert() ?: return START_NOT_STICKY
-                val isSnoozeRetrigger = consumeSnoozedOwnerId(alert.ownerId)
+                val isSnoozeRetrigger = alert.isSnoozeRetrigger
                 cancelLifecycleTimeout(alert.ownerId)
                 activeAlerts.removeAll { it.ownerId == alert.ownerId }
                 activeAlerts += alert
@@ -134,7 +134,6 @@ class ClockAlertService : Service() {
 
             ClockAlertContract.ACTION_STOP_ALERT -> {
                 intent.toTriggeredClockAlert()?.let { alert ->
-                    removeSnoozedOwnerId(alert.ownerId)
                     dismissAlert(alert)
                 } ?: stopAlertSession()
             }
@@ -454,8 +453,8 @@ class ClockAlertService : Service() {
     /**
      * Dispatches the lifecycle timeout to auto-stop or auto-snooze
      * based on the alert type and whether this was a snooze re-trigger.
-     * [isSnoozeRetrigger] is preserved from the original TRIGGER_ALERT processing
-     * — it is NOT re-consumed from the companion set, which was already consumed.
+     * [isSnoozeRetrigger] is preserved from the durably-flagged scheduled event
+     * via [TriggeredClockAlert.isSnoozeRetrigger] through the coroutine closure.
      */
     private suspend fun handleLifecycleTimeout(alert: TriggeredClockAlert, isSnoozeRetrigger: Boolean) {
         when (resolveAlertLifecycleAction(alert.type, isSnoozeRetrigger)) {
@@ -471,12 +470,12 @@ class ClockAlertService : Service() {
      * The timer/alarm is already handled by [ClockRepository.handleScheduledEvent].
      */
     private suspend fun performAutoStop(alert: TriggeredClockAlert) {
-        removeSnoozedOwnerId(alert.ownerId)
         dismissAlert(alert)
     }
-
     /**
      * Auto-snooze: snooze via repository, then dismiss the current alert.
+     * The repository persists the snooze; the resulting snooze scheduled event
+     * carries isSnoozeRetrigger=true so the re-trigger auto-stops.
      * If the repo call fails, fall back to auto-stop.
      */
     private suspend fun performAutoSnooze(alert: TriggeredClockAlert) {
@@ -485,16 +484,12 @@ class ClockAlertService : Service() {
             snoozedUntilMillis = System.currentTimeMillis() + ALARM_SNOOZE_MS,
         )
         if (success) {
-            addSnoozedOwnerId(alert.ownerId)
             dismissAlert(alert)
         } else {
             performAutoStop(alert)
         }
     }
-
     private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
-        if (isVoiceListening) return
-        cancelAutoStartVoiceControl()
         isVoiceListening = true
         handledVoiceTranscript = false
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
@@ -548,7 +543,6 @@ class ClockAlertService : Service() {
         }
         when (command) {
             ClockAlertVoiceCommand.DISMISS -> {
-                removeSnoozedOwnerId(alert.ownerId)
                 dismissAlert(alert)
             }
             ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, ALARM_SNOOZE_MS)
@@ -566,7 +560,6 @@ class ClockAlertService : Service() {
             snoozedUntilMillis = System.currentTimeMillis() + durationMs,
         )
         if (success) {
-            addSnoozedOwnerId(alert.ownerId)
             dismissAlert(alert)
         } else {
             finishVoiceCapture("Couldn't snooze the alarm.")
@@ -578,7 +571,7 @@ class ClockAlertService : Service() {
                 clockRepository.snoozeAlarm(
                     alarmId = alert.ownerId,
                     snoozedUntilMillis = System.currentTimeMillis() + ALERT_ADD_MINUTE_MS,
-                ).also { if (it) addSnoozedOwnerId(alert.ownerId) }
+                )
             }
 
             ClockEventType.TIMER -> clockRepository.scheduleTimer(
@@ -620,6 +613,10 @@ class ClockAlertService : Service() {
             -1L,
         ).takeIf { it > 0L }
         val soundUri = getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
+        val isSnoozeRetrigger = getBooleanExtra(
+            ClockAlertContract.EXTRA_IS_SNOOZE_RETRIGGER,
+            false,
+        )
         return TriggeredClockAlert(
             ownerId = ownerId,
             type = type,
@@ -627,6 +624,7 @@ class ClockAlertService : Service() {
             label = label,
             occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
             soundUri = soundUri,
+            isSnoozeRetrigger = isSnoozeRetrigger,
         )
     }
 
@@ -634,34 +632,8 @@ class ClockAlertService : Service() {
         @Volatile
         private var activeAlertSnapshot: Set<TriggeredClockAlert> = emptySet()
 
-        @Volatile
-        private var snoozedOwnerIds: Set<String> = emptySet()
-
         internal fun hasActiveTimerAlerts(): Boolean =
             activeAlertSnapshot.any { it.type == ClockEventType.TIMER }
-
-        /** Record that [ownerId] was snoozed so its re-trigger is auto-stopped. */
-        internal fun addSnoozedOwnerId(ownerId: String) {
-            snoozedOwnerIds = snoozedOwnerIds + ownerId
-        }
-
-        /**
-         * Returns true if [ownerId] was previously snoozed, and removes it
-         * from the tracking set so the next trigger starts fresh.
-         */
-        internal fun consumeSnoozedOwnerId(ownerId: String): Boolean {
-            val wasSnoozed = ownerId in snoozedOwnerIds
-            if (wasSnoozed) {
-                snoozedOwnerIds = snoozedOwnerIds - ownerId
-            }
-            return wasSnoozed
-        }
-
-        /** Remove [ownerId] from the snoozed-tracking set. */
-        internal fun removeSnoozedOwnerId(ownerId: String) {
-            snoozedOwnerIds = snoozedOwnerIds - ownerId
-        }
-
 
         internal fun trigger(context: Context, alert: TriggeredClockAlert) {
             ContextCompat.startForegroundService(
@@ -669,14 +641,12 @@ class ClockAlertService : Service() {
                 Intent(context, ClockAlertService::class.java).apply {
                     action = ClockAlertContract.ACTION_TRIGGER_ALERT
                     putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
-                    putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
                     putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
+                    putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
                     putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
-                    putExtra(
-                        ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
-                        alert.occurrenceTriggerAtMillis ?: -1L,
-                    )
+                    putExtra(ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS, alert.occurrenceTriggerAtMillis ?: -1L)
                     putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
+                    putExtra(ClockAlertContract.EXTRA_IS_SNOOZE_RETRIGGER, alert.isSnoozeRetrigger)
                 },
             )
         }

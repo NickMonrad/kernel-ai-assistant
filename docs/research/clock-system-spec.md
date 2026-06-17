@@ -338,25 +338,37 @@ dismiss them, `ClockAlertService` implements an explicit per-alert lifecycle tim
 - If the snoozed alarm is still not dismissed, it **auto-stops** after ~60 seconds
   and does not repeat for that one-off occurrence.
 
-#### 6.3.3 Snooze re-trigger detection
+#### 6.3.3 Snooze re-trigger detection (durable)
 
-To distinguish a snooze re-trigger from a first ring, the service uses a companion-level
-`snoozedOwnerIds: Set<String>`. When an alarm is snoozed (manually or automatically),
-the owner ID is added to this set. When the next `TRIGGER_ALERT` arrives, the set is
-checked and consumed:
+To distinguish a snooze re-trigger from a first ring, the `isSnoozeRetrigger` flag is
+persisted as part of the scheduled event model:
 
-- **OwnerId in set:** Snooze re-trigger → schedule auto-stop after ringing duration.
-- **OwnerId not in set:** First ring → schedule auto-snooze after ringing duration.
+1. When an alarm is snoozed (manually or automatically), `ClockRepository.snoozeAlarm()`
+   persists `snoozedUntilMs` on the alarm entity.
+2. `ClockRepositoryImpl.toSnoozeScheduledEvent()` creates a `ClockScheduledEvent` with
+   `isSnoozeRetrigger = true` and a distinct eventId (`${ownerId}:snooze`).
+3. `AlarmManagerClockScheduler.buildBroadcastIntent()` writes the flag into the
+   `EXTRA_IS_SNOOZE_RETRIGGER` intent extra.
+4. `AlarmBroadcastReceiver` reads the extra and passes it into `TriggeredClockAlert`.
+5. `ClockAlertService.onStartCommand()` uses `alert.isSnoozeRetrigger` directly
+   (no companion-level set lookup).
+6. The boolean flows through `scheduleLifecycleTimeout()` into `handleLifecycleTimeout()`,
+   where `resolveAlertLifecycleAction(ALARM, true)` → `AUTO_STOP`.
 
-The entry is consumed (removed) during `TRIGGER_ALERT` processing so the next
-occurrence (e.g. tomorrow's repeating alarm) starts fresh as a first ring.
+This survives app/service process death between snooze and re-trigger because the flag
+is carried by the scheduled `PendingIntent` through `AlarmManager`, not stored in
+process memory.
+
+This replaced the earlier process-memory `snoozedOwnerIds: Set<String>` companion
+approach (PR #1277 review feedback). The companion-level set and all its helpers
+(`addSnoozedOwnerId`, `consumeSnoozedOwnerId`, `removeSnoozedOwnerId`) were removed.
 
 #### 6.3.4 Cancellation rules
 
 The pending lifecycle timeout for an alert is cancelled when any of these occur:
 
-- **Dismiss (manual or voice):** `removeSnoozedOwnerId` + lifecycle job cancelled.
-- **Snooze (manual or auto):** lifecycle job cancelled, ownerId added to snoozed set.
+- **Dismiss (manual or voice):** lifecycle job cancelled.
+- **Snooze (manual or auto):** lifecycle job cancelled; `snoozeAlarm()` persists the snooze with durable `isSnoozeRetrigger = true` flag.
 - **+1 min:** lifecycle job cancelled, new timer/alarm scheduled.
 - **Service destroyed / all alerts dismissed:** all lifecycle jobs cancelled.
 
@@ -373,8 +385,9 @@ The pending lifecycle timeout for an alert is cancelled when any of these occur:
 
 For repeating alarms, the auto-stop/snooze lifecycle applies only to the **current
 occurrence**. Future scheduled occurrences (next day, next weekday) remain active
-unless the user explicitly disables the alarm. The snooze re-trigger set is per-service
-session and does not carry over between occurrences.
+unless the user explicitly disables the alarm. The snooze re-trigger flag is carried
+by the scheduled `PendingIntent` and does not carry over to the next occurrence's
+primary event.
 
 #### 6.3.7 Testability
 
@@ -382,9 +395,13 @@ The lifecycle decision logic is extracted into a pure helper:
 
 - `ClockAlertLifecyclePolicy.kt` — `resolveAlertLifecycleAction(type, isSnoozeRetrigger)`
   and `lifecycleTimeoutDurationMs(type, isSnoozeRetrigger)`.
-- `ClockAlertLifecyclePolicyTest.kt` — 10 unit tests covering timer auto-stop,
-  alarm auto-snooze vs. auto-stop, snooze re-trigger detection, pre-alarm no-op,
-  and duration constant values.
+- `ClockAlertLifecyclePolicyTest.kt` — unit tests covering timer auto-stop,
+  alarm auto-snooze vs. auto-stop, snooze re-trigger flag resolution,
+  pre-alarm no-op, and duration constant values.
+- `ClockRepositoryImplTest` — verifies `snoozeAlarm()` produces scheduled
+  events with `isSnoozeRetrigger = true` and `restoreScheduledEntries()`
+  persists snoozed future events with the durable flag.
+
 ---
 
 ## 7. Data model
