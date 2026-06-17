@@ -642,18 +642,22 @@ class ClockAlertService : Service() {
         internal fun hasActiveTimerAlerts(): Boolean =
             activeAlertSnapshot.any { it.type == ClockEventType.TIMER }
 
+        internal fun createTriggerIntent(context: Context, alert: TriggeredClockAlert): Intent =
+            Intent(context, ClockAlertService::class.java).apply {
+                action = ClockAlertContract.ACTION_TRIGGER_ALERT
+                putExtra(ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT, alert.autoSnoozeCount)
+                putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
+                putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
+                putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
+                putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
+                putExtra(ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS, alert.occurrenceTriggerAtMillis ?: -1L)
+                putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
+            }
+
         internal fun trigger(context: Context, alert: TriggeredClockAlert) {
             ContextCompat.startForegroundService(
                 context,
-                Intent(context, ClockAlertService::class.java).apply {
-                    putExtra(ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT, alert.autoSnoozeCount)
-                    putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
-                    putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
-                    putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
-                    putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
-                    putExtra(ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS, alert.occurrenceTriggerAtMillis ?: -1L)
-                    putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
-                },
+                createTriggerIntent(context, alert),
             )
         }
     }

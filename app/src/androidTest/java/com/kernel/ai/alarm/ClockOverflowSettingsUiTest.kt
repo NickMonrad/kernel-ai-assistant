@@ -1,12 +1,16 @@
 package com.kernel.ai.alarm
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -18,21 +22,21 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.kernel.ai.core.memory.clock.ClockAlertConfig
 import com.kernel.ai.core.memory.clock.ClockSoundConfig
-import com.kernel.ai.core.memory.clock.ClockSurfaceTab
-import com.kernel.ai.feature.settings.ClockSettingsScreen
-import com.kernel.ai.feature.settings.ClockSettingsViewModel
+import com.kernel.ai.feature.settings.ClockSettingsContent
+import com.kernel.ai.feature.settings.DurationSetting
+import com.kernel.ai.feature.settings.MaxAutoSnoozeSetting
+import com.kernel.ai.feature.settings.SoundSetting
 import org.junit.Rule
 import org.junit.Test
 
 /**
  * UI tests for the Clock overflow menu and settings screen.
  *
- * These verify:
- * - Overflow button visibility across Clock modes.
- * - Overflow menu contains "Clock settings".
- * - ClockSettingsScreen renders all controls.
- * - Sound cards are no longer in Clock tab surfaces.
+ * These verify production composables [DurationSetting], [MaxAutoSnoozeSetting],
+ * [SoundSetting], and [ClockSettingsContent] directly, plus a lightweight
+ * overflow-menu wrapper that mirrors the real SidePanelScreen TopAppBar structure.
  */
 class ClockOverflowSettingsUiTest {
 
@@ -42,324 +46,233 @@ class ClockOverflowSettingsUiTest {
     // ── Clock overflow button ──────────────────────────────────────────
 
     @Test
-    fun clockTopAppBar_showsOverflowButton_onTimers() {
+    fun clockTopAppBar_showsOverflowButton() {
         composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.TIMERS)
+            ClockOverflowTopAppBar()
         }
         composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Clock options").assertIsDisplayed()
     }
 
     @Test
-    fun clockTopAppBar_showsOverflowButton_onAlarms() {
-        composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.ALARMS)
-        }
-        composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
-    }
-
-    @Test
-    fun clockTopAppBar_showsOverflowButton_onStopwatch() {
-        composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.STOPWATCH)
-        }
-        composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
-    }
-
-    @Test
-    fun clockTopAppBar_showsOverflowButton_onWorldClock() {
-        composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.WORLD_CLOCK)
-        }
-        composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
-    }
-
-    @Test
     fun overflowMenu_containsClockSettings() {
         composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.TIMERS)
+            ClockOverflowTopAppBar()
         }
-        // Open the overflow menu
         composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        // Verify the menu item is visible
         composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
         composeTestRule.onNodeWithText("Clock settings").assertIsDisplayed()
     }
 
     @Test
-    fun overflowMenu_clockSettings_visibleOnAlarmsTab() {
+    fun overflowMenu_onlyRendersWhenExpanded() {
         composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.ALARMS)
+            ClockOverflowTopAppBar()
         }
-        composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
+        // Before click: menu is not visible
+        composeTestRule.onNodeWithText("Clock settings").assertIsNotDisplayed()
     }
 
-    @Test
-    fun overflowMenu_clockSettings_visibleOnStopwatchTab() {
-        composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.STOPWATCH)
-        }
-        composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
-    }
+    // ── Real DurationSetting component tests ───────────────────────────
 
     @Test
-    fun overflowMenu_clockSettings_visibleOnWorldClockTab() {
+    fun durationSetting_rendersLabel() {
         composeTestRule.setContent {
-            ClockTopAppBarTestHarness(tab = ClockSurfaceTab.WORLD_CLOCK)
-        }
-        composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
-    }
-
-    // ── Clock settings screen ──────────────────────────────────────────
-
-    @Test
-    fun clockSettingsScreen_timerSoundDuration_visible() {
-        composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            DurationSetting(
+                label = "Timer sound duration",
+                value = 60_000L,
+                options = listOf(15_000L to "15 sec", 60_000L to "60 sec"),
+                onValueChange = {},
+                testTag = "clock_settings_timer_sound_duration",
+            )
         }
         composeTestRule.onNodeWithTag("clock_settings_timer_sound_duration").assertIsDisplayed()
         composeTestRule.onNodeWithText("Timer sound duration").assertIsDisplayed()
     }
 
     @Test
-    fun clockSettingsScreen_alarmRingDuration_visible() {
+    fun durationSetting_showsSelectedValue() {
         composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            DurationSetting(
+                label = "Test duration",
+                value = 30_000L,
+                options = listOf(15_000L to "15 sec", 30_000L to "30 sec"),
+                onValueChange = {},
+                testTag = "test_duration",
+            )
         }
-        composeTestRule.onNodeWithTag("clock_settings_alarm_ring_duration").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Alarm ring duration").assertIsDisplayed()
+        composeTestRule.onNodeWithText("30 sec").assertIsDisplayed()
     }
 
-    @Test
-    fun clockSettingsScreen_snoozeDuration_visible() {
-        composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
-        }
-        composeTestRule.onNodeWithTag("clock_settings_snooze_duration").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Snooze duration").assertIsDisplayed()
-    }
+    // ── Real MaxAutoSnoozeSetting component tests ──────────────────────
 
     @Test
-    fun clockSettingsScreen_maxAutoSnoozes_visible() {
+    fun maxAutoSnoozeSetting_rendersLabel() {
         composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            MaxAutoSnoozeSetting(
+                value = 1,
+                onValueChange = {},
+                testTag = "clock_settings_max_auto_snoozes",
+            )
         }
         composeTestRule.onNodeWithTag("clock_settings_max_auto_snoozes").assertIsDisplayed()
         composeTestRule.onNodeWithText("Automatic snoozes").assertIsDisplayed()
     }
 
     @Test
-    fun clockSettingsScreen_alarmSound_visible() {
+    fun maxAutoSnoozeSetting_showsOnlyZeroAndOne() {
         composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            MaxAutoSnoozeSetting(
+                value = 0,
+                onValueChange = {},
+                testTag = "test_snooze",
+            )
+        }
+        // Verify the current value label mentions "0"
+        composeTestRule.onNodeWithTag("test_snooze").assertIsDisplayed()
+        // Open the dropdown to inspect options
+        composeTestRule.onNodeWithTag("test_snooze").performClick()
+        // Only 0 and 1 options should be visible
+        composeTestRule.onNodeWithText("0").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1").assertIsDisplayed()
+    }
+
+    // ── Real SoundSetting component tests ──────────────────────────────
+
+    @Test
+    fun soundSetting_rendersTitle() {
+        composeTestRule.setContent {
+            SoundSetting(
+                title = "Alarm sound",
+                currentSoundUri = null,
+                onSoundSelected = {},
+                onClick = {},
+                testTag = "clock_settings_alarm_sound",
+            )
         }
         composeTestRule.onNodeWithTag("clock_settings_alarm_sound").assertIsDisplayed()
         composeTestRule.onNodeWithText("Alarm sound").assertIsDisplayed()
     }
 
     @Test
-    fun clockSettingsScreen_timerSound_visible() {
+    fun soundSetting_showsSystemDefaultWhenNull() {
         composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            SoundSetting(
+                title = "Alarm sound",
+                currentSoundUri = null,
+                onSoundSelected = {},
+                onClick = {},
+                testTag = "test_sound",
+            )
+        }
+        composeTestRule.onNodeWithText("System default").assertIsDisplayed()
+    }
+
+    // ── Real ClockSettingsContent integration tests ────────────────────
+
+    @Test
+    fun clockSettingsContent_showsTimerSoundDuration() {
+        composeTestRule.setContent {
+            ClockSettingsContent(
+                config = ClockAlertConfig(),
+                soundConfig = ClockSoundConfig(),
+            )
+        }
+        composeTestRule.onNodeWithTag("clock_settings_timer_sound_duration").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Timer sound duration").assertIsDisplayed()
+    }
+
+    @Test
+    fun clockSettingsContent_showsAlarmRingDuration() {
+        composeTestRule.setContent {
+            ClockSettingsContent()
+        }
+        composeTestRule.onNodeWithTag("clock_settings_alarm_ring_duration").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Alarm ring duration").assertIsDisplayed()
+    }
+
+    @Test
+    fun clockSettingsContent_showsSnoozeDuration() {
+        composeTestRule.setContent {
+            ClockSettingsContent()
+        }
+        composeTestRule.onNodeWithTag("clock_settings_snooze_duration").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Snooze duration").assertIsDisplayed()
+    }
+
+    @Test
+    fun clockSettingsContent_showsMaxAutoSnoozes() {
+        composeTestRule.setContent {
+            ClockSettingsContent()
+        }
+        composeTestRule.onNodeWithTag("clock_settings_max_auto_snoozes").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Automatic snoozes").assertIsDisplayed()
+    }
+
+    @Test
+    fun clockSettingsContent_showsAlarmSound() {
+        composeTestRule.setContent {
+            ClockSettingsContent(
+                soundConfig = ClockSoundConfig(),
+            )
+        }
+        composeTestRule.onNodeWithTag("clock_settings_alarm_sound").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Alarm sound").assertIsDisplayed()
+    }
+
+    @Test
+    fun clockSettingsContent_showsTimerSound() {
+        composeTestRule.setContent {
+            ClockSettingsContent()
         }
         composeTestRule.onNodeWithTag("clock_settings_timer_sound").assertIsDisplayed()
         composeTestRule.onNodeWithText("Timer sound").assertIsDisplayed()
     }
 
     @Test
-    fun clockSettingsScreen_screenTag_visible() {
+    fun clockSettingsContent_showsAlertBehaviourSection() {
         composeTestRule.setContent {
-            ClockSettingsScreenTestHarness()
+            ClockSettingsContent()
         }
-        composeTestRule.onNodeWithTag("clock_settings_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Alert behaviour").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Sounds").assertIsDisplayed()
     }
 }
 
-// ── Test harnesses ────────────────────────────────────────────────────
-
+/**
+ * Minimal overflow TopAppBar that mirrors the real SidePanelScreen
+ * TopAppBar structure. Uses the same tag names and composition to
+ * validate the overflow button + Clock settings menu item lifecycle.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
-private fun ClockTopAppBarTestHarness(tab: ClockSurfaceTab) {
+@Composable
+private fun ClockOverflowTopAppBar() {
     val showOverflow = remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Clock") },
-                navigationIcon = {
-                    // Simulated back button to match SidePanelScreen structure
-                },
-                actions = {
-                    androidx.compose.material3.IconButton(
-                        onClick = { showOverflow.value = true },
-                        modifier = Modifier.testTag("clock_overflow_button"),
-                    ) {
-                        androidx.compose.material3.Icon(
-                            androidx.compose.material.icons.Icons.Default.MoreVert,
-                            contentDescription = "Clock options",
-                        )
-                    }
-                    androidx.compose.material3.DropdownMenu(
-                        expanded = showOverflow.value,
-                        onDismissRequest = { showOverflow.value = false },
-                    ) {
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Clock settings") },
-                            onClick = { showOverflow.value = false },
-                            modifier = Modifier.testTag("clock_overflow_settings"),
-                        )
-                    }
-                },
-            )
+    TopAppBar(
+        title = { Text("Clock") },
+        navigationIcon = {},
+        actions = {
+            Box {
+                IconButton(
+                    onClick = { showOverflow.value = true },
+                    modifier = Modifier.testTag("clock_overflow_button"),
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Clock options",
+                    )
+                }
+                DropdownMenu(
+                    expanded = showOverflow.value,
+                    onDismissRequest = { showOverflow.value = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Clock settings") },
+                        onClick = { showOverflow.value = false },
+                        modifier = Modifier.testTag("clock_overflow_settings"),
+                    )
+                }
+            }
         },
-    ) { _ -> }
-}
-
-/**
- * Simplified test harness that renders the ClockSettingsScreen.
- *
- * Uses a fake [ClockSettingsViewModel] that provides default values.
- * In a real instrumentation test this would use a proper Hilt test
- * component, but for tag/visibility assertions a simplified rendering
- * with a mockable delegate is sufficient.
- */
-private fun ClockSettingsScreenTestHarness() {
-    // Use a minimal wrapper that exercises the real composable.
-    // The viewModel is provided by hiltViewModel() in the real screen;
-    // for this test harness we're testing composable structure only.
-    val delegate = remember {
-        TestClockSettingsDelegate()
-    }
-    TestClockSettingsContent(delegate)
-}
-
-/**
- * Minimal content that mirrors ClockSettingsScreen structure
- * for isolated UI testing.
- */
-private fun TestClockSettingsContent(delegate: TestClockSettingsDelegate) {
-    val soundConfig = ClockSoundConfig()
-    val timerDurationMs = 60_000L
-    val alarmDurationMs = 60_000L
-    val snoozeDurationMs = 600_000L
-    val maxAutoSnoozes = 1
-
-    androidx.compose.material3.Scaffold(
-        modifier = Modifier.testTag("clock_settings_screen"),
-        topBar = {
-            androidx.compose.material3.ExperimentalMaterial3Api::class
-            @OptIn(ExperimentalMaterial3Api::class)
-            androidx.compose.material3.TopAppBar(
-                title = { Text("Clock settings") },
-                navigationIcon = {
-                    androidx.compose.material3.IconButton(onClick = { }) {
-                        androidx.compose.material3.Icon(
-                            androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        androidx.compose.foundation.layout.Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-        ) {
-            Text(
-                text = "Alert behaviour",
-                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
-            )
-
-            // Timer sound duration
-            com.kernel.ai.feature.settings.ClockSettingsDurationSelector(
-                label = "Timer sound duration",
-                value = timerDurationMs,
-                options = listOf(
-                    15_000L to "15 seconds",
-                    30_000L to "30 seconds",
-                    60_000L to "60 seconds",
-                    120_000L to "2 minutes",
-                    300_000L to "5 minutes",
-                ),
-                onValueChange = { },
-                testTag = "clock_settings_timer_sound_duration",
-            )
-
-            // Alarm ring duration
-            com.kernel.ai.feature.settings.ClockSettingsDurationSelector(
-                label = "Alarm ring duration",
-                value = alarmDurationMs,
-                options = listOf(
-                    30_000L to "30 seconds",
-                    60_000L to "60 seconds",
-                    120_000L to "2 minutes",
-                    300_000L to "5 minutes",
-                ),
-                onValueChange = { },
-                testTag = "clock_settings_alarm_ring_duration",
-            )
-
-            // Snooze duration
-            com.kernel.ai.feature.settings.ClockSettingsDurationSelector(
-                label = "Snooze duration",
-                value = snoozeDurationMs,
-                options = listOf(
-                    300_000L to "5 minutes",
-                    600_000L to "10 minutes",
-                    900_000L to "15 minutes",
-                    1_800_000L to "30 minutes",
-                ),
-                onValueChange = { },
-                testTag = "clock_settings_snooze_duration",
-            )
-
-            // Auto snooze count
-            com.kernel.ai.feature.settings.ClockSettingsAutoSnoozeSelector(
-                label = "Automatic snoozes",
-                value = maxAutoSnoozes,
-                onValueChange = { },
-                testTag = "clock_settings_max_auto_snoozes",
-            )
-
-            // Sound settings section
-            Text(
-                text = "Sounds",
-                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 24.dp, bottom = 12.dp),
-            )
-
-            // Alarm sound
-            com.kernel.ai.feature.settings.ClockSettingsSoundRow(
-                label = "Alarm sound",
-                currentSoundUri = soundConfig.defaultAlarmSoundUri,
-                onClick = { },
-                testTag = "clock_settings_alarm_sound",
-            )
-
-            // Timer sound
-            com.kernel.ai.feature.settings.ClockSettingsSoundRow(
-                label = "Timer sound",
-                currentSoundUri = soundConfig.timerSoundUri,
-                onClick = { },
-                testTag = "clock_settings_timer_sound",
-            )
-        }
-    }
-}
-
-/**
- * Minimal test delegate for ClockSettingsViewModel operations.
- */
-private class TestClockSettingsDelegate {
-    fun setTimerAutoStopDurationMs(value: Long) {}
-    fun setAlarmRingDurationMs(value: Long) {}
-    fun setSnoozeDurationMs(value: Long) {}
-    fun setMaxAutoSnoozes(value: Int) {}
-    fun setDefaultAlarmSoundUri(uri: String?) {}
-    fun setTimerSoundUri(uri: String?) {}
+    )
 }

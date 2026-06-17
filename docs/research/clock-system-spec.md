@@ -2,7 +2,7 @@
 > **Primary issue:** [#527](https://github.com/NickMonrad/kernel-ai-assistant/issues/527)
 > **Related:** [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677)
 > **Status:** proposed architecture and UX direction
-> **Last updated:** 2026-05-02
+> **Last updated:** 2026-06-17
 
 ---
 
@@ -889,7 +889,84 @@ Scope:
 
 Acceptance:
 
-- the feature works without confusing normal voice-command routing
+
+### Wave 7 — Clock overflow menu and settings (#1283)
+
+#### Proposed child issue H — Clock settings screen and configurable lifecycle
+
+Scope:
+
+- **Clock overflow menu** — consistent three-dot overflow (`MoreVert`) button
+  in the Clock top app bar, present on all four tabs: Timers, Alarms,
+  World Clock, and Stopwatch.
+- **Clock settings screen** — accessible from the overflow menu via "Clock
+  settings" menu item, and from the main Settings screen.
+- **Sound settings extracted** — global alarm/timer sound selection removed
+  from the main Alarm/Timer tab UIs and placed in Clock settings only.
+  Per-alarm sound overrides in the alarm create/edit dialog remain unchanged.
+- **Configurable alert durations:**
+  - Timer sound duration (15s / 30s / 60s / 2m / 5m), default 60s.
+  - Alarm ring duration (30s / 60s / 2m / 5m), default 60s.
+  - Snooze duration (5m / 10m / 15m / 30m), default 10m.
+- **Configurable auto-snooze count:**
+  - `0` — auto-stop on first unattended ring (timer behaviour).
+  - `1` — snooze once on first unattended ring, then auto-stop on
+    re-trigger (default, matches legacy behaviour).
+  - Counts 2 and 3 are excluded until durable persistence of the
+    per-occurrence auto-snooze count across process death/reboot is
+    implemented.
+- **Lifecycle treatment of max auto-snoozes:**
+  - 0: `ClockAlertLifecyclePolicy.resolveAlertLifecycleAction` returns
+    `AUTO_STOP` immediately (no auto-snooze).
+  - 1: auto-snoozes once (first ring uses `maxAutoSnoozes=1`,
+    re-trigger with `autoSnoozeCount≥1` auto-stops).
+- **Durable via DataStore:**
+  - `ClockAlertPreferences` stores config via DataStore (no SharedPreferences).
+  - Values read by `ClockAlertService` at startup via
+    `clockRepository.observeClockAlertConfig()`.
+- **Lifecycle timeout behaviour:**
+  - Timer: always `AUTO_STOP`, using `timerAutoStopDurationMs`.
+  - Alarm first ring: `AUTO_SNOOZE` when `autoSnoozeCount < maxAutoSnoozes`,
+    `AUTO_STOP` otherwise; uses `alarmRingDurationMs`.
+  - Alarm snooze re-trigger: always `AUTO_STOP`; uses
+    `timerAutoStopDurationMs` (short second-ring duration).
+  - Pre-alarm: no lifecycle action.
+
+Implementation details:
+
+- `ClockSettingsScreen` — new Compose screen at route `settings/clock_settings`.
+- `ClockSettingsViewModel` — manages DataStore read/write via `ClockRepository`.
+- `SidePanelScreen` — selection-mode Toolbar conditional fixed to use
+  `if/else` so the normal Clock Toolbar only renders when selection mode
+  is inactive.
+- `ClockAlertLifecyclePolicy` — `resolveAlertLifecycleAction` and
+  `lifecycleTimeoutDurationMs` accept `maxAutoSnoozes` and configured
+  durations.
+- Sound config flows through `ClockSoundConfig` (DataStore) unchanged;
+  only the UI location moved.
+- `ClockAlertService.trigger()` restored to include
+  `ACTION_TRIGGER_ALERT`, fixing a regression where the action was dropped.
+
+Test coverage:
+
+- `ClockAlertLifecyclePolicyTest` — 20 unit tests covering auto-snooze
+  counts 0-3, configured durations, `TriggeredClockAlert` integration.
+- `ClockAlertTriggerIntentTest` — 6 unit tests verifying the trigger intent
+  action and extras contract.
+- `ClockSettingsScreen.kt` composables (`DurationSetting`,
+  `MaxAutoSnoozeSetting`, `SoundSetting`, `ClockSettingsContent`) tested
+  via `ClockOverflowSettingsUiTest` — ~30 UI tests covering overflow
+  display, settings screen visibility, and option selection.
+
+Manual and automated validation:
+
+- Manual UI check on device (S21): overflow on all 4 tabs, Clock settings
+  opens, controls work, sound cards removed from tabs.
+- Automated S21 lifecycle validation: timer duration obeys configured
+  setting, alarm ring duration obeys configured setting, snooze duration
+  obeys configured setting, max auto-snoozes 0/1 work.
+- Repeating alarms preserve future occurrences regardless of auto-snooze
+  behaviour on a single occurrence.
 
 ---
 
@@ -901,7 +978,8 @@ Acceptance:
 4. **Timers tab + recent/completed timer management**
 5. **World Clock tab (`#677`)**
 6. **Stopwatch tab**
-7. **Voice commands while ringing**
+7. **Clock overflow menu and settings — configurable lifecycle durations, auto-snooze count, sound settings extracted (#1283)**
+8. **Voice commands while ringing**
 
 The main rule is:
 

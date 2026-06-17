@@ -42,8 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.clock.ClockAlertConfig
+import com.kernel.ai.core.memory.clock.ClockSoundConfig
 
-private val TIMER_DURATION_OPTIONS = listOf(
+internal val TIMER_DURATION_OPTIONS = listOf(
     15_000L to "15 seconds",
     30_000L to "30 seconds",
     60_000L to "60 seconds",
@@ -51,25 +52,23 @@ private val TIMER_DURATION_OPTIONS = listOf(
     300_000L to "5 minutes",
 )
 
-private val ALARM_RING_DURATION_OPTIONS = listOf(
+internal val ALARM_RING_DURATION_OPTIONS = listOf(
     30_000L to "30 seconds",
     60_000L to "60 seconds",
     120_000L to "2 minutes",
     300_000L to "5 minutes",
 )
 
-private val SNOOZE_DURATION_OPTIONS = listOf(
+internal val SNOOZE_DURATION_OPTIONS = listOf(
     300_000L to "5 minutes",
     600_000L to "10 minutes",
     900_000L to "15 minutes",
     1_800_000L to "30 minutes",
 )
 
-private val MAX_AUTO_SNOOZE_OPTIONS = listOf(
+internal val MAX_AUTO_SNOOZE_OPTIONS = listOf(
     0 to "0 — auto-stop on first ring",
     1 to "1 — snooze once, then stop",
-    2 to "2 — snooze twice, then stop",
-    3 to "3 — snooze three times, then stop",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,6 +96,40 @@ fun ClockSettingsScreen(
         viewModel.setTimerSoundUri(normalizePickedClockSoundUri(pickedUri))
     }
 
+    ClockSettingsScaffold(
+        onBack = onBack,
+        config = config,
+        soundConfig = soundConfig,
+        onTimerDurationChange = viewModel::setTimerAutoStopDurationMs,
+        onAlarmRingDurationChange = viewModel::setAlarmRingDurationMs,
+        onSnoozeDurationChange = viewModel::setSnoozeDurationMs,
+        onMaxAutoSnoozesChange = viewModel::setMaxAutoSnoozes,
+        onAlarmSoundClick = { alarmSoundPickerLauncher.launch(createClockSoundPickerIntent(soundConfig.defaultAlarmSoundUri)) },
+        onAlarmSoundChange = viewModel::setDefaultAlarmSoundUri,
+        onTimerSoundClick = { timerSoundPickerLauncher.launch(createClockSoundPickerIntent(soundConfig.timerSoundUri)) },
+        onTimerSoundChange = viewModel::setTimerSoundUri,
+    )
+}
+
+/**
+ * Scaffold wrapper for [ClockSettingsContent]. Exposed for testing — tests
+ * can call [ClockSettingsContent] directly without the Scaffold/host setup.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClockSettingsScaffold(
+    onBack: () -> Unit,
+    config: ClockAlertConfig,
+    soundConfig: ClockSoundConfig,
+    onTimerDurationChange: (Long) -> Unit,
+    onAlarmRingDurationChange: (Long) -> Unit,
+    onSnoozeDurationChange: (Long) -> Unit,
+    onMaxAutoSnoozesChange: (Int) -> Unit,
+    onAlarmSoundClick: () -> Unit,
+    onAlarmSoundChange: (String?) -> Unit,
+    onTimerSoundClick: () -> Unit,
+    onTimerSoundChange: (String?) -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -110,91 +143,123 @@ fun ClockSettingsScreen(
         },
         modifier = Modifier.testTag("clock_settings_screen"),
     ) { innerPadding ->
-        Column(
+        ClockSettingsContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-        ) {
-            // ── Section: Alert behaviour ─────────────────────────
-            Text(
-                text = "Alert behaviour",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
+            config = config,
+            soundConfig = soundConfig,
+            onTimerDurationChange = onTimerDurationChange,
+            onAlarmRingDurationChange = onAlarmRingDurationChange,
+            onSnoozeDurationChange = onSnoozeDurationChange,
+            onMaxAutoSnoozesChange = onMaxAutoSnoozesChange,
+            onAlarmSoundClick = onAlarmSoundClick,
+            onAlarmSoundChange = onAlarmSoundChange,
+            onTimerSoundClick = onTimerSoundClick,
+            onTimerSoundChange = onTimerSoundChange,
+        )
+    }
+}
 
-            DurationSetting(
-                label = "Timer sound duration",
-                value = config.timerAutoStopDurationMs,
-                options = TIMER_DURATION_OPTIONS,
-                onValueChange = viewModel::setTimerAutoStopDurationMs,
-                testTag = "clock_settings_timer_sound_duration",
-            )
+/**
+ * The content body of the Clock settings screen. Exposed for direct testing.
+ * Renders the alert-behaviour section (duration selectors, auto-snooze) and
+ * the sounds section (alarm/timer sound pickers).
+ */
+@Composable
+fun ClockSettingsContent(
+    modifier: Modifier = Modifier,
+    config: ClockAlertConfig = ClockAlertConfig(),
+    soundConfig: ClockSoundConfig = ClockSoundConfig(),
+    onTimerDurationChange: (Long) -> Unit = {},
+    onAlarmRingDurationChange: (Long) -> Unit = {},
+    onSnoozeDurationChange: (Long) -> Unit = {},
+    onMaxAutoSnoozesChange: (Int) -> Unit = {},
+    onAlarmSoundClick: () -> Unit = {},
+    onAlarmSoundChange: (String?) -> Unit = {},
+    onTimerSoundClick: () -> Unit = {},
+    onTimerSoundChange: (String?) -> Unit = {},
+) {
+    Column(modifier = modifier) {
+        // ── Section: Alert behaviour ─────────────────────────
+        Text(
+            text = "Alert behaviour",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
 
-            Spacer(Modifier.height(12.dp))
+        DurationSetting(
+            label = "Timer sound duration",
+            value = config.timerAutoStopDurationMs,
+            options = TIMER_DURATION_OPTIONS,
+            onValueChange = onTimerDurationChange,
+            testTag = "clock_settings_timer_sound_duration",
+        )
 
-            DurationSetting(
-                label = "Alarm ring duration",
-                value = config.alarmRingDurationMs,
-                options = ALARM_RING_DURATION_OPTIONS,
-                onValueChange = viewModel::setAlarmRingDurationMs,
-                testTag = "clock_settings_alarm_ring_duration",
-            )
+        Spacer(Modifier.height(12.dp))
 
-            Spacer(Modifier.height(12.dp))
+        DurationSetting(
+            label = "Alarm ring duration",
+            value = config.alarmRingDurationMs,
+            options = ALARM_RING_DURATION_OPTIONS,
+            onValueChange = onAlarmRingDurationChange,
+            testTag = "clock_settings_alarm_ring_duration",
+        )
 
-            DurationSetting(
-                label = "Snooze duration",
-                value = config.snoozeDurationMs,
-                options = SNOOZE_DURATION_OPTIONS,
-                onValueChange = viewModel::setSnoozeDurationMs,
-                testTag = "clock_settings_snooze_duration",
-            )
+        Spacer(Modifier.height(12.dp))
 
-            Spacer(Modifier.height(12.dp))
+        DurationSetting(
+            label = "Snooze duration",
+            value = config.snoozeDurationMs,
+            options = SNOOZE_DURATION_OPTIONS,
+            onValueChange = onSnoozeDurationChange,
+            testTag = "clock_settings_snooze_duration",
+        )
 
-            MaxAutoSnoozeSetting(
-                value = config.maxAutoSnoozes,
-                onValueChange = viewModel::setMaxAutoSnoozes,
-                testTag = "clock_settings_max_auto_snoozes",
-            )
+        Spacer(Modifier.height(12.dp))
 
-            Spacer(Modifier.height(24.dp))
+        MaxAutoSnoozeSetting(
+            value = config.maxAutoSnoozes,
+            onValueChange = onMaxAutoSnoozesChange,
+            testTag = "clock_settings_max_auto_snoozes",
+        )
 
-            // ── Section: Sounds ──────────────────────────────────
-            Text(
-                text = "Sounds",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
+        Spacer(Modifier.height(24.dp))
 
-            SoundSetting(
-                title = "Alarm sound",
-                currentSoundUri = soundConfig.defaultAlarmSoundUri,
-                onSoundSelected = viewModel::setDefaultAlarmSoundUri,
-                onClick = { alarmSoundPickerLauncher.launch(createClockSoundPickerIntent(soundConfig.defaultAlarmSoundUri)) },
-                testTag = "clock_settings_alarm_sound",
-            )
+        // ── Section: Sounds ──────────────────────────────────
+        Text(
+            text = "Sounds",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
 
-            Spacer(Modifier.height(12.dp))
+        SoundSetting(
+            title = "Alarm sound",
+            currentSoundUri = soundConfig.defaultAlarmSoundUri,
+            onSoundSelected = onAlarmSoundChange,
+            onClick = onAlarmSoundClick,
+            testTag = "clock_settings_alarm_sound",
+        )
 
-            SoundSetting(
-                title = "Timer sound",
-                currentSoundUri = soundConfig.timerSoundUri,
-                onSoundSelected = viewModel::setTimerSoundUri,
-                onClick = { timerSoundPickerLauncher.launch(createClockSoundPickerIntent(soundConfig.timerSoundUri)) },
-                testTag = "clock_settings_timer_sound",
-            )
-        }
+        Spacer(Modifier.height(12.dp))
+
+        SoundSetting(
+            title = "Timer sound",
+            currentSoundUri = soundConfig.timerSoundUri,
+            onSoundSelected = onTimerSoundChange,
+            onClick = onTimerSoundClick,
+            testTag = "clock_settings_timer_sound",
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DurationSetting(
+fun DurationSetting(
     label: String,
     value: Long,
     options: List<Pair<Long, String>>,
@@ -212,7 +277,7 @@ private fun DurationSetting(
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleMedium,
+
             )
             Spacer(Modifier.height(8.dp))
             var expanded by remember { mutableStateOf(false) }
@@ -250,7 +315,7 @@ private fun DurationSetting(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MaxAutoSnoozeSetting(
+fun MaxAutoSnoozeSetting(
     value: Int,
     onValueChange: (Int) -> Unit,
     testTag: String,
@@ -303,7 +368,7 @@ private fun MaxAutoSnoozeSetting(
 }
 
 @Composable
-private fun SoundSetting(
+fun SoundSetting(
     title: String,
     currentSoundUri: String?,
     onSoundSelected: (String?) -> Unit,

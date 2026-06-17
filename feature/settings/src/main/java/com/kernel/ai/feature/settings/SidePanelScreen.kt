@@ -200,6 +200,7 @@ fun SidePanelScreen(
                         }
                     },
                 )
+            } else {
                 TopAppBar(
                     title = { Text("Clock") },
                     navigationIcon = {
