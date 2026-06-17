@@ -572,6 +572,38 @@ class ShortcutRegistryTest {
             assertFalse(isDrawerShortcutSelected("convert", null, "settings/side_panel"))
             assertFalse(isDrawerShortcutSelected("settings/side_panel", "alarms", "convert"))
         }
+
+        @Test
+        fun `top-level convert not selected when currency tab is active`() {
+            assertFalse(isDrawerShortcutSelected("convert", "currency", "convert"))
+        }
+
+        @Test
+        fun `top-level convert not selected when unit tab is active`() {
+            assertFalse(isDrawerShortcutSelected("convert", "unit", "convert"))
+        }
+
+        @Test
+        fun `top-level clock not selected when timer tab is active`() {
+            assertFalse(isDrawerShortcutSelected("settings/side_panel", "timer", "settings/side_panel"))
+        }
+
+        @Test
+        fun `top-level clock not selected when alarms tab is active`() {
+            assertFalse(isDrawerShortcutSelected("settings/side_panel", "alarms", "settings/side_panel"))
+        }
+
+        @Test
+        fun `tools top-level still selected at tools route without tab`() {
+            assertTrue(isDrawerShortcutSelected("tools", null, "tools"))
+        }
+
+        @Test
+        fun `non-tabbed top-level destinations unaffected by fix`() {
+            assertTrue(isDrawerShortcutSelected("settings", null, "settings"))
+            assertTrue(isDrawerShortcutSelected("lists", null, "lists"))
+            assertTrue(isDrawerShortcutSelected("notes", null, "notes"))
+        }
     }
 
     @Nested

@@ -181,7 +181,7 @@ internal fun isDrawerShortcutSelected(
         .takeIf { it.isNotBlank() }
     return when {
         itemTab != null -> currentBaseRoute == itemBase && currentTab == itemTab
-        else -> currentBaseRoute == itemBase
+        else -> currentBaseRoute == itemBase && currentTab == null
     }
 }
 
