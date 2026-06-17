@@ -295,7 +295,7 @@ set_a_5_minute_egg_timer`) with `allowed_intents=["set_timer"]` — the model ma
 legitimately create a real timer. The harness automatically stops Jandal ClockAlertService
 alerts:
 
-:- **Before the run:** Pre-run cleanup cancels any active alerts. Uses **checked ADB**
+- **Before the run:** Pre-run cleanup cancels any active alerts. Uses **checked ADB**
   commands — if cleanup fails the run aborts immediately (exit code 46).
 - **After the timer case:** The harness immediately cleans up if a timer/alarm intent fired.
   A cleanup failure here is tracked and causes non-zero exit at the end.

@@ -245,8 +245,6 @@ class ExitCleanupFailedTest(unittest.TestCase):
         self.assertEqual(runners_exit, 46)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class RunnerCleanupFailureTest(unittest.TestCase):
@@ -380,3 +378,6 @@ class RunnerCleanupFailureTest(unittest.TestCase):
             _kwargs.get("force_stop_last", False),
             "Post-case cleanup should use force_stop_last=True",
         )
+
+if __name__ == "__main__":
+    unittest.main()
