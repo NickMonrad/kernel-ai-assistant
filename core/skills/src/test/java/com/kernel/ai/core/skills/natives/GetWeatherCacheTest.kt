@@ -442,4 +442,54 @@ class GetWeatherCacheTest {
         val daily = obj.getJSONObject("daily")
         assertEquals(0, daily.getJSONArray("time").length())
     }
+
+    // ── Weather lookup mode ──────────────────────────────────────────────────
+
+    @Test
+    fun `weatherLookupMode returns NAMED_LOCATION for non-blank location`() {
+        assertEquals(WeatherLookupMode.NAMED_LOCATION, weatherLookupMode("Brisbane"))
+    }
+
+    @Test
+    fun `weatherLookupMode returns DEVICE_LOCATION for null location`() {
+        assertEquals(WeatherLookupMode.DEVICE_LOCATION, weatherLookupMode(null))
+    }
+
+    @Test
+    fun `weatherLookupMode returns DEVICE_LOCATION for blank location`() {
+        assertEquals(WeatherLookupMode.DEVICE_LOCATION, weatherLookupMode(""))
+        assertEquals(WeatherLookupMode.DEVICE_LOCATION, weatherLookupMode("   "))
+    }
+
+    // ── Weather failure messages ─────────────────────────────────────────────
+
+    @Test
+    fun `weatherFailureMessage LOCATION_PERMISSION_DENIED returns exact interim copy`() {
+        val expected = "I need Location permission to get weather for where you are now. " +
+            "You can enable Location in App Permissions, or ask for a city, like \"weather in Brisbane\"."
+        assertEquals(expected, weatherFailureMessage(WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED))
+    }
+
+    @Test
+    fun `weatherFailureMessage CURRENT_LOCATION_UNAVAILABLE is distinct and suggests asking for a city`() {
+        val msg = weatherFailureMessage(WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE)
+        assertFalse(msg.contains("permission", ignoreCase = true))
+        assertTrue(msg.contains("current location", ignoreCase = true))
+        assertTrue(msg.contains("\"weather in Brisbane\"") || msg.contains("ask for a city"))
+    }
+
+    @Test
+    fun `weatherFailureMessage NAMED_LOCATION_NOT_FOUND is distinct from permission denied`() {
+        val msg = weatherFailureMessage(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
+        assertFalse(msg.contains("permission", ignoreCase = true))
+        assertTrue(msg.contains("couldn't find") || msg.contains("not found"))
+    }
+
+    @Test
+    fun `weatherFailureMessage API_UNAVAILABLE is distinct from permission and current-location messages`() {
+        val msg = weatherFailureMessage(WeatherLookupFailureReason.API_UNAVAILABLE)
+        assertFalse(msg.contains("permission", ignoreCase = true))
+        assertFalse(msg.contains("current location", ignoreCase = true))
+        assertTrue(msg.contains("network") || msg.contains("try again"))
+    }
 }
