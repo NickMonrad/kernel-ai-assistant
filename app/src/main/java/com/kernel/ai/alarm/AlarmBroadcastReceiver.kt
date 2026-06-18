@@ -41,22 +41,22 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             -1L,
         ).takeIf { it > 0L }
         val soundUri = intent.getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
-        val isSnoozeRetrigger = intent.getBooleanExtra(
-            ClockAlertContract.EXTRA_IS_SNOOZE_RETRIGGER,
-            false,
+        val autoSnoozeCount = intent.getIntExtra(
+            ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT,
+            0,
         )
 
         when (type) {
             ClockEventType.TIMER -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.timerNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, isSnoozeRetrigger)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, autoSnoozeCount)
             }
 
             ClockEventType.ALARM -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.preAlarmNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, isSnoozeRetrigger)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri, autoSnoozeCount)
             }
 
             ClockEventType.PRE_ALARM -> {
@@ -101,7 +101,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         label: String,
         occurrenceTriggerAtMillis: Long?,
         soundUri: String?,
-        isSnoozeRetrigger: Boolean,
+        autoSnoozeCount: Int,
     ) {
         ClockAlertService.trigger(
             context,
@@ -112,7 +112,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
                 label = label,
                 occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
                 soundUri = soundUri,
-                isSnoozeRetrigger = isSnoozeRetrigger,
+                autoSnoozeCount = autoSnoozeCount,
             ),
         )
     }

@@ -48,7 +48,6 @@ interface ClockRepository {
     suspend fun cancelNextAlarm(): ClockAlarm?
     suspend fun cancelAlarmsByLabel(label: String): Int
     suspend fun skipAlarmOccurrence(alarmId: String, occurrenceTriggerAtMillis: Long): Boolean
-    suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long): Boolean
     suspend fun setDefaultAlarmSoundUri(soundUri: String?)
 
     suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
@@ -66,4 +65,18 @@ interface ClockRepository {
     suspend fun getAllTimers(): List<ClockTimer>
     suspend fun restoreScheduledEntries(nowMillis: Long = System.currentTimeMillis()): ClockRestoreReport
     suspend fun setTimerSoundUri(soundUri: String?)
+
+    fun observeClockAlertConfig(): Flow<ClockAlertConfig>
+    suspend fun setTimerAutoStopDurationMs(value: Long)
+    suspend fun setAlarmRingDurationMs(value: Long)
+    suspend fun setSnoozeDurationMs(value: Long)
+    suspend fun setMaxAutoSnoozes(value: Int)
+
+    /** One-shot read of the current clock alert config. Uses DataStore directly
+     *  (not cached mutable fields), so it always returns the persisted value.
+     *  Useful for contexts like [ClockAlertService.onStartCommand] where the
+     *  flow collector may not have emitted yet on cold start. */
+    suspend fun getClockAlertConfig(): ClockAlertConfig
+
+    suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long, currentAutoSnoozeCount: Int = 0): Boolean
 }

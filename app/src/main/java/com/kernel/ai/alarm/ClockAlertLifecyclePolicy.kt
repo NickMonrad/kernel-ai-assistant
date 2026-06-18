@@ -15,41 +15,60 @@ internal enum class ClockAlertLifecycleAction {
 }
 
 /**
- * Decides the lifecycle action for an alert type given whether this is a
- * snooze re-trigger.
+ * Decides the lifecycle action for an alert type given the number of
+ * unattended auto-snoozes already taken for this occurrence and the
+ * max auto-snooze policy.
  *
  * - **Timer:** always auto-stops after the ringing duration.
- * - **Alarm (first ring):** auto-snoozes after the ringing duration.
- * - **Alarm (snooze re-trigger):** auto-stops after the ringing duration
- *   (no second snooze for the same occurrence).
+ * - **Alarm:** if [autoSnoozeCount] < [maxAutoSnoozes] → auto-snooze;
+ *   if [autoSnoozeCount] >= [maxAutoSnoozes] → auto-stop.
  * - **Pre-alarm:** no auto-timeout (it's a notification only).
+ *
+ * @param autoSnoozeCount number of automatic snoozes already taken for this occurrence
+ *   (0 = first ring, 1 = first snooze re-trigger, etc.).
+ * @param maxAutoSnoozes maximum unattended auto-snoozes allowed before auto-stop.
+ *   Default 1 preserves the #1277 behaviour.
  */
 internal fun resolveAlertLifecycleAction(
     type: ClockEventType,
-    isSnoozeRetrigger: Boolean,
+    autoSnoozeCount: Int = 0,
+    maxAutoSnoozes: Int = 1,
 ): ClockAlertLifecycleAction? = when (type) {
     ClockEventType.TIMER -> ClockAlertLifecycleAction.AUTO_STOP
     ClockEventType.ALARM -> {
-        if (isSnoozeRetrigger) ClockAlertLifecycleAction.AUTO_STOP
-        else ClockAlertLifecycleAction.AUTO_SNOOZE
+        if (autoSnoozeCount < maxAutoSnoozes) ClockAlertLifecycleAction.AUTO_SNOOZE
+        else ClockAlertLifecycleAction.AUTO_STOP
     }
     ClockEventType.PRE_ALARM -> null
 }
 
 /**
- * Duration the ringtone/vibration plays before the lifecycle action fires.
+ * Duration the ringtone/vibration plays before the lifecycle timeout fires.
  *
- * - Timer: [TIMER_AUTO_STOP_DURATION_MS] (default 60 s)
- * - Alarm first ring: [ALARM_AUTO_SNOOZE_DURATION_MS] (default 60 s)
- * - Alarm snooze re-trigger: [TIMER_AUTO_STOP_DURATION_MS] (default 60 s)
+ * Selection is purely based on [type]:
+ * - [ClockEventType.TIMER] → [timerDurationMs]
+ * - [ClockEventType.ALARM] → [alarmDurationMs] (whether auto-snooze or auto-stop)
+ * - [ClockEventType.PRE_ALARM] → 0L (no timeout)
+ *
+ * The [autoSnoozeCount] and [maxAutoSnoozes] parameters control *whether* the
+ * timeout action is [ClockAlertLifecycleAction.AUTO_SNOOZE] or
+ * [ClockAlertLifecycleAction.AUTO_STOP], but both actions use [alarmDurationMs]
+ * for alarms and [timerDurationMs] for timers.
+ *
+ * @param timerDurationMs duration for timer timeouts. Default: [TIMER_AUTO_STOP_DURATION_MS].
+ * @param alarmDurationMs duration for alarm timeouts (both auto-snooze and auto-stop).
+ *   Default: [ALARM_AUTO_SNOOZE_DURATION_MS].
  */
 internal fun lifecycleTimeoutDurationMs(
     type: ClockEventType,
-    isSnoozeRetrigger: Boolean,
-): Long = when (resolveAlertLifecycleAction(type, isSnoozeRetrigger)) {
-    ClockAlertLifecycleAction.AUTO_STOP -> TIMER_AUTO_STOP_DURATION_MS
-    ClockAlertLifecycleAction.AUTO_SNOOZE -> ALARM_AUTO_SNOOZE_DURATION_MS
-    null -> 0L
+    autoSnoozeCount: Int = 0,
+    maxAutoSnoozes: Int = 1,
+    timerDurationMs: Long = TIMER_AUTO_STOP_DURATION_MS,
+    alarmDurationMs: Long = ALARM_AUTO_SNOOZE_DURATION_MS,
+): Long = when (type) {
+    ClockEventType.TIMER -> timerDurationMs
+    ClockEventType.ALARM -> alarmDurationMs
+    ClockEventType.PRE_ALARM -> 0L
 }
 
 /** How long a timer rings unattended before auto-stopping. */

@@ -2,7 +2,7 @@
 > **Primary issue:** [#527](https://github.com/NickMonrad/kernel-ai-assistant/issues/527)
 > **Related:** [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677)
 > **Status:** proposed architecture and UX direction
-> **Last updated:** 2026-05-02
+> **Last updated:** 2026-06-17
 
 ---
 
@@ -331,76 +331,84 @@ dismiss them, `ClockAlertService` implements an explicit per-alert lifecycle tim
 
 #### 6.3.2 Alarm lifecycle
 
-- **First ring ringing duration:** ~60 seconds (`ALARM_AUTO_SNOOZE_DURATION_MS = 60_000L`).
-- If not dismissed, the alarm **auto-snoozes** for 10 minutes (`ALARM_SNOOZE_MS`)
-  via `ClockRepository.snoozeAlarm`.
-- The snoozed alarm rings again after the snooze duration.
-- If the snoozed alarm is still not dismissed, it **auto-stops** after ~60 seconds
-  and does not repeat for that one-off occurrence.
+- **Ringing duration:** configurable via `ClockAlertConfig.alarmRingDurationMs`
+  (default: 60s, options: 30s/60s/2m/5m). Set in Clock settings.
+- If not dismissed, the behaviour depends on `maxAutoSnoozes` and
+  `autoSnoozeCount`:
+  - When `autoSnoozeCount < maxAutoSnoozes`: the alarm **auto-snoozes**
+    for the configured snooze duration (via `ClockRepository.snoozeAlarm`).
+  - When `autoSnoozeCount >= maxAutoSnoozes`: the alarm **auto-stops**
+    (playback stops, vibration cancelled, notification removed).
+- Example behaviours:
+  - `maxAutoSnoozes = 0`: first unattended ring auto-stops immediately.
+  - `maxAutoSnoozes = 1`: first unattended ring auto-snoozes;
+    re-triggered ring auto-stops (legacy #1277 behaviour).
+  - `maxAutoSnoozes = 2`: first two unattended rings auto-snooze;
+    third unattended ring auto-stops.
+  - `maxAutoSnoozes = 3`: first three unattended rings auto-snooze;
+    fourth unattended ring auto-stops.
+- Manual snoozes also increment the auto-snooze counter for that occurrence.
 
-#### 6.3.3 Snooze re-trigger detection (durable)
+#### 6.3.3 Auto-snooze count durability
 
-To distinguish a snooze re-trigger from a first ring, the `isSnoozeRetrigger` flag is
-persisted as part of the scheduled event model:
+The auto-snooze count is tracked per-occurrence and survives process death:
 
 1. When an alarm is snoozed (manually or automatically), `ClockRepository.snoozeAlarm()`
-   persists `snoozedUntilMs` on the alarm entity.
-2. `ClockRepositoryImpl.toSnoozeScheduledEvent()` creates a `ClockScheduledEvent` with
-   `isSnoozeRetrigger = true` and a distinct eventId (`${ownerId}:snooze`).
-3. `AlarmManagerClockScheduler.buildBroadcastIntent()` writes the flag into the
-   `EXTRA_IS_SNOOZE_RETRIGGER` intent extra.
+   persists `snoozedUntilMs` on the alarm entity and passes `currentAutoSnoozeCount`.
+2. `ClockRepositoryImpl.toSnoozeScheduledEvent()` creates a `ClockScheduledEvent`
+   with `autoSnoozeCount = currentAutoSnoozeCount + 1`.
+3. `AlarmManagerClockScheduler.buildBroadcastIntent()` writes `autoSnoozeCount`
+   as an Intent extra (`ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT`).
 4. `AlarmBroadcastReceiver` reads the extra and passes it into `TriggeredClockAlert`.
-5. `ClockAlertService.onStartCommand()` uses `alert.isSnoozeRetrigger` directly
-   (no companion-level set lookup).
-6. The boolean flows through `scheduleLifecycleTimeout()` into `handleLifecycleTimeout()`,
-   where `resolveAlertLifecycleAction(ALARM, true)` → `AUTO_STOP`.
+5. `ClockAlertService.onStartCommand()` reads `TriggeredClockAlert.autoSnoozeCount`
+   and uses it in `scheduleLifecycleTimeout()` → `handleLifecycleTimeout()`.
 
-This survives app/service process death between snooze and re-trigger because the flag
-is carried by the scheduled `PendingIntent` through `AlarmManager`, not stored in
-process memory.
+This survives app/service process death because the count is carried by the
+scheduled `PendingIntent` through `AlarmManager`, not stored in process memory.
 
-This replaced the earlier process-memory `snoozedOwnerIds: Set<String>` companion
-approach (PR #1277 review feedback). The companion-level set and all its helpers
-(`addSnoozedOwnerId`, `consumeSnoozedOwnerId`, `removeSnoozedOwnerId`) were removed.
+Primary alarm occurrences (new day for repeating alarms) schedule a primary event
+with `autoSnoozeCount = 0`, resetting the count.
 
 #### 6.3.4 Cancellation rules
 
 The pending lifecycle timeout for an alert is cancelled when any of these occur:
 
 - **Dismiss (manual or voice):** lifecycle job cancelled.
-- **Snooze (manual or auto):** lifecycle job cancelled; `snoozeAlarm()` persists the snooze with durable `isSnoozeRetrigger = true` flag.
+- **Snooze (manual or auto):** lifecycle job cancelled; `snoozeAlarm()` persists the snooze
+  with incremented `autoSnoozeCount`.
 - **+1 min:** lifecycle job cancelled, new timer/alarm scheduled.
 - **Service destroyed / all alerts dismissed:** all lifecycle jobs cancelled.
 
 #### 6.3.5 Constants summary
 
-| Constant | Value | Effect |
+| Constant | Default | Effect |
 |---|---|---|
 | `TIMER_AUTO_STOP_DURATION_MS` | 60 000 ms (60 s) | Time before timer auto-stops |
-| `ALARM_AUTO_SNOOZE_DURATION_MS` | 60 000 ms (60 s) | Time before alarm auto-snoozes |
-| `ALARM_SNOOZE_MS` | 600 000 ms (10 min) | Snooze duration |
+| `ALARM_AUTO_SNOOZE_DURATION_MS` | 60 000 ms (60 s) | Time before alarm first unattended ring times out |
+| `ALARM_SNOOZE_MS` | 600 000 ms (10 min) | Legacy fallback snooze duration |
 | `ALERT_ADD_MINUTE_MS` | 60 000 ms (60 s) | +1 min extension duration |
+| `ClockAlertConfig.snoozeDurationMs` | 600 000 ms (10 min) | Configurable snooze duration |
+| `ClockAlertConfig.maxAutoSnoozes` | 1 | Max unattended auto-snoozes before auto-stop |
+
+In practice, runtime durations are read from `ClockAlertConfig` (DataStore-backed)
+rather than hardcoded constants. The constants remain as defaults and fallbacks.
 
 #### 6.3.6 Repeating alarm behaviour
 
 For repeating alarms, the auto-stop/snooze lifecycle applies only to the **current
 occurrence**. Future scheduled occurrences (next day, next weekday) remain active
-unless the user explicitly disables the alarm. The snooze re-trigger flag is carried
-by the scheduled `PendingIntent` and does not carry over to the next occurrence's
-primary event.
+unless the user explicitly disables the alarm. The auto-snooze count resets to 0
+for each new primary occurrence, ensuring the user hears each new alarm day.
 
 #### 6.3.7 Testability
 
-The lifecycle decision logic is extracted into a pure helper:
+The lifecycle decision logic is extracted into pure helpers:
 
-- `ClockAlertLifecyclePolicy.kt` — `resolveAlertLifecycleAction(type, isSnoozeRetrigger)`
-  and `lifecycleTimeoutDurationMs(type, isSnoozeRetrigger)`.
-- `ClockAlertLifecyclePolicyTest.kt` — 14 unit tests covering timer auto-stop,
-  alarm auto-snooze vs. auto-stop, snooze re-trigger flag resolution,
-  pre-alarm no-op, and duration constant values.
-- `ClockRepositoryImplTest` — verifies `snoozeAlarm()` produces scheduled
-  events with `isSnoozeRetrigger = true`, primary alarms have
-  `isSnoozeRetrigger = false`, and `restoreScheduledEntries()`
+- `ClockAlertLifecyclePolicy.kt` — `resolveAlertLifecycleAction(type, autoSnoozeCount, maxAutoSnoozes)`
+  and `lifecycleTimeoutDurationMs(type, autoSnoozeCount, maxAutoSnoozes, timerDurationMs, alarmDurationMs)`.
+- `ClockAlertLifecyclePolicyTest.kt` — 20 unit tests covering timer auto-stop,
+  alarm auto-snooze vs. auto-stop for counts 0-3, configurable durations,
+  `TriggeredClockAlert` integration, and pre-alarm no-op.
 
 ---
 
@@ -889,7 +897,97 @@ Scope:
 
 Acceptance:
 
-- the feature works without confusing normal voice-command routing
+
+### Wave 7 — Clock settings action and configurable UI (#1283)
+
+#### Proposed child issue H — Clock settings screen and configurable lifecycle
+
+Scope:
+
+- **Clock settings action** — settings cog (`Icons.Default.Settings`) in the
+  Clock top app bar, visible on all four Clock modes: Timers, Alarms, World
+  Clock, and Stopwatch. Tapping the cog opens Clock settings directly; no
+  overflow/dropdown is used because there is only one action.
+- **Clock settings screen** — accessible from the Clock top app bar settings
+  cog, and from the main Settings screen.
+- **Sound settings extracted** — global alarm/timer sound selection removed
+  from the main Alarm/Timer tab UIs and placed in Clock settings only.
+  Per-alarm sound overrides in the alarm create/edit dialog remain unchanged.
+- **Configurable alert durations:**
+  - Timer sound duration (15s / 30s / 60s / 2m / 5m), default 60s.
+  - Alarm ring duration (30s / 60s / 2m / 5m), default 60s.
+  - Snooze duration (5m / 10m / 15m / 30m), default 10m. Controls how long
+    before a snoozed alarm re-rings — applies to automatic auto-snooze,
+    notification Snooze button, and voice Snooze.
+  - `0` — Don't auto-snooze.
+  - `1` — Snooze once, then stop.
+  - `2` — Snooze twice, then stop.
+  - `3` — Snooze 3 times, then stop.
+- **Durable via DataStore:**
+  - `ClockAlertPreferences` stores config via DataStore (no SharedPreferences).
+  - Config is captured at trigger time via `clockRepository.getClockAlertConfig()`
+    — a one-shot suspend call, avoiding stale defaults before DataStore emits.
+  - Explicit snooze (notification button and voice command) uses the same
+    captured config, not the mutable field that races DataStore on cold start.
+  - Invalid/zero snooze duration falls back to the default 10-minute snooze.
+  - Already-ringing alerts use the config captured when the alert started;
+    live mid-ring config updates are not applied.
+- **Lifecycle timeout behaviour:**
+  - Timer: always `AUTO_STOP`, using `timerAutoStopDurationMs`.
+  - Alarm first ring: `AUTO_SNOOZE` when `autoSnoozeCount < maxAutoSnoozes`,
+    `AUTO_STOP` otherwise; uses `alarmRingDurationMs`.
+  - Alarm snooze re-trigger: same policy as first ring (`AUTO_SNOOZE` when
+    `autoSnoozeCount < maxAutoSnoozes`, `AUTO_STOP` otherwise); uses
+    `alarmRingDurationMs` (alarm timeout always uses alarm duration, whether
+    auto-snooze or auto-stop outcome).
+  - Pre-alarm: no lifecycle action.
+
+Implementation details:
+
+- `ClockSettingsScreen` — new Compose screen at route `settings/clock_settings`.
+- `ClockSettingsViewModel` — manages DataStore read/write via `ClockRepository`.
+- `ClockScreenTopBar` — shared composable for the Clock top app bar (back
+  button, Clock title, settings cog), used by both `SidePanelScreen` and UI
+  tests.
+- `SidePanelScreen` — selection-mode Toolbar conditional fixed to use
+  `if/else` so the normal Clock toolbar only renders when selection mode
+  is inactive.
+- `ClockAlertLifecyclePolicy` — `resolveAlertLifecycleAction` and
+  `lifecycleTimeoutDurationMs` accept `maxAutoSnoozes` and configured
+  durations.
+- Sound config flows through `ClockSoundConfig` (DataStore) unchanged;
+  only the UI location moved.
+- `ClockAlertService.trigger()` restored to include
+  `ACTION_TRIGGER_ALERT`, fixing a regression where the action was dropped.
+- `ClockRepository.getClockAlertConfig()` — one-shot suspend call reading
+  DataStore directly, used by `ClockAlertService.handleTriggerAlert()` to
+  capture config before scheduling the lifecycle timeout (cold-start race fix).
+
+Test coverage:
+
+- `ClockAlertLifecyclePolicyTest` — 20 unit tests covering auto-snooze
+  counts 0-3, configured durations, `TriggeredClockAlert` integration.
+- `ClockAlertTriggerIntentTest` — 6 unit tests verifying the trigger intent
+  action and extras contract.
+- `ClockSettingsScreen.kt` composables (`DurationSetting`,
+  `MaxAutoSnoozeSetting`, `SoundSetting`, `ClockSettingsContent`) tested
+  via `ClockSettingsActionUiTest` — UI tests covering toolbar
+  (back button, Clock title, settings cog), settings content visibility,
+  and option selection.
+
+Manual and automated validation:
+
+    - Manual UI check on device (S21): settings cog on all 4 Clock modes,
+      Clock settings opens, controls work, sound cards removed from tabs.
+    - Automated S21 lifecycle validation: timer duration obeys configured
+      setting, alarm ring duration obeys configured setting, snooze duration
+      obeys configured setting.
+    - Max auto-snoozes validation: 0 (Don't auto-snooze), 1 (Snooze once
+      then stop), 2 (Snooze twice then stop), 3 (Snooze 3 times then stop)
+      all work durably — counts tracked via PendingIntent extras and survive
+      app/service process death. Count resets per primary occurrence.
+    - Repeating alarms preserve future occurrences regardless of auto-snooze
+      behaviour on a single occurrence.
 
 ---
 
@@ -901,7 +999,8 @@ Acceptance:
 4. **Timers tab + recent/completed timer management**
 5. **World Clock tab (`#677`)**
 6. **Stopwatch tab**
-7. **Voice commands while ringing**
+7. **Clock settings action and settings screen — configurable lifecycle durations, auto-snooze count, sound settings extracted (#1283)**
+8. **Voice commands while ringing**
 
 The main rule is:
 

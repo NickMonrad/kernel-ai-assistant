@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 
 private const val PRE_ALARM_LEAD_MS = 30 * 60 * 1_000L
 private const val PRE_ALARM_MIN_NOTICE_MS = 1_000L
@@ -32,6 +33,7 @@ class ClockRepositoryImpl @Inject constructor(
     private val stopwatchDao: StopwatchDao,
     private val scheduler: ClockScheduler,
     private val clockSoundPreferences: ClockSoundPreferences,
+    private val clockAlertPreferences: ClockAlertPreferences,
 ) : ClockRepository {
     override fun observeManageableAlarms(): Flow<List<ClockAlarm>> =
         scheduledAlarmDao.observeAllAlarmSchedules().map { schedules ->
@@ -77,6 +79,12 @@ class ClockRepositoryImpl @Inject constructor(
 
     override fun observeClockSoundConfig(): Flow<ClockSoundConfig> =
         clockSoundPreferences.soundConfig
+
+    override fun observeClockAlertConfig(): Flow<ClockAlertConfig> =
+        clockAlertPreferences.alertConfig
+
+    override suspend fun getClockAlertConfig(): ClockAlertConfig =
+        clockAlertPreferences.alertConfig.first()
 
 
     override suspend fun startStopwatch(
@@ -366,8 +374,7 @@ class ClockRepositoryImpl @Inject constructor(
             false
         }
     }
-
-    override suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long): Boolean {
+    override suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long, currentAutoSnoozeCount: Int): Boolean {
         val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId() ?: return false
         if (existing.entryType != ClockEventType.ALARM.name || !existing.enabled) return false
         val now = System.currentTimeMillis()
@@ -377,13 +384,13 @@ class ClockRepositoryImpl @Inject constructor(
             snoozedUntilMs = snoozedUntilMillis,
         )
         cancelAlarmEvents(existing, now)
-        scheduleAlarmEvents(updated, now)
+        scheduleAlarmEvents(updated, now, currentAutoSnoozeCount)
         return try {
             scheduledAlarmDao.insert(updated)
             true
         } catch (_: Exception) {
             cancelAlarmEvents(updated, now)
-            scheduleAlarmEvents(existing, now)
+            scheduleAlarmEvents(existing, now, currentAutoSnoozeCount)
             false
         }
     }
@@ -589,9 +596,25 @@ class ClockRepositoryImpl @Inject constructor(
         clockSoundPreferences.setTimerSoundUri(soundUri)
     }
 
-    private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {
+    override suspend fun setTimerAutoStopDurationMs(value: Long) {
+        clockAlertPreferences.setTimerAutoStopDurationMs(value)
+    }
+
+    override suspend fun setAlarmRingDurationMs(value: Long) {
+        clockAlertPreferences.setAlarmRingDurationMs(value)
+    }
+
+    override suspend fun setSnoozeDurationMs(value: Long) {
+        clockAlertPreferences.setSnoozeDurationMs(value)
+    }
+
+    override suspend fun setMaxAutoSnoozes(value: Int) {
+        clockAlertPreferences.setMaxAutoSnoozes(value)
+    }
+
+    private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long, currentAutoSnoozeCount: Int = 0) {
         entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
-        entity.toSnoozeScheduledEvent(nowMillis)?.let(scheduler::schedule)
+        entity.toSnoozeScheduledEvent(nowMillis, currentAutoSnoozeCount)?.let(scheduler::schedule)
         entity.toPreAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
     }
 
@@ -708,7 +731,7 @@ private fun ScheduledAlarmEntity.toPrimaryAlarmCancellationEvent(): ClockSchedul
         soundUri = soundUri,
     )
 
-private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
+private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long, currentAutoSnoozeCount: Int = 0): ClockScheduledEvent? {
     if (entryType != ClockEventType.ALARM.name || !enabled) return null
     val snoozeAt = snoozedUntilMs?.takeIf { it > nowMillis } ?: return null
     return ClockScheduledEvent(
@@ -719,7 +742,7 @@ private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockS
         label = label,
         occurrenceTriggerAtMillis = snoozeAt,
         soundUri = soundUri,
-        isSnoozeRetrigger = true,
+        autoSnoozeCount = currentAutoSnoozeCount + 1,
     )
 }
 

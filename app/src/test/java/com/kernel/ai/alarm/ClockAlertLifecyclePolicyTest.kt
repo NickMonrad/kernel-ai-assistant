@@ -13,74 +13,152 @@ class ClockAlertLifecyclePolicyTest {
     fun `timer always resolves to auto-stop`() {
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = false),
+            resolveAlertLifecycleAction(ClockEventType.TIMER, autoSnoozeCount = 0, maxAutoSnoozes = 1),
         )
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = true),
+            resolveAlertLifecycleAction(ClockEventType.TIMER, autoSnoozeCount = 1, maxAutoSnoozes = 1),
         )
     }
 
     @Test
-    fun `alarm first ring resolves to auto-snooze`() {
+    fun `alarm first ring with max 1 resolves to auto-snooze`() {
         assertEquals(
             ClockAlertLifecycleAction.AUTO_SNOOZE,
-            resolveAlertLifecycleAction(ClockEventType.ALARM, isSnoozeRetrigger = false),
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1),
         )
     }
 
     @Test
-    fun `alarm snooze re-trigger resolves to auto-stop`() {
+    fun `alarm first ring with max 0 resolves to auto-stop`() {
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.ALARM, isSnoozeRetrigger = true),
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 0),
+        )
+    }
+
+    @Test
+    fun `alarm snooze re-trigger with max 1 resolves to auto-stop`() {
+        assertEquals(
+            ClockAlertLifecycleAction.AUTO_STOP,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 1),
         )
     }
 
     @Test
     fun `pre-alarm resolves to null (no action)`() {
         assertNull(
-            resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = false),
+            resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1),
         )
         assertNull(
-            resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = true),
+            resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, autoSnoozeCount = 5, maxAutoSnoozes = 1),
         )
+    }
+
+    // ── Auto-snooze count behaviour ──────────────────────────────────
+
+    @Test
+    fun `autoSnoozesZero first unattended ring auto-stops`() {
+        assertEquals(
+            ClockAlertLifecycleAction.AUTO_STOP,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 0),
+        )
+    }
+
+    @Test
+    fun `autoSnoozesOne first ring snoozes then second stops`() {
+        assertEquals(
+            ClockAlertLifecycleAction.AUTO_SNOOZE,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1),
+        )
+        assertEquals(
+            ClockAlertLifecycleAction.AUTO_STOP,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 1),
+        )
+    }
+
+    @Test
+    fun `autoSnoozesTwo first two snooze then third stops`() {
+        assertEquals(ClockAlertLifecycleAction.AUTO_SNOOZE,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 2))
+        assertEquals(ClockAlertLifecycleAction.AUTO_SNOOZE,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 2))
+        assertEquals(ClockAlertLifecycleAction.AUTO_STOP,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 2, maxAutoSnoozes = 2))
+    }
+
+    @Test
+    fun `autoSnoozesThree first three snooze then fourth stops`() {
+        for (count in 0..2) {
+            assertEquals(ClockAlertLifecycleAction.AUTO_SNOOZE,
+                resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = count, maxAutoSnoozes = 3))
+        }
+        assertEquals(ClockAlertLifecycleAction.AUTO_STOP,
+            resolveAlertLifecycleAction(ClockEventType.ALARM, autoSnoozeCount = 3, maxAutoSnoozes = 3))
     }
 
     // ── lifecycleTimeoutDurationMs ───────────────────────────────────
 
     @Test
-    fun `timer timeout uses TIMER_AUTO_STOP_DURATION_MS`() {
+    fun `timer timeout uses configured timer duration`() {
         assertEquals(
-            TIMER_AUTO_STOP_DURATION_MS,
-            lifecycleTimeoutDurationMs(ClockEventType.TIMER, isSnoozeRetrigger = false),
+            30_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.TIMER, autoSnoozeCount = 0, maxAutoSnoozes = 1, timerDurationMs = 30_000L, alarmDurationMs = 60_000L),
         )
         assertEquals(
-            TIMER_AUTO_STOP_DURATION_MS,
-            lifecycleTimeoutDurationMs(ClockEventType.TIMER, isSnoozeRetrigger = true),
-        )
-    }
-
-    @Test
-    fun `alarm first ring timeout uses ALARM_AUTO_SNOOZE_DURATION_MS`() {
-        assertEquals(
-            ALARM_AUTO_SNOOZE_DURATION_MS,
-            lifecycleTimeoutDurationMs(ClockEventType.ALARM, isSnoozeRetrigger = false),
+            120_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.TIMER, autoSnoozeCount = 1, maxAutoSnoozes = 1, timerDurationMs = 120_000L, alarmDurationMs = 60_000L),
         )
     }
 
     @Test
-    fun `alarm snooze re-trigger timeout equals TIMER_AUTO_STOP_DURATION_MS`() {
+    fun `alarm first ring timeout uses configured alarm duration`() {
         assertEquals(
-            TIMER_AUTO_STOP_DURATION_MS,
-            lifecycleTimeoutDurationMs(ClockEventType.ALARM, isSnoozeRetrigger = true),
+            30_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1, timerDurationMs = 60_000L, alarmDurationMs = 30_000L),
+        )
+        assertEquals(
+            120_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1, timerDurationMs = 60_000L, alarmDurationMs = 120_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop with max 0 uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 0, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after one snooze uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 1, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after two snoozes uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 2, maxAutoSnoozes = 2, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after three snoozes uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 3, maxAutoSnoozes = 3, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
         )
     }
 
     @Test
     fun `pre-alarm timeout is zero`() {
-        assertEquals(0L, lifecycleTimeoutDurationMs(ClockEventType.PRE_ALARM, isSnoozeRetrigger = false))
-        assertEquals(0L, lifecycleTimeoutDurationMs(ClockEventType.PRE_ALARM, isSnoozeRetrigger = true))
+        assertEquals(0L, lifecycleTimeoutDurationMs(ClockEventType.PRE_ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1, timerDurationMs = 60_000L, alarmDurationMs = 60_000L))
+        assertEquals(0L, lifecycleTimeoutDurationMs(ClockEventType.PRE_ALARM, autoSnoozeCount = 5, maxAutoSnoozes = 1, timerDurationMs = 60_000L, alarmDurationMs = 60_000L))
     }
 
     // ── Duration constants ──────────────────────────────────────────
@@ -90,38 +168,39 @@ class ClockAlertLifecyclePolicyTest {
         assertEquals(60_000L, TIMER_AUTO_STOP_DURATION_MS)
     }
 
+    @Test
+    fun `ALARM_AUTO_SNOOZE_DURATION_MS is about one minute`() {
+        assertEquals(60_000L, ALARM_AUTO_SNOOZE_DURATION_MS)
+    }
 
-    // ── Durable snooze re-trigger flag (integration) ─────────────────
-    // The isSnoozeRetrigger flag comes from the scheduled event model,
-    // not from a companion set. These tests verify the lifecycle decision
-    // driven by the durable flag in TriggeredClockAlert.
+    // ── TriggeredClockAlert integration ──────────────────────────────
 
     @Test
-    fun `alarm with isSnoozeRetrigger true resolves to auto-stop`() {
+    fun `alarm with autoSnoozeCount 1 and max 1 resolves to auto-stop`() {
         val alert = TriggeredClockAlert(
             ownerId = "alarm-1",
             type = ClockEventType.ALARM,
             title = "Test alarm",
             label = "Test",
-            isSnoozeRetrigger = true,
+            autoSnoozeCount = 1,
         )
-        val action = resolveAlertLifecycleAction(alert.type, alert.isSnoozeRetrigger)
+        val action = resolveAlertLifecycleAction(alert.type, alert.autoSnoozeCount, maxAutoSnoozes = 1)
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP, action,
-            "durably-flagged snooze re-trigger must auto-stop, not auto-snooze",
+            "durably-counted snooze re-trigger with autoSnoozeCount=1 must auto-stop",
         )
     }
 
     @Test
-    fun `alarm with isSnoozeRetrigger false resolves to auto-snooze`() {
+    fun `alarm with autoSnoozeCount 0 and max 1 resolves to auto-snooze`() {
         val alert = TriggeredClockAlert(
             ownerId = "alarm-2",
             type = ClockEventType.ALARM,
             title = "Test alarm",
             label = "Test",
-            isSnoozeRetrigger = false,
+            autoSnoozeCount = 0,
         )
-        val action = resolveAlertLifecycleAction(alert.type, alert.isSnoozeRetrigger)
+        val action = resolveAlertLifecycleAction(alert.type, alert.autoSnoozeCount, maxAutoSnoozes = 1)
         assertEquals(
             ClockAlertLifecycleAction.AUTO_SNOOZE, action,
             "first-ring alarm must auto-snooze",
@@ -129,24 +208,20 @@ class ClockAlertLifecyclePolicyTest {
     }
 
     @Test
-    fun `timer auto-stops regardless of isSnoozeRetrigger`() {
+    fun `timer auto-stops regardless of autoSnoozeCount`() {
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = true),
+            resolveAlertLifecycleAction(ClockEventType.TIMER, autoSnoozeCount = 0, maxAutoSnoozes = 1),
         )
         assertEquals(
             ClockAlertLifecycleAction.AUTO_STOP,
-            resolveAlertLifecycleAction(ClockEventType.TIMER, isSnoozeRetrigger = false),
+            resolveAlertLifecycleAction(ClockEventType.TIMER, autoSnoozeCount = 3, maxAutoSnoozes = 1),
         )
     }
 
     @Test
-    fun `pre-alarm has no lifecycle timeout regardless of flag`() {
-        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = false))
-        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, isSnoozeRetrigger = true))
-    }
-    @Test
-    fun `ALARM_AUTO_SNOOZE_DURATION_MS is about one minute`() {
-        assertEquals(60_000L, ALARM_AUTO_SNOOZE_DURATION_MS)
+    fun `pre-alarm has no lifecycle timeout regardless of count`() {
+        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 1))
+        assertNull(resolveAlertLifecycleAction(ClockEventType.PRE_ALARM, autoSnoozeCount = 3, maxAutoSnoozes = 1))
     }
 }

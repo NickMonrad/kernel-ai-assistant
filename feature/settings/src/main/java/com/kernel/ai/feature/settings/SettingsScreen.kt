@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +64,7 @@ fun SettingsScreen(
     onNavigateToChatPreferences: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onNavigateToClockSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -214,6 +216,16 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToClockSettings() },
+                headlineContent = { Text("Clock Preferences") },
+                supportingContent = { Text("Timer/alarm duration, snooze behaviour, and sounds") },
+                leadingContent = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
 
             ListItem(
                 modifier = Modifier

@@ -122,7 +122,7 @@ data class ClockScheduledEvent(
     val startedAtMillis: Long? = null,
     val occurrenceTriggerAtMillis: Long? = null,
     val soundUri: String? = null,
-    val isSnoozeRetrigger: Boolean = false,
+    val autoSnoozeCount: Int = 0,
 )
 
 data class ClockPlatformState(
