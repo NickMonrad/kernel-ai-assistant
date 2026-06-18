@@ -63,6 +63,11 @@ internal fun alertPendingIntentIdentity(action: String, alert: TriggeredClockAle
     "kernel-ai://clock-alert/${action}|${alert.type.name.lowercase()}|${alert.ownerId}|" +
         (alert.occurrenceTriggerAtMillis?.toString() ?: "none")
 
+internal fun configuredSnoozeDurationMs(
+    configuredMs: Long,
+    fallbackMs: Long = ALARM_SNOOZE_MS,
+): Long = configuredMs.takeIf { it > 0L } ?: fallbackMs
+
 @AndroidEntryPoint
 class ClockAlertService : Service() {
     @Inject lateinit var clockRepository: ClockRepository
@@ -94,6 +99,8 @@ class ClockAlertService : Service() {
     private var snoozeDurationMs: Long = 600_000L
     private var maxAutoSnoozes: Int = 1
     private var voiceStatusMessage: String? = null
+    /** Config captured per active alert, keyed by ownerId. */
+    private val activeAlertConfigs = mutableMapOf<String, ClockAlertConfig>()
     /** Per-alert lifecycle timeout jobs, keyed by ownerId. */
     private val lifecycleJobs = mutableMapOf<String, Job>()
 
@@ -145,7 +152,7 @@ class ClockAlertService : Service() {
             ClockAlertContract.ACTION_SNOOZE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
-                    serviceScope.launch { performSnooze(alert, snoozeDurationMs) }
+                    serviceScope.launch { performSnooze(alert, snoozeDurationFor(alert)) }
                 }
             }
 
@@ -178,6 +185,7 @@ class ClockAlertService : Service() {
     private suspend fun handleTriggerAlert(intent: Intent?) {
         val alert = intent?.toTriggeredClockAlert() ?: return
         val config = clockRepository.getClockAlertConfig()
+        activeAlertConfigs[alert.ownerId] = config
         val autoSnoozeCount = alert.autoSnoozeCount
         withContext(Dispatchers.Main.immediate) {
             cancelLifecycleTimeout(alert.ownerId)
@@ -210,7 +218,7 @@ class ClockAlertService : Service() {
         serviceScope.cancel()
         stopPlayback()
         activeAlerts.clear()
-        syncActiveAlertSnapshot()
+        activeAlertConfigs.clear()
         super.onDestroy()
     }
 
@@ -320,6 +328,7 @@ class ClockAlertService : Service() {
         lifecycleJobs.values.forEach { it.cancel() }
         lifecycleJobs.clear()
         activeAlerts.clear()
+        activeAlertConfigs.clear()
         syncActiveAlertSnapshot()
         autoStartVoiceJob?.cancel()
         autoStartVoiceJob = null
@@ -340,7 +349,10 @@ class ClockAlertService : Service() {
         val toDismiss = activeAlerts.filter(predicate)
         if (toDismiss.isEmpty()) return 0
 
-        toDismiss.forEach { cancelLifecycleTimeout(it.ownerId) }
+        toDismiss.forEach {
+            cancelLifecycleTimeout(it.ownerId)
+            activeAlertConfigs.remove(it.ownerId)
+        }
         activeAlerts.removeAll(predicate)
         syncActiveAlertSnapshot()
         cancelAutoStartVoiceControl()
@@ -457,6 +469,13 @@ class ClockAlertService : Service() {
 
     private fun syncActiveAlertSnapshot() {
         activeAlertSnapshot = activeAlerts.toSet()
+    }
+
+    /** Resolves the snooze duration for an alert from its captured config,
+     *  falling back to the mutable field and then to the hardcoded default. */
+    private fun snoozeDurationFor(alert: TriggeredClockAlert): Long {
+        val configured = activeAlertConfigs[alert.ownerId]?.snoozeDurationMs ?: snoozeDurationMs
+        return configuredSnoozeDurationMs(configured)
     }
 
     // ── Lifecycle timeout management ──────────────────────────────────
@@ -588,7 +607,7 @@ class ClockAlertService : Service() {
             ClockAlertVoiceCommand.DISMISS -> {
                 dismissAlert(alert)
             }
-            ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, snoozeDurationMs)
+            ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, snoozeDurationFor(alert))
             ClockAlertVoiceCommand.ADD_ONE_MINUTE -> performAddOneMinute(alert)
         }
     }

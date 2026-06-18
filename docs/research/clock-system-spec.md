@@ -925,9 +925,13 @@ Scope:
   - `3` — Snooze 3 times, then stop.
 - **Durable via DataStore:**
   - `ClockAlertPreferences` stores config via DataStore (no SharedPreferences).
-  - Values read by `ClockAlertService` at trigger time via
-    `clockRepository.getClockAlertConfig()` — a one-shot suspend call,
-    avoiding stale defaults before DataStore emits.
+  - Config is captured at trigger time via `clockRepository.getClockAlertConfig()`
+    — a one-shot suspend call, avoiding stale defaults before DataStore emits.
+  - Explicit snooze (notification button and voice command) uses the same
+    captured config, not the mutable field that races DataStore on cold start.
+  - Invalid/zero snooze duration falls back to the default 10-minute snooze.
+  - Already-ringing alerts use the config captured when the alert started;
+    live mid-ring config updates are not applied.
 - **Lifecycle timeout behaviour:**
   - Timer: always `AUTO_STOP`, using `timerAutoStopDurationMs`.
   - Alarm first ring: `AUTO_SNOOZE` when `autoSnoozeCount < maxAutoSnoozes`,
