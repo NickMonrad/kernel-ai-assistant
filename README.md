@@ -16,15 +16,16 @@ Jandal is built around a **Brain-Memory-Action** model:
 
 Launch readiness is tracked in GitHub rather than duplicated in this README:
 
-- [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic.
-- [#1255 - Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the canonical source of truth for current launch order.
-- [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md) is retained as a historical launch-slice snapshot, not the current plan.
+- [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic and current launch tracking issue.
+- The `launch:blocking` label and [Jandal Launch Backlog](https://github.com/users/NickMonrad/projects/5) project views are the live launch blocker queue and filtered work dashboard.
+- [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md) is a historical launch-slice snapshot, not the current plan.
+- [#1255 - Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the now-completed model-readiness preflight tracker, not the active launch plan.
 
 The current launch gates are:
 
 1. Launch scope and backlog sanity.
 2. Test/evidence foundation.
-3. Core app and first-run reliability.
+3. Core app, accessibility, and first-run reliability.
 4. Permissions and Android capability repair.
 5. Voice and wake-word launch-risk validation.
 6. Final release QA and store readiness.
