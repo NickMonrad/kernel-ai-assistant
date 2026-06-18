@@ -180,6 +180,42 @@ internal fun wmoDescription(code: Int): String = when (code) {
     96, 99 -> "Thunderstorm with hail"
     else -> "Unknown"
 }
+
+// ── Weather lookup mode and failure reason helpers ──────────────────────────
+
+/**
+ * Describes whether a weather lookup targets the device's current location
+ * or a user-specified named location.
+ */
+internal enum class WeatherLookupMode {
+    DEVICE_LOCATION,
+    NAMED_LOCATION,
+}
+
+/** Determine the lookup mode from the optional location argument. */
+internal fun weatherLookupMode(location: String?): WeatherLookupMode =
+    if (location.isNullOrBlank()) WeatherLookupMode.DEVICE_LOCATION
+    else WeatherLookupMode.NAMED_LOCATION
+
+/** Categorised reason why a fresh weather fetch failed. */
+internal enum class WeatherLookupFailureReason {
+    LOCATION_PERMISSION_DENIED,
+    CURRENT_LOCATION_UNAVAILABLE,
+    NAMED_LOCATION_NOT_FOUND,
+    API_UNAVAILABLE,
+}
+
+/** Human-readable user-facing message for each failure reason. */
+internal fun weatherFailureMessage(reason: WeatherLookupFailureReason): String = when (reason) {
+    WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED ->
+        "I need Location permission to get weather for where you are now. You can enable Location in App Permissions, or ask for a city, like \"weather in Brisbane\"."
+    WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE ->
+        "I couldn't get your current location right now. Try again in a moment, or ask for a city, like \"weather in Brisbane\"."
+    WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND ->
+        "I couldn't find that location for weather. Try another city, like \"weather in Brisbane\"."
+    WeatherLookupFailureReason.API_UNAVAILABLE ->
+        "Unable to fetch weather data right now. Please try again in a moment."
+}
 // ── Weather cache constants ──────────────────────────────────────────────────
 
 /** Duration (ms) for serving cached weather data without a live API call. */
@@ -205,6 +241,12 @@ private val Context.weatherDataStore: DataStore<Preferences> by preferencesDataS
 
 private const val TAG = "KernelAI"
 
+/** Internal wrapper for fresh weather fetch outcomes — success or a specific failure reason. */
+private sealed class LiveFetchResult {
+    data class Success(val result: SkillResult) : LiveFetchResult()
+    data class Failed(val reason: WeatherLookupFailureReason) : LiveFetchResult()
+}
+
 @Singleton
 class GetWeatherSkill @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -216,7 +258,7 @@ class GetWeatherSkill @Inject constructor(
     override val description =
         "Get current weather or a multi-day forecast. Uses device GPS by default — only pass a " +
             "location if the user explicitly names a place or says 'at home'. " +
-            "Profile location is a fallback only when GPS is unavailable. " +
+            "Future #1164 work will add profile/home-location fallback and contextual permission prompt + retry. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     override val examples = listOf(
         "Current location weather → get_weather_gps()",
@@ -243,64 +285,82 @@ class GetWeatherSkill @Inject constructor(
         val location = call.arguments["location"]?.trim()
         val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
         val dayParam = call.arguments["day"]?.trim()?.lowercase()
+        val lookupMode = weatherLookupMode(location)
 
-        // Determine cache key based on query type
-        val cacheKey = when {
-            !location.isNullOrBlank() -> when {
+        val cacheKey = when (lookupMode) {
+            WeatherLookupMode.NAMED_LOCATION -> when {
                 dayParam == "tomorrow" -> "loc:$location:tomorrow"
                 forecastDays > 0 -> "loc:$location:forecast:$forecastDays"
                 else -> "loc:$location:current"
             }
-            dayParam == "tomorrow" -> "gps:tomorrow"
-            forecastDays > 0 -> "gps:forecast:$forecastDays"
-            else -> "gps:current"
+            WeatherLookupMode.DEVICE_LOCATION -> when {
+                dayParam == "tomorrow" -> "gps:tomorrow"
+                forecastDays > 0 -> "gps:forecast:$forecastDays"
+                else -> "gps:current"
+            }
         }
 
-        // Step 1: Try fresh API fetch (fetch methods handle cache check + retry internally)
         val freshResult = try {
             when {
                 dayParam == "tomorrow" -> {
                     val targetDays = forecastDays.coerceAtLeast(2)
-                    if (!location.isNullOrBlank()) {
-                        fetchByLocationName(location, targetDays, targetDay = true, cacheKey = cacheKey)
-                    } else {
-                        fetchByDeviceLocation(targetDays, targetDay = true, cacheKey = cacheKey)
+                    when (lookupMode) {
+                        WeatherLookupMode.NAMED_LOCATION ->
+                            fetchByLocationName(location.orEmpty(), targetDays, targetDay = true, cacheKey = cacheKey)
+                        WeatherLookupMode.DEVICE_LOCATION ->
+                            fetchByDeviceLocation(targetDays, targetDay = true, cacheKey = cacheKey)
                     }
                 }
-                !location.isNullOrBlank() -> fetchByLocationName(location, forecastDays, cacheKey = cacheKey)
-                else -> fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
+                lookupMode == WeatherLookupMode.NAMED_LOCATION ->
+                    fetchByLocationName(location.orEmpty(), forecastDays, cacheKey = cacheKey)
+                else ->
+                    fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Live weather fetch failed, falling back to cache", e)
-            null
+            Log.w(TAG, "Live weather fetch crashed unexpectedly for key '$cacheKey'", e)
+            LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
 
-        // Step 2: If fresh fetch succeeded, return it
-        freshResult?.let { return it }
+        when (freshResult) {
+            is LiveFetchResult.Success -> return freshResult.result
+            is LiveFetchResult.Failed -> {
+                val failureReason = freshResult.reason
 
-        // Step 3: Fresh fetch failed — try stale cache
-        getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
-            // Re-parse the cached JSON using the same parsers
-            return try {
-                if (dayParam == "tomorrow") {
-                    parseForecastDayResponse(cachedJson, displayName = null, dayIndex = 1)
-                } else if (forecastDays > 0) {
-                    parseForecastResponse(cachedJson, displayName = null)
-                } else {
-                    parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
+                if (failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED) {
+                    // TODO(#1164): Replace this interim current-location guidance with the
+                    // contextual capability prompt + retry flow.
+                    Log.i(TAG, "Skipping stale GPS cache because Location permission is denied")
+                    Log.i(TAG, "Returning interim current-location guidance pending #1164")
+                    return SkillResult.DirectReply(weatherFailureMessage(failureReason))
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Cache re-parse failed", e)
-                SkillResult.Failure(name, "Cached weather data is corrupted. Please try again.")
+
+                getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
+                    Log.i(TAG, "Serving stale weather cache for key '$cacheKey' after ${failureReason.name}")
+                    return try {
+                        if (dayParam == "tomorrow") {
+                            parseForecastDayResponse(cachedJson, displayName = null, dayIndex = 1)
+                        } else if (forecastDays > 0) {
+                            parseForecastResponse(cachedJson, displayName = null)
+                        } else {
+                            parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Cache re-parse failed for key '$cacheKey'", e)
+                        SkillResult.Failure(name, "Cached weather data is corrupted. Please try again.")
+                    }
+                }
+
+                Log.i(TAG, "Weather cache miss for key '$cacheKey' after ${failureReason.name}")
+                if (failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE) {
+                    // TODO(#1164): Replace this interim current-location guidance with the
+                    // contextual capability prompt + retry flow.
+                    Log.i(TAG, "Returning interim current-location guidance pending #1164")
+                }
+                return SkillResult.DirectReply(weatherFailureMessage(failureReason))
             }
         }
-
-        // Step 4: No cache available — graceful degradation
-        return SkillResult.DirectReply(
-            content = "Unable to fetch weather data right now. This can happen on certain network configurations. Please try again in a moment.",
-        )
     }
 
     // ── Location ──────────────────────────────────────────────────────────────
@@ -310,12 +370,15 @@ class GetWeatherSkill @Inject constructor(
         forecastDays: Int = 0,
         targetDay: Boolean = false,
         cacheKey: String,
-    ): SkillResult? {
+    ): LiveFetchResult {
         val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
         val coordinates = geocodeLocation(resolvedLocationName)
-            ?: return null
+            ?: run {
+                Log.i(TAG, "Named-location weather geocode failed for '$resolvedLocationName'")
+                return LiveFetchResult.Failed(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
+            }
 
-        return if (forecastDays > 0) {
+        val result = if (forecastDays > 0) {
             if (targetDay) {
                 fetchForecastForDay(
                     lat = coordinates.first,
@@ -341,6 +404,14 @@ class GetWeatherSkill @Inject constructor(
                 displayName = resolvedLocationName,
                 cacheKey = cacheKey,
             )
+        }
+
+        return if (result != null) {
+            Log.d(TAG, "Named-location weather lookup succeeded for '$resolvedLocationName'")
+            LiveFetchResult.Success(result)
+        } else {
+            Log.w(TAG, "Weather API unavailable after geocoding '$resolvedLocationName'")
+            LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
     }
 
@@ -403,16 +474,22 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false, cacheKey: String): SkillResult? {
+    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false, cacheKey: String): LiveFetchResult {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            return null
+            Log.i(TAG, "Current-location weather blocked: ACCESS_COARSE_LOCATION denied")
+            return LiveFetchResult.Failed(WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED)
         }
+
         val loc = getLastKnownLocation()
-            ?: return null
+            ?: run {
+                Log.i(TAG, "Current-location weather unavailable: fused lastLocation returned null")
+                return LiveFetchResult.Failed(WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE)
+            }
+
         val displayName = reverseGeocode(loc.latitude, loc.longitude)
-        return if (forecastDays > 0) {
+        val result = if (forecastDays > 0) {
             if (targetDay) {
                 fetchForecastForDay(
                     lat = loc.latitude,
@@ -438,6 +515,13 @@ class GetWeatherSkill @Inject constructor(
                 displayName = displayName,
                 cacheKey = cacheKey,
             )
+        }
+
+        return if (result != null) {
+            LiveFetchResult.Success(result)
+        } else {
+            Log.w(TAG, "Weather API unavailable for current-location weather request")
+            LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
     }
 
