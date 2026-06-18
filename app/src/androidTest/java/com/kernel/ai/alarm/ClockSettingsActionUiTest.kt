@@ -14,16 +14,15 @@ import com.kernel.ai.feature.settings.MAX_AUTO_SNOOZE_OPTIONS
 import com.kernel.ai.feature.settings.SoundSetting
 import org.junit.Rule
 import org.junit.Test
-
 /**
- * UI tests for the Clock screen toolbar, overflow menu, and settings screen.
+ * UI tests for the Clock screen toolbar (back button, Clock title, settings cog)
+ * and the Clock settings screen components.
  *
  * These verify production composables [DurationSetting], [MaxAutoSnoozeSetting],
- * [SoundSetting], and [ClockSettingsContent] directly, plus a lightweight
- * overflow-menu wrapper that mirrors the **real [SidePanelScreen] TopAppBar
- * structure** (back button, Clock title, overflow with settings).
+ * [SoundSetting], and [ClockSettingsContent] directly, plus the real shared
+ * [ClockScreenTopBar] composition (back button, Clock title, settings cog).
  */
-class ClockOverflowSettingsUiTest {
+class ClockSettingsActionUiTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
@@ -43,21 +42,22 @@ class ClockOverflowSettingsUiTest {
     }
 
     @Test
-    fun clockToolbar_showsOverflowButton() {
+    fun clockToolbar_showsSettingsAction() {
         composeTestRule.setContent { ClockScreenTopBar() }
-        composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("clock_settings_button").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Clock settings").assertIsDisplayed()
     }
 
     @Test
-    fun overflowButton_navigatesToClockSettings() {
+    fun settingsAction_navigatesToClockSettings() {
         var clockSettingsOpened = false
         composeTestRule.setContent {
             ClockScreenTopBar(onNavigateToClockSettings = { clockSettingsOpened = true })
         }
-        composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
+        composeTestRule.onNodeWithTag("clock_settings_button").performClick()
         assert(clockSettingsOpened) { "Clock settings callback was not triggered" }
     }
+
 
     @Test
     fun backButton_triggersOnBackCallback() {

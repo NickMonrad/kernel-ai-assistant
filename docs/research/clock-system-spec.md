@@ -898,17 +898,18 @@ Scope:
 Acceptance:
 
 
-### Wave 7 — Clock overflow menu and settings (#1283)
+### Wave 7 — Clock settings action and configurable UI (#1283)
 
 #### Proposed child issue H — Clock settings screen and configurable lifecycle
 
 Scope:
 
-- **Clock overflow menu** — consistent three-dot overflow (`MoreVert`) button
-  in the Clock top app bar, present on all four tabs: Timers, Alarms,
-  World Clock, and Stopwatch.
-- **Clock settings screen** — accessible from the overflow menu via "Clock
-  settings" menu item, and from the main Settings screen.
+- **Clock settings action** — settings cog (`Icons.Default.Settings`) in the
+  Clock top app bar, visible on all four Clock modes: Timers, Alarms, World
+  Clock, and Stopwatch. Tapping the cog opens Clock settings directly; no
+  overflow/dropdown is used because there is only one action.
+- **Clock settings screen** — accessible from the Clock top app bar settings
+  cog, and from the main Settings screen.
 - **Sound settings extracted** — global alarm/timer sound selection removed
   from the main Alarm/Timer tab UIs and placed in Clock settings only.
   Per-alarm sound overrides in the alarm create/edit dialog remain unchanged.
@@ -916,17 +917,15 @@ Scope:
   - Timer sound duration (15s / 30s / 60s / 2m / 5m), default 60s.
   - Alarm ring duration (30s / 60s / 2m / 5m), default 60s.
   - Snooze duration (5m / 10m / 15m / 30m), default 10m.
-  - `0` — Don't auto-snooze (first unattended ring auto-stops).
-  - `1` — Snooze once, then stop (first ring auto-snoozes,
-    re-trigger auto-stops).
-  - `2` — Snooze twice, then stop (first two rings auto-snooze,
-    third auto-stops).
-  - `3` — Snooze 3 times, then stop (first three rings auto-snooze,
-    fourth auto-stops).
+  - `0` — Don't auto-snooze.
+  - `1` — Snooze once, then stop.
+  - `2` — Snooze twice, then stop.
+  - `3` — Snooze 3 times, then stop.
 - **Durable via DataStore:**
   - `ClockAlertPreferences` stores config via DataStore (no SharedPreferences).
-  - Values read by `ClockAlertService` at startup via
-    `clockRepository.observeClockAlertConfig()`.
+  - Values read by `ClockAlertService` at trigger time via
+    `clockRepository.getClockAlertConfig()` — a one-shot suspend call,
+    avoiding stale defaults before DataStore emits.
 - **Lifecycle timeout behaviour:**
   - Timer: always `AUTO_STOP`, using `timerAutoStopDurationMs`.
   - Alarm first ring: `AUTO_SNOOZE` when `autoSnoozeCount < maxAutoSnoozes`,
@@ -940,8 +939,11 @@ Implementation details:
 
 - `ClockSettingsScreen` — new Compose screen at route `settings/clock_settings`.
 - `ClockSettingsViewModel` — manages DataStore read/write via `ClockRepository`.
+- `ClockScreenTopBar` — shared composable for the Clock top app bar (back
+  button, Clock title, settings cog), used by both `SidePanelScreen` and UI
+  tests.
 - `SidePanelScreen` — selection-mode Toolbar conditional fixed to use
-  `if/else` so the normal Clock Toolbar only renders when selection mode
+  `if/else` so the normal Clock toolbar only renders when selection mode
   is inactive.
 - `ClockAlertLifecyclePolicy` — `resolveAlertLifecycleAction` and
   `lifecycleTimeoutDurationMs` accept `maxAutoSnoozes` and configured
@@ -950,6 +952,9 @@ Implementation details:
   only the UI location moved.
 - `ClockAlertService.trigger()` restored to include
   `ACTION_TRIGGER_ALERT`, fixing a regression where the action was dropped.
+- `ClockRepository.getClockAlertConfig()` — one-shot suspend call reading
+  DataStore directly, used by `ClockAlertService.handleTriggerAlert()` to
+  capture config before scheduling the lifecycle timeout (cold-start race fix).
 
 Test coverage:
 
@@ -959,20 +964,20 @@ Test coverage:
   action and extras contract.
 - `ClockSettingsScreen.kt` composables (`DurationSetting`,
   `MaxAutoSnoozeSetting`, `SoundSetting`, `ClockSettingsContent`) tested
-  via `ClockOverflowSettingsUiTest` — 23 UI tests covering toolbar
-  (back button, Clock title, overflow), settings content visibility,
+  via `ClockSettingsActionUiTest` — UI tests covering toolbar
+  (back button, Clock title, settings cog), settings content visibility,
   and option selection.
 
 Manual and automated validation:
 
-    - Manual UI check on device (S21): overflow on all 4 tabs, Clock settings
-      opens, controls work, sound cards removed from tabs.
+    - Manual UI check on device (S21): settings cog on all 4 Clock modes,
+      Clock settings opens, controls work, sound cards removed from tabs.
     - Automated S21 lifecycle validation: timer duration obeys configured
       setting, alarm ring duration obeys configured setting, snooze duration
       obeys configured setting.
-    - Max auto-snoozes validation: 0 (first ring auto-stops), 1 (snooze once
-      then stop), 2 (snooze twice then stop), 3 (snooze 3 times then stop) all
-      work durably — counts tracked via PendingIntent extras and survive
+    - Max auto-snoozes validation: 0 (Don't auto-snooze), 1 (Snooze once
+      then stop), 2 (Snooze twice then stop), 3 (Snooze 3 times then stop)
+      all work durably — counts tracked via PendingIntent extras and survive
       app/service process death. Count resets per primary occurrence.
     - Repeating alarms preserve future occurrences regardless of auto-snooze
       behaviour on a single occurrence.

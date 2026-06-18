@@ -14,11 +14,11 @@ import androidx.compose.ui.platform.testTag
 
 /**
  * Clock screen top app bar — shared between [SidePanelScreen] production code
- * and UI tests. Displays a back button, "Clock" title, and a settings gear
+ * and UI tests. Displays a back button, "Clock" title, and a settings cog
  * that navigates directly to Clock settings.
  *
  * @param onBack invoked when the back navigation button is tapped.
- * @param onNavigateToClockSettings invoked when the settings button is tapped.
+ * @param onNavigateToClockSettings invoked when the settings cog is tapped.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,7 +42,7 @@ fun ClockScreenTopBar(
         actions = {
             IconButton(
                 onClick = onNavigateToClockSettings,
-                modifier = Modifier.testTag("clock_overflow_button"),
+                modifier = Modifier.testTag("clock_settings_button"),
             ) {
                 Icon(
                     Icons.Default.Settings,
