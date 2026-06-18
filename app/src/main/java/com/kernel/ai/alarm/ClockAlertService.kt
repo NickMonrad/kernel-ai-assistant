@@ -145,7 +145,7 @@ class ClockAlertService : Service() {
             ClockAlertContract.ACTION_SNOOZE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
-                    serviceScope.launch { performSnooze(alert, ALARM_SNOOZE_MS) }
+                    serviceScope.launch { performSnooze(alert, snoozeDurationMs) }
                 }
             }
 
@@ -588,7 +588,7 @@ class ClockAlertService : Service() {
             ClockAlertVoiceCommand.DISMISS -> {
                 dismissAlert(alert)
             }
-            ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, ALARM_SNOOZE_MS)
+            ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, snoozeDurationMs)
             ClockAlertVoiceCommand.ADD_ONE_MINUTE -> performAddOneMinute(alert)
         }
     }

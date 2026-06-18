@@ -916,7 +916,9 @@ Scope:
 - **Configurable alert durations:**
   - Timer sound duration (15s / 30s / 60s / 2m / 5m), default 60s.
   - Alarm ring duration (30s / 60s / 2m / 5m), default 60s.
-  - Snooze duration (5m / 10m / 15m / 30m), default 10m.
+  - Snooze duration (5m / 10m / 15m / 30m), default 10m. Controls how long
+    before a snoozed alarm re-rings — applies to automatic auto-snooze,
+    notification Snooze button, and voice Snooze.
   - `0` — Don't auto-snooze.
   - `1` — Snooze once, then stop.
   - `2` — Snooze twice, then stop.
