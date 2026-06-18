@@ -1,27 +1,17 @@
 package com.kernel.ai.alarm
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import com.kernel.ai.feature.settings.ClockSettingsContent
-import com.kernel.ai.feature.settings.DurationSetting
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.kernel.ai.feature.settings.ClockScreenTopBar
 import com.kernel.ai.feature.settings.ClockSettingsContent
 import com.kernel.ai.feature.settings.DurationSetting
 import com.kernel.ai.feature.settings.MaxAutoSnoozeSetting
-import com.kernel.ai.feature.settings.SoundSetting
 import com.kernel.ai.feature.settings.MAX_AUTO_SNOOZE_OPTIONS
-import com.kernel.ai.feature.settings.ClockScreenTopBar
+import com.kernel.ai.feature.settings.SoundSetting
 import org.junit.Rule
 import org.junit.Test
 
@@ -56,31 +46,16 @@ class ClockOverflowSettingsUiTest {
     fun clockToolbar_showsOverflowButton() {
         composeTestRule.setContent { ClockScreenTopBar() }
         composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Clock options").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Clock settings").assertIsDisplayed()
     }
 
     @Test
-    fun overflowMenu_containsClockSettings() {
-        composeTestRule.setContent { ClockScreenTopBar() }
-        composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Clock settings").assertIsDisplayed()
-    }
-
-    @Test
-    fun overflowMenu_onlyRendersWhenExpanded() {
-        composeTestRule.setContent { ClockScreenTopBar() }
-        composeTestRule.onNodeWithText("Clock settings").assertIsNotDisplayed()
-    }
-
-    @Test
-    fun overflowMenu_triggersOnClockSettingsCallback() {
+    fun overflowButton_navigatesToClockSettings() {
         var clockSettingsOpened = false
         composeTestRule.setContent {
             ClockScreenTopBar(onNavigateToClockSettings = { clockSettingsOpened = true })
         }
         composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
-        composeTestRule.onNodeWithText("Clock settings").performClick()
         assert(clockSettingsOpened) { "Clock settings callback was not triggered" }
     }
 
