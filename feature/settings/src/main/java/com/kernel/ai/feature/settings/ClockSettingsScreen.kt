@@ -67,10 +67,10 @@ internal val SNOOZE_DURATION_OPTIONS = listOf(
 )
 
 val MAX_AUTO_SNOOZE_OPTIONS = listOf(
-    0 to "0 — auto-stop on first ring",
-    1 to "1 — snooze once, then stop",
-    2 to "2 — snooze twice, stop third",
-    3 to "3 — snooze thrice, stop fourth",
+    0 to "0 — Don't auto-snooze",
+    1 to "1 — Snooze once, then stop",
+    2 to "2 — Snooze twice, then stop",
+    3 to "3 — Snooze 3 times, then stop",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -334,6 +334,12 @@ fun MaxAutoSnoozeSetting(
             Text(
                 text = "Automatic snoozes",
                 style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "When an alarm rings and you don't respond, Jandal can snooze it automatically. After this many auto-snoozes, the next unattended ring stops.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))
             var expanded by remember { mutableStateOf(false) }

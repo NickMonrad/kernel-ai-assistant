@@ -1,19 +1,12 @@
 package com.kernel.ai.alarm
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import com.kernel.ai.feature.settings.ClockSettingsContent
+import com.kernel.ai.feature.settings.DurationSetting
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -28,6 +21,7 @@ import com.kernel.ai.feature.settings.DurationSetting
 import com.kernel.ai.feature.settings.MaxAutoSnoozeSetting
 import com.kernel.ai.feature.settings.SoundSetting
 import com.kernel.ai.feature.settings.MAX_AUTO_SNOOZE_OPTIONS
+import com.kernel.ai.feature.settings.ClockScreenTopBar
 import org.junit.Rule
 import org.junit.Test
 
@@ -48,26 +42,26 @@ class ClockOverflowSettingsUiTest {
 
     @Test
     fun clockToolbar_showsBackButton() {
-        composeTestRule.setContent { ClockToolbar(onBack = {}) }
+        composeTestRule.setContent { ClockScreenTopBar(onBack = {}) }
         composeTestRule.onNodeWithTag("back_button").assertIsDisplayed()
     }
 
     @Test
     fun clockToolbar_showsClockTitle() {
-        composeTestRule.setContent { ClockToolbar() }
+        composeTestRule.setContent { ClockScreenTopBar() }
         composeTestRule.onNodeWithText("Clock").assertIsDisplayed()
     }
 
     @Test
     fun clockToolbar_showsOverflowButton() {
-        composeTestRule.setContent { ClockToolbar() }
+        composeTestRule.setContent { ClockScreenTopBar() }
         composeTestRule.onNodeWithTag("clock_overflow_button").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Clock options").assertIsDisplayed()
     }
 
     @Test
     fun overflowMenu_containsClockSettings() {
-        composeTestRule.setContent { ClockToolbar() }
+        composeTestRule.setContent { ClockScreenTopBar() }
         composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
         composeTestRule.onNodeWithTag("clock_overflow_settings").assertIsDisplayed()
         composeTestRule.onNodeWithText("Clock settings").assertIsDisplayed()
@@ -75,7 +69,7 @@ class ClockOverflowSettingsUiTest {
 
     @Test
     fun overflowMenu_onlyRendersWhenExpanded() {
-        composeTestRule.setContent { ClockToolbar() }
+        composeTestRule.setContent { ClockScreenTopBar() }
         composeTestRule.onNodeWithText("Clock settings").assertIsNotDisplayed()
     }
 
@@ -83,7 +77,7 @@ class ClockOverflowSettingsUiTest {
     fun overflowMenu_triggersOnClockSettingsCallback() {
         var clockSettingsOpened = false
         composeTestRule.setContent {
-            ClockToolbar(onNavigateToClockSettings = { clockSettingsOpened = true })
+            ClockScreenTopBar(onNavigateToClockSettings = { clockSettingsOpened = true })
         }
         composeTestRule.onNodeWithTag("clock_overflow_button").performClick()
         composeTestRule.onNodeWithText("Clock settings").performClick()
@@ -94,7 +88,7 @@ class ClockOverflowSettingsUiTest {
     fun backButton_triggersOnBackCallback() {
         var backPressed = false
         composeTestRule.setContent {
-            ClockToolbar(onBack = { backPressed = true })
+            ClockScreenTopBar(onBack = { backPressed = true })
         }
         composeTestRule.onNodeWithTag("back_button").performClick()
         assert(backPressed) { "Back callback was not triggered" }
@@ -179,10 +173,10 @@ class ClockOverflowSettingsUiTest {
     @Test
     fun maxAutoSnoozeSetting_exposesCorrectOptions() {
         val labels = MAX_AUTO_SNOOZE_OPTIONS.map { it.second }
-        assert(labels.any { it.startsWith("0 ") }) { "Missing option for auto-snooze count 0" }
-        assert(labels.any { it.startsWith("1 ") }) { "Missing option for auto-snooze count 1" }
-        assert(labels.any { it.startsWith("2 ") }) { "Missing option for auto-snooze count 2" }
-        assert(labels.any { it.startsWith("3 ") }) { "Missing option for auto-snooze count 3" }
+        assert(labels.any { it == "0 — Don't auto-snooze" }) { "Missing option for auto-snooze count 0" }
+        assert(labels.any { it == "1 — Snooze once, then stop" }) { "Missing option for auto-snooze count 1" }
+        assert(labels.any { it == "2 — Snooze twice, then stop" }) { "Missing option for auto-snooze count 2" }
+        assert(labels.any { it == "3 — Snooze 3 times, then stop" }) { "Missing option for auto-snooze count 3" }
     }
 
     // ── Real SoundSetting component tests ──────────────────────────────
@@ -282,59 +276,4 @@ class ClockOverflowSettingsUiTest {
         composeTestRule.onNodeWithText("Alert behaviour").assertIsDisplayed()
         composeTestRule.onNodeWithText("Sounds").assertIsDisplayed()
     }
-}
-
-/**
- * Clock toolbar that mirrors the real [SidePanelScreen] TopAppBar exactly.
- * Renders the back button, Clock title, and three-dot overflow with a
- * "Clock settings" dropdown item.
- *
- * @param onBack invoked when the back button is tapped
- * @param onNavigateToClockSettings invoked when "Clock settings" is tapped
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ClockToolbar(
-    onBack: () -> Unit = {},
-    onNavigateToClockSettings: () -> Unit = {},
-) {
-    val showOverflow = remember { mutableStateOf(false) }
-    TopAppBar(
-        title = { Text("Clock") },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.KeyboardArrowLeft,
-                    contentDescription = "Back",
-                    modifier = Modifier.testTag("back_button"),
-                )
-            }
-        },
-        actions = {
-            Box {
-                IconButton(
-                    onClick = { showOverflow.value = true },
-                    modifier = Modifier.testTag("clock_overflow_button"),
-                ) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "Clock options",
-                    )
-                }
-                DropdownMenu(
-                    expanded = showOverflow.value,
-                    onDismissRequest = { showOverflow.value = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Clock settings") },
-                        onClick = {
-                            showOverflow.value = false
-                            onNavigateToClockSettings()
-                        },
-                        modifier = Modifier.testTag("clock_overflow_settings"),
-                    )
-                }
-            }
-        },
-    )
 }

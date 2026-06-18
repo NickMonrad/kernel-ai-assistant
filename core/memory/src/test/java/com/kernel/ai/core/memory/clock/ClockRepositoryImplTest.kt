@@ -210,6 +210,37 @@ class ClockRepositoryImplTest {
     }
 
     @Test
+    fun `getClockAlertConfig returns configured non-default values`() = runTest {
+        val customConfig = ClockAlertConfig(
+            timerAutoStopDurationMs = 30_000L,
+            alarmRingDurationMs = 120_000L,
+            snoozeDurationMs = 300_000L,
+            maxAutoSnoozes = 2,
+        )
+        every { clockAlertPreferences.alertConfig } returns flowOf(customConfig)
+
+        val result = repository.getClockAlertConfig()
+
+        assertEquals(30_000L, result.timerAutoStopDurationMs)
+        assertEquals(120_000L, result.alarmRingDurationMs)
+        assertEquals(300_000L, result.snoozeDurationMs)
+        assertEquals(2, result.maxAutoSnoozes)
+    }
+
+    @Test
+    fun `getClockAlertConfig returns default values when no custom config set`() = runTest {
+        val defaultConfig = ClockAlertConfig()
+        every { clockAlertPreferences.alertConfig } returns flowOf(defaultConfig)
+
+        val result = repository.getClockAlertConfig()
+
+        assertEquals(60_000L, result.timerAutoStopDurationMs)
+        assertEquals(60_000L, result.alarmRingDurationMs)
+        assertEquals(600_000L, result.snoozeDurationMs)
+        assertEquals(1, result.maxAutoSnoozes)
+    }
+
+    @Test
     fun `snoozeAlarm stores one off snooze without rescheduling the expired primary alarm`() = runTest {
         val now = System.currentTimeMillis()
         val snoozeAt = now + 10 * 60_000L

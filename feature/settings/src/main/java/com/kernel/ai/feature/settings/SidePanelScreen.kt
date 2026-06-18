@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -54,8 +53,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
@@ -128,7 +125,6 @@ fun SidePanelScreen(
     var showCreateAlarmDialog by remember { mutableStateOf(false) }
     var showCreateTimerDialog by remember { mutableStateOf(false) }
     var showAddWorldClockDialog by remember { mutableStateOf(false) }
-    var showClockOverflow by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -201,39 +197,9 @@ fun SidePanelScreen(
                     },
                 )
             } else {
-                TopAppBar(
-                    title = { Text("Clock") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        Box {
-                            IconButton(
-                                onClick = { showClockOverflow = true },
-                                modifier = Modifier.testTag("clock_overflow_button"),
-                            ) {
-                                Icon(
-                                    Icons.Default.MoreVert,
-                                    contentDescription = "Clock options",
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showClockOverflow,
-                                onDismissRequest = { showClockOverflow = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Clock settings") },
-                                    onClick = {
-                                        showClockOverflow = false
-                                        onNavigateToClockSettings()
-                                    },
-                                    modifier = Modifier.testTag("clock_overflow_settings"),
-                                )
-                            }
-                        }
-                    },
+                ClockScreenTopBar(
+                    onBack = onBack,
+                    onNavigateToClockSettings = onNavigateToClockSettings,
                 )
             }
         },

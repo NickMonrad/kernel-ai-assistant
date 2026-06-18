@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 
 private const val PRE_ALARM_LEAD_MS = 30 * 60 * 1_000L
 private const val PRE_ALARM_MIN_NOTICE_MS = 1_000L
@@ -81,6 +82,9 @@ class ClockRepositoryImpl @Inject constructor(
 
     override fun observeClockAlertConfig(): Flow<ClockAlertConfig> =
         clockAlertPreferences.alertConfig
+
+    override suspend fun getClockAlertConfig(): ClockAlertConfig =
+        clockAlertPreferences.alertConfig.first()
 
 
     override suspend fun startStopwatch(

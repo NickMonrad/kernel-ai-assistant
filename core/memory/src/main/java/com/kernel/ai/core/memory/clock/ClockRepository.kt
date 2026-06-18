@@ -72,5 +72,11 @@ interface ClockRepository {
     suspend fun setSnoozeDurationMs(value: Long)
     suspend fun setMaxAutoSnoozes(value: Int)
 
+    /** One-shot read of the current clock alert config. Uses DataStore directly
+     *  (not cached mutable fields), so it always returns the persisted value.
+     *  Useful for contexts like [ClockAlertService.onStartCommand] where the
+     *  flow collector may not have emitted yet on cold start. */
+    suspend fun getClockAlertConfig(): ClockAlertConfig
+
     suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long, currentAutoSnoozeCount: Int = 0): Boolean
 }
