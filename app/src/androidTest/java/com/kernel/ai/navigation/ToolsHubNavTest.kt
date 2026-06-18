@@ -381,7 +381,7 @@ class ToolsHubNavTest {
         screenNode.performScrollToNode(hasTestTag("tools_learn_meal_plan_family"))
         composeTestRule.onNodeWithTag("tools_learn_meal_plan_family").assertIsDisplayed()
         screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_meal_planning"))
-        composeTestRule.onNodeWithText("Show less").assertIsDisplayed()
+        composeTestRule.onNodeWithText("View less").assertIsDisplayed()
     }
 
     @Test
@@ -401,7 +401,7 @@ class ToolsHubNavTest {
         screenNode.performScrollToNode(hasTestTag("tools_learn_weather_wellington"))
         composeTestRule.onNodeWithTag("tools_learn_weather_wellington").assertIsDisplayed()
         screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
-        composeTestRule.onNodeWithText("Show less").assertIsDisplayed()
+        composeTestRule.onNodeWithText("View less").assertIsDisplayed()
     }
 
     @Test
@@ -436,7 +436,7 @@ class ToolsHubNavTest {
         composeTestRule.waitForIdle()
 
         screenNode.performScrollToNode(hasTestTag("tools_learn_view_more_weather"))
-        composeTestRule.onNodeWithText("Show less").performClick()
+        composeTestRule.onNodeWithText("View less").performClick()
         composeTestRule.waitForIdle()
 
         // After collapse, weather section shows "View more" again
