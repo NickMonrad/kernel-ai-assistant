@@ -992,7 +992,7 @@ Manual and automated validation:
 4. **Timers tab + recent/completed timer management**
 5. **World Clock tab (`#677`)**
 6. **Stopwatch tab**
-7. **Clock overflow menu and settings — configurable lifecycle durations, auto-snooze count, sound settings extracted (#1283)**
+7. **Clock settings action and settings screen — configurable lifecycle durations, auto-snooze count, sound settings extracted (#1283)**
 8. **Voice commands while ringing**
 
 The main rule is:
