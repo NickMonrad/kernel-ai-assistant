@@ -124,10 +124,34 @@ class ClockAlertLifecyclePolicyTest {
     }
 
     @Test
-    fun `alarm snooze re-trigger timeout uses timer duration`() {
+    fun `alarm auto-stop with max 0 uses alarm duration`() {
         assertEquals(
-            30_000L,
-            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 1, timerDurationMs = 30_000L, alarmDurationMs = 60_000L),
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 0, maxAutoSnoozes = 0, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after one snooze uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 1, maxAutoSnoozes = 1, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after two snoozes uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 2, maxAutoSnoozes = 2, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
+        )
+    }
+
+    @Test
+    fun `alarm auto-stop after three snoozes uses alarm duration`() {
+        assertEquals(
+            45_000L,
+            lifecycleTimeoutDurationMs(ClockEventType.ALARM, autoSnoozeCount = 3, maxAutoSnoozes = 3, timerDurationMs = 15_000L, alarmDurationMs = 45_000L),
         )
     }
 

@@ -43,11 +43,20 @@ internal fun resolveAlertLifecycleAction(
 }
 
 /**
- * Duration the ringtone/vibration plays before the lifecycle action fires.
+ * Duration the ringtone/vibration plays before the lifecycle timeout fires.
  *
- * @param timerDurationMs duration for auto-stop actions (timers and snooze re-triggers).
- *   Default: [TIMER_AUTO_STOP_DURATION_MS].
- * @param alarmDurationMs duration for auto-snooze actions (first alarm ring).
+ * Selection is purely based on [type]:
+ * - [ClockEventType.TIMER] → [timerDurationMs]
+ * - [ClockEventType.ALARM] → [alarmDurationMs] (whether auto-snooze or auto-stop)
+ * - [ClockEventType.PRE_ALARM] → 0L (no timeout)
+ *
+ * The [autoSnoozeCount] and [maxAutoSnoozes] parameters control *whether* the
+ * timeout action is [ClockAlertLifecycleAction.AUTO_SNOOZE] or
+ * [ClockAlertLifecycleAction.AUTO_STOP], but both actions use [alarmDurationMs]
+ * for alarms and [timerDurationMs] for timers.
+ *
+ * @param timerDurationMs duration for timer timeouts. Default: [TIMER_AUTO_STOP_DURATION_MS].
+ * @param alarmDurationMs duration for alarm timeouts (both auto-snooze and auto-stop).
  *   Default: [ALARM_AUTO_SNOOZE_DURATION_MS].
  */
 internal fun lifecycleTimeoutDurationMs(
@@ -56,10 +65,10 @@ internal fun lifecycleTimeoutDurationMs(
     maxAutoSnoozes: Int = 1,
     timerDurationMs: Long = TIMER_AUTO_STOP_DURATION_MS,
     alarmDurationMs: Long = ALARM_AUTO_SNOOZE_DURATION_MS,
-): Long = when (resolveAlertLifecycleAction(type, autoSnoozeCount, maxAutoSnoozes)) {
-    ClockAlertLifecycleAction.AUTO_STOP -> timerDurationMs
-    ClockAlertLifecycleAction.AUTO_SNOOZE -> alarmDurationMs
-    null -> 0L
+): Long = when (type) {
+    ClockEventType.TIMER -> timerDurationMs
+    ClockEventType.ALARM -> alarmDurationMs
+    ClockEventType.PRE_ALARM -> 0L
 }
 
 /** How long a timer rings unattended before auto-stopping. */

@@ -932,7 +932,8 @@ Scope:
     `AUTO_STOP` otherwise; uses `alarmRingDurationMs`.
   - Alarm snooze re-trigger: same policy as first ring (`AUTO_SNOOZE` when
     `autoSnoozeCount < maxAutoSnoozes`, `AUTO_STOP` otherwise); uses
-    `timerAutoStopDurationMs` (short ring duration for re-triggers).
+    `alarmRingDurationMs` (alarm timeout always uses alarm duration, whether
+    auto-snooze or auto-stop outcome).
   - Pre-alarm: no lifecycle action.
 
 Implementation details:
