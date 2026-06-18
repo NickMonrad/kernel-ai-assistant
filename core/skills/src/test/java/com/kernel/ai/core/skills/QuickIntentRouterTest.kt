@@ -3328,6 +3328,7 @@ class QuickIntentRouterTest {
             Arguments.of("weather in Wellington", "Wellington"),
             Arguments.of("weather forecast for Paris", "Paris"),
             Arguments.of("how's the weather in Sydney", "Sydney"),
+            Arguments.of("What's the weather in Brisbane?", "Brisbane"),
             Arguments.of("weather forecast for the weekend", "the weekend"),
         )
 
@@ -3347,6 +3348,7 @@ class QuickIntentRouterTest {
             Arguments.of("what is the weather looking like"),
             Arguments.of("what's the weather like"),
             Arguments.of("how's the weather like"),
+            Arguments.of("What's the weather?"),
         )
 
         @JvmStatic
@@ -3409,6 +3411,8 @@ class QuickIntentRouterTest {
             // Location-aware "like" and "looking like for" variants
             Arguments.of("what's the weather like for the next 3 days in Auckland", "3", "Auckland"),
             Arguments.of("what's the weather looking like for the next few days in Wellington", "3", "Wellington"),
+            // Issue #1280 — explicit exact prompt coverage
+            Arguments.of("What's the 5 day forecast?", "5", null),
         )
 
         @JvmStatic
