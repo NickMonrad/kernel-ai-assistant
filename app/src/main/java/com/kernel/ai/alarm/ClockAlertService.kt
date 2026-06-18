@@ -219,6 +219,7 @@ class ClockAlertService : Service() {
         stopPlayback()
         activeAlerts.clear()
         activeAlertConfigs.clear()
+        syncActiveAlertSnapshot()
         super.onDestroy()
     }
 
