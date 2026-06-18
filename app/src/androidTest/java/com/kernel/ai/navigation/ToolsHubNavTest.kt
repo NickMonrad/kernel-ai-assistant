@@ -346,6 +346,25 @@ class ToolsHubNavTest {
     }
 
     @Test
+    fun toolsLearnScreen_showsSectionHeadings() {
+        composeTestRule.setContent {
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
+            )
+        }
+
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_group_lists"))
+        composeTestRule.onNodeWithTag("tools_learn_group_lists").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Lists").assertIsDisplayed()
+
+        screenNode.performScrollToNode(hasTestTag("tools_learn_group_weather"))
+        composeTestRule.onNodeWithTag("tools_learn_group_weather").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Weather").assertIsDisplayed()
+    }
+
+    @Test
     fun toolsLearnScreen_showsDefaultExamplesCollapsed() {
         composeTestRule.setContent {
             ToolsLearnScreen(

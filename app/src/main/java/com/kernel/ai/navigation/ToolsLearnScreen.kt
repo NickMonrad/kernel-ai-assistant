@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 data class ToolExamplePrompt(
@@ -187,16 +189,19 @@ fun ToolsLearnScreen(
                     .testTag("tools_learn_privacy_note"),
             )
             Spacer(modifier = Modifier.height(8.dp))
-
-            allExampleSections.forEach { section ->
+            allExampleSections.forEachIndexed { index, section ->
                 val isExpanded = section.id in expandedSectionIds
-                Text(
-                    text = section.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag(section.groupTag),
+                if (index > 0) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                LearnSectionHeader(
+                    title = section.title,
+                    testTag = section.groupTag,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
 
                 section.defaultExamples.forEach { example ->
@@ -253,6 +258,28 @@ fun ToolsLearnScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun LearnSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    testTag: String,
+) {
+    Column(modifier = modifier.testTag(testTag)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        HorizontalDivider(
+            modifier = Modifier.width(96.dp),
+            color = MaterialTheme.colorScheme.primary,
+            thickness = 2.dp,
+        )
     }
 }
 
