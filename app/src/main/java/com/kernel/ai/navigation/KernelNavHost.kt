@@ -525,6 +525,9 @@ fun KernelNavHost(
                             onNavigateToSettings = {
                                 navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
                             },
+                            onNavigateToAppPermissions = {
+                                navController.navigate(ROUTE_APP_PERMISSIONS) { launchSingleTop = true }
+                            },
                         )
                     }
                 }

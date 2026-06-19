@@ -1,7 +1,9 @@
 package com.kernel.ai.feature.chat
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -113,6 +115,7 @@ fun ActionsScreen(
     onNavigateToChat: (query: String, speakResponse: Boolean) -> Unit = { _, _ -> },
     onNewConversation: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAppPermissions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
@@ -124,6 +127,7 @@ fun ActionsScreen(
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
+    val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -172,7 +176,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
-            viewModel.onPhonePermissionDenied()
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.CALL_PHONE,
+            )
+            viewModel.onPhonePermissionDenied(permanent)
         }
     }
 
@@ -255,6 +263,17 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                is ActionsViewModel.UiEvent.LaunchDialer -> {
+                    val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                        data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    runCatching {
+                        context.startActivity(dialIntent)
+                    }
+                }
+                ActionsViewModel.UiEvent.NavigateToAppPermissions ->
+                    onNavigateToAppPermissions()
             }
         }
     }

@@ -1044,7 +1044,7 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
-    fun `make call permission flow emits event and retries after grant`() = runTest(dispatcher) {
+    fun `make call permission flow emits state and retries after grant`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
         val events = mutableListOf<ActionsViewModel.UiEvent>()
         val collectJob = launch { viewModel.events.collect { events += it } }
@@ -1061,22 +1061,28 @@ class ActionsViewModelVoiceTest {
         every { runIntentSkill.description } returns "Run intent"
         every { runIntentSkill.schema } returns SkillSchema()
         coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
-SkillResult.Failure("make_call", "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."),
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
             SkillResult.Success("Calling susan monrad"),
         )
 
         viewModel.executeAction("call susan monrad", InputMode.Text)
         advanceUntilIdle()
 
-        assertEquals(
-            listOf(ActionsViewModel.UiEvent.RequestPhonePermission),
-            events,
-        )
+        // Instead of emitting RequestPhonePermission, sets handsFreeCallingState
+        assertNotNull(viewModel.handsFreeCallingState.value)
+        assertEquals("021111222", viewModel.handsFreeCallingState.value!!.phoneNumber)
+        assertEquals("susan monrad", viewModel.handsFreeCallingState.value!!.contact)
+        assertEquals(false, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+
         coVerify {
             quickActionDao.insert(
                 match {
                     it.skillName == "make_call" &&
-it.resultText == "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it." &&
+                        it.resultText == "Permission required for make_call" &&
                         !it.isSuccess
                 }
             )

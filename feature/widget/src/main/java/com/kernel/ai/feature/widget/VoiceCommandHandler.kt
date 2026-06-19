@@ -107,6 +107,10 @@ class VoiceCommandHandler @Inject constructor(
             userQuery = query, skillName = skillName,
             resultText = "Parse error: ${result.reason}", isSuccess = false,
         )
+        is SkillResult.CapabilityRequired -> QuickActionEntity(
+            userQuery = query, skillName = skillName,
+            resultText = "Permission required for ${result.capabilityKey.name}", isSuccess = false,
+        )
     }
 
     private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {

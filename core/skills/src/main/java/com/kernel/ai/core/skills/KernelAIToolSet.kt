@@ -289,6 +289,11 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.Failure -> mapOf("error" to result.error)
                 is SkillResult.ParseError -> mapOf("error" to "Parse error: ${result.reason}")
                 is SkillResult.UnknownSkill -> mapOf("error" to "Unknown skill: ${result.skillName}")
+                is SkillResult.CapabilityRequired -> mapOf(
+                    "capability_required" to result.capabilityKey.name,
+                    "skill" to result.skillName,
+                    "contextParams" to result.contextParams.entries.joinToString(",") { "${it.key}=${it.value}" },
+                )
             }
         } catch (e: Exception) {
             lastToolPresentation = null
