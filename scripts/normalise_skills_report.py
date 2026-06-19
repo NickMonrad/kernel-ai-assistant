@@ -147,6 +147,7 @@ def _build_failures(r: dict) -> list[str]:
 def normalise_skills_case(r: dict) -> dict:
     """Normalise one raw skills result dict into a schema-compliant case dict."""
     name = _slugify(r.get("message", f"case_{r.get('index', 0)}"))
+    phase = r.get("phase", None)
 
     xfail = r.get("xfail", False)
     intent_passed = r.get("intent_passed", False)
@@ -156,6 +157,7 @@ def normalise_skills_case(r: dict) -> dict:
     if xfail:
         return {
             "name": name,
+            "phase": phase,
             "passed": True,
             "expected_tool": r.get("expect_intent"),
             "actual_tool": r.get("actual_intent"),
@@ -181,6 +183,7 @@ def normalise_skills_case(r: dict) -> dict:
 
     return {
         "name": name,
+        "phase": phase,
         "passed": passed,
         "expected_tool": r.get("expect_intent"),
         "actual_tool": actual_tool,

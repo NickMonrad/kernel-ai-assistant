@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Publish launch validation evidence from ADB harness raw JSON output.
 
-Chains: raw harness JSON → normalise → publish → dashboard trigger.
+Chains: raw harness JSON → normalise → bundle → publish → dashboard trigger.
 
 Usage:
-  # From a raw harness report in scripts/test-reports/:
+  # Publish a specific harness report with full evidence bundle:
   python3 scripts/publish_launch_validation_evidence.py \\
     --input scripts/test-reports/2026-06-18T12-00-00Z_skills.json \\
     --device-id s21-exynos \\
@@ -14,30 +14,42 @@ Usage:
     --serial R5CR605B71K \\
     --pr 1292
 
-  # Publish the most recent skills or llm_tools report in test-reports/:
+  # Publish the most recent skills/llm_tools report in test-reports/:
   python3 scripts/publish_launch_validation_evidence.py --latest --source on_device
 
   # Publish S23U targeted smoke evidence (when run):
+  # NOTE: S23U uses the reference model (Gemma 4 E-4B), not E-2B.
+  #       Broad/full suites are NOT permitted on the daily driver.
   python3 scripts/publish_launch_validation_evidence.py \\
     --input path/to/s23u-skills.json \\
     --device-id s23-ultra \\
-    --model-name "Gemma 4 E-2B" \\
+    --model-name "Gemma 4 E-4B" \\
     --model-runtime LiteRT \\
     --model-backend GPU \\
     --serial <S23U_SERIAL> \\
     --pr <PR_NUM> \\
-    --suite "skills-targeted"
+    --suite skills-targeted
 
   # After a harness run finishes, auto-publish:
   python3 scripts/adb_skill_test.py [..args..] && \\
   python3 scripts/publish_launch_validation_evidence.py --latest --source on_device --pr <PR_NUM>
+
+Output bundle (in docs/test-triage/evidence/{date}/{device-id}/):
+  - Raw harness JSON (copied from source)
+  - Normalised evidence JSON (*_evidence.json)
+  - Case CSV (*_cases.csv)
+  - Markdown summary (*_summary.md, from normaliser)
+  - Launch validation summary (launch-validation-summary.md, enriched Markdown)
+
+The full bundle is published to the test-results branch via
+scripts/publish_test_evidence.py --input-dir <out_dir>.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import shutil
 import re
 import subprocess
 import sys
@@ -154,6 +166,9 @@ def _build_launch_markdown(
     serial: str,
     build_sha: str,
     branch: str,
+    excluded: int | None = None,
+    not_reached: int | None = None,
+    suite_context: str | None = None,
 ) -> str:
     """Build an evidence-summary Markdown document with full accounting.
 
@@ -169,13 +184,10 @@ def _build_launch_markdown(
     dev = normalised["device"]
     md = normalised["model"]
 
-    # Phase breakdown from cases
+    # Phase breakdown from normalised cases (now carrying phase from raw harness)
     phases: dict[str, dict[str, int]] = {}
     for c in cases:
-        # Derive phase from the raw case_name convention (first segment)
-        phase = c.get("name", "unknown").split("_")[0] if c.get("name") else "unknown"
-        # Adjust: some phases have multi-word names we can't reconstruct from cases alone.
-        # Use the raw report's phase field if available.
+        phase = c.get("phase") or "unknown"
         if phase not in phases:
             phases[phase] = {"pass": 0, "fail": 0, "xfail": 0, "total": 0}
         if c["passed"]:
@@ -188,8 +200,31 @@ def _build_launch_markdown(
     PHASE_ORDER = [
         "alarm_timer", "weather", "media", "lists", "smart_home",
         "memory", "navigation", "system", "misc", "slot_fill",
-        "orchestrator", "false",
+        "orchestrator_recovery", "false_positives",
     ]
+
+    total = s["total"]
+    passed = s["passed"]
+    failed = s["failed"]
+
+    # Handle not_reached / excluded — honest about unknowns
+    not_reached_str: str
+    if not_reached is not None:
+        not_reached_str = str(not_reached)
+    else:
+        not_reached_str = "not provided by source evidence"
+
+    excluded_str: str
+    if excluded is not None:
+        excluded_str = str(excluded)
+    else:
+        excluded_str = "not provided by source evidence"
+
+    reached_str: str
+    if not_reached is not None and not_reached > 0:
+        reached_str = f"{total} (not-reached phases: {not_reached})"
+    else:
+        reached_str = f"{total}"
 
     lines = [
         f"# Launch Validation Evidence",
@@ -199,26 +234,59 @@ def _build_launch_markdown(
         f"Build: `{build_sha[:10]}` on `{branch}`  ",
         f"Timestamp: {normalised['timestamp']}",
         f"",
+    ]
+
+    if suite_context:
+        lines.extend([
+            f"> **Suite context:** {suite_context}",
+            f"",
+        ])
+
+    lines.extend([
         f"## Suite Sizing",
         f"",
         f"| Level | Count |",
         f"|-------|-------|",
         f"| Full suite (all test phases) | See raw report |",
-        f"| Excluded (destructive, device_state) | See raw report |",
-        f"| **In-scope (selected by harness)** | **{s['total']}** |",
-        f"| Reached (phases that completed) | **{s['total']}** (all in this report) |",
-        f"| Not reached (timeout / not started) | 0 (single-run report) |",
+        f"| Excluded (destructive, device_state) | {excluded_str} |",
+        f"| **In-scope (selected by harness)** | **{total}** |",
+        f"| Reached (phases that completed) | {reached_str} |",
+        f"| Not reached (timeout / not started) | {not_reached_str} |",
         f"",
         f"## Pass/Fail Summary",
         f"",
         f"| Metric | Value |",
         f"|--------|-------|",
-        f"| Total | {s['total']} |",
-        f"| Passed | {s['passed']} |",
-        f"| Failed | {s['failed']} |",
+        f"| Total | {total} |",
+        f"| Passed | {passed} |",
+        f"| Failed | {failed} |",
         f"| Pass rate | {s['pass_rate']:.1%} |",
         f"",
-    ]
+    ])
+
+    # Phase breakdown table
+    if phases:
+        lines.extend([
+            f"## Phase Breakdown",
+            f"",
+            f"| Phase | Total | Pass | Fail |",
+            f"|-------|-------|------|------|",
+        ])
+        for phase_name in PHASE_ORDER:
+            if phase_name in phases:
+                p = phases[phase_name]
+                lines.append(
+                    f"| {phase_name} | {p['total']} | {p['pass']} | {p['fail']} |"
+                )
+        # Any phases not in the standard order
+        for phase_name in sorted(phases):
+            if phase_name not in PHASE_ORDER:
+                p = phases[phase_name]
+                lines.append(
+                    f"| {phase_name} | {p['total']} | {p['pass']} | {p['fail']} |"
+                )
+        lines.append(f"| **Total** | **{total}** | **{passed}** | **{failed}** |")
+        lines.append(f"")
 
     if md.get("name"):
         lines.extend([
@@ -238,8 +306,10 @@ def _build_launch_markdown(
         f"",
         f"| Type | Path |",
         f"|------|------|",
-        f"| Raw harness JSON | `{raw_report_path}` |",
+        f"| Raw harness JSON | `{raw_report_path}` (in `raw/` subdirectory) |",
         f"| Normalised evidence JSON | `{evidence_path}` |",
+        f"| Case CSV | `{evidence_path.parent / ('*_cases.csv')}` |",
+        f"| Normalised summary | `{evidence_path.parent / ('*_summary.md')}` |",
         f"",
     ])
 
@@ -316,6 +386,19 @@ def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be done without publishing",
+    )
+    parser.add_argument(
+        "--excluded", type=int, default=None,
+        help="Number of excluded cases (destructive, device_state, etc.)",
+    )
+    parser.add_argument(
+        "--not-reached", type=int, default=None,
+        help="Number of cases not reached due to timeout or resume boundary",
+    )
+    parser.add_argument(
+        "--suite-context", default=None,
+        help="Short phrase describing suite context, e.g. 'partial (resumed at navigation)', "
+             "'targeted smoke (3 phases)', 'timeout-affected after ~46 cases'",
     )
 
     args = parser.parse_args()
@@ -415,9 +498,23 @@ def main() -> None:
             print(f"    --release {args.release}")
         if suite != raw_suite:
             print(f"    --suite {suite}")
-        print(f"\n  Then publish via scripts/publish_test_evidence.py")
+        print(f"\n  Then publish bundle via scripts/publish_test_evidence.py \\")
+        print(f"    --input-dir {out_dir} \\")
+        print(f"    --source {args.source} \\")
+        print(f"    --commit {build_sha} \\")
+        if args.pr:
+            print(f"    --pr {args.pr}")
+        if args.release:
+            print(f"    --release {args.release}")
+        print(f"\n  Then publish bundle via scripts/publish_test_evidence.py \\")
+        print(f"    --input-dir {out_dir} \\")
+        print(f"\n  Bundle will contain:")
+        print(f"    - raw/ (subdirectory with raw harness JSON)")
+        print(f"    - *_evidence.json (normalised)")
+        print(f"    - *_cases.csv (spreadsheet)")
+        print(f"    - *_summary.md (normalised summary)")
+        print(f"    - launch-validation-summary.md (enriched Markdown)")
         print(f"  SKIP: --dry-run flag set")
-        return
 
     # ── Step 1: Normalise ──────────────────────────────────────────────
     normaliser_path = HERE / normaliser
@@ -449,6 +546,15 @@ def main() -> None:
         sys.exit(result.returncode)
     print(f"  ✓ Normalisation complete\n")
 
+    # ── Step 1.5: Copy raw JSON into evidence bundle (in raw/ subdir) ──
+    raw_subdir = out_dir / "raw"
+    raw_subdir.mkdir(parents=True, exist_ok=True)
+    raw_in_bundle = raw_subdir / raw_path.name
+    if not raw_in_bundle.exists():
+        shutil.copy2(str(raw_path), str(raw_in_bundle))
+        print(f"  ✓ Raw JSON copied to bundle: {raw_in_bundle}")
+    else:
+        print(f"  ✓ Raw JSON already in bundle: {raw_in_bundle}")
     # ── Find the normalised JSON output ────────────────────────────────
     norm_jsons = sorted(out_dir.glob("*_evidence.json")) + sorted(out_dir.glob("*_skills_evidence.json"))
     if not norm_jsons:
@@ -460,24 +566,25 @@ def main() -> None:
     normalised = _load_json(evidence_json)
     md = _build_launch_markdown(
         evidence_path=evidence_json,
-        raw_report_path=raw_path,
+        raw_report_path=raw_in_bundle,
         normalised=normalised,
         device_id=device_id,
         serial=serial or "",
         build_sha=build_sha,
         branch=branch,
+        excluded=args.excluded,
+        not_reached=args.not_reached,
+        suite_context=args.suite_context,
     )
     md_path = out_dir / "launch-validation-summary.md"
     md_path.write_text(md)
     print(f"  ✓ Launch validation summary: {md_path}\n")
-
-    # ── Step 3: Publish to test-results branch ─────────────────────────
     _check_git_available()
     publish_script = HERE / "publish_test_evidence.py"
 
     publish_cmd = [
         sys.executable, str(publish_script),
-        "--input", str(evidence_json),
+        "--input-dir", str(out_dir),
         "--source", args.source,
         "--commit", build_sha,
     ]
@@ -493,20 +600,20 @@ def main() -> None:
         print(f"  This may be due to test-results branch not existing yet,", file=sys.stderr)
         print(f"  or no changes to commit. The normalised evidence files", file=sys.stderr)
         print(f"  are still available locally.", file=sys.stderr)
-    else:
-        print(f"  ✓ Evidence published to test-results branch\n")
-
-    # ── Final summary ──────────────────────────────────────────────────
     s = normalised.get("summary", {})
+    bundle_files = sorted(out_dir.iterdir())
     print(f"{'=' * 56}")
     print(f"  Evidence publication complete:")
     print(f"  • {s.get('total', 0)} cases | {s.get('passed', 0)} passed | {s.get('failed', 0)} failed")
-    print(f"  • Normalised: {evidence_json}")
-    print(f"  • Summary:    {md_path}")
+    print(f"  • Bundle location: {out_dir}/")
+    for bf in bundle_files:
+        if bf.is_dir():
+            print(f"    - {bf.name}/")
+        elif bf.is_file():
+            print(f"    - {bf.name}")
     if pub_result.returncode == 0:
         print(f"  • Published to test-results branch ✓")
     print(f"{'=' * 56}")
-
     # ── Dashboard rebuild trigger note ─────────────────────────────────
     if args.pr:
         print(f"\n  To trigger dashboard rebuild:")

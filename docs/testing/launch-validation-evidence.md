@@ -76,10 +76,33 @@ python3 scripts/publish_launch_validation_evidence.py \
   --pr <PR_NUMBER>
 ```
 
+
+**Partial / timeout-affected runs:**
+
+For runs that timed out or were resumed from a specific phase, provide the
+`--suite-context` and `--not-reached` flags to make the summary accurate:
+
+```bash
+# After a resumed run that caught the last 6 phases
+python3 scripts/publish_launch_validation_evidence.py \
+  --latest --source on_device \
+  --device-id s21-exynos \
+  --serial R5CR605B71K \
+  --model-name "Gemma 4 E-2B" \
+  --model-runtime LiteRT \
+  --model-backend GPU \
+  --pr <PR_NUMBER> \
+  --suite-context "partial (resumed at navigation phase)" \
+  --not-reached 29
+```
 ### S23 Ultra (reference / release-blocking)
 
-The S23 Ultra (SM-S918B) is the **reference** device. Run only **targeted
-smoke tests** — it is a daily driver and must not run full suites.
+The S23 Ultra (SM-S918B) is the **reference** device. It runs the **reference
+model (Gemma 4 E-4B)** — NOT the tracked E-2B used on S21.
+
+> ⚠ **IMPORTANT: Do not run full suites on S23 Ultra.** It is a daily driver.
+> Only targeted smoke/comparison tests as explicitly approved by Nick.
+> Broad or full-suite runs are never permitted on this device.
 
 ```bash
 # Targeted smoke — individual phases only, short timeout
@@ -87,43 +110,47 @@ ANDROID_SERIAL=<S23U_SERIAL> ADB_WAIT_SECONDS=15 \
   python3 scripts/adb_skill_test.py \
   --phases alarm_timer,weather,slot_fill \
   --exclude-tags destructive,device_state --model-readiness
-```
-
 **Publishing:**
 
 ```bash
+# NOTE: S23U uses the reference model (E-4B), not the tracked E-2B.
 python3 scripts/publish_launch_validation_evidence.py \
   --latest --source on_device \
   --device-id s23-ultra \
   --serial <S23U_SERIAL> \
-  --model-name "Gemma 4 E-2B" \
+  --model-name "Gemma 4 E-4B" \
   --model-runtime LiteRT \
   --model-backend GPU \
   --pr <PR_NUMBER> \
-  --suite skills-targeted
+  --suite skills-targeted \
+  --suite-context "targeted smoke (3 phases)"
 ```
-
-> ⚠ **Do not run full suites on S23 Ultra.** It is a daily driver.
-> Only targeted smoke/comparison tests as approved.
-
 ## Data flow
 
-### Raw files
+### Published bundle
 
-| File | Location | Description |
-|---|---|---|
-| Raw harness JSON | `scripts/test-reports/{ts}_skills.json` | Full per-case results |
-| Normalised evidence | `docs/test-triage/evidence/{date}/{device}/*_evidence.json` | Schema-compliant |
-| Case CSV | `docs/test-triage/evidence/{date}/{device}/*_cases.csv` | Spreadsheet-friendly |
-| Markdown summary | `docs/test-triage/evidence/{date}/{device}/launch-validation-summary.md` | Human-readable |
-| CI/Markdown evidence | `docs/test-triage/evidence/{date}/` (date-organised) | Published for wider reference |
+The `publish_launch_validation_evidence.py` script creates a **full evidence
+bundle** at `docs/test-triage/evidence/{date}/{device}/`:
+
+| Path | Description | Published to dashboard? |
+|------|-------------|------------------------|
+| `raw/{ts}_skills.json` | Raw harness JSON (copied from source) | No (in `raw/` subdir) |
+| `{ts}_skills_evidence.json` | Normalised evidence (v1.0 with per-case `phase`) | Yes |
+| `{ts}_skills_cases.csv` | Spreadsheet-friendly case results | Yes |
+| `{ts}_skills_summary.md` | Normalised Markdown summary | Yes |
+| `launch-validation-summary.md` | Enriched Markdown with phase breakdown | Yes |
+
+The non-raw files are pushed to the `test-results` branch by
+`publish_test_evidence.py --input-dir <out_dir>`, which publishes every
+`.json`, `.csv`, and `.md` file in the top level of the bundle directory.
+The `raw/` subdirectory is excluded from dashboard publication.
 
 ### Dashboard publication
 
-The normalised evidence JSON is pushed to the `test-results` git branch by
-`scripts/publish_test_evidence.py`. The GitHub Pages dashboard
-(`.github/workflows/publish-test-dashboard.yml`) reads from this branch and
-rebuilds on every push or when triggered manually.
+The normalised evidence JSON, CSV, and summaries are pushed to the `test-results`
+git branch by `scripts/publish_test_evidence.py` using `--input-dir <out_dir>`
+directory mode. The GitHub Pages dashboard (`.github/workflows/publish-test-dashboard.yml`)
+reads from this branch and rebuilds on every push or when triggered manually.
 
 **Manual dashboard trigger:**
 
@@ -150,6 +177,7 @@ Every evidence publication includes these fields for reliable accounting:
 | `summary.failed` | int | Cases that failed |
 | `summary.pass_rate` | float | Passed / total |
 | `cases[].passed` | bool | Individual case result |
+| `cases[].phase` | str\|null | Test phase e.g. `alarm_timer` (from raw harness) |
 | `cases[].failure_category` | str\|null | Reason for failure |
 | `cases[].expected_tool` | str\|null | Expected intent/tool |
 | `cases[].actual_tool` | str\|null | Actual intent/tool |
@@ -169,19 +197,23 @@ Every evidence publication includes these fields for reliable accounting:
   summary only; the raw harness JSON files were on the ADB device and not
   committed. All future runs should use this workflow to capture evidence.
 - **Dashboard rebuild requires manual trigger or CI push.**
-  Local `publish_test_evidence.py` runs push to `test-results` branch but do
-  not automatically trigger the Pages rebuild workflow. Use the dispatch
-  command above or the Actions UI to rebuild.
-- **Normalised schema does not preserve per-phase breakdown.**
-  Phase-level data exists in the raw harness JSON; the normalised evidence
-  schema (v1.0) treats all cases in a flat list. Per-phase filtering requires
-  reading the raw JSON or the Markdown summary.
+  Local `publish_test_evidence.py --input-dir` runs push to `test-results`
+  branch but do not automatically trigger the Pages rebuild workflow. Use the
+  dispatch command above or the Actions UI to rebuild.
+- **Phase breakdown is now available in the normalised schema.**
+  Each case carries a `phase` field populated from the raw harness. The
+  `launch-validation-summary.md` includes a phase-level pass/fail table.
+  Raw JSON still contains the most detailed per-case data.
+- **not_reached / excluded counts**: these are optional CLI arguments
+  (`--not-reached`, `--excluded`). When not provided, the summary reports
+  `not provided by source evidence` rather than assuming zero.
 
 ## Related
 
 - Issue [#1295](https://github.com/NickMonrad/kernel-ai-assistant/issues/1295) — Publish raw harness JSON and dashboard evidence for launch validation
-- Issue [#1287](https://github.com/NickMonrad/kernel-ai-assistant/issues/1287) — Full launch-scope validation on S21 and S23U (still open)
+- Issue [#1287](https://github.com/NickMonrad/kernel-ai-assistant/issues/1287) — Full launch-scope validation on S21 and S23U (**remains open** until S23U targeted evidence is captured and published)
 - PR [#1292](https://github.com/NickMonrad/kernel-ai-assistant/pull/1292) — S21 Markdown evidence summary (merged)
+- PR [#1299](https://github.com/NickMonrad/kernel-ai-assistant/pull/1299) — Launch validation evidence publication workflow (this PR)
 - `scripts/publish_launch_validation_evidence.py` — the unified publication script
 - `scripts/normalise_skills_report.py` — skills harness normaliser
 - `scripts/publish_test_evidence.py` — evidence publisher to test-results branch
