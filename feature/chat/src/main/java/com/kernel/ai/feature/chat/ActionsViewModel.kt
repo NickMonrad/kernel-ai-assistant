@@ -601,8 +601,14 @@ class ActionsViewModel @Inject constructor(
             }
         } else {
             // Show blocked/repair state — access still not granted
-            val currentState = _dndState.value ?: return
-            _dndState.value = currentState.copy(isAccessBlocked = true)
+            // Reconstruct DndState from pending rather than relying on _dndState,
+            // which may have been cleared by onDndOpenSettings() when the user
+            // navigated to Android Settings.
+            _dndState.value = DndState(
+                intentName = pending.intentName,
+                enabled = pending.enabled,
+                isAccessBlocked = true,
+            )
         }
     }
 

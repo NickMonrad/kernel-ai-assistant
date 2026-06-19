@@ -11,6 +11,10 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -190,11 +194,19 @@ class ActionsDndDialogTest {
         }
 
         composeTestRule.waitForIdle()
-        // AlertDialog's onDismissRequest fires when tapping outside the dialog.
-        // Simulate by calling the dismiss lambda directly.
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
             .assertIsDisplayed()
         assertFalse("Dismiss should not have been called before interaction", dismissCalled)
+
+        // Click outside the dialog (top-left corner of the screen on the scrim)
+        // to trigger AlertDialog's onDismissRequest.
+        composeTestRule.onRoot().performTouchInput {
+            click(position = Offset(0f, 0f))
+        }
+
+        assertTrue("Backdrop dismiss should trigger dismiss callback", dismissCalled)
+        composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
+            .assertIsNotDisplayed()
     }
 
     // ── Test wrapper composable ────────────────────────────────────────────────
