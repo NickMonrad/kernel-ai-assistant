@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -19,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 data class ToolExamplePrompt(
@@ -167,7 +175,7 @@ fun ToolsLearnScreen(
             Text(
                 text = "Example prompts for actions, planning, weather, maps, media, and more",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .testTag("tools_learn_helper_copy"),
@@ -175,22 +183,25 @@ fun ToolsLearnScreen(
             Text(
                 text = "Examples open in Actions so you can review or edit before running. Some examples may ask a follow-up question.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .testTag("tools_learn_privacy_note"),
             )
             Spacer(modifier = Modifier.height(8.dp))
-
-            allExampleSections.forEach { section ->
+            allExampleSections.forEachIndexed { index, section ->
                 val isExpanded = section.id in expandedSectionIds
-                Text(
-                    text = section.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag(section.groupTag),
+                if (index > 0) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                LearnSectionHeader(
+                    title = section.title,
+                    testTag = section.groupTag,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
 
                 section.defaultExamples.forEach { example ->
@@ -215,7 +226,15 @@ fun ToolsLearnScreen(
                             .padding(horizontal = 16.dp)
                             .testTag(section.viewMoreTag),
                     ) {
-                        Text("Show less")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("View less")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ExpandLess,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 } else {
                     TextButton(
@@ -224,13 +243,43 @@ fun ToolsLearnScreen(
                             .padding(horizontal = 16.dp)
                             .testTag(section.viewMoreTag),
                     ) {
-                        Text("View more")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("View more")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun LearnSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    testTag: String,
+) {
+    Column(modifier = modifier.testTag(testTag)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        HorizontalDivider(
+            modifier = Modifier.width(96.dp),
+            color = MaterialTheme.colorScheme.primary,
+            thickness = 2.dp,
+        )
     }
 }
 
