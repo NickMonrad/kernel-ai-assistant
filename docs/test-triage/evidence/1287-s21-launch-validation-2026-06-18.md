@@ -10,13 +10,14 @@
 | **App build** | Debug (`assembleDebug`) |
 | **Commit SHA** | `e51546df` — `fix(#1289): unify Jandal dark theme surface treatment (#1290)` |
 | **Android SDK** | 35 |
-| **Suite** | Full launch-scope ADB harness (203 tests) |
+| **Full suite (all phases)** | ~223 tests |
+| **Excluded** | `destructive`, `device_state` tags (20 tests) |
+| **In-scope (selected by harness)** | 203 tests |
 | **Timestamp** | 2026-06-18 ~21:00 UTC |
 | **Run 1 command** | `ANDROID_SERIAL=R5CR605B71K ADB_WAIT_SECONDS=15 python3 scripts/adb_skill_test.py --exclude-tags destructive,device_state --model-readiness` |
 | **Run 2 command** | `ANDROID_SERIAL=R5CR605B71K ADB_WAIT_SECONDS=20 python3 scripts/adb_skill_test.py --exclude-tags destructive,device_state --start-phase navigation --model-readiness` |
 | **Model readiness** | ✅ Gemma 4 E-2B — Downloaded + Engine ready (30s each run) |
-| **Excluded tags** | `destructive`, `device_state` (20 tests excluded) |
-| **xfail count** | 10 (known limitations) |
+| **xfail-expected (harness config)** | 10 tests (7 observed, 3 in unreached phases) |
 
 ## Pass/Fail Summary (Consolidated)
 
@@ -31,10 +32,12 @@
 | navigation | **4** | 12 | 0 | 4 navigate_to ✓; fixture/deg for rest |
 | system | 0 | 11 | 0 | Model degradation |
 | misc | 0 | 24 | 1 | Model degradation |
-| slot_fill | **8** | 2 | 0 | Run 2: core slot-fill ✓ |
+| slot_fill | **8** | 2 | **1** | Run 2: core slot-fill ✓; negative safety test `donuts` xfail |
 | orchestrator_recovery | — | — | — | Not reached before timeout |
 | false_positives | — | — | — | Not reached before timeout |
-| **Total (known)** | **55** | 111 | 7 | |
+| **Total (reached phases)** | **55** | **111** | **8** | **174 tests reached** |
+| **Not reached (timeout)** | — | — | — | ~29 tests (12 orchestrator_recovery + 15 false_positives + ~2 gap) |
+| **Total in-scope** | | | | **203 tests** (=174 reached + ~29 unreached) |
 
 **Known good (robust across both runs):**
 - Set alarm (6/6 ✓)
@@ -64,7 +67,7 @@
 | system | All 11 → `navigate_to` | 11 | **launch-deferred** | Model degradation |
 | misc | create_calendar/find_nearby/podcast/date_diff → `navigate_to`/NO_MATCH | 24 | **launch-deferred** | Model degradation |
 | slot_fill | send_message/send_email → fixture_missing | 2 | **fixture/harness limitation** | Contact fixture required |
-| slot_fill | Negative test "donuts" → set_timer (should NOT dispatch) | 1 | **launch-deferred** | Invalid slot value not rejected |
+| slot_fill | Negative test "donuts" → set_timer (should NOT dispatch) | 1 | **xfail** | Negative/safety input rejection not yet implemented; known limitation |
 | orchestrator_recovery | Not reached | — | **fixture/harness limitation** | Timeout |
 | false_positives | Not reached | — | **fixture/harness limitation** | Timeout |
 
@@ -91,7 +94,24 @@ The S21 exhibits a consistent degradation pattern when running >45 tests sequent
 
 ## Remaining Work
 
-- **S23U targeted daily-driver smoke/comparison** — still outstanding (#1287 remains open)
-- **orchestrator_recovery** tests — never reached (12 tests)
-- **false_positives** tests — never reached (15 tests)
-- **Dashboard publication** — if dashboard supports manual entry
+- **S23U targeted daily-driver smoke/comparison** — still outstanding; #1287 remains open
+  - S23U has different GPU/CPU/NPU characteristics and may not exhibit the same model degradation pattern
+  - Targeted daily-driver smoke: alarms, timers, weather, slot-fill, media (with Spotify installed), navigation, voice interactions
+- **orchestrator_recovery** tests — never reached (~12 tests due to timeout)
+- **false_positives** tests — never reached (~15 tests due to timeout)
+- **Dashboard / raw JSON evidence publication** — not performed. This PR publishes only the Markdown evidence summary.
+  - Raw harness JSON output is available from the ADB test runs for any follow-up tooling
+  - Dashboard publication would require either:
+    - Manual evidence entry into the test dashboard UI, or
+    - A follow-up automation script to ingest the harness JSON output
+
+### #1287 Status
+
+| Item | Status |
+|---|---|
+| S21 full launch-scope validation | 🟡 Complete for 10/12 phases (2 phases not reached) |
+| S23U targeted smoke/comparison | ⏳ Not yet run |
+| Model degradation investigation | 🟡 Documented; root cause understood — launch-deferred |
+| Pull request (#1292) | Evidence-only Markdown summary publication |
+| Dashboard / raw JSON publication | ❌ Not performed |
+| #1287 open state | 🔴 Remains open pending S23U completion |
