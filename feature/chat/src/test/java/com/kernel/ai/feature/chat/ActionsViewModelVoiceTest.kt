@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.SlotSpec
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -47,6 +48,7 @@ import kotlinx.coroutines.test.resetMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -1102,6 +1104,175 @@ class ActionsViewModelVoiceTest {
             )
         }
         collectJob.cancel()
+    }
+
+    @Test
+    fun `dnd capability required creates pending DND action state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.DoNotDisturbControl,
+            skillName = "toggle_dnd_on",
+            contextParams = mapOf("enabled" to "true"),
+        )
+
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.dndState.value)
+        assertEquals("toggle_dnd_on", viewModel.dndState.value!!.intentName)
+        assertEquals(true, viewModel.dndState.value!!.enabled)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "toggle_dnd_on" &&
+                        it.resultText == "Permission required for toggle_dnd_on" &&
+                        !it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `dnd open settings emits OpenDndSettings event`() = runTest(dispatcher) {
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+
+        assertEquals(1, events.size)
+        assert(events[0] is ActionsViewModel.UiEvent.OpenDndSettings)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `dnd dismiss clears pending state`() = runTest(dispatcher) {
+        // Prime DND state
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn off do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_off",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_off") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.DoNotDisturbControl,
+            skillName = "toggle_dnd_off",
+            contextParams = mapOf("enabled" to "false"),
+        )
+
+        viewModel.executeAction("turn off do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+
+        viewModel.dismissDndDialog()
+        advanceUntilIdle()
+
+        assertNull(viewModel.dndState.value)
+    }
+
+    @Test
+    fun `dnd resume check with granted access retries action`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = "toggle_dnd_on",
+                contextParams = mapOf("enabled" to "true"),
+            ),
+            SkillResult.Success("Do Not Disturb is on"),
+        )
+
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+
+        // Simulate resume with granted access
+        viewModel.onDndResumeCheck(hasAccess = true)
+        advanceUntilIdle()
+
+        // Should have retried the action
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        // Should have inserted success result
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "toggle_dnd_on" &&
+                        it.resultText == "Do Not Disturb is on" &&
+                        it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `dnd resume check without grant shows blocked state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.DoNotDisturbControl,
+            skillName = "toggle_dnd_on",
+            contextParams = mapOf("enabled" to "true"),
+        )
+
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        // Simulate resume without granted access
+        viewModel.onDndResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+
+        // Should now show blocked state
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(true, viewModel.dndState.value!!.isAccessBlocked)
+
+        // Should NOT have inserted a second action result
+        coVerify(exactly = 1) { runIntentSkill.execute(any()) }
     }
 
     @Test

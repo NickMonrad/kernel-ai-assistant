@@ -1,7 +1,9 @@
 package com.kernel.ai.feature.chat
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
@@ -128,6 +130,7 @@ fun ActionsScreen(
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
+    val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -274,12 +277,27 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.NavigateToAppPermissions ->
                     onNavigateToAppPermissions()
+                ActionsViewModel.UiEvent.OpenDndSettings -> {
+                    val dndSettingsIntent = Intent(
+                        android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS,
+                    ).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    runCatching {
+                        context.startActivity(dndSettingsIntent)
+                    }
+                }
             }
         }
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val hasDndAccess = (context.getSystemService(Context.NOTIFICATION_SERVICE)
+                    as? NotificationManager)?.isNotificationPolicyAccessGranted == true
+                viewModel.onDndResumeCheck(hasDndAccess)
+            }
             if (event == Lifecycle.Event.ON_STOP) {
                 Log.d(
                     ACTIONS_SCREEN_TAG,
@@ -590,6 +608,43 @@ fun ActionsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // DND special-access contextual surface
+    dndState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissDndDialog() },
+            title = {
+                Text(
+                    if (state.isAccessBlocked) {
+                        "Jandal still needs Do Not Disturb access"
+                    } else {
+                        "Allow Jandal to control Do Not Disturb?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    if (state.isAccessBlocked) {
+                        "Jandal still does not have Do Not Disturb access. " +
+                            "Open DND access settings to grant it, then return to Jandal."
+                    } else {
+                        "Android requires special access before Jandal can " +
+                            "turn Do Not Disturb on or off."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.onDndOpenSettings() }) {
+                    Text("Open DND access settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissDndDialog() }) {
+                    Text("Not now")
+                }
             },
         )
     }

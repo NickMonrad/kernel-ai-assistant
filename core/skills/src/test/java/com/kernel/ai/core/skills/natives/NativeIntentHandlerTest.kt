@@ -3,6 +3,8 @@ package com.kernel.ai.core.skills.natives
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.app.NotificationManager
+import com.kernel.ai.core.permissions.CapabilityKey
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.AudioManager
@@ -2368,5 +2370,92 @@ class NativeIntentHandlerTest {
             date4,
         )
         assertEquals("3:00 p.m.", resolved4.second)
-     }
+    }
+
+    @Nested
+    @DisplayName("Do Not Disturb")
+    inner class DoNotDisturbRow {
+
+        @Test
+        fun `toggle_dnd_on with granted access returns success`() {
+            val nm = mockk<NotificationManager>(relaxed = true)
+            every { nm.isNotificationPolicyAccessGranted } returns true
+            every {
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+            } returns nm
+
+            val result = handleIntent("toggle_dnd_on", emptyMap())
+
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertEquals("Do Not Disturb is on", (result as SkillResult.Success).content)
+            verify { nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE) }
+        }
+
+        @Test
+        fun `toggle_dnd_off with granted access returns success`() {
+            val nm = mockk<NotificationManager>(relaxed = true)
+            every { nm.isNotificationPolicyAccessGranted } returns true
+            every {
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+            } returns nm
+
+            val result = handleIntent("toggle_dnd_off", emptyMap())
+
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertEquals("Do Not Disturb is off", (result as SkillResult.Success).content)
+            verify { nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL) }
+        }
+
+        @Test
+        fun `toggle_dnd_on with missing access returns CapabilityRequired`() {
+            val nm = mockk<NotificationManager>(relaxed = true)
+            every { nm.isNotificationPolicyAccessGranted } returns false
+            every {
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+            } returns nm
+
+            val result = handleIntent("toggle_dnd_on", emptyMap())
+
+            assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+            val capResult = result as SkillResult.CapabilityRequired
+            assertEquals(CapabilityKey.DoNotDisturbControl, capResult.capabilityKey)
+            assertEquals("toggle_dnd_on", capResult.skillName)
+            assertEquals("true", capResult.contextParams["enabled"])
+            // Must NOT directly launch settings
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `toggle_dnd_off with missing access returns CapabilityRequired`() {
+            val nm = mockk<NotificationManager>(relaxed = true)
+            every { nm.isNotificationPolicyAccessGranted } returns false
+            every {
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+            } returns nm
+
+            val result = handleIntent("toggle_dnd_off", emptyMap())
+
+            assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+            val capResult = result as SkillResult.CapabilityRequired
+            assertEquals(CapabilityKey.DoNotDisturbControl, capResult.capabilityKey)
+            assertEquals("toggle_dnd_off", capResult.skillName)
+            assertEquals("false", capResult.contextParams["enabled"])
+            // Must NOT directly launch settings
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `missing access does not produce misleading success result`() {
+            val nm = mockk<NotificationManager>(relaxed = true)
+            every { nm.isNotificationPolicyAccessGranted } returns false
+            every {
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+            } returns nm
+
+            val result = handleIntent("toggle_dnd_on", emptyMap())
+
+            // Must NOT be Success
+            assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+        }
+    }
 }
