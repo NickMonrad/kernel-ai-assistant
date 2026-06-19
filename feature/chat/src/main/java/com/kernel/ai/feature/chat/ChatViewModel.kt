@@ -2949,6 +2949,7 @@ class ChatViewModel @Inject constructor(
                 )
                 Pair(toolCall, "I tried to do that but something went wrong: ${result.error}")
             }
+            is SkillResult.CapabilityRequired -> null
             is SkillResult.ParseError, is SkillResult.UnknownSkill -> null
         }
     }

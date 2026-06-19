@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:permissions"))
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
 
