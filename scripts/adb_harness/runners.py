@@ -1365,3 +1365,569 @@ def _fmt_elapsed(seconds: float) -> str:
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase-isolated runner
+# ═══════════════════════════════════════════════════════════════════════
+
+_ORACLE_UNHEALTHY = 42
+_STREAM_UNHEALTHY = 43
+
+
+def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
+                      unlock_pin: str | None = None,
+                      timeout_download: float | None = None,
+                      timeout_engine: float | None = None) -> int:
+    """Run the full warmup/preflight sequence for an isolated phase.
+
+    Returns 0 on success, or one of the exit codes (_ORACLE_UNHEALTHY,
+    _STREAM_UNHEALTHY, EXIT_MODEL_NOT_READY, EXIT_CLEANUP_FAILED).
+    """
+    # Model readiness preflight (optional, for fresh-install scenarios)
+    if model_readiness:
+        print()
+        print("  ── Model readiness preflight ──")
+        mr_kwargs = {}
+        if serial is not None:
+            mr_kwargs["serial"] = serial
+        if unlock_pin is not None:
+            mr_kwargs["unlock_pin"] = unlock_pin
+        if timeout_download is not None:
+            mr_kwargs["timeout_download"] = timeout_download
+        if timeout_engine is not None:
+            mr_kwargs["timeout_engine"] = timeout_engine
+        evidence = preflight_model_readiness(verbose=True, **mr_kwargs)
+        if evidence.failure_bucket:
+            _save_readiness_failure(evidence)
+            print(f"  [preflight] ❌ ABORT: {evidence.failure_bucket}")
+            return EXIT_MODEL_NOT_READY
+        print(f"  [preflight] ✅ Model ready ({evidence.readiness_wait_seconds:.0f}s)")
+        print()
+
+    # Keep screen awake
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "svc", "power", "stayon", "usb")
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
+    start_keepalive()
+
+    # Warm up model
+    print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(3)
+    clear_logcat()
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    deadline = time.time() + 120
+    warmed = False
+    while time.time() < deadline:
+        time.sleep(2)
+        log = read_logcat()
+        if "NativeIntentHandler.handle" in log:
+            warmed = True
+            break
+    if not warmed:
+        print("no response yet — sending second warmup probe ...", end=" ", flush=True)
+        clear_logcat()
+        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        deadline2 = time.time() + 30
+        while time.time() < deadline2:
+            time.sleep(2)
+            log = read_logcat()
+            if "NativeIntentHandler.handle" in log:
+                warmed = True
+                break
+    print("ready" if warmed else "timeout (proceeding anyway)")
+    print()
+
+    # Pre-run clock cleanup
+    print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
+    if not cleanup_clock_alerts(force_stop_last=False):
+        print("FAILED")
+        print("  [init] ❌ Pre-run cleanup failed — aborting.", file=sys.stderr)
+        return EXIT_CLEANUP_FAILED
+    print("done")
+    time.sleep(1)
+
+    # Contact alias fixture
+    print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
+    setup_contact_alias_fixture()
+    print("done")
+
+    # Warm up MiniLM classifier
+    clear_logcat()
+    print("  [init] Warming up MiniLM classifier (up to 120s) ...", end=" ", flush=True)
+    deadline = time.time() + 120
+    warmed_ml = False
+    while time.time() < deadline:
+        time.sleep(3)
+        log = read_logcat()
+        if "Ready:" in log:
+            warmed_ml = True
+            break
+
+    # Oracle preflight
+    if not check_oracle(timeout=30.0):
+        print()
+        print("  [oracle] ORACLE_UNHEALTHY — aborting")
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return _ORACLE_UNHEALTHY
+
+    # Streaming logcat health check
+    print("  [stream] Verifying host-side logcat stream ...", end=" ", flush=True)
+    healthy = check_logcat_stream(timeout=5.0)
+    print("healthy" if healthy else "STREAM_UNHEALTHY")
+    if not healthy:
+        print("  [stream] Logcat stream unhealthy — aborting.")
+        stop_keepalive()
+        run_adb("shell", "svc", "power", "stayon", "false")
+        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+        return _STREAM_UNHEALTHY
+    print("ready" if warmed_ml else "timeout (proceeding anyway)")
+
+    # Flush logcat residue before tests
+    time.sleep(WAIT_SECONDS)
+    clear_logcat()
+    time.sleep(1)
+    print()
+
+    return 0  # success
+
+
+def _isolated_teardown() -> None:
+    """Restore device settings and stop keepalive after an isolated phase."""
+    stop_keepalive()
+    run_adb("shell", "svc", "power", "stayon", "false")
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+
+
+def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
+                           total_tests: int) -> tuple[TestResult, bool]:
+    """Execute a single test case and return (TestResult, case_cleanup_failed).
+
+    This is a self-contained version of the per-case execution loop from
+    ``run_tests()``, extracted for use in the phase-isolated runner.
+    """
+    print(f"  [{index:3d}/{total_tests}] \"{tc.message}\" ...", end=" ", flush=True)
+
+    case_cleanup_failed = False
+    first_turn_warn: str | None = None
+    logcat = ""
+    intent_signal = (
+        f"NativeIntentHandler.handle: intent={tc.expect_intent}"
+        if tc.expect_intent else None
+    )
+    final_signal = tc.expect_log_contains or intent_signal
+    slot_replies = tc.effective_slot_replies
+
+    if slot_replies is not None:
+        # Slot-fill test
+        logcat1 = capture_fresh_logcat(
+            lambda: send_quick_action(tc.message),
+            timeout=WAIT_SECONDS,
+            expected=tc.expect_initial_log_contains,
+            keep_foreground=True,
+        )
+        if tc.expect_initial_log_contains is not None:
+            first_turn_ok = tc.expect_initial_log_contains in logcat1
+            if not first_turn_ok:
+                first_turn_warn = (
+                    f"initial slot prompt '{tc.expect_initial_log_contains}' "
+                    f"not found in first-turn logcat"
+                )
+        for reply in slot_replies[:-1]:
+            capture_fresh_logcat(
+                lambda r=reply: send_slot_reply(r),
+                timeout=5.0, expected=None, keep_foreground=True,
+            )
+        logcat = capture_fresh_logcat(
+            lambda: send_slot_reply(slot_replies[-1]),
+            timeout=WAIT_SECONDS,
+            expected=final_signal,
+            keep_foreground=True,
+        )
+    elif tc.confirm_reply is not None:
+        # Confirmation test
+        logcat1 = capture_fresh_logcat(
+            lambda: send_text(tc.message),
+            timeout=WAIT_SECONDS,
+            expected=tc.expect_log_contains,
+            keep_foreground=True,
+        )
+        if tc.expect_log_contains is not None:
+            log1_found = tc.expect_log_contains in logcat1
+            if not log1_found:
+                first_turn_warn = (
+                    f"AskConfirmation not found (expected {tc.expect_log_contains!r})"
+                )
+        logcat = capture_fresh_logcat(
+            lambda: send_text(tc.confirm_reply),
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+        )
+    elif tc.forbidden_intents:
+        logcat = capture_fresh_logcat(
+            lambda: send_text(tc.message),
+            timeout=max(WAIT_SECONDS * 2, 30),
+            expected=None, keep_foreground=True,
+        )
+    else:
+        logcat = capture_fresh_logcat(
+            lambda: send_text(tc.message),
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+        )
+
+    # Intent extraction and assertion
+    allowed_intent_observed: str | None = None
+    forbidden_intent_triggered = False
+    forbidden_intent_observed: list[str] = []
+    fallthrough_observed = False
+
+    if tc.forbidden_intents:
+        all_intents = re.findall(r"NativeIntentHandler\.handle: intent=(\S+)", logcat)
+        actual_intent = all_intents[-1] if all_intents else None
+        actual_params = {}
+        triggered = [fi for fi in tc.forbidden_intents if fi in all_intents]
+        forbidden_intent_triggered = len(triggered) > 0
+        forbidden_intent_observed = triggered
+        allowed_intent_observed = next(
+            (ai for ai in (tc.allowed_intents or []) if ai in all_intents), None,
+        )
+        if tc.allowed_intents and allowed_intent_observed:
+            intent_passed = True
+        else:
+            intent_passed = not forbidden_intent_triggered
+        has_no_match = "NO_MATCH" in all_intents
+        has_llm_generation = "Generation complete" in logcat
+        fallthrough_observed = has_no_match or has_llm_generation
+        params_ok = True
+        param_failures = []
+    else:
+        actual_intent, actual_params = extract_intent(logcat)
+        intent_passed = (actual_intent or "") == tc.expect_intent
+        params_ok, param_failures = check_params(tc.expect_params, actual_params)
+
+    # Reply verification
+    reply_warn: str | None = None
+    if intent_passed and tc.expect_reply_contains is not None:
+        reply_text = extract_reply(logcat)
+        if reply_text is None:
+            reply_warn = "no DirectReply logged"
+        elif not re.search(tc.expect_reply_contains, reply_text):
+            reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
+
+    # Logcat content check
+    log_check_warn: str | None = None
+    if tc.expect_log_contains is not None:
+        if tc.expect_log_contains not in logcat:
+            log_check_warn = f"expected log '{tc.expect_log_contains}' not found"
+    if tc.forbidden_intents and not allowed_intent_observed and not fallthrough_observed and not forbidden_intent_triggered:
+        fp_warn = "no fallthrough/LLM generation evidence"
+        log_check_warn = fp_warn if log_check_warn is None else log_check_warn + "; " + fp_warn
+    if first_turn_warn is not None:
+        if log_check_warn is not None:
+            log_check_warn = first_turn_warn + "; " + log_check_warn
+        else:
+            log_check_warn = first_turn_warn
+
+    result = TestResult(
+        index=index,
+        message=tc.message,
+        expect_intent=tc.expect_intent,
+        actual_intent=actual_intent,
+        expect_params=tc.expect_params,
+        actual_params=actual_params,
+        intent_passed=intent_passed,
+        params_passed=params_ok,
+        param_failures=param_failures,
+        xfail=tc.xfail,
+        reply_warn=reply_warn,
+        log_check_warn=log_check_warn,
+        first_turn_warn=first_turn_warn,
+        phase=phase_name,
+        case_id=tc.id,
+        category=tc.category,
+        tags=list(tc.tags),
+        fixture=tc.fixture,
+        xfail_reason=tc.xfail_reason,
+        expect_log_contains=tc.expect_log_contains,
+        forbidden_intents=tc.forbidden_intents,
+        forbidden_intent_triggered=forbidden_intent_triggered,
+        forbidden_intent_observed=forbidden_intent_observed,
+        fallthrough_observed=fallthrough_observed,
+        allowed_intent_observed=allowed_intent_observed,
+        expect_llm_fallthrough=tc.expect_llm_fallthrough,
+    )
+    result.status = derive_status(result)
+    result.failure_bucket = derive_failure_bucket(result)
+
+    # Display result
+    warnings = []
+    if reply_warn: warnings.append(f"reply warn: {reply_warn}")
+    if log_check_warn: warnings.append(log_check_warn)
+    warn_suffix = f" [{'; '.join(warnings)}]" if warnings else ""
+
+    status = result.status
+    if status == "pass":
+        print("✓" + warn_suffix)
+    elif status == "xpass":
+        reason = f": {result.xfail_reason}" if result.xfail_reason else ""
+        print(f"✗ (unexpected pass — expected to fail{reason})")
+    elif status == "xfail":
+        bucket = result.failure_bucket
+        bucket_suffix = f" [{bucket}]" if bucket else ""
+        print(f"✗ (xfail — not yet implemented){bucket_suffix}")
+    elif status == "indeterminate":
+        bucket = result.failure_bucket
+        bucket_suffix = f" [{bucket}]" if bucket else ""
+        print(f"? (indeterminate — no fallthrough evidence)" + bucket_suffix)
+    elif not result.intent_passed:
+        bucket = result.failure_bucket
+        bucket_suffix = f" [{bucket}]" if bucket else ""
+        print(f"✗ (got {result.actual_intent or 'NO_MATCH'})" + warn_suffix + bucket_suffix)
+    else:
+        bucket = result.failure_bucket
+        bucket_suffix = f" [{bucket}]" if bucket else ""
+        print(f"✗ (params: {'; '.join(result.param_failures)})" + bucket_suffix)
+
+    # Post-case timer/alarm cleanup
+    _timer_alarm_intents = {"set_timer", "set_alarm", "cancel_timer", "cancel_alarm",
+                            "dismiss_alarm", "snooze_alarm", "add_minute_timer",
+                            "start_timer", "start_alarm", "stop_timer", "stop_alarm"}
+    _needs_cleanup = (
+        (result.actual_intent or "") in _timer_alarm_intents
+        or (tc.allowed_intents and any(a in _timer_alarm_intents for a in tc.allowed_intents))
+        or (tc.forbidden_intents and any(f in _timer_alarm_intents for f in tc.forbidden_intents))
+    )
+    if _needs_cleanup:
+        print("  [cleanup] timer/alarm route — cleaning up alerts ...", end=" ", flush=True)
+        if not cleanup_clock_alerts(force_stop_last=True):
+            print("FAILED — continuing but will report cleanup failure")
+            case_cleanup_failed = True
+        else:
+            print("done")
+        time.sleep(1)
+
+    # Hang up after call tests
+    if tc.expect_intent == "make_call":
+        time.sleep(2)
+        run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
+
+    return result, case_cleanup_failed
+
+
+def run_isolated_phases(dry_run: bool = False,
+                         phases: list[str] | None = None,
+                         categories: list[str] | None = None,
+                         tags: list[str] | None = None,
+                         exclude_tags: list[str] | None = None,
+                         case_ids: list[str] | None = None,
+                         model_readiness: bool = False,
+                         serial: str | None = None,
+                         unlock_pin: str | None = None,
+                         timeout_download: float | None = None,
+                         timeout_engine: float | None = None) -> int:
+    """Run each selected phase as an isolated unit with app restart between phases.
+
+    Each phase gets its own warmup, test execution, and cleanup cycle.
+    The app is force-stopped between phases to reset model/session/routing state.
+    Downloaded models and HF auth are preserved (no re-download).
+
+    Returns non-zero if any phase failed.
+    """
+    phase_names = [name for name, _ in PHASES]
+
+    # ── Phase selection ──
+    selected_phase_names: list[str] | None = None
+    if phases is not None:
+        selected_phases_set: set[int] = set()
+        for token in phases:
+            token = token.strip()
+            if token.isdigit():
+                n = int(token)
+                if not (1 <= n <= len(PHASES)):
+                    print(f"ERROR: --phases {token!r} out of range (1–{len(PHASES)}).",
+                          file=sys.stderr)
+        selected_phase_names = [phase_names[i] for i in sorted(selected_phases_set)]
+
+    selected_tests = _select_tests(
+        phases=PHASES,
+        phase_filter=selected_phase_names,
+        categories=categories,
+        tags=tags,
+        exclude_tags=exclude_tags,
+        case_ids=case_ids,
+    )
+
+    if not selected_tests:
+        print("No tests selected.")
+        return 1
+
+    # Group tests by phase
+    phase_groups: dict[str, list[tuple[int, int, TestCase]]] = {}
+    for phase_idx, case_idx, tc in selected_tests:
+        pname = PHASES[phase_idx][0]
+        phase_groups.setdefault(pname, []).append((phase_idx, case_idx, tc))
+
+    if not dry_run and not os.path.isfile(ADB):
+        print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
+        return 1
+
+    run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    suite_start = time.time()
+    all_results: list[TestResult] = []
+    phase_summaries: list[dict] = []
+    overall_exit = 0
+
+    # Pre-run: start host-side logcat streaming
+    if not dry_run:
+        logcat_start()
+
+    phase_order = [p for p in phase_names if p in phase_groups]
+    total_phases = len(phase_order)
+
+    for phase_idx, phase_name in enumerate(phase_order, 1):
+        p_tests = phase_groups[phase_name]
+        print(f"\n{'='*70}")
+        print(f"  PHASE {phase_idx}/{total_phases}: {phase_name} "
+              f"({len(p_tests)} tests, isolated mode)")
+        print(f"{'='*70}")
+
+        if dry_run:
+            print(f"  [dry-run] Would run {len(p_tests)} tests in phase '{phase_name}'")
+            continue
+
+        # ── Reset: force-stop app and clear logcat ──
+        print(f"\n  [isolated] Resetting app state for phase '{phase_name}' ...",
+              end=" ", flush=True)
+        run_adb("shell", "am", "force-stop", PACKAGE)
+        time.sleep(2)
+        clear_logcat()
+        time.sleep(1)
+        print("done")
+        print()
+
+        # ── Warmup ──
+        warmup_rc = _isolated_warmup(
+            serial=serial, model_readiness=model_readiness,
+            unlock_pin=unlock_pin,
+            timeout_download=timeout_download,
+            timeout_engine=timeout_engine,
+        )
+        if warmup_rc != 0:
+            print(f"\n  [isolated] ❌ Warmup failed for phase '{phase_name}' "
+                  f"(exit {warmup_rc}) — skipping phase")
+            _isolated_teardown()
+            overall_exit = warmup_rc
+            continue
+
+        # ── Execute phase tests ──
+        phase_results: list[TestResult] = []
+        phase_case_cleanup_failed = False
+        phase_start = time.time()
+        total_in_phase = len(p_tests)
+
+        for i, (_phase_idx, _case_idx, tc) in enumerate(p_tests, 1):
+            result, ccf = _execute_isolated_test(tc, phase_name, i, total_in_phase)
+            phase_results.append(result)
+            all_results.append(result)
+            if ccf:
+                phase_case_cleanup_failed = True
+
+        # ── Phase summary line ──
+        phase_elapsed = time.time() - phase_start
+        n_xfail = sum(1 for r in phase_results if r.status == "xfail")
+        n_xpass = sum(1 for r in phase_results if r.status == "xpass")
+        n_fail  = sum(1 for r in phase_results if r.status == "fail")
+        n_indet = sum(1 for r in phase_results if r.status == "indeterminate")
+        n_pass  = len(phase_results) - n_fail - n_xfail - n_xpass - n_indet
+        xpass_suffix = f"  {n_xpass} xpass" if n_xpass else ""
+        indet_suffix = f"  {n_indet} indeterminate" if n_indet else ""
+        print()
+        print(f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail"
+              f"{xpass_suffix}{indet_suffix}  ({phase_elapsed:.1f}s)")
+
+        # OOM sanity check (#554): warn only when expected intents VARY but actual
+        # is stuck on one value — uniform phases (e.g. all get_weather) are valid.
+        actual_intents = [r.actual_intent for r in phase_results if r.actual_intent]
+        if len(actual_intents) > 1 and len(set(actual_intents)) == 1:
+            expected_in_phase = {r.expect_intent for r in phase_results if r.expect_intent}
+            if len(expected_in_phase) > 1:
+                print(f"  ⚠ WARNING: all {len(actual_intents)} tests in {phase_name}"
+                      f" returned '{actual_intents[0]}' — possible OOM/model reset")
+
+        # ── Save per-phase report ──
+        from adb_harness.reporting import save_isolated_phase_report
+        phase_report_path = save_isolated_phase_report(
+            phase_name, phase_results,
+            elapsed=phase_elapsed,
+            run_ts=run_ts,
+        )
+        print(f"  Phase report → {phase_report_path}")
+
+        # Track phase summary
+        phase_summaries.append({
+            "phase": phase_name,
+            "total": len(phase_results),
+            "pass": n_pass,
+            "fail": n_fail,
+            "xfail": n_xfail,
+            "xpass": n_xpass,
+            "indeterminate": n_indet,
+            "elapsed_seconds": round(phase_elapsed, 1),
+            "cleanup_failed": phase_case_cleanup_failed,
+        })
+
+        # ── Post-phase cleanup ──
+        print(f"\n  [isolated] Post-phase cleanup for '{phase_name}' ...")
+        cleanup_ok = cleanup_clock_alerts(force_stop_last=True)
+        print(f"  [isolated] Clock alerts: {'ok' if cleanup_ok else 'FAILED'}")
+        teardown_contact_alias_fixture()
+        print(f"  [isolated] Contact fixture: removed")
+        _isolated_teardown()
+        print(f"  [isolated] Phase '{phase_name}' complete")
+        print()
+
+        # If cleanup failed, keep going but mark overall
+        if not cleanup_ok or phase_case_cleanup_failed:
+            overall_exit = EXIT_CLEANUP_FAILED
+
+    # ── Combined summary across all phases ──
+    if not dry_run:
+        print("=" * 70)
+        print("  PHASE-ISOLATED RUN — COMBINED SUMMARY")
+        print("=" * 70)
+        print()
+        print(f"  {'Phase':<20} {'Tests':>6} {'Pass':>6} {'Fail':>6} "
+              f"{'XFail':>6} {'XP':>5} {'Indet':>6} {'Time':>8}")
+        print(f"  {'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*5} {'-'*6} {'-'*8}")
+
+        total_t = total_f = total_xf = total_xp = total_i = 0
+        for ps in phase_summaries:
+            print(f"  {ps['phase']:<20} {ps['total']:>6} {ps['pass']:>6} "
+                  f"{ps['fail']:>6} {ps['xfail']:>6} {ps['xpass']:>5} "
+                  f"{ps['indeterminate']:>6} {ps['elapsed_seconds']:>7.1f}s")
+            total_t += ps['total']
+            total_f += ps['fail']
+            total_xf += ps['xfail']
+            total_xp += ps['xpass']
+            total_i += ps['indeterminate']
+        total_p = total_t - total_f - total_xf - total_xp - total_i
+        print(f"  {'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*5} {'-'*6} {'-'*8}")
+        print(f"  {'TOTAL':<20} {total_t:>6} {total_p:>6} {total_f:>6} "
+              f"{total_xf:>6} {total_xp:>5} {total_i:>6}")
+        print()
+
+        # Save combined report
+        from adb_harness.reporting import save_isolated_summary_report
+        combined_path = save_isolated_summary_report(
+            all_results, phase_summaries,
+            elapsed=time.time() - suite_start,
+            run_ts=run_ts,
+        )
+        print(f"  Combined report → {combined_path}")
+        print()
+
+    print("=" * 70)
+    return overall_exit
