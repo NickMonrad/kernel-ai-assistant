@@ -1609,6 +1609,14 @@ class ChatViewModel @Inject constructor(
                         )
                         return@launch
                     }
+                    is SlotFillResult.InvalidSlot -> {
+                        appendAssistantMessage(
+                            convId,
+                            fillResult.request.promptMessage,
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
                     is SlotFillResult.Cancelled -> {
                         appendAssistantMessage(convId, "Okay, cancelled.", shouldIndex = false)
                         return@launch

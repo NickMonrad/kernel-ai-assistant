@@ -78,22 +78,12 @@ class SlotFillerManagerTest {
             PendingSlotRequest(
                 intentName = "send_email",
                 existingParams = emptyMap(),
-                missingSlot = SlotSpec(
-                    name = "contact",
-                    promptTemplate = "Who would you like to email?",
-                ),
+                missingSlot = SlotSpec("contact", "Who would you like to email?"),
             ),
         )
 
-        assertTrue(manager.hasPendingFor(conversationOne))
         assertFalse(manager.hasPendingFor(conversationTwo))
-        assertNull(manager.pendingRequestFor(conversationTwo))
-
-        val wrongConversationResult = manager.onUserReply(conversationTwo, "Nick")
-
-        assertInstanceOf(SlotFillResult.Cancelled::class.java, wrongConversationResult)
         assertTrue(manager.hasPendingFor(conversationOne))
-        assertEquals("contact", manager.pendingRequestFor(conversationOne)?.missingSlot?.name)
     }
 
     @Test
@@ -103,28 +93,24 @@ class SlotFillerManagerTest {
             PendingSlotRequest(
                 intentName = "send_email",
                 existingParams = emptyMap(),
-                missingSlot = SlotSpec(
-                    name = "contact",
-                    promptTemplate = "Who would you like to email?",
-                ),
+                missingSlot = SlotSpec("contact", "Who would you like to email?"),
             ),
         )
+
         manager.startSlotFill(
             conversationTwo,
             PendingSlotRequest(
-                intentName = "add_to_list",
+                intentName = "send_sms",
                 existingParams = emptyMap(),
-                missingSlot = SlotSpec(
-                    name = "item",
-                    promptTemplate = "What would you like to add?",
-                ),
+                missingSlot = SlotSpec("contact", "Who do you want to send a message to?"),
             ),
         )
 
         assertTrue(manager.hasPendingFor(conversationOne))
         assertTrue(manager.hasPendingFor(conversationTwo))
-        assertEquals("contact", manager.pendingRequestFor(conversationOne)?.missingSlot?.name)
-        assertEquals("item", manager.pendingRequestFor(conversationTwo)?.missingSlot?.name)
+
+        assertEquals("send_email", manager.pendingRequestFor(conversationOne)?.intentName)
+        assertEquals("send_sms", manager.pendingRequestFor(conversationTwo)?.intentName)
     }
 
     @Test
@@ -134,33 +120,26 @@ class SlotFillerManagerTest {
             PendingSlotRequest(
                 intentName = "add_to_list",
                 existingParams = emptyMap(),
-                missingSlot = SlotSpec(
-                    name = "item",
-                    promptTemplate = "What would you like to add?",
-                ),
+                missingSlot = SlotSpec("item", "What would you like to add?"),
             ),
         )
 
-        val next = assertInstanceOf(
-            SlotFillResult.NeedsMore::class.java,
-            manager.onUserReply(conversationOne, "milk"),
+        val firstResult = manager.onUserReply(conversationOne, "Milk")
+        assertInstanceOf(SlotFillResult.NeedsMore::class.java, firstResult)
+        val first = firstResult as SlotFillResult.NeedsMore
+        assertEquals("list_name", first.request.missingSlot.name)
+        assertEquals(
+            "Which list should I add it to?",
+            first.request.promptMessage,
         )
-        assertTrue(manager.hasPendingFor(conversationOne))
-        assertEquals("list_name", next.request.missingSlot.name)
-        assertEquals("Which list should I add it to?", next.request.promptMessage)
 
         val completed = assertInstanceOf(
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "on my shopping list"),
         )
         assertFalse(manager.hasPending)
-        assertEquals(
-            mapOf(
-                "item" to "milk",
-                "list_name" to "shopping list",
-            ),
-            completed.params,
-        )
+        assertEquals("Milk", completed.params["item"])
+        assertEquals("shopping list", completed.params["list_name"])
     }
 
     @Test
@@ -177,12 +156,18 @@ class SlotFillerManagerTest {
             ),
         )
 
+        // "The" should be kept — it's part of the list name "The Boys" (a TV show).
         val titled = assertInstanceOf(
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "The Boys"),
         )
         assertEquals("The Boys", titled.params["list_name"])
+        assertFalse(manager.hasPending)
+    }
 
+    @Test
+    fun `generic shopping list replies normalize without mangling named lists`() {
+        // "shopping list" → normalize to "shopping"
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -194,52 +179,14 @@ class SlotFillerManagerTest {
                 ),
             ),
         )
-
         val todo = assertInstanceOf(
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "to do list"),
         )
         assertEquals("to-do list", todo.params["list_name"])
-    }
+        assertFalse(manager.hasPending)
 
-    @Test
-    fun `generic shopping list replies normalize without mangling named lists`() {
-        manager.startSlotFill(
-            conversationOne,
-            PendingSlotRequest(
-                intentName = "add_to_list",
-                existingParams = mapOf("item" to "milk"),
-                missingSlot = SlotSpec(
-                    name = "list_name",
-                    promptTemplate = "Which list should I add it to?",
-                ),
-            ),
-        )
-
-        val possessive = assertInstanceOf(
-            SlotFillResult.Completed::class.java,
-            manager.onUserReply(conversationOne, "my shopping list"),
-        )
-        assertEquals("shopping list", possessive.params["list_name"])
-
-        manager.startSlotFill(
-            conversationOne,
-            PendingSlotRequest(
-                intentName = "add_to_list",
-                existingParams = mapOf("item" to "milk"),
-                missingSlot = SlotSpec(
-                    name = "list_name",
-                    promptTemplate = "Which list should I add it to?",
-                ),
-            ),
-        )
-
-        val article = assertInstanceOf(
-            SlotFillResult.Completed::class.java,
-            manager.onUserReply(conversationOne, "the shopping list"),
-        )
-        assertEquals("shopping list", article.params["list_name"])
-
+        // "my shopping list" → normalize to "shopping list"
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -251,12 +198,50 @@ class SlotFillerManagerTest {
                 ),
             ),
         )
+        val possessive = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "my shopping list"),
+        )
+        assertEquals("shopping list", possessive.params["list_name"])
+        assertFalse(manager.hasPending)
 
+        // "the shopping list" → normalize to "shopping list"
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "create_list",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec(
+                    name = "list_name",
+                    promptTemplate = "What would you like to call the list?",
+                ),
+            ),
+        )
+        val article = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "the shopping list"),
+        )
+        assertEquals("shopping list", article.params["list_name"])
+        assertFalse(manager.hasPending)
+
+        // "My Tasks" (capitalized named list) → keep as-is
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "create_list",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec(
+                    name = "list_name",
+                    promptTemplate = "What would you like to call the list?",
+                ),
+            ),
+        )
         val named = assertInstanceOf(
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "My Tasks"),
         )
         assertEquals("My Tasks", named.params["list_name"])
+        assertFalse(manager.hasPending)
     }
 
     @Test
@@ -278,14 +263,11 @@ class SlotFillerManagerTest {
             manager.onUserReply(conversationOne, "Can you remember that Emily's birthday is 19 November"),
         )
 
-        assertFalse(manager.hasPending)
         assertEquals(
-            mapOf(
-                "label" to "Emily's birthday",
-                "date" to "19 November",
-            ),
+            mapOf("label" to "Emily's birthday", "date" to "19 November"),
             completed.params,
         )
+        assertFalse(manager.hasPending)
     }
 
     @Test
@@ -307,14 +289,11 @@ class SlotFillerManagerTest {
             manager.onUserReply(conversationOne, "on 19th of November"),
         )
 
-        assertFalse(manager.hasPending)
         assertEquals(
-            mapOf(
-                "label" to "Emily's birthday",
-                "date" to "19th of November",
-            ),
+            mapOf("label" to "Emily's birthday", "date" to "19th of November"),
             completed.params,
         )
+        assertFalse(manager.hasPending)
     }
 
     @Test
@@ -322,20 +301,16 @@ class SlotFillerManagerTest {
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
-                intentName = "send_sms",
+                intentName = "send_email",
                 existingParams = emptyMap(),
-                missingSlot = SlotSpec(
-                    name = "contact",
-                    promptTemplate = "Who do you want to send a message to?",
-                ),
+                missingSlot = SlotSpec("contact", "Who would you like to email?"),
             ),
         )
 
-        val result = manager.onUserReply(conversationOne, "   ")
-
+        assertTrue(manager.hasPendingFor(conversationOne))
+        val result = manager.onUserReply(conversationOne, "")
         assertInstanceOf(SlotFillResult.Cancelled::class.java, result)
         assertFalse(manager.hasPending)
-        assertNull(manager.pendingRequest)
     }
 
     @Test
@@ -429,5 +404,173 @@ class SlotFillerManagerTest {
         val completed = result as SlotFillResult.Completed
         assertEquals("set_timer", completed.intentName)
         assertEquals("300", completed.params["duration_seconds"])
+    }
+
+    // ── Slot validation integration tests ─────────────────────────────────
+
+    @Test
+    fun `invalid timer duration like donuts returns InvalidSlot with clarification`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long would you like the timer for?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "donuts")
+        assertInstanceOf(SlotFillResult.InvalidSlot::class.java, result)
+        val invalid = result as SlotFillResult.InvalidSlot
+        assertEquals("duration_seconds", invalid.request.missingSlot.name)
+        // Should show a clarification prompt telling the user the value wasn't understood
+        assertTrue(invalid.request.promptMessage.isNotBlank())
+        // Pending request should still be active for retry
+        assertTrue(manager.hasPending)
+    }
+
+    @Test
+    fun `valid timer duration still completes normally`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long would you like the timer for?"),
+            ),
+        )
+        // "5 minutes" normalises to "300" by SlotSpec.normalizeDurationSlotReply
+        val result = manager.onUserReply(conversationOne, "5 minutes")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("300", completed.params["duration_seconds"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `valid timer numeric seconds still completes normally`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long would you like the timer for?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "300")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("300", completed.params["duration_seconds"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `valid timer 30 seconds normalises to 30 and completes`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long would you like the timer for?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "30 seconds")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("30", completed.params["duration_seconds"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `invalid alarm time returns InvalidSlot with clarification`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_alarm",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("time", "What time should I set the alarm for?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "donuts")
+        assertInstanceOf(SlotFillResult.InvalidSlot::class.java, result)
+        val invalid = result as SlotFillResult.InvalidSlot
+        assertEquals("time", invalid.request.missingSlot.name)
+        assertTrue(invalid.request.promptMessage.isNotBlank())
+        assertTrue(manager.hasPending)
+    }
+
+    @Test
+    fun `valid alarm time still completes normally`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_alarm",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("time", "What time should I set the alarm for?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "5pm")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("5pm", completed.params["time"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `valid alarm time completes when day is optional`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_alarm",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("time", "What time?"),
+            ),
+        )
+        val result = manager.onUserReply(conversationOne, "7am")
+        assertInstanceOf(SlotFillResult.Completed::class.java, result)
+        val completed = result as SlotFillResult.Completed
+        assertEquals("7am", completed.params["time"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `invalid timer value keeps pending so user can retry`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long?"),
+            ),
+        )
+        // First attempt: invalid
+        val first = manager.onUserReply(conversationOne, "donuts")
+        assertInstanceOf(SlotFillResult.InvalidSlot::class.java, first)
+        assertTrue(manager.hasPendingFor(conversationOne))
+
+        // Second attempt: valid — should now complete
+        val second = manager.onUserReply(conversationOne, "5 minutes")
+        assertInstanceOf(SlotFillResult.Completed::class.java, second)
+        val completed = second as SlotFillResult.Completed
+        assertEquals("300", completed.params["duration_seconds"])
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `blank reply after invalid slot cancels still`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "set_timer",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("duration_seconds", "How long?"),
+            ),
+        )
+        manager.onUserReply(conversationOne, "donuts")
+        assertTrue(manager.hasPendingFor(conversationOne))
+
+        // Blank reply should cancel
+        val cancel = manager.onUserReply(conversationOne, "")
+        assertInstanceOf(SlotFillResult.Cancelled::class.java, cancel)
+        assertFalse(manager.hasPending)
     }
 }

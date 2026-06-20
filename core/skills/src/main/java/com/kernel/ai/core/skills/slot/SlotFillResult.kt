@@ -13,6 +13,17 @@ sealed class SlotFillResult {
         val request: PendingSlotRequest,
     ) : SlotFillResult()
 
+    /**
+     * The user provided a value for the current slot, but it failed validation —
+     * re-prompt with targeted clarification.
+     *
+     * The slot-fill remains pending; the user's next reply retries filling the
+     * same slot with a corrected value.
+     */
+    data class InvalidSlot(
+        val request: PendingSlotRequest,
+    ) : SlotFillResult()
+
     /** User sent a blank reply or explicitly cancelled. */
     data object Cancelled : SlotFillResult()
 }
