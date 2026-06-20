@@ -109,6 +109,8 @@ class ActionsViewModel @Inject constructor(
         data class LaunchDialer(val phoneNumber: String, val contact: String) : UiEvent
         /** Navigate to internal Settings → App Permissions for manual repair. */
         object NavigateToAppPermissions : UiEvent
+        /** Open Android DND special-access settings for notification policy grant. */
+        object OpenDndSettings : UiEvent
     }
 
     private data class PendingPhonePermissionAction(
@@ -118,6 +120,14 @@ class ActionsViewModel @Inject constructor(
         val inputMode: InputMode,
         val phoneNumber: String? = null,
         val capabilityKey: CapabilityKey = CapabilityKey.HandsFreeCalling,
+    )
+
+    private data class PendingDndAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+        val enabled: Boolean,
     )
 
     private data class ExecutedAction(
@@ -142,6 +152,14 @@ class ActionsViewModel @Inject constructor(
         val isPermanentlyDenied: Boolean = false,
     )
 
+    /** State for the contextual DND special-access surface. */
+    data class DndState(
+        val intentName: String,
+        val enabled: Boolean,
+        /** True when the user returned from settings without granting access. */
+        val isAccessBlocked: Boolean = false,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -160,6 +178,10 @@ class ActionsViewModel @Inject constructor(
     private val _handsFreeCallingState = MutableStateFlow<HandsFreeCallingState?>(null)
     val handsFreeCallingState: StateFlow<HandsFreeCallingState?> = _handsFreeCallingState.asStateFlow()
 
+    /** Non-null while the DND special-access contextual surface should be shown. */
+    private val _dndState = MutableStateFlow<DndState?>(null)
+    val dndState: StateFlow<DndState?> = _dndState.asStateFlow()
+
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
 
@@ -174,6 +196,7 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
+    private var pendingDndAction: PendingDndAction? = null
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
@@ -525,6 +548,74 @@ class ActionsViewModel @Inject constructor(
         _error.value = null
     }
 
+    // ── DND special-access ─────────────────────────────────────────────────────
+
+    /** Open Android DND access settings for the user to grant notification policy access. */
+    fun onDndOpenSettings() {
+        _dndState.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.OpenDndSettings)
+        }
+    }
+
+    /** Dismiss the DND special-access surface without any action. */
+    fun dismissDndDialog() {
+        _dndState.value = null
+        pendingDndAction = null
+        _error.value = null
+    }
+
+    /**
+     * Called when the app resumes after the user returns from DND access settings.
+     * Re-checks access and either retries the original DND action or shows a blocked result.
+     *
+     * [pendingDndAction] is consumed only in the grant path (retry succeeded or failed).
+     * In the blocked path, [pendingDndAction] is kept alive so the user can open settings
+     * again from the blocked/repair dialog and retry on a subsequent grant.
+     */
+    fun onDndResumeCheck(hasAccess: Boolean) {
+        val pending = pendingDndAction ?: return
+        if (hasAccess) {
+            // Clear pending before retry — will be re-set if retry returns CapabilityRequired.
+            pendingDndAction = null
+            viewModelScope.launch {
+                _uiState.value = UiState.Executing
+                try {
+                    setSlotReplyAutoRearmArmed(false, "onDndResumeCheck")
+                    clearExpectedSlotPromptSpeech()
+                    voiceOutputController.stop()
+                    val result = executeIntent(
+                        query = pending.query,
+                        intentName = pending.intentName,
+                        params = pending.params,
+                        inputMode = pending.inputMode,
+                    )
+                    quickActionDao.insert(result.entity)
+                    speakForVoice(
+                        pending.inputMode,
+                        result.entity.resultText,
+                        spokenOverride = result.spokenSummary,
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "ActionsViewModel: onDndResumeCheck failed — ${e.message}", e)
+                    _error.value = e.message ?: "Unknown error"
+                } finally {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _uiState.value = UiState.Idle
+                }
+            }
+        } else {
+            // Show blocked/repair state — access still not granted.
+            // Keep pendingDndAction alive for future settings-round trips
+            // so the original command can be retried when access is eventually granted.
+            _dndState.value = DndState(
+                intentName = pending.intentName,
+                enabled = pending.enabled,
+                isAccessBlocked = true,
+            )
+        }
+    }
+
     /**
      * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
      *
@@ -820,7 +911,7 @@ class ActionsViewModel @Inject constructor(
         }
         return if (skill != null) {
             val skillResult = skill.execute(SkillCall(skill.name, callParams))
-            if (shouldRequestPhonePermission(intentName, skillResult)) {
+            if (shouldRequestPhonePermission(skillResult)) {
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 val phoneNumber = capResult.contextParams["phoneNumber"]
                 val contact = capResult.contextParams["contact"]
@@ -835,6 +926,21 @@ class ActionsViewModel @Inject constructor(
                 _handsFreeCallingState.value = HandsFreeCallingState(
                     phoneNumber = phoneNumber ?: "",
                     contact = contact ?: "",
+                )
+            }
+            if (shouldRequestDndAccess(skillResult)) {
+                val capResult = skillResult as SkillResult.CapabilityRequired
+                val enabled = capResult.contextParams["enabled"]?.toBoolean() ?: true
+                pendingDndAction = PendingDndAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                    enabled = enabled,
+                )
+                _dndState.value = DndState(
+                    intentName = intentName,
+                    enabled = enabled,
                 )
             }
             ExecutedAction(
@@ -898,12 +1004,23 @@ class ActionsViewModel @Inject constructor(
             resultText = "Action failed: ${result.error}",
             isSuccess = false,
         )
-        is SkillResult.CapabilityRequired -> QuickActionEntity(
-            userQuery = query,
-            skillName = skillName,
-            resultText = "Permission required for $skillName",
-            isSuccess = false,
-        )
+        is SkillResult.CapabilityRequired -> {
+            val resultText = if (result.capabilityKey == CapabilityKey.DoNotDisturbControl) {
+                when (result.skillName) {
+                    "toggle_dnd_on" -> "Jandal needs Do Not Disturb access before it can turn DND on."
+                    "toggle_dnd_off" -> "Jandal needs Do Not Disturb access before it can turn DND off."
+                    else -> "Jandal needs Do Not Disturb access before it can change DND."
+                }
+            } else {
+                "Permission required for $skillName"
+            }
+            QuickActionEntity(
+                userQuery = query,
+                skillName = skillName,
+                resultText = resultText,
+                isSuccess = false,
+            )
+        }
         is SkillResult.UnknownSkill -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
@@ -918,11 +1035,15 @@ class ActionsViewModel @Inject constructor(
         )
     }
 
-    private fun shouldRequestPhonePermission(intentName: String, result: SkillResult): Boolean {
+    private fun shouldRequestPhonePermission(result: SkillResult): Boolean {
         return result is SkillResult.CapabilityRequired &&
             result.capabilityKey == CapabilityKey.HandsFreeCalling
     }
 
+    private fun shouldRequestDndAccess(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.DoNotDisturbControl
+    }
 
     private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =
         when (val state = _voiceCaptureState.value) {

@@ -867,11 +867,11 @@ class NativeIntentHandler @Inject constructor(
     private fun setDoNotDisturb(enabled: Boolean): SkillResult {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!nm.isNotificationPolicyAccessGranted) {
-            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            return SkillResult.Success("Please grant Do Not Disturb access in settings")
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = if (enabled) "toggle_dnd_on" else "toggle_dnd_off",
+                contextParams = mapOf("enabled" to enabled.toString()),
+            )
         }
         val filter = if (enabled) NotificationManager.INTERRUPTION_FILTER_NONE
                      else NotificationManager.INTERRUPTION_FILTER_ALL
