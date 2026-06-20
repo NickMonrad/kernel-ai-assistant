@@ -99,11 +99,15 @@ The S21 exhibits a consistent degradation pattern when running >45 tests sequent
   - Targeted daily-driver smoke: alarms, timers, weather, slot-fill, media (with Spotify installed), navigation, voice interactions
 - **orchestrator_recovery** tests — never reached (~12 tests due to timeout)
 - **false_positives** tests — never reached (~15 tests due to timeout)
-- **Dashboard / raw JSON evidence publication** — not performed. This PR publishes only the Markdown evidence summary.
-  - Raw harness JSON output is available from the ADB test runs for any follow-up tooling
-  - Dashboard publication would require either:
-    - Manual evidence entry into the test dashboard UI, or
-    - A follow-up automation script to ingest the harness JSON output
+  - **Dashboard / raw JSON evidence publication** — not performed. This PR publishes only the Markdown evidence summary.
+  - Raw harness JSON files from this run were on the ADB test device and have not been preserved.
+    They are **not recoverable** — the evidence pipeline was not yet in place to capture them durably.
+  - The launch validation evidence publication workflow has since been implemented
+    (issue [#1295](https://github.com/NickMonrad/kernel-ai-assistant/issues/1295)):
+    - `scripts/publish_launch_validation_evidence.py` chains harness output → normalise → publish
+    - See `docs/testing/launch-validation-evidence.md` for documentation
+    - All future launch validation runs should use this workflow to produce durable raw JSON,
+      normalised evidence, and dashboard entries
 
 ### #1287 Status
 

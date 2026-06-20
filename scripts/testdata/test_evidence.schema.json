@@ -166,6 +166,7 @@
         ],
         "properties": {
           "name": { "type": "string" },
+          "phase": { "type": "string", "description": "Test phase/group from the raw harness (e.g. alarm_timer, weather)" },
           "passed": { "type": "boolean" },
           "expected_tool": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
           "actual_tool": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
