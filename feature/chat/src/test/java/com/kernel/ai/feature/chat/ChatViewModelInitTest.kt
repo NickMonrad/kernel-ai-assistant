@@ -38,6 +38,8 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
+import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
@@ -95,6 +97,7 @@ class ChatViewModelInitTest {
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
+    private val slotValidationRegistry: SlotValidationRegistry = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
@@ -124,6 +127,8 @@ class ChatViewModelInitTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
@@ -200,6 +205,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -241,6 +247,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -282,6 +289,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -330,6 +338,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -387,6 +396,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -471,6 +481,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -533,6 +544,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -612,6 +624,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -679,6 +692,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -744,6 +758,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -799,6 +814,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -870,6 +886,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -894,6 +911,8 @@ class ChatViewModelInitTest {
         // Re-stub after clear
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
         every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
         coEvery { slotFillerManager.cancel() } just runs
 
@@ -953,6 +972,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -1015,6 +1035,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -1073,6 +1094,7 @@ class ChatViewModelInitTest {
           intentRecoveryOrchestrator = intentRecoveryOrchestrator,
           intentContractRegistry = IntentContractRegistry(),
           slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
           kernelAIToolSet = kernelAIToolSet,
           toolProvider = toolProvider,
           embeddingEngine = embeddingEngine,
@@ -1174,6 +1196,8 @@ class ChatViewModelInitTest {
         coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
             systemPrompts += firstArg<String>()
         }
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
         // Force GPU backend so needsHistoryReplay is forced true every turn,
         // testing that wasConversationReset correctly suppresses history replay.
@@ -1225,6 +1249,7 @@ class ChatViewModelInitTest {
       intentRecoveryOrchestrator = intentRecoveryOrchestrator,
       intentContractRegistry = IntentContractRegistry(),
       slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
       kernelAIToolSet = kernelAIToolSet,
       toolProvider = toolProvider,
       embeddingEngine = embeddingEngine,

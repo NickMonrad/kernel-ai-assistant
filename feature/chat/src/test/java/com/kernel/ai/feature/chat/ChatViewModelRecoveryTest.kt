@@ -32,6 +32,8 @@ import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
+import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -77,6 +79,7 @@ class ChatViewModelRecoveryTest {
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
+    private val slotValidationRegistry: SlotValidationRegistry = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
@@ -106,6 +109,8 @@ class ChatViewModelRecoveryTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
@@ -161,6 +166,7 @@ class ChatViewModelRecoveryTest {
         intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         intentContractRegistry = IntentContractRegistry(),
         slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
         embeddingEngine = embeddingEngine,

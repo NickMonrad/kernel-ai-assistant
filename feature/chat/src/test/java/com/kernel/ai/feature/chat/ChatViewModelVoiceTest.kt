@@ -36,6 +36,8 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
+import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
@@ -106,6 +108,7 @@ class ChatViewModelVoiceTest {
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
+    private val slotValidationRegistry: SlotValidationRegistry = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
@@ -144,6 +147,8 @@ class ChatViewModelVoiceTest {
         every { inferenceEngine.generate(any()) } returns
             flowOf(GenerationResult.Token("Hi back"), GenerationResult.Complete(durationMs = 1L))
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
@@ -1088,6 +1093,7 @@ class ChatViewModelVoiceTest {
     intentRecoveryOrchestrator = intentRecoveryOrchestrator,
     intentContractRegistry = IntentContractRegistry(),
     slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
     kernelAIToolSet = kernelAIToolSet,
     toolProvider = toolProvider,
     embeddingEngine = embeddingEngine,
