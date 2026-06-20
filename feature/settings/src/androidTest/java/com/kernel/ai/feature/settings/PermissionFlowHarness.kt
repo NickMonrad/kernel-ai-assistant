@@ -165,41 +165,90 @@ internal class PermissionFlowHarness(
     }
 
     /**
-     * Click a text label via AccessibilityNodeInfo.performAction(ACTION_CLICK).
+     * Click a text label, resolving coordinate-based clicks through Compose dialog
+     * button regions.
      *
-     * Bypasses Samsung One UI's Compose AlertDialog window clipping where
-     * dialog buttons are rendered below the dialog's touchable bounds (~y=1008
-     * on a 1080p screen) making gesture-based clicks unreliable.
+     * Two strategies, tried in order:
+     * 1. Coordinate-based click at the text node's visible bounds center via
+     *    device.click(). This bypasses UiAutomator's gesture injection issues on
+     *    Samsung One UI 15 Compose AlertDialog where button elements are found
+     *    but gesture clicks may not reach the Compose onClick handler.
+     * 2. Accessibility-based click: walk up to a clickable ancestor and call
+     *    performAction(ACTION_CLICK) via the accessibility API (no touch dispatch).
      *
-     * This uses the accessibility API to directly invoke the view's click
-     * handler, which works regardless of window bounds or clipping.
+     * Retries for [timeoutMs] with 200ms polling between strategies.
      *
-     * Retries for [DIALOG_TIMEOUT_MS] with 200ms polling intervals.
+     * @return true if click was performed, false if text not found or click failed.
      */
     fun clickThroughAccessibility(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
-        val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
-
         while (System.currentTimeMillis() < deadline) {
-            val root = uiAutomation.rootInActiveWindow ?: run {
-                Thread.sleep(200)
-                continue
-            }
-            try {
-                val nodes = root.findAccessibilityNodeInfosByText(text)
-                for (node in nodes) {
-                    if (node.isClickable) {
-                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return true
-                    }
-                    node.recycle()
+            // Strategy 1: Coordinate-based click at text's visible bounds center
+            val textObj = device.wait(Until.findObject(By.text(text)), 500)
+            if (textObj != null) {
+                val bounds = textObj.visibleBounds
+                if (device.click(bounds.centerX(), bounds.centerY())) {
+                    return true
                 }
-            } finally {
-                root.recycle()
             }
+
+            // Strategy 2: Accessibility-based click (perform action on clickable ancestor)
+            val clickedAccessibility = clickThroughAccessibilityImpl(text)
+            if (clickedAccessibility) return true
+
             Thread.sleep(200)
         }
         return false
+    }
+
+    /**
+     * Accessibility-based click implementation. Finds text node via accessibility API,
+     * walks up to clickable ancestor, calls performAction(ACTION_CLICK).
+     */
+    private fun clickThroughAccessibilityImpl(text: String): Boolean {
+        val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val root = uiAutomation.rootInActiveWindow ?: return false
+        try {
+            val nodes = root.findAccessibilityNodeInfosByText(text)
+            for (node in nodes) {
+                val clickable = findClickableAncestor(node)
+                if (clickable != null) {
+                    val result = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    clickable.recycle()
+                    node.recycle()
+                    return result
+                }
+                node.recycle()
+            }
+        } finally {
+            root.recycle()
+        }
+        return false
+    }
+
+    /**
+     * Walk up the AccessibilityNodeInfo parent chain to find the first
+     * clickable ancestor. Returns null if the chain ends without finding one.
+     *
+     * The returned node is owned by the caller (must be recycled). The
+     * intermediate parent nodes are recycled before return.
+     */
+    private fun findClickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val visited = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            var current: AccessibilityNodeInfo? = node
+            while (current != null) {
+                if (current.isClickable) return current
+                val parent = current.parent
+                visited.add(current)
+                current = parent
+            }
+            return null
+        } finally {
+            visited.forEach { n ->
+                if (n !== node) n.recycle()
+            }
+        }
     }
     fun assertAppForeground(message: String = "App should be in foreground") {
         assertTrue(message, waitForPackageForeground(PACKAGE, LAUNCH_TIMEOUT_MS))
