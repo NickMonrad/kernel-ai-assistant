@@ -568,11 +568,16 @@ class ActionsViewModel @Inject constructor(
     /**
      * Called when the app resumes after the user returns from DND access settings.
      * Re-checks access and either retries the original DND action or shows a blocked result.
+     *
+     * [pendingDndAction] is consumed only in the grant path (retry succeeded or failed).
+     * In the blocked path, [pendingDndAction] is kept alive so the user can open settings
+     * again from the blocked/repair dialog and retry on a subsequent grant.
      */
     fun onDndResumeCheck(hasAccess: Boolean) {
         val pending = pendingDndAction ?: return
-        pendingDndAction = null
         if (hasAccess) {
+            // Clear pending before retry — will be re-set if retry returns CapabilityRequired.
+            pendingDndAction = null
             viewModelScope.launch {
                 _uiState.value = UiState.Executing
                 try {
@@ -600,10 +605,9 @@ class ActionsViewModel @Inject constructor(
                 }
             }
         } else {
-            // Show blocked/repair state — access still not granted
-            // Reconstruct DndState from pending rather than relying on _dndState,
-            // which may have been cleared by onDndOpenSettings() when the user
-            // navigated to Android Settings.
+            // Show blocked/repair state — access still not granted.
+            // Keep pendingDndAction alive for future settings-round trips
+            // so the original command can be retried when access is eventually granted.
             _dndState.value = DndState(
                 intentName = pending.intentName,
                 enabled = pending.enabled,

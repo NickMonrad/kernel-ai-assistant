@@ -1391,6 +1391,154 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `dnd two-step repair loop with grant on second settings attempt`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = "toggle_dnd_on",
+                contextParams = mapOf("enabled" to "true"),
+            ),
+            SkillResult.Success("Do Not Disturb is on"),
+        )
+
+        // Step 1: Create DND missing-access state via executeAction
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+        assertEquals("toggle_dnd_on", viewModel.dndState.value!!.intentName)
+
+        // Step 2: First settings round trip — user opens DND access settings
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.dndState.value)
+
+        // Step 3: Return without access — blocked/repair state shown
+        viewModel.onDndResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(true, viewModel.dndState.value!!.isAccessBlocked)
+        assertEquals("toggle_dnd_on", viewModel.dndState.value!!.intentName)
+        // PendingDndAction must still be alive here for the second round trip
+        // (verified indirectly by successful retry in step 7)
+
+        // Step 4: Second settings round trip — user taps "Open DND access settings"
+        // from the blocked/repair dialog
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.dndState.value)
+
+        // Step 5: Return with access granted
+        viewModel.onDndResumeCheck(hasAccess = true)
+        advanceUntilIdle()
+
+        // Step 6: Assert the original DND action was retried exactly once more
+        // (total 2 calls: initial executeAction + retry from second round trip)
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+
+        // Step 7: Assert success is inserted only after the retried action succeeds
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "toggle_dnd_on" &&
+                        it.resultText == "Do Not Disturb is on" &&
+                        it.isSuccess
+                }
+            )
+        }
+
+        // Step 8: Assert pending state is cleared after the successful retry
+        assertNull(viewModel.dndState.value)
+    }
+
+    @Test
+    fun `dnd repeated return without grant preserves pending action until Not now`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = "toggle_dnd_on",
+                contextParams = mapOf("enabled" to "true"),
+            ),
+            SkillResult.Success("Do Not Disturb is on"),
+        )
+
+        // 1. Create DND missing-access state
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        // 2. First return without grant — blocked state shown
+        viewModel.onDndResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(true, viewModel.dndState.value!!.isAccessBlocked)
+
+        // 3. Open settings again (from blocked dialog)
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.dndState.value)
+
+        // 4. Return without grant again — blocked state still shown, pending still alive
+        viewModel.onDndResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(true, viewModel.dndState.value!!.isAccessBlocked)
+
+        // 5. Open settings a third time
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.dndState.value)
+
+        // 6. Return with grant — pending still alive, retry succeeds
+        viewModel.onDndResumeCheck(hasAccess = true)
+        advanceUntilIdle()
+
+        // 7. Assert original action was retried exactly once (total 2 calls)
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+
+        // 8. Assert success inserted
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "toggle_dnd_on" &&
+                        it.resultText == "Do Not Disturb is on" &&
+                        it.isSuccess
+                }
+            )
+        }
+
+        // 9. Assert pending state cleared after successful retry
+        assertNull(viewModel.dndState.value)
+    }
+
+    @Test
     fun `voice command normalizes spoken numbers before routing`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set timer for 5 minutes") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set timer for 5 minutes")
