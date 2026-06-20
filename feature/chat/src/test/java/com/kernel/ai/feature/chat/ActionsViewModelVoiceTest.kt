@@ -1107,6 +1107,225 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `dismiss hands free calling dialog clears state and pending action`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        // Dismiss = true cancel: clears visible state and pending action
+        viewModel.dismissHandsFreeCallingDialog()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+
+        // After dismiss, onPhonePermissionGranted cannot retry (pending was cleared)
+        viewModel.onPhonePermissionGranted()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { runIntentSkill.execute(any()) }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `dismiss prevents callback resurrection of stale hand call state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+
+        // Dismiss clears everything including requestState
+        viewModel.dismissHandsFreeCallingDialog()
+        advanceUntilIdle()
+
+        // onPhonePermissionDenied is called after dismiss, but requestState was cleared
+        viewModel.onPhonePermissionDenied(permanent = true)
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+    }
+
+    @Test
+    fun `on phone permission granted clears dialog state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+            SkillResult.Success("Calling susan monrad"),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        // Grant clears dialog state
+        viewModel.onPhonePermissionGranted()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+    }
+
+    @Test
+    fun `non permanent denial shows normal hands free calling state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+
+        // Non-permanent denial: dialog stays visible with normal state
+        viewModel.onPhonePermissionDenied(permanent = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+        assertEquals(false, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+        assertEquals("021111222", viewModel.handsFreeCallingState.value!!.phoneNumber)
+        assertEquals("susan monrad", viewModel.handsFreeCallingState.value!!.contact)
+    }
+
+    @Test
+    fun `permanent denial shows repair state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        // Permanent denial: dialog shows repair state
+        viewModel.onPhonePermissionDenied(permanent = true)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+        assertEquals(true, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+        assertEquals("021111222", viewModel.handsFreeCallingState.value!!.phoneNumber)
+        assertEquals("susan monrad", viewModel.handsFreeCallingState.value!!.contact)
+    }
+
+    @Test
+    fun `dialer fallback clears pending and emits launch dialer`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = com.kernel.ai.core.permissions.CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        // Dialer fallback: clears pending and emits LaunchDialer
+        coEvery { quickActionDao.insert(any()) } just Runs
+        viewModel.onHandsFreeCallingDialerFallback()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+        assertEquals(
+            ActionsViewModel.UiEvent.LaunchDialer::class,
+            events.lastOrNull()?.let { it::class },
+        )
+        collectJob.cancel()
+    }
+
+    @Test
     fun `dnd capability required creates pending DND action state`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
         every { quickIntentRouter.route("turn on do not disturb") } returns

@@ -119,6 +119,7 @@ class ActionsViewModel @Inject constructor(
         val params: Map<String, String>,
         val inputMode: InputMode,
         val phoneNumber: String? = null,
+        val contact: String? = null,
         val capabilityKey: CapabilityKey = CapabilityKey.HandsFreeCalling,
     )
 
@@ -197,6 +198,11 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingDndAction: PendingDndAction? = null
+    /** Snapshot of pendingPhonePermissionAction set by onHandsFreeCallingRequestPermission.
+     *  Used by onPhonePermissionDenied to reconstruct dialog state after dismiss clears
+     *  the original pending action (true cancel). NOT nulled by dismiss — only by
+     *  callback outcomes (grant, denial, open-app-permissions) and on-handler re-entry. */
+    private var handsFreeCallingRequestState: PendingPhonePermissionAction? = null
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
@@ -463,6 +469,8 @@ class ActionsViewModel @Inject constructor(
     fun onPhonePermissionGranted() {
         val pending = pendingPhonePermissionAction ?: return
         pendingPhonePermissionAction = null
+        handsFreeCallingRequestState = null
+        _handsFreeCallingState.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
@@ -492,14 +500,29 @@ class ActionsViewModel @Inject constructor(
     }
 
     fun onPhonePermissionDenied(permanent: Boolean = false) {
-        val currentState = _handsFreeCallingState.value ?: run {
-            pendingPhonePermissionAction = null
-            return
-        }
+        // Reconstruct state from requestState snapshot (set by onHandsFreeCallingRequestPermission)
+        // or from pending action. requestState survives dismissHandsFreeCallingDialog so the
+        // callback can transition the dialog to repair/retry even after a true cancel.
+        val currentState = _handsFreeCallingState.value
+            ?: handsFreeCallingRequestState?.let { req ->
+                HandsFreeCallingState(
+                    phoneNumber = req.phoneNumber ?: "",
+                    contact = req.contact ?: "",
+                    isPermanentlyDenied = permanent,
+                )
+            }
+            ?: run {
+                pendingPhonePermissionAction = null
+                handsFreeCallingRequestState = null
+                return
+            }
+        handsFreeCallingRequestState = null
         if (permanent) {
             _handsFreeCallingState.value = currentState.copy(isPermanentlyDenied = true)
+            // pendingPhonePermissionAction kept alive for repair navigation
         } else {
             _handsFreeCallingState.value = currentState
+            // pendingPhonePermissionAction kept alive for retry
         }
     }
 
@@ -523,28 +546,35 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    /** Request CALL_PHONE permission (emits event to screen launcher). */
+    /** Request CALL_PHONE permission (emits event to screen launcher).
+     *  Snapshots pendingPhonePermissionAction so onPhonePermissionDenied can
+     *  reconstruct dialog state after dismissHandsFreeCallingDialog clears it
+     *  (true cancel for Not now / outside tap). Non-null requestState survives
+     *  dismiss so the callback can still transition the dialog to repair or retry. */
     fun onHandsFreeCallingRequestPermission() {
-        _handsFreeCallingState.value = null
+        handsFreeCallingRequestState = pendingPhonePermissionAction
         viewModelScope.launch {
             _events.emit(UiEvent.RequestPhonePermission)
         }
     }
-
     /** Navigate to App Permissions for manual repair. */
     fun onHandsFreeCallingOpenAppPermissions() {
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
+        handsFreeCallingRequestState = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.NavigateToAppPermissions)
         }
     }
 
-    /** Dismiss the hands-free calling dialog without any action. */
+    /** Dismiss the hands-free calling dialog without any action.
+     *  TRUE CANCEL: clears visible state, pending action, and request snapshot
+     *  so no stale callback can reconstruct or retry. */
     fun dismissHandsFreeCallingDialog() {
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
+        handsFreeCallingRequestState = null
         _error.value = null
     }
 
@@ -921,6 +951,7 @@ class ActionsViewModel @Inject constructor(
                     params = params,
                     inputMode = inputMode,
                     phoneNumber = phoneNumber,
+                    contact = contact,
                     capabilityKey = capResult.capabilityKey,
                 )
                 _handsFreeCallingState.value = HandsFreeCallingState(

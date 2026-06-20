@@ -9,8 +9,9 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Layer | Tooling | What it covers | Entry point |
 |-------|---------|----------------|-------------|
 | Unit tests | Gradle + JUnit 5 + MockK | Core Kotlin logic, routing, parsing, repositories, presenters | `./gradlew testDebugUnitTest` |
-| Instrumented UI tests | Gradle + Compose/AndroidX test | Compose UI and connected-device Android tests | `./gradlew connectedDebugAndroidTest` |
+| Instrumented UI tests | Gradle + Compose/AndroidX test | Compose UI and connected-device Android tests, including S21 `permission_flows` | `./gradlew connectedDebugAndroidTest` |
 | Device regression harness | `adb` + Python | End-to-end intent routing, profile extraction, and on-device chat/action flows | `python3 scripts/adb_skill_test.py` |
+| Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
 
 ## ADB regression harness
 
@@ -453,7 +454,8 @@ document is wired into a single runnable repo command yet.
 
 | Item | Status | Issue/PR |
 |------|--------|----------|
-| False-positive / negative-routing ADB suite (§2 of test spec) | ✅ Implemented as `false_positives` phase (16 cases) | [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
+| False-positive / negative-routing ADB suite (§2 of test spec) | Implemented as `false_positives` phase (16 cases) | [#1272](https://github.com/NickMonrad/kernel-ai-assistant/issues/1272) |
+| Contextual permission-flow connected suite | Implemented as S21-first `permission_flows` UI Automator smoke tests plus #1113 evidence generator | [#1157](https://github.com/NickMonrad/kernel-ai-assistant/issues/1157) |
 
 Treat this file as the "what exists today" index, and the detailed testing specification as
 the "where we want to grow next" design document.
@@ -464,8 +466,9 @@ the "where we want to grow next" design document.
 |----------|---------|
 | [`docs/testing/README.md`](./testing/README.md) | Index of all testing documentation |
 | [`docs/testing/llm-tools-harness.md`](./testing/llm-tools-harness.md) | Deep reference for the `llm_tools` harness |
-| [`docs/adb-testing.md`](./adb-testing.md) | Device setup, build & install, logcat filters, benchmarks |
-| [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py) | The harness script (source of truth for CLI args) |
+| [`docs/adb-testing.md`](./adb-testing.md) | Device setup, build & install, logcat filters, benchmarks, and `permission_flows` S21 run instructions |
+| [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py) | The ADB harness script (source of truth for CLI args) |
+| [`scripts/generate_permission_flow_evidence.py`](../scripts/generate_permission_flow_evidence.py) | Normalises `permission_flows` connected-test XML into #1113 evidence |
 | [`scripts/generate_report.py`](../scripts/generate_report.py) | HTML report generator |
 | [#1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113) | GitHub-native test evidence dashboard |
 | [#1118](https://github.com/NickMonrad/kernel-ai-assistant/issues/1118) | This documentation update |

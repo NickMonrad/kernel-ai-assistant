@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -591,7 +593,56 @@ fun ActionsScreen(
             onStopVoiceReply = viewModel::stopVoiceCapture,
         )
     }
-
+    // Hands-free calling contextual permission surface
+    handsFreeCallingState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissHandsFreeCallingDialog() },
+            title = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Jandal needs Phone permission for hands-free calling"
+                    } else {
+                        "Allow hands-free calling?"
+                    },
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (state.isPermanentlyDenied) {
+                            "Phone permission is blocked. Open App Permissions to allow hands-free calling, " +
+                                "or open the dialer this time."
+                        } else {
+                            "Jandal needs Phone permission to call ${state.contact.ifBlank { "this number" }} " +
+                                "hands-free. You can open the dialer this time without granting permission."
+                        },
+                    )
+                    TextButton(onClick = { viewModel.onHandsFreeCallingDialerFallback() }) {
+                        Text("Open dialer this time")
+                    }
+                }
+            },
+            confirmButton = {
+                if (state.isPermanentlyDenied) {
+                    TextButton(onClick = { viewModel.onHandsFreeCallingOpenAppPermissions() }) {
+                        Text("Open App Permissions")
+                    }
+                } else {
+                    TextButton(onClick = { viewModel.onHandsFreeCallingRequestPermission() }) {
+                        Text("Allow hands-free calling")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissHandsFreeCallingDialog() }) {
+                    Text("Not now")
+                }
+            },
+        )
+    }
     // Clear history confirmation
     if (showClearConfirmation) {
         AlertDialog(
