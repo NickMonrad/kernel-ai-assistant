@@ -6,6 +6,7 @@ import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.Assert.assertTrue
 
 /**
  * Connected UI Automator smoke coverage for contextual permission flows (#1157).
@@ -69,11 +70,13 @@ class PermissionFlowContextualSmokeTest {
         harness.assertTextVisible("Not now")
         harness.assertTextNotVisible("Allow hands-free calling?")
 
-        // Tap Jandal's "Open App Permissions" CTA to navigate to Settings
-        // If the accessibility click succeeds, the dialog disappears and Settings opens.
-        harness.clickThroughAccessibility("Open App Permissions")
+        // Tap Jandal's "Open App Permissions" CTA to navigate to Settings.
+        // clickThroughAccessibility returns true if the click was performed.
+        val clicked = harness.clickThroughAccessibility("Open App Permissions")
+        assertTrue("'Open App Permissions' click did not succeed", clicked)
 
-        // Samsung One UI labels the app details screen "App info" (not "App Permissions").
+        // Verify Settings opened (App info screen for our package).
+        harness.assertSettingsOpened("Android Settings App info screen did not open from repair CTA")
     }
 
 

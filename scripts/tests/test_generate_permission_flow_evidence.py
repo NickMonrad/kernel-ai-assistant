@@ -61,7 +61,7 @@ class PermissionFlowEvidenceTest(unittest.TestCase):
             "release": None,
             "run_id": "on_device-2026-06-20T00:00:00Z-s21-exynos",
             "device": {"id": "s21-exynos", "execution": "physical"},
-            "model": {"name": None, "runtime": None, "backend": None},
+            "model": {"name": "not_applicable", "runtime": "not_applicable", "backend": "not_applicable"},
             "summary": {"total": 1, "passed": 1, "failed": 0, "pass_rate": 1.0},
             "cases": [case],
         }
@@ -74,6 +74,35 @@ class PermissionFlowEvidenceTest(unittest.TestCase):
         self.assertNotIn("assertion", schema_case)
         self.assertNotIn("duration_seconds", schema_case)
         self.assertIsNone(schema_case["failure_category"])
+
+    def test_schema_validates_permission_flow_evidence(self) -> None:
+        """Generated on_device evidence must validate against the schema."""
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            self.skipTest("jsonschema not installed")
+
+        case_def = permission_evidence.PERMISSION_FLOW_CASES[0]
+        case = permission_evidence.build_case(case_def, {"passed": True, "failures": [], "time": 0.2})
+        normalised = {
+            "schema_version": "1.0",
+            "source": "on_device",
+            "suite": "permission_flows",
+            "timestamp": "2026-06-20T00:00:00Z",
+            "repo": "NickMonrad/kernel-ai-assistant",
+            "branch": "feature/1157-permission-flow-harness",
+            "commit": "a" * 40,
+            "pr": 1157,
+            "release": None,
+            "run_id": "on_device-2026-06-20T00:00:00Z-s21-exynos",
+            "device": {"id": "s21-exynos", "execution": "physical"},
+            "model": {"name": "not_applicable", "runtime": "not_applicable", "backend": "not_applicable"},
+            "summary": {"total": 1, "passed": 1, "failed": 0, "pass_rate": 1.0},
+            "cases": [case],
+        }
+
+        errors = permission_evidence.validate_against_schema(normalised)
+        self.assertEqual([], errors, f"Schema validation failed: {errors}")
 
 
 if __name__ == "__main__":

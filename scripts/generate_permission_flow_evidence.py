@@ -334,7 +334,7 @@ def main(argv: list[str] | None = None) -> None:
         "release": None,
         "run_id": f"{args.source}-{timestamp}-{args.device_id}",
         "device": device,
-        "model": {"name": None, "runtime": None, "backend": None},
+        "model": {"name": "not_applicable", "runtime": "not_applicable", "backend": "not_applicable"},
         "summary": {"total": total, "passed": passed, "failed": failed, "pass_rate": pass_rate},
         "cases": cases,
     }
