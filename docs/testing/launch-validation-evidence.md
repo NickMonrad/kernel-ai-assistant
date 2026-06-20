@@ -110,6 +110,8 @@ ANDROID_SERIAL=<S23U_SERIAL> ADB_WAIT_SECONDS=15 \
   python3 scripts/adb_skill_test.py \
   --phases alarm_timer,weather,slot_fill \
   --exclude-tags destructive,device_state --model-readiness
+```
+
 **Publishing:**
 
 ```bash
@@ -144,6 +146,10 @@ The non-raw files are pushed to the `test-results` branch by
 `publish_test_evidence.py --input-dir <out_dir>`, which publishes every
 `.json`, `.csv`, and `.md` file in the top level of the bundle directory.
 The `raw/` subdirectory is excluded from dashboard publication.
+**Durable storage:** The `raw/` subdirectory is local-only. To preserve raw JSON
+across runs, commit the evidence bundle directory (`docs/test-triage/evidence/`)
+or archive it externally. The `test-results` branch stores only normalised
+evidence for dashboard rendering — raw JSON is not recoverable from it.
 
 ### Dashboard publication
 
@@ -207,6 +213,12 @@ Every evidence publication includes these fields for reliable accounting:
 - **not_reached / excluded counts**: these are optional CLI arguments
   (`--not-reached`, `--excluded`). When not provided, the summary reports
   `not provided by source evidence` rather than assuming zero.
+- **Raw JSON durability:** The raw harness JSON is copied into a `raw/`
+  subdirectory of the local evidence bundle but is **not** pushed to the
+  `test-results` branch. The `test-results` branch stores only normalised
+  evidence (`.json`, `.csv`, `.md`) for dashboard rendering. To make raw
+  JSON durable across runs, commit the evidence bundle directory
+  (`docs/test-triage/evidence/`) or archive it externally.
 
 ## Related
 
