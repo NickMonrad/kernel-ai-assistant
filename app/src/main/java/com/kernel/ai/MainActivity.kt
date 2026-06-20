@@ -3,6 +3,7 @@ package com.kernel.ai
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -78,7 +79,7 @@ class MainActivity : ComponentActivity() {
         // re-seeding here would cause LaunchedEffect to navigate again with a fresh
         // (unconsumed) entry and re-execute the query unexpectedly.
         if (savedInstanceState == null) {
-            intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+            readQuickActionInput(intent)?.let {
                 val voice = intent.getBooleanExtra("quick_action_is_voice", false)
                 adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
                 adbQuickActionIsVoice.value = voice
@@ -137,7 +138,7 @@ class MainActivity : ComponentActivity() {
         // case's slot reply to overwrite the newly primed pending slot.
         adbSlotReplyInput.value = null
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
-        intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+        readQuickActionInput(intent)?.let {
             val voice = intent.getBooleanExtra("quick_action_is_voice", false)
             adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
             adbQuickActionIsVoice.value = voice
@@ -148,6 +149,15 @@ class MainActivity : ComponentActivity() {
             AuthorizationException.fromIntent(intent) != null) {
             authRepository.deliverAuthResponse(intent)
         }
+    }
+
+    private fun readQuickActionInput(intent: Intent): String? {
+        intent.getStringExtra("quick_action_input")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        return intent.getStringExtra("quick_action_input_encoded")
+            ?.takeIf { it.isNotBlank() }
+            ?.let(Uri::decode)
     }
 
     /**

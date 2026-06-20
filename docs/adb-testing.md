@@ -320,3 +320,116 @@ buzzing after a test completes:
 1. The post-run cleanup should have stopped it — check the exit code.
 2. If exit code was 46, run `adb shell am force-stop com.kernel.ai.debug` manually.
 3. File a bug for any persistent cleanup gaps (tracked in #1275).
+
+---
+
+## 11. Running the `permission_flows` connected suite
+
+The `permission_flows` suite validates contextual permission UX surfaces and
+Settings round-trips for #1140 permission orchestration. It is a UI Automator /
+connected-test suite, not a model quality suite: it drives Actions with the
+existing `quick_action_input` test extra and does not require LLM inference,
+Gemma downloads, or S23 Ultra-only behaviour.
+
+### Device requirement
+
+- **Default device:** Samsung Galaxy S21 (`s21-exynos`, physical). Use this for
+  PR evidence unless the issue explicitly asks for another device.
+- **Optional secondary device:** S23 Ultra only for OEM/API-specific validation.
+- **If the S21 is unavailable:** stop and ask Nick for ADB access. Do not mark
+  device validation complete without S21 evidence.
+
+### Permission/appops reset
+
+The harness resets runtime permission state where Android allows shell control:
+
+```bash
+adb shell pm clear-permission-flags com.kernel.ai.debug android.permission.CALL_PHONE user-set user-fixed
+adb shell pm revoke com.kernel.ai.debug android.permission.CALL_PHONE
+```
+
+DND notification-policy access is special access, not a normal runtime
+permission. The connected test makes a best-effort call:
+
+```bash
+adb shell cmd notification disallow_dnd com.kernel.ai.debug
+```
+
+If Samsung One UI keeps DND access granted, revoke it manually in Android
+Settings before running the suite. The harness verifies Settings launch/return
+and blocked repair state; it does **not** claim fully stable automated toggling
+of the DND Settings switch.
+
+### Run locally on S21
+
+```bash
+ANDROID_SERIAL=R5CR605B71K ./gradlew :app:installDebug :feature:settings:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=\
+com.kernel.ai.feature.settings.PermissionFlowContextualSmokeTest \
+  -Pandroid.testInstrumentationRunnerArguments.unlock_pin=<PIN-if-locked>
+```
+
+Omit `unlock_pin` when the S21 is already unlocked. If the device remains on the
+lock screen and no PIN is available, stop and ask Nick for ADB/unlock access.
+
+Covered smoke cases:
+
+- `handsFreeCalling_revokedShowsContextualSurface`
+- `handsFreeCalling_permanentDenialNavigatesToAppPermissions`
+- `dndSpecialAccess_settingsRoundTripShowsBlockedRepair`
+
+Future #1140 child slices should add cases to this class (or shared helpers)
+instead of creating ad hoc permission UI Automator tests.
+
+### Generate normalized #1113 evidence
+
+After the connected test finishes:
+
+```bash
+PR_NUMBER="$(gh pr view --json number --jq .number)"
+PR_HEAD_SHA="$(git rev-parse HEAD)"
+
+python3 scripts/generate_permission_flow_evidence.py \
+  --source on_device \
+  --suite permission_flows \
+  --pr "$PR_NUMBER" \
+  --commit "$PR_HEAD_SHA" \
+  --branch "$(git branch --show-current)" \
+  --device-id s21-exynos \
+  --results-dir feature/settings/build/outputs/androidTest-results/connected/ \
+  --out-dir "scripts/test-reports/normalised/pr-$PR_NUMBER/"
+```
+
+The JSON output uses the existing #1113 schema:
+
+```json
+{
+  "source": "on_device",
+  "suite": "permission_flows",
+  "device": {
+    "id": "s21-exynos",
+    "execution": "physical"
+  },
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "pass_rate": 1.0
+  },
+  "cases": []
+}
+```
+
+Publish or attach evidence using the standard #1113 workflow:
+
+```bash
+python3 scripts/publish_test_evidence.py \
+  --input "scripts/test-reports/normalised/pr-$PR_NUMBER/" \
+  --pr "$PR_NUMBER" \
+  --commit "$PR_HEAD_SHA" \
+  --dry-run
+```
+
+For PR summaries, include the generated JSON/Markdown path, device ID
+(`s21-exynos`), command output, pass/fail summary, and any skipped
+OS/OEM-boundary reason.

@@ -238,8 +238,8 @@ class ActionsDndDialogTest {
                 text = {
                     Text(
                         if (state.isAccessBlocked) {
-                            "Jandal still does not have Do Not Disturb access. " +
-                                "Open DND access settings to grant it, then return to Jandal."
+                            "Grant Do Not Disturb access in Android settings, " +
+                                "then return to Jandal to continue."
                         } else {
                             "Android requires special access before Jandal can " +
                                 "turn Do Not Disturb on or off."

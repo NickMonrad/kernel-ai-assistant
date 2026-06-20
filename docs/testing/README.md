@@ -5,11 +5,12 @@
 | Document | Purpose |
 |----------|---------|
 | [`docs/automated-testing.md`](../automated-testing.md) | Primary operational index — harness commands, supported phases, report inspection, on-device validation, CI vs on-device evidence, failure interpretation |
-| [`docs/adb-testing.md`](../adb-testing.md) | Device setup, build & install, logcat filters, TTFT benchmarking, memory monitoring, wireless debugging |
+| [`docs/adb-testing.md`](../adb-testing.md) | Device setup, build & install, logcat filters, TTFT benchmarking, memory monitoring, wireless debugging, and the S21 `permission_flows` connected suite |
 | [`docs/testing/test-evidence-schema.md`](./test-evidence-schema.md) | Normalised evidence schema, `ci` vs `on_device` definitions, field reference |
 | [`.docs/agents/test-evidence-workflow.md`](../../.docs/agents/test-evidence-workflow.md) | Agent guidance on evidence lifecycle — generation, reporting, publishing, dashboard |
 | [`docs/testing/llm-tools-harness.md`](./llm-tools-harness.md) | Deep reference for the `llm_tools` harness phase — markers, assertions, troubleshooting |
 | [`docs/testing/s21-model-readiness.md`](./s21-model-readiness.md) | S21 model readiness preflight — after reinstall, run this before accepting model-backed ADB evidence |
+| `scripts/generate_permission_flow_evidence.py` | Converts `permission_flows` connected-test XML into #1113 normalised JSON/CSV/Markdown evidence |
 
 ## Design / specification docs
 
