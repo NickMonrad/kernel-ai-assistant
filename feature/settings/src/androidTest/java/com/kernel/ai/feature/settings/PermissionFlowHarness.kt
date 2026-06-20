@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import java.io.FileInputStream
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -162,6 +163,44 @@ internal class PermissionFlowHarness(
             textNode.click()
         }
     }
+
+    /**
+     * Click a text label via AccessibilityNodeInfo.performAction(ACTION_CLICK).
+     *
+     * Bypasses Samsung One UI's Compose AlertDialog window clipping where
+     * dialog buttons are rendered below the dialog's touchable bounds (~y=1008
+     * on a 1080p screen) making gesture-based clicks unreliable.
+     *
+     * This uses the accessibility API to directly invoke the view's click
+     * handler, which works regardless of window bounds or clipping.
+     *
+     * Retries for [DIALOG_TIMEOUT_MS] with 200ms polling intervals.
+     */
+    fun clickThroughAccessibility(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
+
+        while (System.currentTimeMillis() < deadline) {
+            val root = uiAutomation.rootInActiveWindow ?: run {
+                Thread.sleep(200)
+                continue
+            }
+            try {
+                val nodes = root.findAccessibilityNodeInfosByText(text)
+                for (node in nodes) {
+                    if (node.isClickable) {
+                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return true
+                    }
+                    node.recycle()
+                }
+            } finally {
+                root.recycle()
+            }
+            Thread.sleep(200)
+        }
+        return false
+    }
     fun assertAppForeground(message: String = "App should be in foreground") {
         assertTrue(message, waitForPackageForeground(PACKAGE, LAUNCH_TIMEOUT_MS))
     }
@@ -233,6 +272,6 @@ internal class PermissionFlowHarness(
         private const val SHORT_TIMEOUT_MS = 750L
 
         private val SYSTEM_ALLOW_LABELS = listOf("Allow", "While using the app", "Only this time")
-        private val SYSTEM_DENY_LABELS = listOf("Don't allow", "Deny", "No thanks")
+        private val SYSTEM_DENY_LABELS = listOf("Don't allow", "Deny", "No thanks", "Cancel")
     }
 }

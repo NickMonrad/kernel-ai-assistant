@@ -47,27 +47,35 @@ class PermissionFlowContextualSmokeTest {
 
         harness.launchQuickAction("call voicemail")
         harness.assertTextVisible("Allow hands-free calling?")
+        harness.assertTextContainsVisible("Jandal needs Phone permission")
+        harness.assertTextVisible("Open dialer this time")
+        harness.assertTextVisible("Allow hands-free calling")
+        harness.assertTextVisible("Not now")
 
-        // The "Allow hands-free calling" and "Open App Permissions" buttons are
-        // rendered below the Compose AlertDialog window on Samsung One UI 15
-        // (the dialog window is ~1008px but the buttons land at y~1500+).
-        // We verify the repair state renders, then directly launch the App
-        // Permissions Settings screen to validate the navigation path.
+        // Trigger permission request by clicking "Allow hands-free calling" button.
+        // On Samsung One UI 15, Compose AlertDialog buttons are rendered below the
+        // dialog window's touchable bounds (~y=1008 on 1080p vs button at y~1500+),
+        harness.clickThroughAccessibility("Allow hands-free calling")
 
-        // Trigger the permission request callback path via permission revocation,
-        // then return to app to trigger onPhonePermissionDenied.
+        // On some Samsung One UI builds, the permanently-denied permission triggers
+        // a system dialog ("Permission permanently denied" with Cancel/Settings).
+        // Dismiss it if present to allow the callback to complete.
         harness.dismissSystemPermissionIfShown()
-        harness.assertTextVisible("Allow hands-free calling?")
 
-        // Launch Android App Permissions via shell command
-        harness.executeShell(
-            "am start -a android.settings.APPLICATION_DETAILS_SETTINGS " +
-                "-d package:com.kernel.ai.debug"
-        )
+        // Permission is permanently denied — system fires callback with denied result
+        // and shouldShowRequestPermissionRationale = false. Jandal transitions to repair state.
+        harness.assertTextVisible("Jandal needs Phone permission for hands-free calling")
+        harness.assertTextContainsVisible("Phone permission is blocked")
+        harness.assertTextVisible("Not now")
+        harness.assertTextNotVisible("Allow hands-free calling?")
+
+        // Tap Jandal's "Open App Permissions" CTA to navigate to Settings
+        harness.clickThroughAccessibility("Open App Permissions")
+
         // Samsung One UI labels the app details screen "App info" (not "App Permissions").
-        harness.assertSettingsOpened("App Permissions settings did not open")
+        harness.assertSettingsOpened("App Permissions settings did not open from repair CTA")
         harness.assertTextVisible("App info", timeoutMs = 8000)
-}
+    }
 
 
     @Test

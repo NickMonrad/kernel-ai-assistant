@@ -462,7 +462,7 @@ class ActionsViewModel @Inject constructor(
         _error.value = if (permanent) {
             "Microphone access permanently denied. Enable it in Settings → App permissions."
         } else {
-            null
+            "Microphone permission is required for voice input."
         }
     }
 
