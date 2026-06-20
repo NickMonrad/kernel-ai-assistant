@@ -70,13 +70,16 @@ class PermissionFlowContextualSmokeTest {
         harness.assertTextVisible("Not now")
         harness.assertTextNotVisible("Allow hands-free calling?")
 
-        // Tap Jandal's "Open App Permissions" CTA to navigate to Settings.
+        // Tap Jandal's "Open App Permissions" CTA to navigate to the in-app
+        // App Permissions repair dashboard.
         // clickThroughAccessibility returns true if the click was performed.
         val clicked = harness.clickThroughAccessibility("Open App Permissions")
         assertTrue("'Open App Permissions' click did not succeed", clicked)
 
-        // Verify Settings opened (App info screen for our package).
-        harness.assertSettingsOpened("Android Settings App info screen did not open from repair CTA")
+        // Verify the internal App Permissions screen is shown, not system Settings.
+        // The CTA navigates to Jandal's in-app permission dashboard.
+        harness.assertTextVisible("App Permissions")
+        harness.assertTextContainsVisible("These are the permissions Jandal uses")
     }
 
 

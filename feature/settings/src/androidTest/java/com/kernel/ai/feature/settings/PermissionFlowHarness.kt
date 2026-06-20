@@ -32,16 +32,24 @@ internal class PermissionFlowHarness(
     fun wakeAndHome() {
         device.wakeUp()
         executeShell("input keyevent KEYCODE_WAKEUP")
-        executeShell("wm dismiss-keyguard")
-        executeShell("input swipe 540 2000 540 500 200")
+        // Samsung One UI: wm dismiss-keyguard does not work (stays locked).
+        // Use a screen off → on cycle to reset the lock screen, then swipe up.
+        executeShell("input keyevent KEYCODE_SLEEP")
+        device.waitForIdle(500)
+        executeShell("input keyevent KEYCODE_WAKEUP")
+        device.waitForIdle(1000)
+        // Swipe from bottom to dismiss swipe-to-unlock keyguard.
+        // Use an extended duration (500ms) for reliable gesture injection.
+        executeShell("input swipe 540 2200 540 500 500")
+        // Wait for lock screen to fully dismiss before proceeding.
+        device.waitForIdle(1500)
+        // Optional PIN unlock if the device uses a PIN/pattern (handled by test runner arg).
         unlockPin()?.let { pin ->
             executeShell("input text ${pin.replace(" ", "%s")}")
             executeShell("input keyevent ENTER")
+            device.waitForIdle(1000)
         }
-        // Wait briefly for unlock animation to settle, then press HOME to ensure
-        // the launcher is foreground. 1s delay drains the input event pipeline
-        // so the KEYCODE_HOME doesn't race with a subsequent am start -S.
-        device.wait(Until.findObject(By.depth(0)), 1500)
+        // Finally press HOME to ensure launcher is foreground.
         device.pressHome()
         device.waitForIdle()
     }
