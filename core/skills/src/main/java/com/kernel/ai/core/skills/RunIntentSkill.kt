@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.skills.natives.NativeIntentHandler
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,6 +22,7 @@ class RunIntentSkill @Inject constructor(
     private val handler: NativeIntentHandler,
 ) : Skill {
 
+    private val validationRegistry: SlotValidationRegistry by lazy { SlotValidationRegistry() }
     override val name = "run_intent"
     override val description =
         "Perform a native Android device action. Supports flashlight, alarm, timer, calendar, email, SMS, " +
@@ -287,6 +289,14 @@ class RunIntentSkill @Inject constructor(
         val intentName = call.arguments["intent_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: intent_name.")
         val extraParams = call.arguments - "intent_name"
+        // Validate slot values before dispatching — catches invalid already-populated
+        // params from direct model tool calls (KernelAIToolSet.runIntent) that bypass
+        // ChatViewModel.validateBeforeDispatch, and recovery/anaphoric paths
+        val invalid = validationRegistry.validateParams(intentName, extraParams)
+        if (invalid != null) {
+            val message = invalid.errorMessage ?: "Invalid value for $intentName. Please try again."
+            return SkillResult.Failure("$name/$intentName", message)
+        }
         return handler.handle(intentName, extraParams)
     }
 }
