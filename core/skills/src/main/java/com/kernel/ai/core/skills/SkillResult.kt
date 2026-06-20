@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import com.kernel.ai.core.permissions.CapabilityKey
+
 /**
  * Result returned by a [Skill] after execution.
  *
@@ -49,4 +51,13 @@ sealed class SkillResult {
     data class Failure(val skillName: String, val error: String) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
+    /** Skill requires a device capability (e.g. CALL_PHONE permission) to proceed.
+     *  [capabilityKey] identifies the blocked capability from [CapabilityRegistry].
+     *  [skillName] is the original intent/skill name.
+     *  [contextParams] carries resolved data (e.g. phone number) for retry or fallback. */
+    data class CapabilityRequired(
+        val capabilityKey: CapabilityKey,
+        val skillName: String,
+        val contextParams: Map<String, String> = emptyMap(),
+    ) : SkillResult()
 }

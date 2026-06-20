@@ -40,6 +40,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
@@ -63,7 +64,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 private const val TAG = "KernelAI"
-private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."
 
 interface ClockAlertController {
     fun dismissActiveTimerAlerts(): Boolean
@@ -867,11 +867,11 @@ class NativeIntentHandler @Inject constructor(
     private fun setDoNotDisturb(enabled: Boolean): SkillResult {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!nm.isNotificationPolicyAccessGranted) {
-            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            return SkillResult.Success("Please grant Do Not Disturb access in settings")
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = if (enabled) "toggle_dnd_on" else "toggle_dnd_off",
+                contextParams = mapOf("enabled" to enabled.toString()),
+            )
         }
         val filter = if (enabled) NotificationManager.INTERRUPTION_FILTER_NONE
                      else NotificationManager.INTERRUPTION_FILTER_ALL
@@ -1284,7 +1284,11 @@ class NativeIntentHandler @Inject constructor(
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
             if (!canCall) {
-                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+                return SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.HandsFreeCalling,
+                    skillName = "make_call",
+                    contextParams = mapOf("phoneNumber" to phoneNumber, "contact" to contact),
+                )
             }
             val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -1301,7 +1305,11 @@ class NativeIntentHandler @Inject constructor(
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
             if (!canCall) {
-                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+                return SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.HandsFreeCalling,
+                    skillName = "make_call",
+                    contextParams = mapOf("phoneNumber" to "voicemail", "contact" to label),
+                )
             }
             val intent = Intent(Intent.ACTION_CALL, Uri.parse("voicemail:")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
