@@ -37,12 +37,13 @@ internal class PermissionFlowHarness(
             executeShell("input text ${pin.replace(" ", "%s")}")
             executeShell("input keyevent ENTER")
         }
-        // No HOME key press here — PIN unlock on Samsung One UI already returns
-        // to the home screen. A trailing HOME event would race with the test's
-        // am start -S force-stop + launch, causing the app to immediately background.
+        // Wait briefly for unlock animation to settle, then press HOME to ensure
+        // the launcher is foreground. 1s delay drains the input event pipeline
+        // so the KEYCODE_HOME doesn't race with a subsequent am start -S.
+        device.wait(Until.findObject(By.depth(0)), 1500)
+        device.pressHome()
         device.waitForIdle()
     }
-
     fun ensureStartupPermissionsGranted() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             grantRuntimePermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -144,6 +145,23 @@ internal class PermissionFlowHarness(
         obj.click()
     }
 
+    fun clickClickableAncestor(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS) {
+        // Find the text node, then walk up parents to find the first clickable ancestor.
+        // This works for deeply nested Compose TextButton structures where
+        // By.clickable(true).hasChild(By.text(...)) fails due to depth.
+        val textNode = waitForText(text, timeoutMs)
+        var node: UiObject2 = textNode
+        while (node != textNode.parent && !node.isClickable) {
+            val parent = node.parent ?: break
+            node = parent
+        }
+        if (node.isClickable) {
+            node.click()
+        } else {
+            // Fallback: click the original text node
+            textNode.click()
+        }
+    }
     fun assertAppForeground(message: String = "App should be in foreground") {
         assertTrue(message, waitForPackageForeground(PACKAGE, LAUNCH_TIMEOUT_MS))
     }
@@ -199,7 +217,7 @@ internal class PermissionFlowHarness(
             ?.takeIf { it.isNotBlank() }
 
 
-    private fun executeShell(command: String) {
+    internal fun executeShell(command: String) {
         InstrumentationRegistry.getInstrumentation().uiAutomation
             .executeShellCommand(command)
             .close()
