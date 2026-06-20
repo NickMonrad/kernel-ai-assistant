@@ -37,7 +37,10 @@ internal class PermissionFlowHarness(
             executeShell("input text ${pin.replace(" ", "%s")}")
             executeShell("input keyevent ENTER")
         }
-        device.pressHome()
+        // No HOME key press here — PIN unlock on Samsung One UI already returns
+        // to the home screen. A trailing HOME event would race with the test's
+        // am start -S force-stop + launch, causing the app to immediately background.
+        device.waitForIdle()
     }
 
     fun ensureStartupPermissionsGranted() {
@@ -119,7 +122,26 @@ internal class PermissionFlowHarness(
     }
 
     fun clickText(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS) {
-        waitForText(text, timeoutMs).click()
+        val obj = waitForText(text, timeoutMs)
+        if (obj.isClickable) {
+            obj.click()
+        } else {
+            // Text may be inside a TextButton; click the parent to avoid
+            // tapping outside dialog bounds and triggering onDismissRequest.
+            val parent = obj.parent
+            if (parent != null && parent.isClickable) {
+                parent.click()
+            } else {
+                obj.click()
+            }
+        }
+    }
+    fun clickClickableContainingText(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS) {
+        // Find a clickable ancestor (TextButton) that contains the text node.
+        val selector = By.clickable(true).hasChild(By.text(text))
+        val obj = device.wait(Until.findObject(selector), timeoutMs)
+        assertNotNull("Expected clickable element containing text '$text' not found", obj)
+        obj.click()
     }
 
     fun assertAppForeground(message: String = "App should be in foreground") {

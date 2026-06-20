@@ -119,6 +119,7 @@ class ActionsViewModel @Inject constructor(
         val params: Map<String, String>,
         val inputMode: InputMode,
         val phoneNumber: String? = null,
+        val contact: String? = null,
         val capabilityKey: CapabilityKey = CapabilityKey.HandsFreeCalling,
     )
 
@@ -490,9 +491,15 @@ class ActionsViewModel @Inject constructor(
             }
         }
     }
-
     fun onPhonePermissionDenied(permanent: Boolean = false) {
-        val currentState = _handsFreeCallingState.value ?: run {
+        // Reconstruct state from pending action if dialog was dismissed before callback
+        val currentState = _handsFreeCallingState.value ?: pendingPhonePermissionAction?.let { pending ->
+            HandsFreeCallingState(
+                phoneNumber = pending.phoneNumber ?: "",
+                contact = pending.contact ?: "",
+                isPermanentlyDenied = true,
+            )
+        } ?: run {
             pendingPhonePermissionAction = null
             return
         }
@@ -523,9 +530,10 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    /** Request CALL_PHONE permission (emits event to screen launcher). */
+    /** Request CALL_PHONE permission (emits event to screen launcher).
+     * State is NOT cleared here -- onPhonePermissionDenied/PermissionGranted
+     * handle state transitions after the system callback. */
     fun onHandsFreeCallingRequestPermission() {
-        _handsFreeCallingState.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RequestPhonePermission)
         }
@@ -541,10 +549,11 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    /** Dismiss the hands-free calling dialog without any action. */
+    /** Dismiss the hands-free calling dialog without any action.
+     * Preserves pendingPhonePermissionAction so onPhonePermissionDenied can
+     * still reconstruct the dialog (matching DND dismiss behavior). */
     fun dismissHandsFreeCallingDialog() {
         _handsFreeCallingState.value = null
-        pendingPhonePermissionAction = null
         _error.value = null
     }
 
@@ -921,6 +930,7 @@ class ActionsViewModel @Inject constructor(
                     params = params,
                     inputMode = inputMode,
                     phoneNumber = phoneNumber,
+                    contact = contact,
                     capabilityKey = capResult.capabilityKey,
                 )
                 _handsFreeCallingState.value = HandsFreeCallingState(
