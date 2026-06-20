@@ -497,6 +497,57 @@ def _save_readiness_failure(evidence: ModelReadinessEvidence) -> None:
 
 
 
+def _resolve_phases(phases: list[str] | None) -> list[str] | None:
+    """Resolve --phases tokens to a list of selected phase names.
+
+    Accepts phase names (e.g. ``"weather"``) or 1-based numeric indices
+    (e.g. ``"3"``). Invalid tokens print an error and return ``[]``;
+    ``None`` input returns ``None`` (all phases).
+
+    Returns:
+        Selected phase name list, ``None`` for all phases,
+        or ``[]`` on error (caller should return 1).
+    """
+    if phases is None:
+        return None
+
+    phase_names = [name for name, _ in PHASES]
+    selected_indices: set[int] = set()
+
+    for token in phases:
+        token = token.strip()
+        if token.isdigit():
+            n = int(token)
+            if not (1 <= n <= len(PHASES)):
+                print(
+                    f"ERROR: --phases {token!r} out of range "
+                    f"(1–{len(PHASES)}). Valid phases: "
+                    f"{', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}",
+                    file=sys.stderr,
+                )
+                return []
+            selected_indices.add(n - 1)
+        else:
+            if token not in phase_names:
+                print(
+                    f"ERROR: --phases {token!r} not recognised. "
+                    f"Valid phases: {', '.join(phase_names)}",
+                    file=sys.stderr,
+                )
+                return []
+            selected_indices.add(phase_names.index(token))
+
+    if not selected_indices:
+        # No valid tokens — empty or all-whitespace input
+        print(
+            "ERROR: --phases requires at least one phase name or number.",
+            file=sys.stderr,
+        )
+        print(f"  Valid phases: {', '.join(phase_names)}", file=sys.stderr)
+        return []
+
+    return [phase_names[i] for i in sorted(selected_indices)]
+
 def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None,
               phases: list[str] | None = None, categories: list[str] | None = None,
               tags: list[str] | None = None, exclude_tags: list[str] | None = None,
@@ -515,25 +566,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
         # Resolve phase names for display — preserve existing --phases behaviour
         phase_names_dr = [name for name, _ in PHASES]
-        selected_phase_names: list[str] | None = None
-        if phases is not None:
-            selected_phases_set: set[int] = set()
-            for token in phases:
-                token = token.strip()
-                if token.isdigit():
-                    n = int(token)
-                    if not (1 <= n <= len(PHASES)):
-                        print(f"ERROR: --phases {token!r} out of range (1–{len(PHASES)}).", file=sys.stderr)
-                        return 1
-                    selected_phases_set.add(n - 1)
-                else:
-                    if token not in phase_names_dr:
-                        print(f"ERROR: --phases {token!r} not recognised. Valid: {', '.join(phase_names_dr)}", file=sys.stderr)
-                        return 1
-                    selected_phases_set.add(phase_names_dr.index(token))
-            selected_phase_names = [phase_names_dr[i] for i in sorted(selected_phases_set)]
-        else:
+        selected_phase_names = _resolve_phases(phases)
+        if selected_phase_names is None:
             selected_phase_names = phase_names_dr
+        elif not selected_phase_names:  # [] = error
+            return 1
 
         # Use _select_tests for composable filtering
         selected_tests = _select_tests(
@@ -777,33 +814,12 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     phase_names = [name for name, _ in PHASES]
 
     # Resolve --phases: comma-separated list of phase names or 1-based numbers.
-    # Builds a set of 0-based indices to include.
-    selected_phase_indices: set[int] | None = None  # None = all phases
+    run_phase_filter: list[str] | None = None
     if phases is not None:
-        selected_phase_indices = set()
-        for token in phases:
-            token = token.strip()
-            if token.isdigit():
-                n = int(token)
-                if not (1 <= n <= len(PHASES)):
-                    print(
-                        f"ERROR: --phases {token!r} out of range "
-                        f"(1–{len(PHASES)}). Valid phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}",
-                        file=sys.stderr,
-                    )
-                    return 1
-                selected_phase_indices.add(n - 1)
-            else:
-                if token not in phase_names:
-                    print(
-                        f"ERROR: --phases {token!r} not recognised. "
-                        f"Valid phases: {', '.join(phase_names)}",
-                        file=sys.stderr,
-                    )
-                    return 1
-                selected_phase_indices.add(phase_names.index(token))
-        selected_names = [phase_names[i] for i in sorted(selected_phase_indices)]
-        print(f"  ── Running selected phases: {', '.join(selected_names)} ──")
+        run_phase_filter = _resolve_phases(phases)
+        if not run_phase_filter:  # [] = error
+            return 1
+        print(f"  ── Running selected phases: {', '.join(run_phase_filter)} ──")
         print()
 
     # Resolve --start-phase: accept a phase name or 1-based number.
@@ -834,11 +850,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print()
 
     # Build the filtered test list using _select_tests for composable selectors.
-    # The phase filter is built from --phases (if given) or --start-phase (if given).
-    run_phase_filter: list[str] | None = None
-    if phases is not None:
-        run_phase_filter = [phase_names[i] for i in sorted(selected_phase_indices)]  # type: ignore[union-attr]
-    elif start_phase is not None:
+    # Phase filter is already set from --phases above; --start-phase only applies
+    # when --phases was not given.
+    if run_phase_filter is None and start_phase is not None:
         run_phase_filter = phase_names[start_phase_idx:]
 
     selected_tests = _select_tests(
@@ -1736,20 +1750,13 @@ def run_isolated_phases(dry_run: bool = False,
 
     Returns non-zero if any phase failed.
     """
-    phase_names = [name for name, _ in PHASES]
 
-    # ── Phase selection ──
+    # ── Phase selection (uses shared _resolve_phases) ──
     selected_phase_names: list[str] | None = None
     if phases is not None:
-        selected_phases_set: set[int] = set()
-        for token in phases:
-            token = token.strip()
-            if token.isdigit():
-                n = int(token)
-                if not (1 <= n <= len(PHASES)):
-                    print(f"ERROR: --phases {token!r} out of range (1–{len(PHASES)}).",
-                          file=sys.stderr)
-        selected_phase_names = [phase_names[i] for i in sorted(selected_phases_set)]
+        selected_phase_names = _resolve_phases(phases)
+        if not selected_phase_names:  # [] = error
+            return 1
 
     selected_tests = _select_tests(
         phases=PHASES,
@@ -1783,6 +1790,8 @@ def run_isolated_phases(dry_run: bool = False,
     # Pre-run: start host-side logcat streaming
     if not dry_run:
         logcat_start()
+
+    phase_names = [name for name, _ in PHASES]
 
     phase_order = [p for p in phase_names if p in phase_groups]
     total_phases = len(phase_order)
