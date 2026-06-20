@@ -1004,12 +1004,23 @@ class ActionsViewModel @Inject constructor(
             resultText = "Action failed: ${result.error}",
             isSuccess = false,
         )
-        is SkillResult.CapabilityRequired -> QuickActionEntity(
-            userQuery = query,
-            skillName = skillName,
-            resultText = "Permission required for $skillName",
-            isSuccess = false,
-        )
+        is SkillResult.CapabilityRequired -> {
+            val resultText = if (result.capabilityKey == CapabilityKey.DoNotDisturbControl) {
+                when (result.skillName) {
+                    "toggle_dnd_on" -> "Jandal needs Do Not Disturb access before it can turn DND on."
+                    "toggle_dnd_off" -> "Jandal needs Do Not Disturb access before it can turn DND off."
+                    else -> "Jandal needs Do Not Disturb access before it can change DND."
+                }
+            } else {
+                "Permission required for $skillName"
+            }
+            QuickActionEntity(
+                userQuery = query,
+                skillName = skillName,
+                resultText = resultText,
+                isSuccess = false,
+            )
+        }
         is SkillResult.UnknownSkill -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,

@@ -1139,7 +1139,47 @@ class ActionsViewModelVoiceTest {
             quickActionDao.insert(
                 match {
                     it.skillName == "toggle_dnd_on" &&
-                        it.resultText == "Permission required for toggle_dnd_on" &&
+                        it.resultText == "Jandal needs Do Not Disturb access before it can turn DND on." &&
+                        !it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `dnd toggle_dnd_off capability required inserts user-facing copy`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn off do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_off",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_off") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.DoNotDisturbControl,
+            skillName = "toggle_dnd_off",
+            contextParams = mapOf("enabled" to "false"),
+        )
+
+        viewModel.executeAction("turn off do not disturb", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.dndState.value)
+        assertEquals("toggle_dnd_off", viewModel.dndState.value!!.intentName)
+        assertEquals(false, viewModel.dndState.value!!.enabled)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "toggle_dnd_off" &&
+                        it.resultText == "Jandal needs Do Not Disturb access before it can turn DND off." &&
                         !it.isSuccess
                 }
             )

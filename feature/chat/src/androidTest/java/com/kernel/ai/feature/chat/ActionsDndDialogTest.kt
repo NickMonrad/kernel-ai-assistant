@@ -91,8 +91,8 @@ class ActionsDndDialogTest {
         composeTestRule.onNodeWithText("Jandal still needs Do Not Disturb access")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText(
-            "Jandal still does not have Do Not Disturb access. " +
-                "Open DND access settings to grant it, then return to Jandal."
+            "Grant Do Not Disturb access in Android settings, " +
+                "then return to Jandal to continue."
         ).assertIsDisplayed()
         composeTestRule.onNodeWithText("Open DND access settings")
             .assertIsDisplayed()
