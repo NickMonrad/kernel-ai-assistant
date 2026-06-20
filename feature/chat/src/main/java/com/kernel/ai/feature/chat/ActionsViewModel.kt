@@ -111,6 +111,8 @@ class ActionsViewModel @Inject constructor(
         object NavigateToAppPermissions : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
+        /** Open Android write-settings special-access panel for the user to grant. */
+        object OpenWriteSettings : UiEvent
     }
 
     private data class PendingPhonePermissionAction(
@@ -129,6 +131,13 @@ class ActionsViewModel @Inject constructor(
         val params: Map<String, String>,
         val inputMode: InputMode,
         val enabled: Boolean,
+    )
+
+    private data class PendingWriteSettingsAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
     )
 
     private data class ExecutedAction(
@@ -161,6 +170,13 @@ class ActionsViewModel @Inject constructor(
         val isAccessBlocked: Boolean = false,
     )
 
+    /** State for the contextual write-settings special-access surface. */
+    data class WriteSettingsState(
+        val intentName: String,
+        /** True when the user returned from settings without granting access. */
+        val isAccessBlocked: Boolean = false,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -182,6 +198,10 @@ class ActionsViewModel @Inject constructor(
     /** Non-null while the DND special-access contextual surface should be shown. */
     private val _dndState = MutableStateFlow<DndState?>(null)
     val dndState: StateFlow<DndState?> = _dndState.asStateFlow()
+    /** Non-null while the write-settings special-access contextual surface should be shown. */
+    private val _writeSettingsState = MutableStateFlow<WriteSettingsState?>(null)
+    val writeSettingsState: StateFlow<WriteSettingsState?> = _writeSettingsState.asStateFlow()
+
 
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
@@ -196,6 +216,7 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingDndAction: PendingDndAction? = null
     /** Snapshot of pendingPhonePermissionAction set by onHandsFreeCallingRequestPermission.
@@ -646,6 +667,73 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
+    // ── Write-settings special-access ──────────────────────────────────────────
+
+    /** Open Android write-settings panel for the user to grant modify-system-settings access. */
+    fun onWriteSettingsOpenSettings() {
+        _writeSettingsState.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.OpenWriteSettings)
+        }
+    }
+
+    /** Dismiss the write-settings special-access surface without any action. */
+    fun dismissWriteSettingsDialog() {
+        _writeSettingsState.value = null
+        pendingWriteSettingsAction = null
+        _error.value = null
+    }
+
+    /**
+     * Called when the app resumes after the user returns from write-settings panel.
+     * Re-checks access and either retries the original brightness action or shows a blocked result.
+     *
+     * [pendingWriteSettingsAction] is consumed only in the grant path (retry succeeded or failed).
+     * In the blocked path, [pendingWriteSettingsAction] is kept alive so the user can open settings
+     * again from the blocked/repair dialog and retry on a subsequent grant.
+     */
+    fun onWriteSettingsResumeCheck(hasAccess: Boolean) {
+        val pending = pendingWriteSettingsAction ?: return
+        if (hasAccess) {
+            // Clear pending before retry — will be re-set if retry returns CapabilityRequired.
+            pendingWriteSettingsAction = null
+            viewModelScope.launch {
+                _uiState.value = UiState.Executing
+                try {
+                    setSlotReplyAutoRearmArmed(false, "onWriteSettingsResumeCheck")
+                    clearExpectedSlotPromptSpeech()
+                    voiceOutputController.stop()
+                    val result = executeIntent(
+                        query = pending.query,
+                        intentName = pending.intentName,
+                        params = pending.params,
+                        inputMode = pending.inputMode,
+                    )
+                    quickActionDao.insert(result.entity)
+                    speakForVoice(
+                        pending.inputMode,
+                        result.entity.resultText,
+                        spokenOverride = result.spokenSummary,
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "ActionsViewModel: onWriteSettingsResumeCheck failed — ${e.message}", e)
+                    _error.value = e.message ?: "Unknown error"
+                } finally {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _uiState.value = UiState.Idle
+                }
+            }
+        } else {
+            // Show blocked/repair state — access still not granted.
+            // Keep pendingWriteSettingsAction alive for future settings-round trips
+            // so the original command can be retried when access is eventually granted.
+            _writeSettingsState.value = WriteSettingsState(
+                intentName = pending.intentName,
+                isAccessBlocked = true,
+            )
+        }
+    }
+
     /**
      * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
      *
@@ -974,6 +1062,19 @@ class ActionsViewModel @Inject constructor(
                     enabled = enabled,
                 )
             }
+
+            if (shouldRequestWriteSettingsAccess(skillResult)) {
+                val capResult = skillResult as SkillResult.CapabilityRequired
+                pendingWriteSettingsAction = PendingWriteSettingsAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _writeSettingsState.value = WriteSettingsState(
+                    intentName = intentName,
+                )
+            }
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
@@ -1042,6 +1143,8 @@ class ActionsViewModel @Inject constructor(
                     "toggle_dnd_off" -> "Jandal needs Do Not Disturb access before it can turn DND off."
                     else -> "Jandal needs Do Not Disturb access before it can change DND."
                 }
+            } else if (result.capabilityKey == CapabilityKey.ModifySystemSettings) {
+                "Jandal needs settings access before it can change settings."
             } else {
                 "Permission required for $skillName"
             }
@@ -1074,6 +1177,11 @@ class ActionsViewModel @Inject constructor(
     private fun shouldRequestDndAccess(result: SkillResult): Boolean {
         return result is SkillResult.CapabilityRequired &&
             result.capabilityKey == CapabilityKey.DoNotDisturbControl
+    }
+
+    private fun shouldRequestWriteSettingsAccess(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.ModifySystemSettings
     }
 
     private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =

@@ -107,6 +107,16 @@ internal class PermissionFlowHarness(
         return notificationManager.isNotificationPolicyAccessGranted
     }
 
+    fun bestEffortDisableWriteSettingsAccess() {
+        // WRITE_SETTINGS is a special-access permission (not a runtime permission),
+        // so `pm revoke` does not work. Use appops to deny the op directly.
+        executeShell("appops set $PACKAGE WRITE_SETTINGS deny")
+    }
+
+    fun isWriteSettingsGranted(): Boolean {
+        return android.provider.Settings.System.canWrite(context)
+    }
+
     fun waitForText(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): UiObject2 {
         val obj = device.wait(Until.findObject(By.text(text)), timeoutMs)
         assertNotNull("Expected text not visible: $text", obj)

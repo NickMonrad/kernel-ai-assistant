@@ -1797,6 +1797,258 @@ class ActionsViewModelVoiceTest {
         assertNull(viewModel.dndState.value)
     }
 
+
+    @Test
+    fun `write settings capability required creates pending write settings state`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals("set_brightness", viewModel.writeSettingsState.value!!.intentName)
+        assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_brightness" &&
+                        it.resultText == "Jandal needs settings access before it can change settings." &&
+                        !it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `write settings missing access does not produce success`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_brightness" &&
+                        it.resultText == "Jandal needs settings access before it can change settings." &&
+                        !it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `write settings result includes ModifySystemSettings capability`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+
+        assertEquals("set_brightness", viewModel.writeSettingsState.value!!.intentName)
+    }
+
+    @Test
+    fun `write settings result preserves retry context params`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_brightness" &&
+                        it.resultText.contains("settings access") &&
+                        !it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `write settings open settings emits OpenWriteSettings event`() = runTest(dispatcher) {
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+
+        viewModel.onWriteSettingsOpenSettings()
+        advanceUntilIdle()
+
+        assertEquals(1, events.size)
+        assert(events[0] is ActionsViewModel.UiEvent.OpenWriteSettings)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `write settings dismiss clears pending state`() = runTest(dispatcher) {
+        // Prime write-settings state
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+
+        viewModel.dismissWriteSettingsDialog()
+        advanceUntilIdle()
+
+        assertNull(viewModel.writeSettingsState.value)
+    }
+
+    @Test
+    fun `write settings resume check with granted access retries action`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ModifySystemSettings,
+                skillName = "set_brightness",
+                contextParams = mapOf("value" to "50", "is_percent" to "true"),
+            ),
+            SkillResult.Success("Brightness set to 50%"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+
+        viewModel.onWriteSettingsResumeCheck(hasAccess = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { brightnessSkill.execute(any()) }
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_brightness" &&
+                        it.resultText == "Brightness set to 50%" &&
+                        it.isSuccess
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `write settings resume check without grant shows blocked state`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("brightness 50%") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        viewModel.onWriteSettingsResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(true, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        coVerify(exactly = 1) { brightnessSkill.execute(any()) }
+    }
     @Test
     fun `voice command normalizes spoken numbers before routing`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set timer for 5 minutes") } returns

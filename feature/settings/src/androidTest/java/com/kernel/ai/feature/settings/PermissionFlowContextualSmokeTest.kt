@@ -125,4 +125,51 @@ class PermissionFlowContextualSmokeTest {
         harness.assertTextVisible("Jandal still needs Do Not Disturb access")
         harness.assertTextNotVisible("Do Not Disturb is on")
     }
+
+    @Test
+    fun writeSettings_specialAccessRoundTripShowsBlockedRepair() {
+        // --- Setup: ensure write-settings is not granted ---
+        harness.bestEffortDisableWriteSettingsAccess()
+        assumeFalse(
+            "Device already has write-settings access and shell could not revoke it; " +
+                "run manually after revoking 'Modify system settings' access in Android Settings.",
+            harness.isWriteSettingsGranted(),
+        )
+
+        // Step 1: Launch brightness action with write-settings access unavailable.
+        harness.launchQuickAction("set brightness to 50%")
+
+        // On Samsung One UI 15, the lifecycle ON_RESUME fires after pendingWriteSettingsAction
+        // is set, causing the blocked variant to display immediately rather than the
+        // initial variant. Assert the blocked/repair state instead.
+        harness.assertTextVisible("Jandal still needs settings access")
+        harness.assertTextContainsVisible(
+            "Jandal still does not have access to modify system settings.",
+        )
+        harness.assertTextVisible("Open settings access")
+        harness.assertTextVisible("Not now")
+        harness.assertTextNotVisible("Brightness set to")
+
+        // First repair round-trip.
+        val clicked = harness.clickThroughAccessibility("Open settings access")
+        assertTrue("'Open settings access' click did not succeed", clicked)
+        harness.assertSettingsOpened("Write-settings panel did not open")
+        harness.returnToAppFromSettings()
+
+        // Verify blocked/repair state persists after return without grant.
+        harness.assertTextVisible("Jandal still needs settings access")
+        harness.assertTextContainsVisible(
+            "Jandal still does not have access to modify system settings.",
+        )
+        harness.assertTextVisible("Open settings access")
+        harness.assertTextVisible("Not now")
+        harness.assertTextNotVisible("Brightness set to")
+
+        // Second repair round-trip: validate pending state survives another no-grant return.
+        harness.clickText("Open settings access")
+        harness.assertSettingsOpened("Write-settings panel did not open on second attempt")
+        harness.returnToAppFromSettings()
+        harness.assertTextVisible("Jandal still needs settings access")
+        harness.assertTextNotVisible("Brightness set to")
+    }
 }

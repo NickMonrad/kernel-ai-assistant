@@ -2778,12 +2778,12 @@ class NativeIntentHandler @Inject constructor(
 
     private fun setBrightness(params: Map<String, String>): SkillResult {
         if (!Settings.System.canWrite(context)) {
-            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            return SkillResult.Success("Please grant permission to change brightness, then try again")
+
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ModifySystemSettings,
+                skillName = "set_brightness",
+                contextParams = params,
+            )
         }
         val direction = params["direction"]
         val value = params["value"]?.toIntOrNull()
