@@ -47,6 +47,26 @@ class SlotValidationRegistry @Inject constructor() {
     }
 
     /**
+     * Validates ALL params for [intentName] against registered validators.
+     * Returns the first [SlotValidationResult.invalid] result found, or null
+     * when every param passes (or has no registered validator).
+     *
+     * This is the shared entry point for the dispatch guard — used before any
+     * [SkillCall.execute] in ChatViewModel to catch invalid already-populated
+     * slot values from direct regex matches, recovery-origin intents, and
+     * anaphoric references.
+     */
+    fun validateParams(intentName: String, params: Map<String, String>): SlotValidationResult? {
+        for ((slotName, value) in params) {
+            // Internal routing params that carry no slot value to validate
+            if (slotName == "intent_name" || slotName == "raw_query") continue
+            val result = validate(intentName, slotName, value)
+            if (!result.isValid) return result
+        }
+        return null
+    }
+
+    /**
      * Register a [SlotValidator] for `(intentName, slotName)`.
      * Overwrites any previously registered validator for the same key.
      */

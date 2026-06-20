@@ -32,6 +32,8 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
+import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -93,6 +95,7 @@ class ChatViewModelSettingsApplyTest {
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
+    private val slotValidationRegistry: SlotValidationRegistry = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
@@ -130,6 +133,8 @@ class ChatViewModelSettingsApplyTest {
         every { inferenceEngine.activeBackend } returns activeBackendFlow
         every { inferenceEngine.resolvedMaxTokens } returns resolvedMaxTokensFlow
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
         coEvery { inferenceEngine.reconfigureConversation(any()) } just runs
         coEvery { inferenceEngine.cancelGeneration() } just runs
@@ -446,6 +451,7 @@ class ChatViewModelSettingsApplyTest {
         intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         intentContractRegistry = IntentContractRegistry(),
         slotFillerManager = slotFillerManager,
+            slotValidationRegistry = slotValidationRegistry,
         kernelAIToolSet = kernelAIToolSet,
         toolProvider = toolProvider,
         embeddingEngine = embeddingEngine,

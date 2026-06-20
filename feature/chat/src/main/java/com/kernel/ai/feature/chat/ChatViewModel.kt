@@ -48,18 +48,20 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.toSpokenSummary
+import com.kernel.ai.core.skills.intent.IntentCandidate
+import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
-import com.kernel.ai.core.skills.toSpokenSummary
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
-import com.kernel.ai.core.skills.intent.IntentCandidate
-import com.kernel.ai.core.skills.intent.IntentContractRegistry
-import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
-import com.kernel.ai.core.skills.intent.RecoveryResult
-import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
-import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -144,6 +146,7 @@ class ChatViewModel @Inject constructor(
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator,
     private val intentContractRegistry: IntentContractRegistry,
     private val slotFillerManager: SlotFillerManager,
+    private val slotValidationRegistry: SlotValidationRegistry,
     private val kernelAIToolSet: KernelAIToolSet,
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
@@ -1639,6 +1642,10 @@ class ChatViewModel @Inject constructor(
                     if (skill != null) {
                         val callParams = mapOf("intent_name" to pendingConfirmation.intentName) +
                             pendingConfirmation.params
+                        if (!validateBeforeDispatch(pendingConfirmation.intentName, callParams, convId)) {
+                            Log.d("KernelAI", "RecoveryConfirmation: slot_validation_blocked intent=${pendingConfirmation.intentName}")
+                            return@launch
+                        }
                         Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
                         val skillResult = skill.execute(SkillCall(skill.name, callParams))
                         when (skillResult) {
@@ -1689,6 +1696,10 @@ class ChatViewModel @Inject constructor(
                     val skill = skillRegistry.get("run_intent")
                     if (skill != null) {
                         val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
+                        if (!validateBeforeDispatch(pendingConfirmation.intentName, callParams, convId)) {
+                            Log.d("KernelAI", "ConfirmationFastPath: slot_validation_blocked intent=${pendingConfirmation.intentName}")
+                            return@launch
+                        }
                         Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
                         val skillResult = skill.execute(SkillCall(skill.name, callParams))
                         when (skillResult) {
@@ -1863,6 +1874,10 @@ class ChatViewModel @Inject constructor(
                                 }
                             }
                             if (skill != null) {
+                                if (!validateBeforeDispatch(recovery.intentName, callParams, convId)) {
+                                    Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
+                                    return@launch
+                                }
                                 Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
                                 val skillResult = skill.execute(SkillCall(skill.name, callParams))
                                 when (skillResult) {
@@ -1984,6 +1999,11 @@ class ChatViewModel @Inject constructor(
                         runIntent to (mapOf("intent_name" to matchedIntent.intentName) + matchedIntent.params)
                     }
                 }
+                if (!validateBeforeDispatch(matchedIntent.intentName, callParams, convId)) {
+                    Log.d("KernelAI", "ADB_ROUTE_DECISION commandId=$commandId result=slot_validation_blocked intent=${matchedIntent.intentName}")
+                    Log.d("KernelAI", "llm_tools_route: result=slot_validation_blocked intent=${matchedIntent.intentName}")
+                    return@launch
+                }
                 if (skill != null) {
                     Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
@@ -2078,6 +2098,10 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 if (skill != null) {
+                    if (!validateBeforeDispatch(anaphoricIntent.intentName, callParams, convId)) {
+                        Log.d("KernelAI", "AnaphoricIntent: slot_validation_blocked intent=${anaphoricIntent.intentName}")
+                        return@launch
+                    }
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
                     when (skillResult) {
                         is SkillResult.DirectReply -> {
@@ -2106,12 +2130,7 @@ class ChatViewModel @Inject constructor(
                         }
                         is SkillResult.Failure -> {
                             if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(
-                                    convId,
-                                    skillResult.error,
-                                    shouldIndex = false,
-                                    spokenSummary = skillResult.error,
-                                )
+                                appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
                                 return@launch
                             }
                             systemContext = "[System: ${anaphoricIntent.intentName} failed — ${skillResult.error}]"
@@ -3373,6 +3392,39 @@ class ChatViewModel @Inject constructor(
      * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
      */
     private fun looksLikePersonalFact(text: String): Boolean = com.kernel.ai.feature.chat.looksLikePersonalFact(text)
+
+    /**
+     * Validates intent params against [SlotValidationRegistry] before dispatch.
+     *
+     * Checks every param value against registered validators for the intent.
+     * On first failure, appends a user-facing clarification message and returns
+     * false to prevent dispatch. When every param passes (or has no registered
+     * validator), returns true so execution proceeds normally.
+     *
+     * This is the shared guard for ALL dispatch paths — direct intent matches,
+     * recovery-origin dispatches, and anaphoric references.
+     */
+    private suspend fun validateBeforeDispatch(
+        intentName: String,
+        params: Map<String, String>,
+        convId: String,
+    ): Boolean {
+        val effectiveIntent = if (intentName == "run_intent") {
+            params["intent_name"] ?: intentName
+        } else {
+            intentName
+        }
+
+        val invalidResult = slotValidationRegistry.validateParams(effectiveIntent, params)
+        if (invalidResult != null) {
+            val message = invalidResult.errorMessage
+                ?: "Sorry, I didn't understand that value. Please try again."
+            Log.d("KernelAI", "SlotValidation: blocked $effectiveIntent — $message")
+            appendAssistantMessage(convId, message, shouldIndex = false)
+            return false
+        }
+        return true
+    }
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */
@@ -3456,3 +3508,4 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
     else -> "$bytes B"
 }
+
