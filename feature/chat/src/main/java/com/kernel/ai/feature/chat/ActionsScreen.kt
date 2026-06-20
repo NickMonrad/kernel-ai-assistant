@@ -133,6 +133,7 @@ fun ActionsScreen(
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
+    val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -289,6 +290,17 @@ fun ActionsScreen(
                         context.startActivity(dndSettingsIntent)
                     }
                 }
+                ActionsViewModel.UiEvent.OpenWriteSettings -> {
+                    val writeSettingsIntent = Intent(
+                        android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    ).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    runCatching {
+                        context.startActivity(writeSettingsIntent)
+                    }
+                }
             }
         }
     }
@@ -299,6 +311,9 @@ fun ActionsScreen(
                 val hasDndAccess = (context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as? NotificationManager)?.isNotificationPolicyAccessGranted == true
                 viewModel.onDndResumeCheck(hasDndAccess)
+                viewModel.onWriteSettingsResumeCheck(
+                    hasAccess = android.provider.Settings.System.canWrite(context),
+                )
             }
             if (event == Lifecycle.Event.ON_STOP) {
                 Log.d(
@@ -694,6 +709,42 @@ fun ActionsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissDndDialog() }) {
+                    Text("Not now")
+                }
+            },
+        )
+    }
+
+    // Write-settings special-access contextual surface
+    writeSettingsState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
+            title = {
+                Text(
+                    if (state.isAccessBlocked) {
+                        "Jandal still needs settings access"
+                    } else {
+                        "Allow Jandal to modify system settings?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    if (state.isAccessBlocked) {
+                        "Jandal still does not have access to modify system settings."
+                    } else {
+                        "Android requires special access before Jandal can " +
+                            "change settings such as screen brightness."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.onWriteSettingsOpenSettings() }) {
+                    Text("Open settings access")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissWriteSettingsDialog() }) {
                     Text("Not now")
                 }
             },
