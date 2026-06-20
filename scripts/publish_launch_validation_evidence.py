@@ -514,8 +514,8 @@ def main() -> None:
         print(f"    - *_cases.csv (spreadsheet)")
         print(f"    - *_summary.md (normalised summary)")
         print(f"    - launch-validation-summary.md (enriched Markdown)")
-    print(f"  SKIP: --dry-run flag set")
-    return
+        print(f"  SKIP: --dry-run flag set")
+        return
 
     # ── Step 1: Normalise ──────────────────────────────────────────────
     normaliser_path = HERE / normaliser

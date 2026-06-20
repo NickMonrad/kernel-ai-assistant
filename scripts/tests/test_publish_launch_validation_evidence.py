@@ -107,3 +107,160 @@ class DryRunFlagTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class NonDryRunTest(unittest.TestCase):
+    """Verify that non-dry-run execution reaches the normalisation and publish paths."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp(prefix="non_dryrun_test_")
+        self._tmp = Path(self._tmpdir)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def _make_minimal_fixture(path: Path) -> None:
+        """Write a minimal valid harness raw JSON to *path*."""
+        import json
+        data = {
+            "suite": "skills",
+            "device_id": "s21-exynos",
+            "serial": "R5CR605B71K",
+            "model_name": "Gemma 4 E-2B",
+            "model_runtime": "LiteRT",
+            "model_backend": "GPU",
+            "timestamp": "2026-06-18T12:00:00",
+            "status": "completed",
+            "results": [
+                {"name": "test_alarm", "status": "pass", "phase": "alarm_timer"},
+            ],
+            "summary": {"total": 1, "passed": 1, "failed": 0,
+                         "skipped": 0, "xfail": 0},
+        }
+        path.write_text(json.dumps(data))
+
+    def test_non_dry_run_reaches_normaliser(self) -> None:
+        """Without ``--dry-run`` the normalisation subprocess should be invoked."""
+        import json
+        from unittest import mock
+
+        fixture = self._tmp / "fixture.json"
+        self._make_minimal_fixture(fixture)
+
+        out_dir = self._tmp / "out"
+
+        normaliser_cmds: list[list[str]] = []
+        publisher_cmds: list[list[str]] = []
+
+        def mock_run(cmd, *args, **kwargs):               # type: ignore
+            cmd_str = " ".join(str(p) for p in cmd)
+            if "normalise_skills_report" in cmd_str:
+                normaliser_cmds.append(cmd)
+                # Create the expected output files so the script can continue
+                idx = cmd.index("--out-dir")
+                cmd_out = Path(cmd[idx + 1])
+                (cmd_out / "mock_skills_evidence.json").write_text(json.dumps({
+                    "timestamp": "2026-06-18T12:00:00",
+                    "source": "test",
+                    "schema_version": "1.0",
+                    "suite": "skills",
+                    "device": {
+                        "id": "s21-exynos",
+                        "label": "Samsung Galaxy S21 (Exynos)",
+                        "manufacturer": "Samsung",
+                        "model": "SM-G991B",
+                        "soc": "Exynos 2100",
+                        "tier": "tracked",
+                        "android_api": 35,
+                        "execution": "physical",
+                        "serial": "R5CR605B71K",
+                    },
+                    "model": {
+                        "name": "Gemma 4 E-2B",
+                        "runtime": "LiteRT",
+                        "backend": "GPU",
+                    },
+                    "summary": {
+                        "total": 1, "passed": 1, "failed": 0,
+                        "pass_rate": 1.0,
+                    },
+                    "cases": [{
+                        "name": "test_alarm",
+                        "passed": True,
+                        "phase": "alarm_timer",
+                        "expected_tool": "alarm_set",
+                        "actual_tool": "alarm_set",
+                        "expected_result_mode": "success",
+                        "actual_result_mode": "success",
+                        "chip_present": True,
+                        "skill_result_present": True,
+                        "message_saved": True,
+                        "retry_seen": False,
+                        "slot_fill_seen": False,
+                        "failure_category": None,
+                        "failures": [],
+                    }],
+                }))
+                (cmd_out / "mock_skills_cases.csv").write_text(
+                    "case,status\ntest_alarm,pass\n"
+                )
+                (cmd_out / "mock_skills_summary.md").write_text(
+                    "# Summary\n\nAll passed."
+                )
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout=b"", stderr=b""
+                )
+            elif "publish_test_evidence" in cmd_str:
+                publisher_cmds.append(cmd)
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout=b"", stderr=b""
+                )
+            # any other subprocess (git, etc.) -> pretend success
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=b"", stderr=b""
+            )
+
+        old_argv = list(sys.argv)
+        old_path = list(sys.path)
+        try:
+            sys.argv = [
+                str(LAUNCH_SCRIPT),
+                "--input", str(fixture),
+                "--out-dir", str(out_dir),
+                "--device-id", "s21-exynos",
+                "--model-name", "Gemma 4 E-2B",
+                "--model-runtime", "LiteRT",
+                "--model-backend", "GPU",
+                "--commit", "abc123def456",
+                "--branch", "test-branch",
+                "--serial", "R5CR605B71K",
+                "--pr", "9999",
+            ]
+
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "_test_launch_module", str(LAUNCH_SCRIPT),
+            )
+            mod = importlib.util.module_from_spec(spec)
+
+            with mock.patch.object(subprocess, "run", side_effect=mock_run):
+                spec.loader.exec_module(mod)
+                mod.main()
+        finally:
+            sys.argv = old_argv
+            sys.path = old_path
+
+        self.assertEqual(
+            len(normaliser_cmds), 1,
+            "Normalisation should be called exactly once (dry-run=False)",
+        )
+        self.assertIn(
+            "normalise_skills_report.py",
+            " ".join(str(p) for p in normaliser_cmds[0]),
+            "Normalisation command should reference the normaliser script",
+        )
+        self.assertEqual(
+            len(publisher_cmds), 1,
+            "Publisher should be called exactly once (dry-run=False)",
+        )
