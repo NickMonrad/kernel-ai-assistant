@@ -331,6 +331,18 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("send_email", "No subject specified")
         val body = params["body"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("send_email", "No body specified")
+        
+        // If the user provided a named contact (not an email address), check READ_CONTACTS permission first.
+        if (!looksLikeEmailAddress(contact) &&
+                context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_email",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         val resolvedEmail = resolveContactEmail(contact)
             ?: contact.takeIf(::looksLikeEmailAddress)
 
@@ -359,6 +371,18 @@ class NativeIntentHandler @Inject constructor(
 
     private fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
+        
+        // If the user provided a named contact (has letters), check READ_CONTACTS permission first.
+        if (contact != null && contact.any { it.isLetter() } &&
+                context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_sms",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         // resolveContactNumber returns null for self-terms when own number unavailable;
         // fall back to blank URI rather than passing the literal word through as a number.
         val number = contact?.let { resolveContactNumber(it) }
@@ -1273,6 +1297,17 @@ class NativeIntentHandler @Inject constructor(
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
             contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
+        
+        // If the user provided a named contact (not a literal number), check READ_CONTACTS permission first.
+        if (!looksLikeNumber && context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "make_call",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         val phoneNumber = resolveContactNumber(contact)
             ?: if (looksLikeNumber) contact
             else return SkillResult.Failure(
