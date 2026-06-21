@@ -55,9 +55,10 @@ private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
 /** #1293: After this many conversation resets on GPU backend, perform a full engine
  *  shutdown + initialize instead of just recreating the LiteRT session.
- *  Prevents Adreno GPU state accumulation that degrades routing over long
- *  sequential sessions (~45 resets before observable degradation on S21/E2B). */
-private const val GPU_ENGINE_RESTART_INTERVAL = 30
+ *  S21 evidence shows MiniLM classifier convergence to play_netflix after ~7
+ *  resets (pre-existing, GPU-independent). Threshold 5 fires the full restart
+ *  before that point to keep routing reliable. */
+private const val GPU_ENGINE_RESTART_INTERVAL = 5
 
 /**
  * Decision result from [checkGpuRestartNeeded].
