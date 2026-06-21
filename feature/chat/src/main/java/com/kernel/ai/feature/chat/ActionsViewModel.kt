@@ -1364,6 +1364,13 @@ class ActionsViewModel @Inject constructor(
         return if (skill != null) {
             val skillResult = skill.execute(SkillCall(skill.name, callParams))
             if (shouldRequestPhonePermission(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 val phoneNumber = capResult.contextParams["phoneNumber"]
                 val contact = capResult.contextParams["contact"]
@@ -1382,6 +1389,13 @@ class ActionsViewModel @Inject constructor(
                 )
             }
             if (shouldRequestDndAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 awaitingDndSettingsReturn = false
                 awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
@@ -1398,8 +1412,14 @@ class ActionsViewModel @Inject constructor(
                     enabled = enabled,
                 )
             }
-
             if (shouldRequestWriteSettingsAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 awaitingDndSettingsReturn = false
                 awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
@@ -1414,15 +1434,27 @@ class ActionsViewModel @Inject constructor(
                 )
             }
 
-            pendingWeatherLocationAction = PendingWeatherLocationAction(
-                query = query,
-                intentName = intentName,
-                params = params,
-                inputMode = inputMode,
-            )
-            _weatherLocationState.value = WeatherLocationState()
+            if (shouldRequestWeatherLocationAccess(skillResult)) {
+                // Clear stale contact/calendar states
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
+                pendingWeatherLocationAction = PendingWeatherLocationAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _weatherLocationState.value = WeatherLocationState()
+            }
 
             if (shouldRequestContactPermission(skillResult)) {
+                // Clear stale weather/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 val contact = capResult.contextParams["contact"] ?: ""
                 pendingContactPermissionAction = PendingContactPermissionAction(
@@ -1438,6 +1470,11 @@ class ActionsViewModel @Inject constructor(
             }
 
             if (shouldRequestCalendarPermission(skillResult)) {
+                // Clear stale weather/contact states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
                 pendingCalendarLookupAction = PendingCalendarLookupAction(
                     query = query,
                     intentName = intentName,

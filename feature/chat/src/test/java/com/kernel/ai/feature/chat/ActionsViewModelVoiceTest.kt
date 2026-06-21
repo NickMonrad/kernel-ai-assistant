@@ -3163,4 +3163,192 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
         assertNull(viewModel.calendarPermissionState.value)
     }
+
+    @Test
+    fun `successful non-weather action leaves weather location state null`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "turn on flashlight",
+            intentName = "toggle_flashlight_on",
+            result = SkillResult.Success("Flashlight on"),
+        )
+
+        viewModel.executeAction("turn on flashlight", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `dnd capability required leaves weather location state null`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "turn on dnd",
+            intentName = "toggle_dnd_on",
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.DoNotDisturbControl,
+                skillName = "toggle_dnd_on",
+                contextParams = mapOf("enabled" to "true"),
+            ),
+        )
+
+        viewModel.executeAction("turn on dnd", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `write settings capability required leaves weather location state null`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "brightness 50%",
+            intentName = "set_brightness",
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ModifySystemSettings,
+                skillName = "set_brightness",
+                contextParams = mapOf("value" to "50", "is_percent" to "true"),
+            ),
+        )
+
+        viewModel.executeAction("brightness 50%", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `contact lookup capability required leaves weather location state null`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "email fred",
+            intentName = "send_email",
+            params = mapOf("contact" to "fred"),
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_email",
+                contextParams = mapOf("contact" to "fred"),
+            ),
+        )
+
+        viewModel.executeAction("email fred", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `calendar lookup capability required leaves weather location state null`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "when is our anniversary",
+            intentName = "get_date_diff",
+            params = mapOf("target_date" to "our anniversary"),
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarLookup,
+                skillName = "get_date_diff",
+                contextParams = mapOf("target_date" to "our anniversary"),
+            ),
+        )
+
+        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `weather current location capability required creates weather location state`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "weather",
+            intentName = "get_weather",
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = "get_weather_gps",
+            ),
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `contact lookup after weather current location clears weather location state`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "weather",
+            intentName = "get_weather",
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = "get_weather_gps",
+            ),
+        )
+        stubQuickActionResult(
+            input = "email fred",
+            intentName = "send_email",
+            params = mapOf("contact" to "fred"),
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_email",
+                contextParams = mapOf("contact" to "fred"),
+            ),
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+
+        viewModel.executeAction("email fred", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `calendar lookup after weather current location clears weather location state`() = runTest(dispatcher) {
+        stubQuickActionResult(
+            input = "weather",
+            intentName = "get_weather",
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = "get_weather_gps",
+            ),
+        )
+        stubQuickActionResult(
+            input = "when is our anniversary",
+            intentName = "get_date_diff",
+            params = mapOf("target_date" to "our anniversary"),
+            result = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarLookup,
+                skillName = "get_date_diff",
+                contextParams = mapOf("target_date" to "our anniversary"),
+            ),
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+
+        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    private fun stubQuickActionResult(
+        input: String,
+        intentName: String,
+        params: Map<String, String> = emptyMap(),
+        result: SkillResult,
+    ) {
+        val skill = mockk<Skill>()
+        every { quickIntentRouter.route(input) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = intentName,
+                    params = params,
+                ),
+            )
+        every { skillRegistry.get(intentName) } returns skill
+        every { skill.name } returns intentName
+        every { skill.description } returns "Test skill"
+        every { skill.schema } returns SkillSchema()
+        coEvery { skill.execute(any()) } returns result
+    }
 }
