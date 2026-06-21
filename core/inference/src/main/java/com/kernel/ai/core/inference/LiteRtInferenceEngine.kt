@@ -53,6 +53,49 @@ private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
+/** #1293: After this many conversation resets on GPU backend, perform a full engine
+ *  shutdown + initialize instead of just recreating the LiteRT session.
+ *  Prevents Adreno GPU state accumulation that degrades routing over long
+ *  sequential sessions (~45 resets before observable degradation on S21/E2B). */
+private const val GPU_ENGINE_RESTART_INTERVAL = 30
+
+/**
+ * Decision result from [checkGpuRestartNeeded].
+ * @property shouldRestart true when a full GPU engine restart should be performed.
+ * @property updatedCount the new [LiteRtInferenceEngine.gpuResetCount] value to store.
+ */
+internal data class GpuRestartDecision(
+    val shouldRestart: Boolean,
+    val updatedCount: Int,
+)
+
+/**
+ * Pure function: given current state, decide whether a GPU full engine restart
+ * is needed and compute the new counter value.
+ *
+ * - GPU backend: increments count; resets to 0 and returns shouldRestart=true at threshold.
+ * - Non-GPU backend: resets count to 0, never triggers restart.
+ *
+ * Extracted for testability — see [LiteRtInferenceEngineGpuRestartTest].
+ */
+internal fun checkGpuRestartNeeded(
+    gpuResetCount: Int,
+    backend: BackendType,
+    threshold: Int = GPU_ENGINE_RESTART_INTERVAL,
+): GpuRestartDecision {
+    return when (backend) {
+        BackendType.GPU -> {
+            val newCount = gpuResetCount + 1
+            if (newCount >= threshold) {
+                GpuRestartDecision(shouldRestart = true, updatedCount = 0)
+            } else {
+                GpuRestartDecision(shouldRestart = false, updatedCount = newCount)
+            }
+        }
+        else -> GpuRestartDecision(shouldRestart = false, updatedCount = 0)
+    }
+}
+
 private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
@@ -489,6 +532,11 @@ class LiteRtInferenceEngine @Inject constructor(
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
 
+    /** Tracks conversation resets on GPU to trigger periodic full engine restart (#1293).
+     *  Reset to 0 after each full engine restart or after switching away from GPU backend.
+     *  Exposed as internal for test observation. */
+    internal var gpuResetCount = 0
+
     /** Prevents concurrent [initialize] calls — a second call while GPU init is in progress
      *  would queue a redundant 47s GPU load immediately after the first finishes. */
     private val isInitializing = AtomicBoolean(false)
@@ -591,6 +639,27 @@ class LiteRtInferenceEngine @Inject constructor(
             val eng = engine ?: return@withContext
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
+
+            // #1293: On GPU backend (Adreno 740 on S21), LiteRT GPU state accumulates
+            // across conversation resets when the engine stays loaded. After
+            // GPU_ENGINE_RESTART_INTERVAL resets, do a full engine shutdown + reinitialize
+            // to clear GPU state and prevent output quality degradation.
+            // Non-GPU backends reset the counter on every call since they don't need this.
+            val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
+            gpuResetCount = restartDecision.updatedCount
+            if (restartDecision.shouldRestart) {
+                Log.i(TAG, "resetConversation: full engine restart after " +
+                    "$GPU_ENGINE_RESTART_INTERVAL GPU resets — clearing accumulated GPU state")
+                generationMutex.withLock {
+                    _isGenerating.value = false
+                }
+                // Capture config before shutdown (shutdown sets currentConfig = null).
+                // Use captured config for reinit to avoid unsafe !! access on currentConfig.
+                shutdown()
+                initialize(config)
+                Log.i(TAG, "resetConversation: full engine restart complete")
+                return@withContext
+            }
 
             // Signal any active generation to stop so it releases generationMutex promptly.
             if (_isGenerating.value) {
