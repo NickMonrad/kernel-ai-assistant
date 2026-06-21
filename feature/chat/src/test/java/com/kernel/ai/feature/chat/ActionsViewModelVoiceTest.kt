@@ -1477,11 +1477,14 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("turn on do not disturb", InputMode.Text)
         advanceUntilIdle()
         assertNotNull(viewModel.dndState.value)
-
+        // Simulate user tapping Open DND access settings before resume check
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        // _dndState is cleared during settings navigation
+        assertNull(viewModel.dndState.value)
         // Simulate resume with granted access
         viewModel.onDndResumeCheck(hasAccess = true)
         advanceUntilIdle()
-
         // Should have retried the action
         coVerify(exactly = 2) { runIntentSkill.execute(any()) }
         // Should have inserted success result
@@ -1519,8 +1522,15 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("turn on do not disturb", InputMode.Text)
         advanceUntilIdle()
+
         assertNotNull(viewModel.dndState.value)
         assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        // Simulate user tapping Open DND access settings before resume check
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        // _dndState is cleared during settings navigation
+        assertNull(viewModel.dndState.value)
 
         // Simulate resume without granted access
         viewModel.onDndResumeCheck(hasAccess = false)
@@ -1753,12 +1763,16 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.dndState.value)
         assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
 
-        // 2. First return without grant — blocked state shown
+        // 2. Simulate user tapping Open DND access settings before first resume check
+        viewModel.onDndOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.dndState.value)
+
+        // 3. First return without grant — blocked state shown
         viewModel.onDndResumeCheck(hasAccess = false)
         advanceUntilIdle()
         assertNotNull(viewModel.dndState.value)
         assertEquals(true, viewModel.dndState.value!!.isAccessBlocked)
-
         // 3. Open settings again (from blocked dialog)
         viewModel.onDndOpenSettings()
         advanceUntilIdle()
@@ -2001,6 +2015,12 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
         assertNotNull(viewModel.writeSettingsState.value)
 
+        // Simulate user tapping Open settings access before resume check
+        viewModel.onWriteSettingsOpenSettings()
+        advanceUntilIdle()
+        // _writeSettingsState is cleared during settings navigation
+        assertNull(viewModel.writeSettingsState.value)
+
         viewModel.onWriteSettingsResumeCheck(hasAccess = true)
         advanceUntilIdle()
 
@@ -2041,6 +2061,11 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.writeSettingsState.value)
         assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
 
+        // Simulate user tapping Open settings access before resume check
+        viewModel.onWriteSettingsOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.writeSettingsState.value)
+
         viewModel.onWriteSettingsResumeCheck(hasAccess = false)
         advanceUntilIdle()
 
@@ -2048,6 +2073,146 @@ class ActionsViewModelVoiceTest {
         assertEquals(true, viewModel.writeSettingsState.value!!.isAccessBlocked)
 
         coVerify(exactly = 1) { brightnessSkill.execute(any()) }
+    }
+
+    // ── Lifecycle gating tests ──────────────────────────────────────────────────
+
+    @Test
+    fun `dnd resume check without prior open settings does not flip to blocked`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("turn on do not disturb") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_dnd_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_dnd_on") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.DoNotDisturbControl,
+            skillName = "toggle_dnd_on",
+            contextParams = mapOf("enabled" to "true"),
+        )
+
+        viewModel.executeAction("turn on do not disturb", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+
+        // Lifecycle ON_RESUME fires without user tapping Open DND access settings first.
+        // The awaiting flag is not set, so the resume check must return early —
+        // leaving the initial rationale dialog visible.
+        viewModel.onDndResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+
+        // Must NOT flip to blocked — should still show initial rationale
+        assertNotNull(viewModel.dndState.value)
+        assertEquals(false, viewModel.dndState.value!!.isAccessBlocked)
+        // Should NOT have retried the action
+        coVerify(exactly = 1) { runIntentSkill.execute(any()) }
+    }
+
+    @Test
+    fun `write settings resume check without prior open settings does not flip to blocked`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("set brightness to 50 percent") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50", "is_percent" to "true"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ModifySystemSettings,
+            skillName = "set_brightness",
+            contextParams = mapOf("value" to "50", "is_percent" to "true"),
+        )
+
+        viewModel.executeAction("set brightness to 50 percent", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        // Lifecycle ON_RESUME fires without user tapping Open settings access first.
+        viewModel.onWriteSettingsResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+
+        // Must NOT flip to blocked — should still show initial rationale
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
+        // Should NOT have retried the action
+        coVerify(exactly = 1) { brightnessSkill.execute(any()) }
+    }
+
+    @Test
+    fun `write settings two-step repair loop with grant on second settings attempt`() = runTest(dispatcher) {
+        val brightnessSkill = mockk<Skill>()
+        every { quickIntentRouter.route("set brightness to 50 percent") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_brightness",
+                    params = mapOf("value" to "50", "is_percent" to "true"),
+                ),
+            )
+        every { skillRegistry.get("set_brightness") } returns brightnessSkill
+        every { brightnessSkill.name } returns "set_brightness"
+        every { brightnessSkill.description } returns "Set brightness"
+        every { brightnessSkill.schema } returns SkillSchema()
+        coEvery { brightnessSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ModifySystemSettings,
+                skillName = "set_brightness",
+                contextParams = mapOf("value" to "50", "is_percent" to "true"),
+            ),
+            SkillResult.Success("Brightness set to 50%"),
+        )
+
+        // Step 1: Create write-settings missing-access state
+        viewModel.executeAction("set brightness to 50 percent", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(false, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        // Step 2: First settings round trip — user taps Open settings access
+        viewModel.onWriteSettingsOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.writeSettingsState.value)
+
+        // Step 3: Return without access — blocked/repair state shown
+        viewModel.onWriteSettingsResumeCheck(hasAccess = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.writeSettingsState.value)
+        assertEquals(true, viewModel.writeSettingsState.value!!.isAccessBlocked)
+
+        // Step 4: Open settings again from the blocked/repair dialog
+        viewModel.onWriteSettingsOpenSettings()
+        advanceUntilIdle()
+        assertNull(viewModel.writeSettingsState.value)
+
+        // Step 5: Return with access granted
+        viewModel.onWriteSettingsResumeCheck(hasAccess = true)
+        advanceUntilIdle()
+
+        // Step 6: Assert the original brightness action was retried exactly once more
+        coVerify(exactly = 2) { brightnessSkill.execute(any()) }
+        // Step 7: Assert success result was inserted
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_brightness" &&
+                        it.resultText == "Brightness set to 50%" &&
+                        it.isSuccess
+                }
+            )
+        }
     }
     @Test
     fun `voice command normalizes spoken numbers before routing`() = runTest(dispatcher) {

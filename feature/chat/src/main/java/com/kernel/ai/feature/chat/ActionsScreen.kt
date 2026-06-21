@@ -93,6 +93,8 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
@@ -612,6 +614,9 @@ fun ActionsScreen(
     handsFreeCallingState?.let { state ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissHandsFreeCallingDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_hands_free_calling"),
             title = {
                 Text(
                     if (state.isPermanentlyDenied) {
@@ -635,24 +640,36 @@ fun ActionsScreen(
                                 "hands-free. You can open the dialer this time without granting permission."
                         },
                     )
-                    TextButton(onClick = { viewModel.onHandsFreeCallingDialerFallback() }) {
+                    TextButton(
+                        onClick = { viewModel.onHandsFreeCallingDialerFallback() },
+                        modifier = Modifier.testTag("permission_dialog_hands_free_open_dialer"),
+                    ) {
                         Text("Open dialer this time")
                     }
                 }
             },
             confirmButton = {
                 if (state.isPermanentlyDenied) {
-                    TextButton(onClick = { viewModel.onHandsFreeCallingOpenAppPermissions() }) {
+                    TextButton(
+                        onClick = { viewModel.onHandsFreeCallingOpenAppPermissions() },
+                        modifier = Modifier.testTag("permission_dialog_hands_free_open_app_permissions"),
+                    ) {
                         Text("Open App Permissions")
                     }
                 } else {
-                    TextButton(onClick = { viewModel.onHandsFreeCallingRequestPermission() }) {
+                    TextButton(
+                        onClick = { viewModel.onHandsFreeCallingRequestPermission() },
+                        modifier = Modifier.testTag("permission_dialog_hands_free_allow"),
+                    ) {
                         Text("Allow hands-free calling")
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissHandsFreeCallingDialog() }) {
+                TextButton(
+                    onClick = { viewModel.dismissHandsFreeCallingDialog() },
+                    modifier = Modifier.testTag("permission_dialog_hands_free_not_now"),
+                ) {
                     Text("Not now")
                 }
             },
@@ -682,6 +699,9 @@ fun ActionsScreen(
     dndState?.let { state ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissDndDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_dnd"),
             title = {
                 Text(
                     if (state.isAccessBlocked) {
@@ -703,12 +723,18 @@ fun ActionsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.onDndOpenSettings() }) {
+                TextButton(
+                    onClick = { viewModel.onDndOpenSettings() },
+                    modifier = Modifier.testTag("permission_dialog_dnd_open_settings"),
+                ) {
                     Text("Open DND access settings")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissDndDialog() }) {
+                TextButton(
+                    onClick = { viewModel.dismissDndDialog() },
+                    modifier = Modifier.testTag("permission_dialog_dnd_not_now"),
+                ) {
                     Text("Not now")
                 }
             },
@@ -719,6 +745,9 @@ fun ActionsScreen(
     writeSettingsState?.let { state ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_write_settings"),
             title = {
                 Text(
                     if (state.isAccessBlocked) {
@@ -739,12 +768,18 @@ fun ActionsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.onWriteSettingsOpenSettings() }) {
+                TextButton(
+                    onClick = { viewModel.onWriteSettingsOpenSettings() },
+                    modifier = Modifier.testTag("permission_dialog_write_settings_open_settings"),
+                ) {
                     Text("Open settings access")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissWriteSettingsDialog() }) {
+                TextButton(
+                    onClick = { viewModel.dismissWriteSettingsDialog() },
+                    modifier = Modifier.testTag("permission_dialog_write_settings_not_now"),
+                ) {
                     Text("Not now")
                 }
             },

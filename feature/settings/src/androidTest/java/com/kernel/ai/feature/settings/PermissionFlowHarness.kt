@@ -268,6 +268,34 @@ internal class PermissionFlowHarness(
             }
         }
     }
+
+    // --- Tag-based (Compose exported test tags) ---
+
+    /**
+     * Wait for a Compose element exported with [testTag] to appear via resource ID.
+     * Query uses [By.res(tag)] — the simplest form for Compose testTagsAsResourceId.
+     */
+    fun waitForTag(tag: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): UiObject2 {
+        val obj = device.wait(Until.findObject(By.res(tag)), timeoutMs)
+        assertNotNull("Expected element with resource ID '$tag' not visible", obj)
+        return obj
+    }
+
+    /**
+     * Click a Compose element exported with [testTag] by resource ID.
+     */
+    fun clickTag(tag: String, timeoutMs: Long = DIALOG_TIMEOUT_MS) {
+        waitForTag(tag, timeoutMs).click()
+    }
+
+    /**
+     * Check whether a Compose element exported with [testTag] exists.
+     * Returns false if not found within [timeoutMs]; does not fail.
+     */
+    fun existsTag(tag: String, timeoutMs: Long = SHORT_TIMEOUT_MS): Boolean {
+        return device.wait(Until.findObject(By.res(tag)), timeoutMs) != null
+    }
+
     fun assertAppForeground(message: String = "App should be in foreground") {
         assertTrue(message, waitForPackageForeground(PACKAGE, LAUNCH_TIMEOUT_MS))
     }
