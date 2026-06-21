@@ -131,6 +131,15 @@ Reports dir: {REPORTS_DIR}
         default=None,
         help="Max seconds to wait for engine init after download (model readiness preflight)",
     )
+    parser.add_argument(
+        "--cumulative-reset-interval",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Opt-in: force-stop app every N tests in cumulative mode. Default: "
+             "no periodic reset (true cumulative). Use for harness stability; "
+             "not suitable as #1293 verification evidence.",
+    )
     args = parser.parse_args()
 
     # Set ANDROID_SERIAL early so all ADB calls use the selected device
@@ -180,6 +189,7 @@ Reports dir: {REPORTS_DIR}
             unlock_pin=args.unlock_pin,
             timeout_download=args.timeout_download,
             timeout_engine=args.timeout_engine,
+            cumulative_reset_interval=args.cumulative_reset_interval,
         ))
 
 
