@@ -107,13 +107,29 @@ fun VoiceScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showMicRepairDialog by remember { mutableStateOf(false) }
-
+    var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
+    
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                // If we were awaiting mic settings return, re-check mic permission.
+                if (awaitingMicSettingsReturn) {
+                    awaitingMicSettingsReturn = false
+                    val micGranted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO,
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (micGranted) {
+                        showMicRepairDialog = false
+                        viewModel.setHeyJandalEnabled(true)
+                    } else {
+                        // Still denied — re-show the blocked repair dialog.
+                        showMicRepairDialog = true
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -225,6 +241,7 @@ fun VoiceScreen(
                     testTag = "hey_jandal_mic_open_settings",
                     onClick = {
                         showMicRepairDialog = false
+                        awaitingMicSettingsReturn = true
                         runCatching {
                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                 data = Uri.parse("package:${context.packageName}")
@@ -238,11 +255,17 @@ fun VoiceScreen(
                 PermissionDialogAction(
                     label = "Not now",
                     testTag = "hey_jandal_mic_not_now",
-                    onClick = { showMicRepairDialog = false },
+                    onClick = {
+                        showMicRepairDialog = false
+                        awaitingMicSettingsReturn = false
+                    },
                 ),
             ),
             dialogTestTag = "hey_jandal_microphone_permission_dialog",
-            onDismissRequest = { showMicRepairDialog = false },
+            onDismissRequest = {
+                showMicRepairDialog = false
+                awaitingMicSettingsReturn = false
+            },
         )
     }
 }

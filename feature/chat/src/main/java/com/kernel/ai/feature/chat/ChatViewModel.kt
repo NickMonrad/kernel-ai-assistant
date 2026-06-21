@@ -187,6 +187,12 @@ class ChatViewModel @Inject constructor(
     data class MicrophoneState(
         val isPermanentlyDenied: Boolean = false,
     )
+    
+    /** The voice mode the user chose before requesting mic permission (OneShot or BackAndForth). */
+    private val _pendingChatMicMode = MutableStateFlow<VoiceMode?>(null)
+    
+    /** True while we are waiting for the user to return from mic settings after repair CTA. */
+    private val _awaitingChatMicSettingsReturn = MutableStateFlow(false)
 
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
 
@@ -1233,11 +1239,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
+    fun onMicrophonePermissionDenied(permanent: Boolean = false, requestedAction: String? = null) {
         if (permanent) {
+            _pendingChatMicMode.value = when (requestedAction) {
+                "loop" -> VoiceMode.BackAndForth
+                else -> VoiceMode.OneShot
+            }
             _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
             _error.value = null
         } else {
+            _pendingChatMicMode.value = null
             _microphoneState.value = null
             _error.value = "Microphone permission is required for voice input."
         }
@@ -1245,16 +1256,45 @@ class ChatViewModel @Inject constructor(
 
     fun onChatMicrophoneKeepTyping() {
         _microphoneState.value = null
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
     }
-
+    
     fun onChatMicrophoneOpenAppPermissions() {
-        _microphoneState.value = null
-        // Event handled by screen to open settings.
+        _awaitingChatMicSettingsReturn.value = true
+        // Do NOT clear _pendingChatMicMode — it must survive the settings round-trip.
+        // Do NOT clear _microphoneState — the dialog is dismissed by the screen,
+        // and we'll need isPermanentlyDenied if resume shows still-denied.
     }
-
+    
     fun dismissMicrophoneRepairDialog() {
         _microphoneState.value = null
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
     }
+    
+    /**
+     * Called by ChatScreen's lifecycle ON_RESUME after the user returns from mic settings.
+     * If the permission was granted, restarts the original requested voice mode.
+     * If still denied, re-shows the blocked repair dialog.
+     */
+    fun onChatMicRepairResumeCheck(hasPermission: Boolean) {
+        if (!_awaitingChatMicSettingsReturn.value) return
+        _awaitingChatMicSettingsReturn.value = false
+        if (hasPermission) {
+            val mode = _pendingChatMicMode.value
+            _pendingChatMicMode.value = null
+            _microphoneState.value = null
+            when (mode) {
+                VoiceMode.BackAndForth -> startBackAndForthVoiceInput()
+                else -> startVoiceInput()
+            }
+        } else {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+            // Keep _pendingChatMicMode alive for another repair attempt.
+        }
+    }
+
 
     fun stopVoiceInput() {
         awaitingVoicePlaybackCompletion = false

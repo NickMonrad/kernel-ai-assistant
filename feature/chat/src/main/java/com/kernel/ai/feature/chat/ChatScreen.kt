@@ -147,6 +147,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
@@ -297,16 +299,15 @@ fun ChatScreen(
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
             val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
             val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
-
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
             val micPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
                 val action = pendingVoiceAction
-                pendingVoiceAction = null
                 Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
                 if (granted) {
+                    pendingVoiceAction = null
                     when (action) {
                         "ptt" -> viewModel.startVoiceInput()
                         "loop" -> viewModel.startBackAndForthVoiceInput()
@@ -316,7 +317,16 @@ fun ChatScreen(
                         context as android.app.Activity,
                         Manifest.permission.RECORD_AUDIO,
                     )
-                    viewModel.onMicrophonePermissionDenied(permanent)
+                    if (permanent) {
+                        // Keep pendingVoiceAction alive — ViewModel stores it for repair retry.
+                        viewModel.onMicrophonePermissionDenied(
+                            permanent = true,
+                            requestedAction = action,
+                        )
+                    } else {
+                        pendingVoiceAction = null
+                        viewModel.onMicrophonePermissionDenied(permanent = false)
+                    }
                 }
             }
 
@@ -334,6 +344,22 @@ fun ChatScreen(
                     pendingVoiceAction = action
                     micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
+            }
+            
+            // ON_RESUME: re-check mic permission if we were awaiting repair settings return.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                        val micGranted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        viewModel.onChatMicRepairResumeCheck(micGranted)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
 
             val onStartVoiceInput = remember(micPermissionLauncher) {
