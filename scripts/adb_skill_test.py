@@ -60,8 +60,12 @@ Reports dir: {REPORTS_DIR}
     )
 
     parser.add_argument("--dry-run", action="store_true", help="Show selected tests without running them")
-    parser.add_argument("--profile", action="store_true", help="Run profile extraction tests")
+    parser.add_argument("--phase-isolated", "--iso", action="store_true",
+                        help="Run each phase as an isolated unit with app restart between phases. "
+                             "Resets model/session/routing state per phase. "
+                             "Does NOT delete downloaded models or require HF re-auth.")
     parser.add_argument("--post-pr", action="store_true", help="Post results as PR comment")
+    parser.add_argument("--profile", action="store_true", help="Run profile extraction tests")
     parser.add_argument(
         "--phases",
         metavar="PHASES",
@@ -142,7 +146,22 @@ Reports dir: {REPORTS_DIR}
     exclude_tags_list = _parse_arg_list(args.exclude_tags)
     case_ids_list = _parse_arg_list(args.case)
 
-    if args.profile:
+    if args.phase_isolated:
+        from adb_harness.runners import run_isolated_phases as run_isolated
+        sys.exit(run_isolated(
+            dry_run=args.dry_run,
+            phases=phases_list,
+            categories=categories_list,
+            tags=tags_list,
+            exclude_tags=exclude_tags_list,
+            case_ids=case_ids_list,
+            model_readiness=args.model_readiness,
+            serial=args.serial,
+            unlock_pin=args.unlock_pin,
+            timeout_download=args.timeout_download,
+            timeout_engine=args.timeout_engine,
+        ))
+    elif args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     elif phases_list == ["llm_tools"]:
         sys.exit(run_llm_tools(dry_run=args.dry_run, case_ids=case_ids_list))

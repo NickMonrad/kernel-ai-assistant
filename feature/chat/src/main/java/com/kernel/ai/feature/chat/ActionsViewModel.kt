@@ -285,6 +285,16 @@ class ActionsViewModel @Inject constructor(
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
     private var pendingCalendarLookupAction: PendingCalendarLookupAction? = null
     private var pendingDndAction: PendingDndAction? = null
+    /**
+     * Set when the user taps "Open DND access settings" and cleared on resume check completion.
+     * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
+     */
+    private var awaitingDndSettingsReturn = false
+    /**
+     * Set when the user taps "Open settings access" (write-settings) and cleared on resume check completion.
+     * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
+     */
+    private var awaitingWriteSettingsReturn = false
     /** Snapshot of pendingPhonePermissionAction set by onHandsFreeCallingRequestPermission.
      *  Used by onPhonePermissionDenied to reconstruct dialog state after dismiss clears
      *  the original pending action (true cancel). NOT nulled by dismiss — only by
@@ -876,6 +886,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Open Android DND access settings for the user to grant notification policy access. */
     fun onDndOpenSettings() {
+        awaitingDndSettingsReturn = true
         _dndState.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.OpenDndSettings)
@@ -884,14 +895,18 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the DND special-access surface without any action. */
     fun dismissDndDialog() {
+        awaitingDndSettingsReturn = false
         _dndState.value = null
         pendingDndAction = null
         _error.value = null
     }
-
     /**
      * Called when the app resumes after the user returns from DND access settings.
      * Re-checks access and either retries the original DND action or shows a blocked result.
+     *
+     * Returns early when [awaitingDndSettingsReturn] is false, meaning the user has not
+     * yet tapped "Open DND access settings" — prevents lifecycle ON_RESUME from skipping
+     * the initial rationale dialog.
      *
      * [pendingDndAction] is consumed only in the grant path (retry succeeded or failed).
      * In the blocked path, [pendingDndAction] is kept alive so the user can open settings
@@ -899,6 +914,8 @@ class ActionsViewModel @Inject constructor(
      */
     fun onDndResumeCheck(hasAccess: Boolean) {
         val pending = pendingDndAction ?: return
+        if (!awaitingDndSettingsReturn) return
+        awaitingDndSettingsReturn = false
         if (hasAccess) {
             // Clear pending before retry — will be re-set if retry returns CapabilityRequired.
             pendingDndAction = null
@@ -944,6 +961,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Open Android write-settings panel for the user to grant modify-system-settings access. */
     fun onWriteSettingsOpenSettings() {
+        awaitingWriteSettingsReturn = true
         _writeSettingsState.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.OpenWriteSettings)
@@ -952,6 +970,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the write-settings special-access surface without any action. */
     fun dismissWriteSettingsDialog() {
+        awaitingWriteSettingsReturn = false
         _writeSettingsState.value = null
         pendingWriteSettingsAction = null
         _error.value = null
@@ -961,12 +980,18 @@ class ActionsViewModel @Inject constructor(
      * Called when the app resumes after the user returns from write-settings panel.
      * Re-checks access and either retries the original brightness action or shows a blocked result.
      *
+     * Returns early when [awaitingWriteSettingsReturn] is false, meaning the user has not
+     * yet tapped "Open settings access" — prevents lifecycle ON_RESUME from skipping
+     * the initial rationale dialog.
+     *
      * [pendingWriteSettingsAction] is consumed only in the grant path (retry succeeded or failed).
      * In the blocked path, [pendingWriteSettingsAction] is kept alive so the user can open settings
      * again from the blocked/repair dialog and retry on a subsequent grant.
      */
     fun onWriteSettingsResumeCheck(hasAccess: Boolean) {
         val pending = pendingWriteSettingsAction ?: return
+        if (!awaitingWriteSettingsReturn) return
+        awaitingWriteSettingsReturn = false
         if (hasAccess) {
             // Clear pending before retry — will be re-set if retry returns CapabilityRequired.
             pendingWriteSettingsAction = null
@@ -1321,6 +1346,8 @@ class ActionsViewModel @Inject constructor(
                 )
             }
             if (shouldRequestDndAccess(skillResult)) {
+                awaitingDndSettingsReturn = false
+                awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 val enabled = capResult.contextParams["enabled"]?.toBoolean() ?: true
                 pendingDndAction = PendingDndAction(
@@ -1337,6 +1364,8 @@ class ActionsViewModel @Inject constructor(
             }
 
             if (shouldRequestWriteSettingsAccess(skillResult)) {
+                awaitingDndSettingsReturn = false
+                awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 pendingWriteSettingsAction = PendingWriteSettingsAction(
                     query = query,
