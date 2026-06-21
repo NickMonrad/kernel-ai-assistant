@@ -504,4 +504,22 @@ class VoiceViewModelTest {
 
         io.mockk.verify { sherpaVoicePackDownloadManager.deleteVoice(SherpaPiperVoice.NorthernEnglishMale) }
     }
+
+    @Test
+    fun `setHeyJandalEnabled true updates state and persists`() = runTest {
+        viewModel.setHeyJandalEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
+        coVerify { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `setHeyJandalEnabled false updates state and persists`() = runTest {
+        viewModel.setHeyJandalEnabled(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
+        coVerify { wakeWordPreferences.setHeyJandalEnabled(false) }
+    }
 }

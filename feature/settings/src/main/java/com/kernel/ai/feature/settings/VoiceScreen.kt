@@ -92,6 +92,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -243,11 +244,9 @@ fun VoiceScreen(
                         showMicRepairDialog = false
                         awaitingMicSettingsReturn = true
                         runCatching {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
+                            context.startActivity(
+                                RuntimePermissionRepair.intentFor(context, Manifest.permission.RECORD_AUDIO)
+                            )
                         }
                     },
                     isPrimary = true,
