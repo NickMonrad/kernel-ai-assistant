@@ -3331,6 +3331,372 @@ class ActionsViewModelVoiceTest {
         assertNull(viewModel.weatherLocationState.value)
     }
 
+
+    @Test
+    fun `hands free calling repair emits specific event and preserves pending`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+            SkillResult.Success("Calling susan monrad"),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        viewModel.onHandsFreeCallingOpenAppPermissions()
+        advanceUntilIdle()
+
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RepairPhonePermission })
+        assertEquals(false, events.any { it is ActionsViewModel.UiEvent.NavigateToAppPermissions })
+        assertNull(viewModel.handsFreeCallingState.value)
+
+        viewModel.onPhoneRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `weather location repair preserves pending action across settings round trip`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = "get_weather_gps",
+            ),
+            SkillResult.Success("Weather for your current location"),
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RepairLocationPermission })
+        assertNull(viewModel.weatherLocationState.value)
+
+        viewModel.onLocationRepairResumeCheck(hasPermission = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+        assertEquals(true, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+        coVerify(exactly = 1) { runIntentSkill.execute(any()) }
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.weatherLocationState.value)
+
+        viewModel.onLocationRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `contacts repair emits specific event and preserves pending`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("email susan") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "susan"),
+                ),
+            )
+        every { skillRegistry.get("send_email") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_email",
+                contextParams = mapOf("contact" to "susan"),
+            ),
+            SkillResult.Success("Emailing susan"),
+        )
+
+        viewModel.executeAction("email susan", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.contactPermissionState.value)
+
+        viewModel.onContactOpenAppPermissions()
+        advanceUntilIdle()
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RepairContactsPermission })
+        assertNull(viewModel.contactPermissionState.value)
+
+        viewModel.onContactsRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `calendar repair emits specific event and preserves pending`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("when is our anniversary") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_date_diff",
+                    params = mapOf("target_date" to "our anniversary"),
+                ),
+            )
+        every { skillRegistry.get("get_date_diff") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarLookup,
+                skillName = "get_date_diff",
+                contextParams = mapOf("target_date" to "our anniversary"),
+            ),
+            SkillResult.Success("Your anniversary is on Monday"),
+        )
+
+        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.calendarPermissionState.value)
+
+        viewModel.onCalendarOpenAppPermissions()
+        advanceUntilIdle()
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RepairCalendarPermission })
+        assertNull(viewModel.calendarPermissionState.value)
+
+        viewModel.onCalendarRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `microphone dialog state and repair flow`() = runTest(dispatcher) {
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+
+        viewModel.onVoiceCaptureRequiresPermission(VoiceCaptureMode.Command)
+        advanceUntilIdle()
+        assertNotNull(viewModel.microphoneState.value)
+        assertEquals(false, viewModel.microphoneState.value!!.isPermanentlyDenied)
+
+        viewModel.onMicrophonePermissionDenied(permanent = true)
+        advanceUntilIdle()
+        assertEquals(true, viewModel.microphoneState.value!!.isPermanentlyDenied)
+
+        viewModel.onMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RepairMicrophonePermission })
+        assertNull(viewModel.microphoneState.value)
+
+        viewModel.onMicrophoneKeepTyping()
+        advanceUntilIdle()
+        assertNull(viewModel.microphoneState.value)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `phone resume check with grant retries action`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+            SkillResult.Success("Calling susan monrad"),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        viewModel.onHandsFreeCallingOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+
+        viewModel.onPhoneRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+    }
+
+    @Test
+    fun `phone resume check without grant shows blocked repair state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.HandsFreeCalling,
+            skillName = "make_call",
+            contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        viewModel.onHandsFreeCallingOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+
+        viewModel.onPhoneRepairResumeCheck(hasPermission = false)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.handsFreeCallingState.value)
+        assertEquals(true, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+        assertEquals("021111222", viewModel.handsFreeCallingState.value!!.phoneNumber)
+        assertEquals("susan monrad", viewModel.handsFreeCallingState.value!!.contact)
+        coVerify(exactly = 1) { runIntentSkill.execute(any()) }
+    }
+
+    @Test
+    fun `microphone request path emits normal request event`() = runTest(dispatcher) {
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+
+        viewModel.onMicrophoneRequestPermission()
+        advanceUntilIdle()
+
+        assertEquals(true, events.any { it is ActionsViewModel.UiEvent.RequestMicrophonePermission })
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `microphone resume check with grant retries voice action`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.onVoiceCaptureRequiresPermission(VoiceCaptureMode.Command)
+        advanceUntilIdle()
+        assertNotNull(viewModel.microphoneState.value)
+
+        viewModel.onMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.microphoneState.value)
+
+        viewModel.onMicrophoneRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+    }
+
+    @Test
+    fun `location repair two-step repair loop`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = "get_weather_gps",
+            ),
+            SkillResult.Success("Weather for your current location"),
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+        assertEquals(false, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.weatherLocationState.value)
+
+        viewModel.onLocationRepairResumeCheck(hasPermission = false)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+        assertEquals(true, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        assertNull(viewModel.weatherLocationState.value)
+
+        viewModel.onLocationRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
     private fun stubQuickActionResult(
         input: String,
         intentName: String,

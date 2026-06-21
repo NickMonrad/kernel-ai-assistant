@@ -147,6 +147,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.ui.permissions.PermissionDialogAction
+import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
@@ -161,6 +164,7 @@ import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
+import com.kernel.ai.feature.chat.ChatViewModel.MicrophoneState
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
@@ -228,6 +232,7 @@ fun ChatScreen(
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
+    val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -281,6 +286,12 @@ fun ChatScreen(
         )
         is ChatUiState.Ready -> {
             val context = LocalContext.current
+            fun openRuntimePermissionRepair(permission: String) {
+                runCatching {
+                    context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
+                }
+            }
+
             val isSeeding by viewModel.isSeeding.collectAsState()
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
@@ -378,6 +389,39 @@ fun ChatScreen(
                 showModelSettings = showModelSettings,
                 onShowModelSettingsChange = { showModelSettings = it },
             )
+
+            microphoneState?.let { state: MicrophoneState ->
+                if (state.isPermanentlyDenied) {
+                    PermissionOverlayDialog(
+                        title = "Microphone permission is blocked",
+                        body = "Android will not show the Microphone permission prompt. Open system settings to allow " +
+                            "voice input, or keep typing.",
+                        actions = listOf(
+                            PermissionDialogAction(
+                                label = "Open Microphone permission settings",
+                                testTag = "chat_mic_open_settings",
+                                onClick = {
+                                    viewModel.onChatMicrophoneOpenAppPermissions()
+                                    openRuntimePermissionRepair(Manifest.permission.RECORD_AUDIO)
+                                },
+                                isPrimary = true,
+                            ),
+                            PermissionDialogAction(
+                                label = "Keep typing",
+                                testTag = "chat_mic_keep_typing",
+                                onClick = { viewModel.onChatMicrophoneKeepTyping() },
+                            ),
+                            PermissionDialogAction(
+                                label = "Not now",
+                                testTag = "chat_mic_not_now",
+                                onClick = { viewModel.dismissMicrophoneRepairDialog() },
+                            ),
+                        ),
+                        dialogTestTag = "chat_microphone_permission_dialog",
+                        onDismissRequest = { viewModel.dismissMicrophoneRepairDialog() },
+                    )
+                }
+            }
             // Model settings overlay — always shown on icon tap, not guarded by
             // modelCapabilities/currentModel null-check (#961).
             if (showModelSettings) {

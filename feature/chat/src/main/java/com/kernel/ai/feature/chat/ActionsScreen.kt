@@ -376,6 +376,36 @@ fun ActionsScreen(
                 viewModel.onWriteSettingsResumeCheck(
                     hasAccess = android.provider.Settings.System.canWrite(context),
                 )
+                viewModel.onPhoneRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CALL_PHONE,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onLocationRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onContactsRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.READ_CONTACTS,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onCalendarRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.READ_CALENDAR,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onMicrophoneRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
             }
             if (event == Lifecycle.Event.ON_STOP) {
                 Log.d(

@@ -326,6 +326,11 @@ class ActionsViewModel @Inject constructor(
      * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
      */
     private var awaitingWriteSettingsReturn = false
+    private var awaitingPhoneSettingsReturn = false
+    private var awaitingLocationSettingsReturn = false
+    private var awaitingContactsSettingsReturn = false
+    private var awaitingCalendarSettingsReturn = false
+    private var awaitingMicrophoneSettingsReturn = false
     /** Snapshot of pendingPhonePermissionAction set by onHandsFreeCallingRequestPermission.
      *  Used by onPhonePermissionDenied to reconstruct dialog state after dismiss clears
      *  the original pending action (true cancel). NOT nulled by dismiss — only by
@@ -588,9 +593,10 @@ class ActionsViewModel @Inject constructor(
 
 
     fun onPhonePermissionGranted() {
+        awaitingPhoneSettingsReturn = false
+        handsFreeCallingRequestState = null
         val pending = pendingPhonePermissionAction ?: return
         pendingPhonePermissionAction = null
-        handsFreeCallingRequestState = null
         _handsFreeCallingState.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
@@ -649,6 +655,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Launch ACTION_DIAL for the dialer fallback (no CALL_PHONE required). */
     fun onHandsFreeCallingDialerFallback() {
+        awaitingPhoneSettingsReturn = false
         val state = _handsFreeCallingState.value ?: return
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
@@ -680,9 +687,8 @@ class ActionsViewModel @Inject constructor(
     }
     /** Navigate to App Permissions for manual repair. */
     fun onHandsFreeCallingOpenAppPermissions() {
+        awaitingPhoneSettingsReturn = true
         _handsFreeCallingState.value = null
-        pendingPhonePermissionAction = null
-        handsFreeCallingRequestState = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RepairPhonePermission)
@@ -693,6 +699,7 @@ class ActionsViewModel @Inject constructor(
      *  TRUE CANCEL: clears visible state, pending action, and request snapshot
      *  so no stale callback can reconstruct or retry. */
     fun dismissHandsFreeCallingDialog() {
+        awaitingPhoneSettingsReturn = false
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
         handsFreeCallingRequestState = null
@@ -709,6 +716,7 @@ class ActionsViewModel @Inject constructor(
     }
     /** User chooses to type a place instead of using location. Shows guidance prompt. */
     fun onWeatherLocationTypePlace() {
+        awaitingLocationSettingsReturn = false
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
         _error.value = "Type a place name in the quick command bar, like \"weather in Tokyo\"."
@@ -716,6 +724,7 @@ class ActionsViewModel @Inject constructor(
 
     /** User chooses to use their saved profile/home location — not yet available. */
     fun onWeatherLocationUseSavedLocation() {
+        awaitingLocationSettingsReturn = false
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
         _error.value = "No saved location found. Type a place name in the quick command bar."
@@ -723,12 +732,14 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the weather location dialog without any action. */
     fun dismissWeatherLocationDialog() {
+        awaitingLocationSettingsReturn = false
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
         _error.value = null
     }
     /** Called when the user grants ACCESS_COARSE_LOCATION. Retries the original weather action. */
     fun onWeatherLocationPermissionGranted() {
+        awaitingLocationSettingsReturn = false
         val pending = pendingWeatherLocationAction ?: return
         pendingWeatherLocationAction = null
         _weatherLocationState.value = null
@@ -772,8 +783,8 @@ class ActionsViewModel @Inject constructor(
 
     /** Navigate to App Permissions for manual repair. */
     fun onWeatherLocationOpenAppPermissions() {
+        awaitingLocationSettingsReturn = true
         _weatherLocationState.value = null
-        pendingWeatherLocationAction = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RepairLocationPermission)
@@ -791,6 +802,7 @@ class ActionsViewModel @Inject constructor(
 
     /** User chooses to enter phone number or email manually. Shows guidance prompt. */
     fun onContactEnterManually() {
+        awaitingContactsSettingsReturn = false
         val pending = pendingContactPermissionAction
         pendingContactPermissionAction = null
         _contactPermissionState.value = null
@@ -803,6 +815,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the contact permission dialog without any action. */
     fun dismissContactPermissionDialog() {
+        awaitingContactsSettingsReturn = false
         _contactPermissionState.value = null
         pendingContactPermissionAction = null
         _error.value = null
@@ -810,6 +823,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Called when the user grants READ_CONTACTS. Retries the original action. */
     fun onContactPermissionGranted() {
+        awaitingContactsSettingsReturn = false
         val pending = pendingContactPermissionAction ?: return
         pendingContactPermissionAction = null
         _contactPermissionState.value = null
@@ -855,8 +869,8 @@ class ActionsViewModel @Inject constructor(
 
     /** Navigate to App Permissions for manual repair. */
     fun onContactOpenAppPermissions() {
+        awaitingContactsSettingsReturn = true
         _contactPermissionState.value = null
-        pendingContactPermissionAction = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RepairContactsPermission)
@@ -874,6 +888,7 @@ class ActionsViewModel @Inject constructor(
 
     /** User chooses to add important dates manually. Shows guidance prompt. */
     fun onCalendarAddManually() {
+        awaitingCalendarSettingsReturn = false
         pendingCalendarLookupAction = null
         _calendarPermissionState.value = null
         _error.value = "Add important dates in Settings → Important Dates."
@@ -881,6 +896,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the calendar permission dialog without any action. */
     fun dismissCalendarPermissionDialog() {
+        awaitingCalendarSettingsReturn = false
         _calendarPermissionState.value = null
         pendingCalendarLookupAction = null
         _error.value = null
@@ -888,6 +904,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Called when the user grants READ_CALENDAR. Retries the original date lookup. */
     fun onCalendarPermissionGranted() {
+        awaitingCalendarSettingsReturn = false
         val pending = pendingCalendarLookupAction ?: return
         pendingCalendarLookupAction = null
         _calendarPermissionState.value = null
@@ -933,8 +950,8 @@ class ActionsViewModel @Inject constructor(
 
     /** Navigate to App Permissions for manual repair. */
     fun onCalendarOpenAppPermissions() {
+        awaitingCalendarSettingsReturn = true
         _calendarPermissionState.value = null
-        pendingCalendarLookupAction = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RepairCalendarPermission)
@@ -952,6 +969,7 @@ class ActionsViewModel @Inject constructor(
 
     /** User chooses to keep typing instead of using voice. */
     fun onMicrophoneKeepTyping() {
+        awaitingMicrophoneSettingsReturn = false
         _microphoneState.value = null
         pendingMicrophoneAction = null
         _error.value = "Type your request in the quick command bar."
@@ -966,6 +984,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Dismiss the microphone dialog without any action. */
     fun dismissMicrophoneDialog() {
+        awaitingMicrophoneSettingsReturn = false
         _microphoneState.value = null
         pendingMicrophoneAction = null
         _error.value = null
@@ -973,6 +992,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Called when the user grants RECORD_AUDIO. Resumes the original voice mode. */
     fun onMicrophonePermissionGranted() {
+        awaitingMicrophoneSettingsReturn = false
         val pending = pendingMicrophoneAction ?: return
         pendingMicrophoneAction = null
         _microphoneState.value = null
@@ -997,11 +1017,76 @@ class ActionsViewModel @Inject constructor(
 
     /** Open system settings for microphone permission repair. */
     fun onMicrophoneOpenAppPermissions() {
+        awaitingMicrophoneSettingsReturn = true
         _microphoneState.value = null
-        pendingMicrophoneAction = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.RepairMicrophonePermission)
+        }
+    }
+
+    fun onPhoneRepairResumeCheck(hasPermission: Boolean) {
+        val pending = pendingPhonePermissionAction ?: return
+        if (!awaitingPhoneSettingsReturn) return
+        awaitingPhoneSettingsReturn = false
+        if (hasPermission) {
+            onPhonePermissionGranted()
+        } else {
+            _handsFreeCallingState.value = HandsFreeCallingState(
+                phoneNumber = pending.phoneNumber ?: "",
+                contact = pending.contact ?: "",
+                isPermanentlyDenied = true,
+            )
+        }
+    }
+
+    fun onLocationRepairResumeCheck(hasPermission: Boolean) {
+        pendingWeatherLocationAction ?: return
+        if (!awaitingLocationSettingsReturn) return
+        awaitingLocationSettingsReturn = false
+        if (hasPermission) {
+            onWeatherLocationPermissionGranted()
+        } else {
+            _weatherLocationState.value = WeatherLocationState(
+                isPermanentlyDenied = true,
+                hasSavedLocation = _weatherLocationState.value?.hasSavedLocation ?: false,
+            )
+        }
+    }
+
+    fun onContactsRepairResumeCheck(hasPermission: Boolean) {
+        val pending = pendingContactPermissionAction ?: return
+        if (!awaitingContactsSettingsReturn) return
+        awaitingContactsSettingsReturn = false
+        if (hasPermission) {
+            onContactPermissionGranted()
+        } else {
+            _contactPermissionState.value = ContactPermissionState(
+                actionName = pending.contact,
+                isPermanentlyDenied = true,
+            )
+        }
+    }
+
+    fun onCalendarRepairResumeCheck(hasPermission: Boolean) {
+        pendingCalendarLookupAction ?: return
+        if (!awaitingCalendarSettingsReturn) return
+        awaitingCalendarSettingsReturn = false
+        if (hasPermission) {
+            onCalendarPermissionGranted()
+        } else {
+            _calendarPermissionState.value = CalendarPermissionState(isPermanentlyDenied = true)
+        }
+    }
+
+    fun onMicrophoneRepairResumeCheck(hasPermission: Boolean) {
+        pendingMicrophoneAction ?: return
+        if (!awaitingMicrophoneSettingsReturn) return
+        awaitingMicrophoneSettingsReturn = false
+        if (hasPermission) {
+            onMicrophonePermissionGranted()
+        } else {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
         }
     }
 

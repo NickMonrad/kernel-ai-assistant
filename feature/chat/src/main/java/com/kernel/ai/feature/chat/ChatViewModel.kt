@@ -184,6 +184,10 @@ class ChatViewModel @Inject constructor(
         data class Speaking(val text: String) : VoicePlaybackState
     }
 
+    data class MicrophoneState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -197,6 +201,8 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
+    private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
@@ -1228,11 +1234,26 @@ class ChatViewModel @Inject constructor(
     }
 
     fun onMicrophonePermissionDenied(permanent: Boolean = false) {
-        _error.value = if (permanent) {
-            "Microphone access permanently denied. Enable it in Settings → App permissions."
+        if (permanent) {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+            _error.value = null
         } else {
-            "Microphone permission is required for voice input."
+            _microphoneState.value = null
+            _error.value = "Microphone permission is required for voice input."
         }
+    }
+
+    fun onChatMicrophoneKeepTyping() {
+        _microphoneState.value = null
+    }
+
+    fun onChatMicrophoneOpenAppPermissions() {
+        _microphoneState.value = null
+        // Event handled by screen to open settings.
+    }
+
+    fun dismissMicrophoneRepairDialog() {
+        _microphoneState.value = null
     }
 
     fun stopVoiceInput() {
