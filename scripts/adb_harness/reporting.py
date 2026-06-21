@@ -182,6 +182,180 @@ def save_report(
     return report_path
 
 
+def save_isolated_phase_report(
+    phase_name: str,
+    results: list[TestResult],
+    elapsed: float = 0.0,
+    run_ts: str | None = None,
+) -> Path:
+    """Save a per-phase report for phase-isolated runs.
+
+    Writes a JSON report to ``scripts/test-reports/`` with the phase name
+    embedded in the filename, plus generates an HTML report if available.
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+    for r in results:
+        if not r.status:
+            r.status = derive_status(r)
+        if r.failure_bucket is None:
+            r.failure_bucket = derive_failure_bucket(r)
+
+    total = len(results)
+    passed = sum(1 for r in results if r.status == "pass")
+    xfails = sum(1 for r in results if r.status == "xfail")
+    xpasses = sum(1 for r in results if r.status == "xpass")
+    failures = sum(1 for r in results if r.status == "fail")
+    indeterminates = sum(1 for r in results if r.status == "indeterminate")
+
+    report = {
+        "suite": f"skills_isolated_{phase_name}",
+        "phase": phase_name,
+        "status": "complete",
+        "timestamp": ts,
+        "elapsed_seconds": round(elapsed, 1),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "xfail": xfails,
+            "xpass": xpasses,
+            "failed": failures,
+            "indeterminate": indeterminates,
+            "reached": total,
+            "not_reached": 0,
+            "skipped": 0,
+            "excluded": 0,
+        },
+        "results": [
+            {
+                "index": r.index,
+                "case_id": r.case_id,
+                "message": r.message,
+                "category": r.category,
+                "tags": r.tags,
+                "fixture": r.fixture,
+                "expect_intent": r.expect_intent,
+                "actual_intent": r.actual_intent,
+                "expect_params": r.expect_params,
+                "actual_params": r.actual_params,
+                "intent_passed": r.intent_passed,
+                "params_passed": r.params_passed,
+                "param_failures": r.param_failures,
+                "xfail": r.xfail,
+                "xfail_reason": r.xfail_reason,
+                "reply_warn": r.reply_warn,
+                "log_check_warn": r.log_check_warn,
+                "first_turn_warn": r.first_turn_warn,
+                "phase": r.phase,
+                "status": r.status,
+                "failure_bucket": r.failure_bucket,
+                "forbidden_intents": r.forbidden_intents,
+                "forbidden_intent_triggered": r.forbidden_intent_triggered,
+                "forbidden_intent_observed": r.forbidden_intent_observed,
+                "fallthrough_observed": r.fallthrough_observed,
+                "allowed_intent_observed": r.allowed_intent_observed,
+                "expect_llm_fallthrough": r.expect_llm_fallthrough,
+            }
+            for r in results
+        ],
+    }
+
+    filename = f"{run_ts or ts}_isolated_{phase_name}.json"
+    report_path = REPORTS_DIR / filename
+    report_path.write_text(json.dumps(report, indent=2))
+
+    # Auto-generate HTML report if generator script is present
+    gen_script = Path(__file__).parent / "generate_report.py"
+    if gen_script.exists():
+        subprocess.run([sys.executable, str(gen_script), str(report_path)], check=False)
+
+    return report_path
+
+
+def save_isolated_summary_report(
+    all_results: list[TestResult],
+    phase_summaries: list[dict],
+    elapsed: float = 0.0,
+    run_ts: str | None = None,
+) -> Path:
+    """Save a combined summary report spanning all isolated phases."""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+    for r in all_results:
+        if not r.status:
+            r.status = derive_status(r)
+        if r.failure_bucket is None:
+            r.failure_bucket = derive_failure_bucket(r)
+
+    total = len(all_results)
+    passed = sum(1 for r in all_results if r.status == "pass")
+    xfails = sum(1 for r in all_results if r.status == "xfail")
+    xpasses = sum(1 for r in all_results if r.status == "xpass")
+    failures = sum(1 for r in all_results if r.status == "fail")
+    indeterminates = sum(1 for r in all_results if r.status == "indeterminate")
+
+    report = {
+        "suite": "skills_isolated_combined",
+        "status": "complete",
+        "mode": "phase-isolated",
+        "timestamp": ts,
+        "elapsed_seconds": round(elapsed, 1),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "xfail": xfails,
+            "xpass": xpasses,
+            "failed": failures,
+            "indeterminate": indeterminates,
+        },
+        "phase_summaries": phase_summaries,
+        "results": [
+            {
+                "index": r.index,
+                "case_id": r.case_id,
+                "message": r.message,
+                "category": r.category,
+                "tags": r.tags,
+                "fixture": r.fixture,
+                "expect_intent": r.expect_intent,
+                "actual_intent": r.actual_intent,
+                "expect_params": r.expect_params,
+                "actual_params": r.actual_params,
+                "intent_passed": r.intent_passed,
+                "params_passed": r.params_passed,
+                "param_failures": r.param_failures,
+                "xfail": r.xfail,
+                "xfail_reason": r.xfail_reason,
+                "reply_warn": r.reply_warn,
+                "log_check_warn": r.log_check_warn,
+                "first_turn_warn": r.first_turn_warn,
+                "phase": r.phase,
+                "status": r.status,
+                "failure_bucket": r.failure_bucket,
+                "forbidden_intents": r.forbidden_intents,
+                "forbidden_intent_triggered": r.forbidden_intent_triggered,
+                "forbidden_intent_observed": r.forbidden_intent_observed,
+                "fallthrough_observed": r.fallthrough_observed,
+                "allowed_intent_observed": r.allowed_intent_observed,
+                "expect_llm_fallthrough": r.expect_llm_fallthrough,
+            }
+            for r in all_results
+        ],
+    }
+
+    filename = f"{run_ts or ts}_isolated_combined.json"
+    report_path = REPORTS_DIR / filename
+    report_path.write_text(json.dumps(report, indent=2))
+
+    gen_script = Path(__file__).parent / "generate_report.py"
+    if gen_script.exists():
+        subprocess.run([sys.executable, str(gen_script), str(report_path)], check=False)
+
+    return report_path
+
+
 
 def analyse_results(results: list[TestResult]) -> None:
     """Print a pattern analysis section after the summary table."""

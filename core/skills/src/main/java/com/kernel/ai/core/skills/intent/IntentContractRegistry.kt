@@ -158,6 +158,53 @@ class IntentContractRegistry {
                 riskLevel = IntentRiskLevel.MEDIUM,
             ),
 
+            // ── LOW RISK (alarms — time required, day optional) ───────────
+            IntentContract(
+                intentName = "set_alarm",
+                capability = "Set Alarm",
+                requiredSlots = mapOf(
+                    "time" to SlotSpec(
+                        name = "time",
+                        promptTemplate = "What time would you like the alarm set for?",
+                    ),
+                ),
+                optionalSlots = mapOf(
+                    "day" to SlotSpec(
+                        name = "day",
+                        promptTemplate = "Which day should the alarm be for?",
+                    ),
+                ),
+                riskLevel = IntentRiskLevel.LOW,
+            ),
+            IntentContract(
+                intentName = "set_timer",
+                capability = "Set Timer",
+                requiredSlots = mapOf(
+                    "duration_seconds" to SlotSpec(
+                        name = "duration_seconds",
+                        promptTemplate = "How long would you like the timer for?",
+                    ),
+                ),
+                optionalSlots = mapOf(
+                    "label" to SlotSpec(
+                        name = "label",
+                        promptTemplate = "What should I call this timer?",
+                    ),
+                ),
+                riskLevel = IntentRiskLevel.LOW,
+            ),
+            IntentContract(
+                intentName = "open_app",
+                capability = "Open App",
+                requiredSlots = mapOf(
+                    "app_name" to SlotSpec(
+                        name = "app_name",
+                        promptTemplate = "Which app would you like to open?",
+                    ),
+                ),
+                riskLevel = IntentRiskLevel.LOW,
+            ),
+
             // ── LOW RISK (safe to execute with slots filled) ──────────────────
             IntentContract(
                 intentName = "add_to_list",
