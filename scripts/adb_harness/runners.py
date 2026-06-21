@@ -554,7 +554,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
               case_ids: list[str] | None = None, model_readiness: bool = False,
               serial: str | None = None, unlock_pin: str | None = None,
               timeout_download: float | None = None,
-              timeout_engine: float | None = None) -> int:
+              timeout_engine: float | None = None,
+              cumulative_reset_interval: int | None = None) -> int:
 
     """Execute all test cases. Returns non-zero on failures."""
 
@@ -644,6 +645,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print()
         total_tests = len(TEST_CASES)
         not_selected = total_tests - len(selected_tests)
+        if cumulative_reset_interval is not None:
+            print(f"  Cumulative reset interval: {cumulative_reset_interval} tests (opt-in)")
+        else:
+            print("  Cumulative mode: true cumulative (no periodic force-stop)")
         print(f"  Selected: {len(selected_tests)} / {total_tests}")
         print(f"  Not selected: {not_selected}")
         print(f"  Total: {len(selected_tests)} test cases"
@@ -1123,17 +1128,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 time.sleep(2)
                 run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
             # Periodic app restart to prevent long-session routing degradation (#1293).
-            # Force-stop the app every 30 tests during cumulative runs to clear
-            # accumulated GPU/cache state that causes the MiniLM classifier and/or
-            # E2B model to converge on a single repeated intent (typically
-            # play_netflix). The next send_text()/send_quick_action() will
-            # automatically relaunch the app via `am start`.
-            # Isolated mode (--iso) avoids this via per-phase force-stop; this brings
-            # the same benefit to cumulative mode while preserving its utility for
-            # long-run degradation detection.
-            if global_index > 0 and global_index % 30 == 0:
+            # When --cumulative-reset-interval N is passed, force-stop the app
+            # every N tests to clear accumulated GPU/cache state.
+            # Default (cumulative_reset_interval=None): true cumulative mode —
+            # no periodic reset; suitable for reproducing #1293.
+            # See also: run_isolated_phases() for per-phase isolated mode.
+            if cumulative_reset_interval is not None and global_index > 0 and global_index % cumulative_reset_interval == 0:
                 print()
-                print(f"  [reset#{global_index}] Periodic force-stop after {global_index} tests — clearing state")
+                print(f"  [reset#{global_index}] Periodic force-stop after {global_index} tests (interval={cumulative_reset_interval}) — clearing state")
                 run_adb("shell", "am", "force-stop", PACKAGE)
                 time.sleep(2)
                 print(f"  [reset#{global_index}] App force-stopped, next test will relaunch")
