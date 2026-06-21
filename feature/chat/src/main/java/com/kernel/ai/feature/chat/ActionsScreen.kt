@@ -136,6 +136,9 @@ fun ActionsScreen(
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
+    val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
+    val contactPermissionState by viewModel.contactPermissionState.collectAsStateWithLifecycle()
+    val calendarPermissionState by viewModel.calendarPermissionState.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -189,6 +192,48 @@ fun ActionsScreen(
                 Manifest.permission.CALL_PHONE,
             )
             viewModel.onPhonePermissionDenied(permanent)
+        }
+    }
+
+    val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            viewModel.onWeatherLocationPermissionGranted()
+        } else {
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            )
+            viewModel.onWeatherLocationPermissionDenied(permanent)
+        }
+    }
+
+    val contactPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            viewModel.onContactPermissionGranted()
+        } else {
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CONTACTS,
+            )
+            viewModel.onContactPermissionDenied(permanent)
+        }
+    }
+
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            viewModel.onCalendarPermissionGranted()
+        } else {
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CALENDAR,
+            )
+            viewModel.onCalendarPermissionDenied(permanent)
         }
     }
 
@@ -303,6 +348,12 @@ fun ActionsScreen(
                         context.startActivity(writeSettingsIntent)
                     }
                 }
+                ActionsViewModel.UiEvent.RequestWeatherLocationPermission ->
+                    weatherLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                ActionsViewModel.UiEvent.RequestReadContactsPermission ->
+                    contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                ActionsViewModel.UiEvent.RequestReadCalendarPermission ->
+                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
             }
         }
     }
