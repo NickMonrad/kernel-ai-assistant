@@ -2962,4 +2962,205 @@ class ActionsViewModelVoiceTest {
         assertEquals("convert 100 aud to nzd", nav.query)
         assertEquals(false, nav.speakResponse)
     }
+
+    @Test
+    fun `weather location capability required sets weather location state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather_gps",
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.weatherLocationState.value)
+        assertEquals(false, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `weather location dismiss clears dialog state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather_gps",
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+
+        viewModel.dismissWeatherLocationDialog()
+        advanceUntilIdle()
+        assertNull(viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `weather location permanent denial sets isPermanentlyDenied`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather_gps",
+        )
+
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+        assertEquals(false, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+
+        viewModel.onWeatherLocationPermissionDenied(permanent = true)
+        advanceUntilIdle()
+        assertEquals(true, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `contact permission capability required sets contact permission state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("email fred") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "fred"),
+                ),
+            )
+        every { skillRegistry.get("send_email") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ContactLookup,
+            skillName = "send_email",
+            contextParams = mapOf("contact" to "fred"),
+        )
+
+        viewModel.executeAction("email fred", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.contactPermissionState.value)
+        assertEquals("send_email", viewModel.contactPermissionState.value!!.actionName)
+        assertEquals(false, viewModel.contactPermissionState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `contact permission dismiss clears dialog state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("email fred") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "fred"),
+                ),
+            )
+        every { skillRegistry.get("send_email") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ContactLookup,
+            skillName = "send_email",
+            contextParams = mapOf("contact" to "fred"),
+        )
+
+        viewModel.executeAction("email fred", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.contactPermissionState.value)
+
+        viewModel.dismissContactPermissionDialog()
+        advanceUntilIdle()
+        assertNull(viewModel.contactPermissionState.value)
+    }
+
+    @Test
+    fun `calendar permission capability required sets calendar permission state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("when is our anniversary") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_date_diff",
+                    params = mapOf("target_date" to "our anniversary"),
+                ),
+            )
+        every { skillRegistry.get("get_date_diff") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarLookup,
+            skillName = "get_date_diff",
+        )
+
+        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.calendarPermissionState.value)
+        assertEquals(false, viewModel.calendarPermissionState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `calendar permission dismiss clears dialog state`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("when is our anniversary") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_date_diff",
+                    params = mapOf("target_date" to "our anniversary"),
+                ),
+            )
+        every { skillRegistry.get("get_date_diff") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarLookup,
+            skillName = "get_date_diff",
+        )
+
+        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.calendarPermissionState.value)
+
+        viewModel.dismissCalendarPermissionDialog()
+        advanceUntilIdle()
+        assertNull(viewModel.calendarPermissionState.value)
+    }
 }
