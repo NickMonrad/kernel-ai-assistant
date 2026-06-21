@@ -106,6 +106,8 @@ class MiniLMIntentClassifier @Inject constructor(
         var bestIntent: String? = null
         var bestScore = -1f
         var secondScore = -1f
+        // #1313: track top 5 intents with scores for diagnostic logging
+        val topScores = mutableListOf<Pair<String, Float>>()
 
         // Nearest-neighbour: score each intent as the max similarity across all its phrase vectors.
         // This avoids centroid drift where averaging 12+ diverse phrases pulls the centroid away
@@ -116,18 +118,24 @@ class MiniLMIntentClassifier @Inject constructor(
                 score > bestScore -> { secondScore = bestScore; bestScore = score; bestIntent = name }
                 score > secondScore -> secondScore = score
             }
+            // Insert into top-5 list sorted descending by score
+            val insertAt = topScores.indexOfFirst { score > it.second }
+            if (insertAt >= 0) topScores.add(insertAt, name to score) else topScores.add(name to score)
+            if (topScores.size > 5) topScores.removeAt(5)
         }
 
+        val top5Log = topScores.take(5).joinToString(" | ") { (n, s) -> "$n=${"%.3f".format(s)}" }
+
         if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) {
-            Log.i(TAG, "classify('$input') — below threshold: best=$bestIntent score=${"%.3f".format(bestScore)} threshold=$CONFIDENCE_THRESHOLD")
+            Log.i(TAG, "classify('$input') — below threshold: best=$bestIntent score=${"%.3f".format(bestScore)} threshold=$CONFIDENCE_THRESHOLD top5=[$top5Log]")
             return null
         }
         if (bestScore - secondScore < AMBIGUITY_MARGIN) {
-            Log.i(TAG, "classify('$input') — ambiguous: best=$bestIntent score=${"%.3f".format(bestScore)} second=${"%.3f".format(secondScore)}")
+            Log.i(TAG, "classify('$input') — ambiguous: best=$bestIntent score=${"%.3f".format(bestScore)} second=${"%.3f".format(secondScore)} margin=${"%.3f".format(bestScore - secondScore)} top5=[$top5Log]")
             return null
         }
 
-        Log.i(TAG, "classify('$input') -> $bestIntent (score=${"%.3f".format(bestScore)}, margin=${"%.3f".format(bestScore - secondScore)})")
+        Log.i(TAG, "classify('$input') -> $bestIntent (score=${"%.3f".format(bestScore)}, margin=${"%.3f".format(bestScore - secondScore)}, top5=[$top5Log])")
         return QuickIntentRouter.IntentClassifier.Classification(bestIntent, bestScore)
     }
 
