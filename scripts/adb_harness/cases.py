@@ -43,10 +43,19 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("alarm 11:30pm", "set_alarm"),
         TestCase("can you wake me at 11:30", "set_alarm"),
         TestCase("I need an alarm for 11 tonight", "set_alarm"),
+        # set_alarm — #1315 disambiguation variants
+        TestCase("set an alarm for Monday at 7am", "set_alarm"),
+        TestCase("wake me up Monday at 7am", "set_alarm"),
+        TestCase("set my alarm for tomorrow morning", "set_alarm"),
         # add_reminder — explicit future-task prompts, distinct from save_memory
         TestCase("remind me to call the dentist Monday", "add_reminder"),
         TestCase("remind me at 9am Monday to call the dentist", "add_reminder"),
         TestCase("remind me to pick up dry cleaning tomorrow evening", "add_reminder"),
+        # add_reminder — #1315 disambiguation variants
+        TestCase("remind me to call the dentist tomorrow", "add_reminder"),
+        TestCase("remind me to buy milk at 5pm", "add_reminder"),
+        TestCase("set a reminder to take out the bins", "add_reminder"),
+        TestCase("reminder to call mum next week", "add_reminder"),
         # cancel_alarm
         TestCase("cancel my 11pm alarm", "cancel_alarm"),
         TestCase("turn off all my alarms", "cancel_alarm"),
