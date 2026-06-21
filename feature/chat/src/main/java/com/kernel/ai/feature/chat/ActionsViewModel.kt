@@ -105,10 +105,22 @@ class ActionsViewModel @Inject constructor(
         data class NavigateToChat(val query: String, val speakResponse: Boolean) : UiEvent
         /** Request CALL_PHONE permission via system dialog. */
         object RequestPhonePermission : UiEvent
+        /** Request RECORD_AUDIO permission via system dialog. */
+        object RequestMicrophonePermission : UiEvent
         /** Launch dialer with the resolved tel: URI (no CALL_PHONE needed). */
         data class LaunchDialer(val phoneNumber: String, val contact: String) : UiEvent
         /** Navigate to internal Settings → App Permissions for manual repair. */
         object NavigateToAppPermissions : UiEvent
+        /** Navigate to app settings to repair CALL_PHONE permission. */
+        object RepairPhonePermission : UiEvent
+        /** Navigate to app settings to repair location permission. */
+        object RepairLocationPermission : UiEvent
+        /** Navigate to app settings to repair contacts permission. */
+        object RepairContactsPermission : UiEvent
+        /** Navigate to app settings to repair calendar permission. */
+        object RepairCalendarPermission : UiEvent
+        /** Navigate to app settings to repair microphone permission. */
+        object RepairMicrophonePermission : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
@@ -230,6 +242,19 @@ class ActionsViewModel @Inject constructor(
         val isPermanentlyDenied: Boolean = false,
     )
 
+    /** State for the contextual microphone permission dialog. */
+    data class MicrophoneState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
+    private data class PendingMicrophoneAction(
+        val mode: VoiceCaptureMode,
+        val query: String? = null,
+        val intentName: String? = null,
+        val params: Map<String, String>? = null,
+        val inputMode: InputMode? = null,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -267,6 +292,10 @@ class ActionsViewModel @Inject constructor(
     private val _calendarPermissionState = MutableStateFlow<CalendarPermissionState?>(null)
     val calendarPermissionState: StateFlow<CalendarPermissionState?> = _calendarPermissionState.asStateFlow()
 
+    /** Non-null while the contextual microphone permission dialog should be shown. */
+    private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
+
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
 
@@ -284,6 +313,7 @@ class ActionsViewModel @Inject constructor(
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
     private var pendingCalendarLookupAction: PendingCalendarLookupAction? = null
+    private var pendingMicrophoneAction: PendingMicrophoneAction? = null
     private var pendingDndAction: PendingDndAction? = null
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     /**
@@ -556,13 +586,6 @@ class ActionsViewModel @Inject constructor(
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
-        _error.value = if (permanent) {
-            "Microphone access permanently denied. Enable it in Settings → App permissions."
-        } else {
-            "Microphone permission is required for voice input."
-        }
-    }
 
     fun onPhonePermissionGranted() {
         val pending = pendingPhonePermissionAction ?: return
@@ -662,7 +685,7 @@ class ActionsViewModel @Inject constructor(
         handsFreeCallingRequestState = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairPhonePermission)
         }
     }
 
@@ -753,7 +776,7 @@ class ActionsViewModel @Inject constructor(
         pendingWeatherLocationAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairLocationPermission)
         }
     }
 
@@ -836,7 +859,7 @@ class ActionsViewModel @Inject constructor(
         pendingContactPermissionAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairContactsPermission)
         }
     }
 
@@ -914,7 +937,71 @@ class ActionsViewModel @Inject constructor(
         pendingCalendarLookupAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairCalendarPermission)
+        }
+    }
+
+    // ── Microphone permission ──────────────────────────────────────────────────
+
+    /** Request RECORD_AUDIO permission. */
+    fun onMicrophoneRequestPermission() {
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestMicrophonePermission)
+        }
+    }
+
+    /** User chooses to keep typing instead of using voice. */
+    fun onMicrophoneKeepTyping() {
+        _microphoneState.value = null
+        pendingMicrophoneAction = null
+        _error.value = "Type your request in the quick command bar."
+    }
+
+    /** Called from the screen when the user taps the voice button but RECORD_AUDIO is not granted.
+     *  Stores the requested [mode] as a pending action and shows the microphone permission dialog. */
+    fun onVoiceCaptureRequiresPermission(mode: VoiceCaptureMode) {
+        pendingMicrophoneAction = PendingMicrophoneAction(mode = mode)
+        _microphoneState.value = MicrophoneState()
+    }
+
+    /** Dismiss the microphone dialog without any action. */
+    fun dismissMicrophoneDialog() {
+        _microphoneState.value = null
+        pendingMicrophoneAction = null
+        _error.value = null
+    }
+
+    /** Called when the user grants RECORD_AUDIO. Resumes the original voice mode. */
+    fun onMicrophonePermissionGranted() {
+        val pending = pendingMicrophoneAction ?: return
+        pendingMicrophoneAction = null
+        _microphoneState.value = null
+        when (pending.mode) {
+            VoiceCaptureMode.Command -> startVoiceCommand()
+            VoiceCaptureMode.SlotReply -> startVoiceSlotReply()
+            VoiceCaptureMode.AlertCommand -> Unit
+        }
+    }
+
+    /** Called when the user denies RECORD_AUDIO. */
+    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
+        val currentState = _microphoneState.value
+        if (permanent) {
+            _microphoneState.value = (currentState ?: MicrophoneState()).copy(isPermanentlyDenied = true)
+            // Keep pending action alive for repair navigation
+        } else {
+            _microphoneState.value = currentState ?: MicrophoneState()
+            // Keep pending action alive for retry
+        }
+    }
+
+    /** Open system settings for microphone permission repair. */
+    fun onMicrophoneOpenAppPermissions() {
+        _microphoneState.value = null
+        pendingMicrophoneAction = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RepairMicrophonePermission)
         }
     }
 
@@ -1484,6 +1571,24 @@ class ActionsViewModel @Inject constructor(
                 _calendarPermissionState.value = CalendarPermissionState()
             }
 
+            if (shouldRequestMicrophoneAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
+                pendingMicrophoneAction = PendingMicrophoneAction(
+                    mode = VoiceCaptureMode.Command,
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _microphoneState.value = MicrophoneState()
+            }
+
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
@@ -1561,6 +1666,8 @@ class ActionsViewModel @Inject constructor(
                 "Jandal needs contact access to find $contact."
             } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
                 "Jandal needs calendar access to find important dates and birthdays."
+            } else if (result.capabilityKey == CapabilityKey.VoiceInput) {
+                "Jandal needs microphone access for voice input."
             } else {
                 "Permission required for $skillName"
             }
@@ -1613,6 +1720,11 @@ class ActionsViewModel @Inject constructor(
     private fun shouldRequestCalendarPermission(result: SkillResult): Boolean {
         return result is SkillResult.CapabilityRequired &&
             result.capabilityKey == CapabilityKey.CalendarLookup
+    }
+
+    private fun shouldRequestMicrophoneAccess(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.VoiceInput
     }
 
     private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =
