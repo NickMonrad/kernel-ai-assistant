@@ -1122,6 +1122,22 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.expect_intent == "make_call":
                 time.sleep(2)
                 run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
+            # Periodic app restart to prevent long-session routing degradation (#1293).
+            # Force-stop the app every 30 tests during cumulative runs to clear
+            # accumulated GPU/cache state that causes the MiniLM classifier and/or
+            # E2B model to converge on a single repeated intent (typically
+            # play_netflix). The next send_text()/send_quick_action() will
+            # automatically relaunch the app via `am start`.
+            # Isolated mode (--iso) avoids this via per-phase force-stop; this brings
+            # the same benefit to cumulative mode while preserving its utility for
+            # long-run degradation detection.
+            if global_index > 0 and global_index % 30 == 0:
+                print()
+                print(f"  [reset#{global_index}] Periodic force-stop after {global_index} tests — clearing state")
+                run_adb("shell", "am", "force-stop", PACKAGE)
+                time.sleep(2)
+                print(f"  [reset#{global_index}] App force-stopped, next test will relaunch")
+                print()
         phase_elapsed = time.time() - phase_start
         n_xfail = sum(1 for r in phase_results if r.status == "xfail")
         n_xpass = sum(1 for r in phase_results if r.status == "xpass")

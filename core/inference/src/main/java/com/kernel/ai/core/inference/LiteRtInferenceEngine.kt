@@ -54,11 +54,6 @@ private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
 private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
-/** #1293: After this many conversation resets on GPU backend, perform a full engine
- *  shutdown + initialize instead of just recreating the LiteRT session.
- *  Prevents Adreno GPU state corruption that degrades output quality over long
- *  sequential sessions (~45 resets before observable degradation on S21/E2B). */
-private const val GPU_ENGINE_RESTART_INTERVAL = 30
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -494,10 +489,6 @@ class LiteRtInferenceEngine @Inject constructor(
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
 
-    /** Tracks conversation resets on GPU to trigger periodic full engine restart (#1293).
-     *  Reset to 0 after each full engine restart or after switching away from GPU backend.
-     *  Exposed as internal for test observation. */
-    internal var gpuResetCount = 0
     /** Prevents concurrent [initialize] calls — a second call while GPU init is in progress
      *  would queue a redundant 47s GPU load immediately after the first finishes. */
     private val isInitializing = AtomicBoolean(false)
@@ -605,31 +596,6 @@ class LiteRtInferenceEngine @Inject constructor(
             if (_isGenerating.value) {
                 Log.d(TAG, "resetConversation: signalling cancellation to active generation")
                 conversation?.cancelProcess()
-            }
-
-            // #1293: On GPU backend (Adreno 740 on S21), LiteRT GPU state accumulates
-            // corruption across conversation resets when the engine stays loaded. After
-            // GPU_ENGINE_RESTART_INTERVAL resets, do a full engine shutdown + reinitialize
-            // to clear GPU state and prevent output quality degradation.
-            // Non-GPU backends reset the counter on every call since they don't need this.
-            if (backend == BackendType.GPU) {
-                gpuResetCount++
-                if (gpuResetCount >= GPU_ENGINE_RESTART_INTERVAL) {
-                    gpuResetCount = 0
-                    Log.i(TAG, "resetConversation: full engine restart after " +
-                        "$GPU_ENGINE_RESTART_INTERVAL GPU resets — clearing accumulated GPU state")
-                    generationMutex.withLock {
-                        _isGenerating.value = false
-                    }
-                    shutdown()
-                    if (currentConfig != null) {
-                        initialize(currentConfig!!)
-                    }
-                    Log.i(TAG, "resetConversation: full engine restart complete")
-                    return@withContext
-                }
-            } else {
-                gpuResetCount = 0
             }
 
             // Wait for generationMutex so we don't close the conversation while
