@@ -506,6 +506,89 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `make_call named contact requires contacts permission when denied`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+
+        val result = handleIntent("make_call", mapOf("contact" to "Susan Monrad"))
+
+        val required = assertCapabilityRequired(result, CapabilityKey.ContactLookup, "make_call")
+        assertEquals(mapOf("contact" to "Susan Monrad"), required.contextParams)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `make_call literal phone number does not require contacts permission`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+        every { context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) } returns
+            PackageManager.PERMISSION_GRANTED
+
+        val result = handleIntent("make_call", mapOf("contact" to "+64123456789"))
+
+        assertEquals(SkillResult.Success("Calling +64123456789"), result)
+        verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
+    fun `send_sms named contact requires contacts permission when denied`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+
+        val result = handleIntent(
+            "send_sms",
+            mapOf("contact" to "Susan Monrad", "message" to "On my way"),
+        )
+
+        val required = assertCapabilityRequired(result, CapabilityKey.ContactLookup, "send_sms")
+        assertEquals(mapOf("contact" to "Susan Monrad"), required.contextParams)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms literal phone number does not require contacts permission`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+
+        val result = handleIntent(
+            "send_sms",
+            mapOf("contact" to "+64123456789", "message" to "On my way"),
+        )
+
+        assertEquals(SkillResult.Success("SMS composer opened for +64123456789."), result)
+        verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
+    fun `send_email named contact requires contacts permission when denied`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+
+        val result = handleIntent(
+            "send_email",
+            mapOf("contact" to "Susan Monrad", "subject" to "Hello", "body" to "World"),
+        )
+
+        val required = assertCapabilityRequired(result, CapabilityKey.ContactLookup, "send_email")
+        assertEquals(mapOf("contact" to "Susan Monrad"), required.contextParams)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email literal email address does not require contacts permission`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_DENIED
+
+        val result = handleIntent(
+            "send_email",
+            mapOf("contact" to "susan@example.com", "subject" to "Hello", "body" to "World"),
+        )
+
+        assertEquals(SkillResult.Success("Email composer opened to susan@example.com."), result)
+        verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
     fun `resolveContactEmail uses alias contact id when available`() {
         coEvery { contactAliasRepository.getByAlias("My wife") } returns
             ContactAliasEntity(
@@ -1398,6 +1481,61 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_date_diff mum birthday requires calendar permission when lookup denied`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
+
+        val required = assertCapabilityRequired(result, CapabilityKey.CalendarLookup, "get_date_diff")
+        assertEquals(mapOf("target_date" to "mum's birthday"), required.contextParams)
+    }
+
+    @Test
+    fun `get_date_diff anniversary requires calendar permission when lookup denied`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "our anniversary"))
+
+        val required = assertCapabilityRequired(result, CapabilityKey.CalendarLookup, "get_date_diff")
+        assertEquals(mapOf("target_date" to "our anniversary"), required.contextParams)
+    }
+
+    @Test
+    fun `get_date_diff parseable month day does not require calendar permission`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "25 December"))
+
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        verify(exactly = 0) { calendarBirthdayLookup.hasPermission() }
+    }
+
+    @Test
+    fun `get_date_diff relative weekday does not require calendar permission`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "next Friday"))
+
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        verify(exactly = 0) { calendarBirthdayLookup.hasPermission() }
+    }
+
+    @Test
+    fun `get_date_diff unresolved calendar label with permission returns helpful failure`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = true)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "get_date_diff",
+                "Could not parse date: \"mum's birthday\". Enable Calendar birthday in Important dates if this should be a calendar lookup.",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `calculate_arithmetic returns deterministic direct reply`() {
         val result = handleIntent("calculate_arithmetic", mapOf("expression" to "18.5% of 240"))
 
@@ -2021,6 +2159,25 @@ class NativeIntentHandlerTest {
             val result = method.invoke(handler, input)
             assertNull(result, "Expected null (no correction) for blocklisted word in '$input'")
         }
+    }
+
+    private fun assertCapabilityRequired(
+        result: SkillResult,
+        capabilityKey: CapabilityKey,
+        skillName: String,
+    ): SkillResult.CapabilityRequired {
+        val required = assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+        assertEquals(capabilityKey, required.capabilityKey)
+        assertEquals(skillName, required.skillName)
+        return required
+    }
+
+    private fun stubNoStoredOrCalendarDates(hasCalendarPermission: Boolean) {
+        coEvery { importantDateRepository.findByLabel(any()) } returns null
+        coEvery { importantDateRepository.getAll() } returns emptyList()
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { calendarBirthdayLookup.findBirthday(any()) } returns null
+        every { calendarBirthdayLookup.hasPermission() } returns hasCalendarPermission
     }
 
     private data class PhoneRow(

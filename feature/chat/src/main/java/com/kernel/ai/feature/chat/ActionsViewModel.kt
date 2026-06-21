@@ -113,6 +113,12 @@ class ActionsViewModel @Inject constructor(
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
         object OpenWriteSettings : UiEvent
+        /** Request ACCESS_COARSE_LOCATION permission via system dialog. */
+        object RequestWeatherLocationPermission : UiEvent
+        /** Request READ_CONTACTS permission via system dialog. */
+        object RequestReadContactsPermission : UiEvent
+        /** Request READ_CALENDAR permission via system dialog. */
+        object RequestReadCalendarPermission : UiEvent
     }
 
     private data class PendingPhonePermissionAction(
@@ -134,6 +140,28 @@ class ActionsViewModel @Inject constructor(
     )
 
     private data class PendingWriteSettingsAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+    )
+
+    private data class PendingWeatherLocationAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+    )
+
+    private data class PendingContactPermissionAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+        val contact: String,
+    )
+
+    private data class PendingCalendarLookupAction(
         val query: String,
         val intentName: String,
         val params: Map<String, String>,
@@ -177,6 +205,31 @@ class ActionsViewModel @Inject constructor(
         val isAccessBlocked: Boolean = false,
     )
 
+    /** State for the contextual weather-location permission dialog. */
+    data class WeatherLocationState(
+        /** True when the user has permanently denied the permission. */
+        val isPermanentlyDenied: Boolean = false,
+        /** True when a saved profile/home location is available. */
+        val hasSavedLocation: Boolean = false,
+    )
+
+    /** State for the contextual contact-permission dialog. */
+    data class ContactPermissionState(
+        val actionName: String,
+        /** True when the user has permanently denied the permission. */
+        val isPermanentlyDenied: Boolean = false,
+        /** Whether the action is a phone call (needs number), SMS (needs number), email (needs address), or calendar attendee. */
+        val actionType: ContactActionType = ContactActionType.CALL,
+    )
+
+    enum class ContactActionType { CALL, SMS, EMAIL, CALENDAR_ATTENDEE }
+
+    /** State for the contextual calendar-lookup permission dialog. */
+    data class CalendarPermissionState(
+        /** True when the user has permanently denied the permission. */
+        val isPermanentlyDenied: Boolean = false,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -202,6 +255,17 @@ class ActionsViewModel @Inject constructor(
     private val _writeSettingsState = MutableStateFlow<WriteSettingsState?>(null)
     val writeSettingsState: StateFlow<WriteSettingsState?> = _writeSettingsState.asStateFlow()
 
+    /** Non-null while the contextual weather-location permission dialog should be shown. */
+    private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
+    val weatherLocationState: StateFlow<WeatherLocationState?> = _weatherLocationState.asStateFlow()
+
+    /** Non-null while the contextual contact-permission dialog should be shown. */
+    private val _contactPermissionState = MutableStateFlow<ContactPermissionState?>(null)
+    val contactPermissionState: StateFlow<ContactPermissionState?> = _contactPermissionState.asStateFlow()
+
+    /** Non-null while the contextual calendar-lookup permission dialog should be shown. */
+    private val _calendarPermissionState = MutableStateFlow<CalendarPermissionState?>(null)
+    val calendarPermissionState: StateFlow<CalendarPermissionState?> = _calendarPermissionState.asStateFlow()
 
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
@@ -218,7 +282,10 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
+    private var pendingContactPermissionAction: PendingContactPermissionAction? = null
+    private var pendingCalendarLookupAction: PendingCalendarLookupAction? = null
     private var pendingDndAction: PendingDndAction? = null
+    private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     /**
      * Set when the user taps "Open DND access settings" and cleared on resume check completion.
      * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
@@ -607,6 +674,248 @@ class ActionsViewModel @Inject constructor(
         pendingPhonePermissionAction = null
         handsFreeCallingRequestState = null
         _error.value = null
+    }
+
+    // ── Weather Location ────────────────────────────────────────────────────────
+
+    /** Request ACCESS_COARSE_LOCATION permission for weather. */
+    fun onWeatherLocationRequestPermission() {
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestWeatherLocationPermission)
+        }
+    }
+    /** User chooses to type a place instead of using location. Shows guidance prompt. */
+    fun onWeatherLocationTypePlace() {
+        _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
+        _error.value = "Type a place name in the quick command bar, like \"weather in Tokyo\"."
+    }
+
+    /** User chooses to use their saved profile/home location — not yet available. */
+    fun onWeatherLocationUseSavedLocation() {
+        _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
+        _error.value = "No saved location found. Type a place name in the quick command bar."
+    }
+
+    /** Dismiss the weather location dialog without any action. */
+    fun dismissWeatherLocationDialog() {
+        _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
+        _error.value = null
+    }
+    /** Called when the user grants ACCESS_COARSE_LOCATION. Retries the original weather action. */
+    fun onWeatherLocationPermissionGranted() {
+        val pending = pendingWeatherLocationAction ?: return
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                setSlotReplyAutoRearmArmed(false, "onWeatherLocationPermissionGranted")
+                clearExpectedSlotPromptSpeech()
+                voiceOutputController.stop()
+                val result = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onWeatherLocationPermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    /** Called when the user denies ACCESS_COARSE_LOCATION. */
+    fun onWeatherLocationPermissionDenied(permanent: Boolean = false) {
+        val currentState = _weatherLocationState.value ?: return
+        if (permanent) {
+            _weatherLocationState.value = currentState.copy(isPermanentlyDenied = true)
+        } else {
+            _weatherLocationState.value = currentState
+        }
+    }
+
+    /** Navigate to App Permissions for manual repair. */
+    fun onWeatherLocationOpenAppPermissions() {
+        _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.NavigateToAppPermissions)
+        }
+    }
+
+    // ── Contact Permission ──────────────────────────────────────────────────────
+
+    /** Request READ_CONTACTS permission. */
+    fun onContactRequestPermission() {
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestReadContactsPermission)
+        }
+    }
+
+    /** User chooses to enter phone number or email manually. Shows guidance prompt. */
+    fun onContactEnterManually() {
+        val pending = pendingContactPermissionAction
+        pendingContactPermissionAction = null
+        _contactPermissionState.value = null
+        _error.value = when (pending?.intentName) {
+            "make_call", "send_sms" -> "Type a phone number in the quick command bar."
+            "send_email" -> "Type an email address in the quick command bar."
+            else -> "Enter the contact details in the quick command bar."
+        }
+    }
+
+    /** Dismiss the contact permission dialog without any action. */
+    fun dismissContactPermissionDialog() {
+        _contactPermissionState.value = null
+        pendingContactPermissionAction = null
+        _error.value = null
+    }
+
+    /** Called when the user grants READ_CONTACTS. Retries the original action. */
+    fun onContactPermissionGranted() {
+        val pending = pendingContactPermissionAction ?: return
+        pendingContactPermissionAction = null
+        _contactPermissionState.value = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                setSlotReplyAutoRearmArmed(false, "onContactPermissionGranted")
+                clearExpectedSlotPromptSpeech()
+                voiceOutputController.stop()
+                val result = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onContactPermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    /** Called when the user denies READ_CONTACTS. */
+    fun onContactPermissionDenied(permanent: Boolean = false) {
+        val currentState = _contactPermissionState.value ?: return
+        if (permanent) {
+            _contactPermissionState.value = currentState.copy(isPermanentlyDenied = true)
+            // pendingContactPermissionAction kept alive for repair navigation
+        } else {
+            _contactPermissionState.value = currentState
+            // pendingContactPermissionAction kept alive for retry
+        }
+    }
+
+    /** Navigate to App Permissions for manual repair. */
+    fun onContactOpenAppPermissions() {
+        _contactPermissionState.value = null
+        pendingContactPermissionAction = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.NavigateToAppPermissions)
+        }
+    }
+
+    // ── Calendar Permission ─────────────────────────────────────────────────────
+
+    /** Request READ_CALENDAR permission. */
+    fun onCalendarRequestPermission() {
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestReadCalendarPermission)
+        }
+    }
+
+    /** User chooses to add important dates manually. Shows guidance prompt. */
+    fun onCalendarAddManually() {
+        pendingCalendarLookupAction = null
+        _calendarPermissionState.value = null
+        _error.value = "Add important dates in Settings → Important Dates."
+    }
+
+    /** Dismiss the calendar permission dialog without any action. */
+    fun dismissCalendarPermissionDialog() {
+        _calendarPermissionState.value = null
+        pendingCalendarLookupAction = null
+        _error.value = null
+    }
+
+    /** Called when the user grants READ_CALENDAR. Retries the original date lookup. */
+    fun onCalendarPermissionGranted() {
+        val pending = pendingCalendarLookupAction ?: return
+        pendingCalendarLookupAction = null
+        _calendarPermissionState.value = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                setSlotReplyAutoRearmArmed(false, "onCalendarPermissionGranted")
+                clearExpectedSlotPromptSpeech()
+                voiceOutputController.stop()
+                val result = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onCalendarPermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    /** Called when the user denies READ_CALENDAR. */
+    fun onCalendarPermissionDenied(permanent: Boolean = false) {
+        val currentState = _calendarPermissionState.value ?: return
+        if (permanent) {
+            _calendarPermissionState.value = currentState.copy(isPermanentlyDenied = true)
+            // pendingCalendarLookupAction kept alive for repair navigation
+        } else {
+            _calendarPermissionState.value = currentState
+            // pendingCalendarLookupAction kept alive for retry
+        }
+    }
+
+    /** Navigate to App Permissions for manual repair. */
+    fun onCalendarOpenAppPermissions() {
+        _calendarPermissionState.value = null
+        pendingCalendarLookupAction = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.NavigateToAppPermissions)
+        }
     }
 
     // ── DND special-access ─────────────────────────────────────────────────────
@@ -1055,6 +1364,13 @@ class ActionsViewModel @Inject constructor(
         return if (skill != null) {
             val skillResult = skill.execute(SkillCall(skill.name, callParams))
             if (shouldRequestPhonePermission(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 val capResult = skillResult as SkillResult.CapabilityRequired
                 val phoneNumber = capResult.contextParams["phoneNumber"]
                 val contact = capResult.contextParams["contact"]
@@ -1073,6 +1389,13 @@ class ActionsViewModel @Inject constructor(
                 )
             }
             if (shouldRequestDndAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 awaitingDndSettingsReturn = false
                 awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
@@ -1089,8 +1412,14 @@ class ActionsViewModel @Inject constructor(
                     enabled = enabled,
                 )
             }
-
             if (shouldRequestWriteSettingsAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
                 awaitingDndSettingsReturn = false
                 awaitingWriteSettingsReturn = false
                 val capResult = skillResult as SkillResult.CapabilityRequired
@@ -1104,6 +1433,57 @@ class ActionsViewModel @Inject constructor(
                     intentName = intentName,
                 )
             }
+
+            if (shouldRequestWeatherLocationAccess(skillResult)) {
+                // Clear stale contact/calendar states
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
+                pendingWeatherLocationAction = PendingWeatherLocationAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _weatherLocationState.value = WeatherLocationState()
+            }
+
+            if (shouldRequestContactPermission(skillResult)) {
+                // Clear stale weather/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
+                val capResult = skillResult as SkillResult.CapabilityRequired
+                val contact = capResult.contextParams["contact"] ?: ""
+                pendingContactPermissionAction = PendingContactPermissionAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                    contact = contact,
+                )
+                _contactPermissionState.value = ContactPermissionState(
+                    actionName = intentName,
+                )
+            }
+
+            if (shouldRequestCalendarPermission(skillResult)) {
+                // Clear stale weather/contact states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = PendingCalendarLookupAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _calendarPermissionState.value = CalendarPermissionState()
+            }
+
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
@@ -1174,6 +1554,13 @@ class ActionsViewModel @Inject constructor(
                 }
             } else if (result.capabilityKey == CapabilityKey.ModifySystemSettings) {
                 "Jandal needs settings access before it can change settings."
+            } else if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+                "Let me check if I can use your location for local weather."
+            } else if (result.capabilityKey == CapabilityKey.ContactLookup) {
+                val contact = result.contextParams["contact"] ?: ""
+                "Jandal needs contact access to find $contact."
+            } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
+                "Jandal needs calendar access to find important dates and birthdays."
             } else {
                 "Permission required for $skillName"
             }
@@ -1211,6 +1598,21 @@ class ActionsViewModel @Inject constructor(
     private fun shouldRequestWriteSettingsAccess(result: SkillResult): Boolean {
         return result is SkillResult.CapabilityRequired &&
             result.capabilityKey == CapabilityKey.ModifySystemSettings
+    }
+
+    private fun shouldRequestWeatherLocationAccess(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.WeatherCurrentLocation
+    }
+
+    private fun shouldRequestContactPermission(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.ContactLookup
+    }
+
+    private fun shouldRequestCalendarPermission(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.CalendarLookup
     }
 
     private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =

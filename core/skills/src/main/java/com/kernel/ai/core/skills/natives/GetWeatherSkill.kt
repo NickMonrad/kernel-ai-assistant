@@ -10,6 +10,7 @@ import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -258,7 +259,7 @@ class GetWeatherSkill @Inject constructor(
     override val description =
         "Get current weather or a multi-day forecast. Uses device GPS by default — only pass a " +
             "location if the user explicitly names a place or says 'at home'. " +
-            "Future #1164 work will add profile/home-location fallback and contextual permission prompt + retry. " +
+            "If location permission is missing, the assistant will prompt for it. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     override val examples = listOf(
         "Current location weather → get_weather_gps()",
@@ -329,11 +330,12 @@ class GetWeatherSkill @Inject constructor(
                 val failureReason = freshResult.reason
 
                 if (failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED) {
-                    // TODO(#1164): Replace this interim current-location guidance with the
-                    // contextual capability prompt + retry flow.
-                    Log.i(TAG, "Skipping stale GPS cache because Location permission is denied")
-                    Log.i(TAG, "Returning interim current-location guidance pending #1164")
-                    return SkillResult.DirectReply(weatherFailureMessage(failureReason))
+                    Log.i(TAG, "GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)")
+                    return SkillResult.CapabilityRequired(
+                        capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                        skillName = name,
+                        contextParams = emptyMap(),
+                    )
                 }
 
                 getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->

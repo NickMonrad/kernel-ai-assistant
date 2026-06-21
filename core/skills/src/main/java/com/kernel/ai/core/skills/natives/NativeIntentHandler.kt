@@ -331,6 +331,18 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("send_email", "No subject specified")
         val body = params["body"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("send_email", "No body specified")
+        
+        // If the user provided a named contact (not an email address), check READ_CONTACTS permission first.
+        if (!looksLikeEmailAddress(contact) &&
+                context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_email",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         val resolvedEmail = resolveContactEmail(contact)
             ?: contact.takeIf(::looksLikeEmailAddress)
 
@@ -359,6 +371,18 @@ class NativeIntentHandler @Inject constructor(
 
     private fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
+        
+        // If the user provided a named contact (has letters), check READ_CONTACTS permission first.
+        if (contact != null && contact.any { it.isLetter() } &&
+                context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "send_sms",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         // resolveContactNumber returns null for self-terms when own number unavailable;
         // fall back to blank URI rather than passing the literal word through as a number.
         val number = contact?.let { resolveContactNumber(it) }
@@ -1273,6 +1297,17 @@ class NativeIntentHandler @Inject constructor(
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
             contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
+        
+        // If the user provided a named contact (not a literal number), check READ_CONTACTS permission first.
+        if (!looksLikeNumber && context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.ContactLookup,
+                skillName = "make_call",
+                contextParams = mapOf("contact" to contact),
+            )
+        }
+        
         val phoneNumber = resolveContactNumber(contact)
             ?: if (looksLikeNumber) contact
             else return SkillResult.Failure(
@@ -2179,14 +2214,31 @@ class NativeIntentHandler @Inject constructor(
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today
         val targetDate = parseDateString(targetStr, preferPast = preferPast)
-            ?: return SkillResult.Failure(
+        ?: run {
+            val lower = targetStr.lowercase(Locale.ENGLISH)
+            if (isLikelyCalendarDateLabel(lower)) {
+                if (!calendarBirthdayLookup.hasPermission()) {
+                    return SkillResult.CapabilityRequired(
+                        capabilityKey = CapabilityKey.CalendarLookup,
+                        skillName = "get_date_diff",
+                        contextParams = mapOf("target_date" to targetStr),
+                    )
+                }
+                val labelField = when {
+                    "birthday" in lower -> "birthday"
+                    "anniversary" in lower -> "anniversary"
+                    else -> "date"
+                }
+                return SkillResult.Failure(
+                    "get_date_diff",
+                    "Could not parse date: \"$targetStr\". Enable Calendar $labelField in Important dates if this should be a calendar lookup.",
+                )
+            }
+            return SkillResult.Failure(
                 "get_date_diff",
-                if (targetStr.contains("birthday", ignoreCase = true) && !calendarBirthdayLookup.hasPermission()) {
-                    "Could not parse date: \"$targetStr\". If this is a synced contact birthday, enable Calendar birthdays in Important dates first."
-                } else {
-                    "Could not parse date: \"$targetStr\""
-                },
+                "Could not parse date: \"$targetStr\"",
             )
+        }
 
         val days = ChronoUnit.DAYS.between(fromDate, targetDate)
         val absDays = Math.abs(days)
@@ -2597,6 +2649,32 @@ class NativeIntentHandler @Inject constructor(
         val today = LocalDate.now()
         val year = today.year
 
+        val normalizedRelative = s.lowercase(Locale.ENGLISH)
+        when (normalizedRelative) {
+            "today" -> return today
+            "tomorrow" -> return today.plusDays(1)
+        }
+        val isNextWeekday = normalizedRelative.startsWith("next ")
+        val isThisWeekday = normalizedRelative.startsWith("this ")
+        val weekdayName = normalizedRelative.removePrefix("next ").removePrefix("this ").trim()
+        val targetWeekday = when (weekdayName) {
+            "monday" -> DayOfWeek.MONDAY
+            "tuesday" -> DayOfWeek.TUESDAY
+            "wednesday" -> DayOfWeek.WEDNESDAY
+            "thursday" -> DayOfWeek.THURSDAY
+            "friday" -> DayOfWeek.FRIDAY
+            "saturday" -> DayOfWeek.SATURDAY
+            "sunday" -> DayOfWeek.SUNDAY
+            else -> null
+        }
+        if (targetWeekday != null) {
+            return when {
+                preferPast && !isNextWeekday -> today.with(TemporalAdjusters.previousOrSame(targetWeekday))
+                isThisWeekday && today.dayOfWeek == targetWeekday -> today
+                else -> today.with(TemporalAdjusters.next(targetWeekday))
+            }
+        }
+
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
             return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
@@ -2710,6 +2788,19 @@ class NativeIntentHandler @Inject constructor(
         val storedTokens = storedLabel.split(Regex("\\s+")).toSet()
         val queryTokens = queryLabel.split(Regex("\\s+")).toSet()
         return storedTokens.intersect(queryTokens).size
+    }
+
+    /**
+     * Checks whether an already-unparseable date string looks like it refers to a
+     * calendar-backed important date (birthday, anniversary, etc.) rather than a
+     * normal parseable date. Only called when [parseDateString] already returned
+     * null, so parseable-dates like "25 December" or "next Friday" never reach here.
+     */
+    private fun isLikelyCalendarDateLabel(lower: String): Boolean {
+        return lower.contains("birthday") ||
+            lower.contains("anniversary") ||
+            lower.contains("important date") ||
+            lower.contains("calendar")
     }
 
     // ── Get System Info ───────────────────────────────────────────────────────
