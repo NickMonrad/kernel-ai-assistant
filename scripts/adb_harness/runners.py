@@ -554,7 +554,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
               case_ids: list[str] | None = None, model_readiness: bool = False,
               serial: str | None = None, unlock_pin: str | None = None,
               timeout_download: float | None = None,
-              timeout_engine: float | None = None) -> int:
+              timeout_engine: float | None = None,
+              cumulative_reset_interval: int | None = None) -> int:
 
     """Execute all test cases. Returns non-zero on failures."""
 
@@ -644,6 +645,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print()
         total_tests = len(TEST_CASES)
         not_selected = total_tests - len(selected_tests)
+        if cumulative_reset_interval is not None:
+            print(f"  Cumulative reset interval: {cumulative_reset_interval} tests (opt-in)")
+        else:
+            print("  Cumulative mode: true cumulative (no periodic force-stop)")
         print(f"  Selected: {len(selected_tests)} / {total_tests}")
         print(f"  Not selected: {not_selected}")
         print(f"  Total: {len(selected_tests)} test cases"
@@ -1122,6 +1127,19 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
             if tc.expect_intent == "make_call":
                 time.sleep(2)
                 run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
+            # Periodic app restart to prevent long-session routing degradation (#1293).
+            # When --cumulative-reset-interval N is passed, force-stop the app
+            # every N tests to clear accumulated GPU/cache state.
+            # Default (cumulative_reset_interval=None): true cumulative mode —
+            # no periodic reset; suitable for reproducing #1293.
+            # See also: run_isolated_phases() for per-phase isolated mode.
+            if cumulative_reset_interval is not None and global_index > 0 and global_index % cumulative_reset_interval == 0:
+                print()
+                print(f"  [reset#{global_index}] Periodic force-stop after {global_index} tests (interval={cumulative_reset_interval}) — clearing state")
+                run_adb("shell", "am", "force-stop", PACKAGE)
+                time.sleep(2)
+                print(f"  [reset#{global_index}] App force-stopped, next test will relaunch")
+                print()
         phase_elapsed = time.time() - phase_start
         n_xfail = sum(1 for r in phase_results if r.status == "xfail")
         n_xpass = sum(1 for r in phase_results if r.status == "xpass")
