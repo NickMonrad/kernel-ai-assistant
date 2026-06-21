@@ -643,6 +643,36 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_reminder"),
         ),
+        // "remind me at <time> [on] <day> to <task>" — task-bearing reminder must be routed as
+        // add_reminder, NOT set_alarm. Must be before the bare "remind me at/by <time>" set_alarm
+        // pattern to prevent task-bearing phrases like "remind me at 9am Monday" from matching
+        // set_alarm when a task follows (e.g. "remind me at 9am Monday to call the dentist").
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[3].trim(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me at <time> to <task>" — task-bearing without explicit day (slot fill will ask)
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
         IntentPattern(
             intentName = "set_alarm",
             regex = Regex(

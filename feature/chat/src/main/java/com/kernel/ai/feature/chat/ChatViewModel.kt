@@ -2038,6 +2038,20 @@ class ChatViewModel @Inject constructor(
                                 Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success")
                                 return@launch
                             }
+                            // #1313: deterministic regex-matched native routes are terminal — display
+                            // the result directly and skip E4B to prevent the model from overriding
+                            // the correct intent with a converged/stale tool call (e.g. play_netflix
+                            // after play_plex was already executed via run_intent).
+                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch) {
+                                appendAssistantMessage(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success_no_llm")
+                                return@launch
+                            }
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
                             if (!inferenceEngine.isReady.value) {
@@ -2052,6 +2066,20 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                            // #1313: deterministic regex-matched native routes are terminal even on
+                            // failure — show the error directly and skip E4B to prevent the model
+                            // from overwriting with a stale tool call (e.g. play_netflix after a
+                            // play_plex app-not-installed failure).
+                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=failure_no_llm")
+                                return@launch
+                            }
                             if (!inferenceEngine.isReady.value) {
                                 appendAssistantMessage(
                                     convId,
