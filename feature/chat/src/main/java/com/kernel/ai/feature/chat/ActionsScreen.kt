@@ -836,6 +836,214 @@ fun ActionsScreen(
             },
         )
     }
+
+    // Weather-location contextual permission surface
+    weatherLocationState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissWeatherLocationDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_location"),
+            title = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Jandal needs location permission for local weather"
+                    } else {
+                        "Use your location for local weather?"
+                    },
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (state.isPermanentlyDenied) {
+                            "Location permission is blocked or revoked. Open App Permissions to allow Jandal " +
+                                "to use approximate location for local weather."
+                        } else {
+                            "Jandal can use approximate location to answer weather questions for where " +
+                                "you are now. You can also type a place instead."
+                        },
+                    )
+                    if (state.hasSavedLocation && !state.isPermanentlyDenied) {
+                        TextButton(
+                            onClick = { viewModel.onWeatherLocationUseSavedLocation() },
+                            modifier = Modifier.testTag("permission_dialog_location_use_saved_location"),
+                        ) {
+                            Text("Use saved location")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (state.isPermanentlyDenied) {
+                    TextButton(
+                        onClick = { viewModel.onWeatherLocationOpenAppPermissions() },
+                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
+                    ) {
+                        Text("Open App Permissions")
+                    }
+                } else {
+                    TextButton(
+                        onClick = { viewModel.onWeatherLocationRequestPermission() },
+                        modifier = Modifier.testTag("permission_dialog_location_use_my_location"),
+                    ) {
+                        Text("Use my location")
+                    }
+                }
+            },
+            dismissButton = {
+                Column {
+                    if (!state.isPermanentlyDenied) {
+                        TextButton(
+                            onClick = { viewModel.onWeatherLocationTypePlace() },
+                            modifier = Modifier.testTag("permission_dialog_location_type_place"),
+                        ) {
+                            Text("Type a place")
+                        }
+                    }
+                    TextButton(
+                        onClick = { viewModel.dismissWeatherLocationDialog() },
+                        modifier = Modifier.testTag("permission_dialog_location_not_now"),
+                    ) {
+                        Text("Not now")
+                    }
+                }
+            },
+        )
+    }
+
+    // Contact-permission contextual surface
+    contactPermissionState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissContactPermissionDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_contacts"),
+            title = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Jandal needs Contacts permission"
+                    } else {
+                        "Allow contact lookup?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Contacts permission is blocked or revoked. Open App Permissions to allow Jandal " +
+                            "to find people by name."
+                    } else {
+                        "Jandal needs contacts access to find people by name. You can also enter " +
+                            "the phone number or email address manually."
+                    },
+                )
+            },
+            confirmButton = {
+                if (state.isPermanentlyDenied) {
+                    TextButton(
+                        onClick = { viewModel.onContactOpenAppPermissions() },
+                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
+                    ) {
+                        Text("Open App Permissions")
+                    }
+                } else {
+                    TextButton(
+                        onClick = { viewModel.onContactRequestPermission() },
+                        modifier = Modifier.testTag("permission_dialog_contacts_allow"),
+                    ) {
+                        Text("Allow contact lookup")
+                    }
+                }
+            },
+            dismissButton = {
+                Column {
+                    if (!state.isPermanentlyDenied) {
+                        TextButton(
+                            onClick = { viewModel.onContactEnterManually() },
+                            modifier = Modifier.testTag("permission_dialog_contacts_enter_manually"),
+                        ) {
+                            Text("Enter manually")
+                        }
+                    }
+                    TextButton(
+                        onClick = { viewModel.dismissContactPermissionDialog() },
+                        modifier = Modifier.testTag("permission_dialog_contacts_not_now"),
+                    ) {
+                        Text("Not now")
+                    }
+                }
+            },
+        )
+    }
+
+    // Calendar-permission contextual surface
+    calendarPermissionState?.let { state ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissCalendarPermissionDialog() },
+            modifier = Modifier
+                .semantics { testTagsAsResourceId = true }
+                .testTag("permission_dialog_calendar"),
+            title = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Jandal needs Calendar permission"
+                    } else {
+                        "Allow calendar lookup?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    if (state.isPermanentlyDenied) {
+                        "Calendar permission is blocked or revoked. Open App Permissions to allow Jandal " +
+                            "to find synced birthdays and important dates."
+                    } else {
+                        "Jandal can read your calendar to find synced birthdays and important dates. " +
+                            "You can also add important dates manually."
+                    },
+                )
+            },
+            confirmButton = {
+                if (state.isPermanentlyDenied) {
+                    TextButton(
+                        onClick = { viewModel.onCalendarOpenAppPermissions() },
+                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
+                    ) {
+                        Text("Open App Permissions")
+                    }
+                } else {
+                    TextButton(
+                        onClick = { viewModel.onCalendarRequestPermission() },
+                        modifier = Modifier.testTag("permission_dialog_calendar_allow"),
+                    ) {
+                        Text("Allow calendar lookup")
+                    }
+                }
+            },
+            dismissButton = {
+                Column {
+                    if (!state.isPermanentlyDenied) {
+                        TextButton(
+                            onClick = { viewModel.onCalendarAddManually() },
+                            modifier = Modifier.testTag("permission_dialog_calendar_add_manually"),
+                        ) {
+                            Text("Add manually")
+                        }
+                    }
+                    TextButton(
+                        onClick = { viewModel.dismissCalendarPermissionDialog() },
+                        modifier = Modifier.testTag("permission_dialog_calendar_not_now"),
+                    ) {
+                        Text("Not now")
+                    }
+                }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

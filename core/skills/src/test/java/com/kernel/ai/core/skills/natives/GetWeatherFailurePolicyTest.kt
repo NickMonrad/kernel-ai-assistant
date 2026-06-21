@@ -17,11 +17,11 @@ class GetWeatherFailurePolicyTest {
     private val httpClient = OkHttpClient()
 
     @Test
-    fun `description defers profile fallback to future 1164 work`() {
+    fun `description mentions permission prompt instead of future 1164 work`() {
         val skill = createSkill()
 
-        assertTrue(skill.description.contains("Future #1164 work will add profile/home-location fallback"))
-        assertFalse(skill.description.contains("Profile location is a fallback only when GPS is unavailable"))
+        assertTrue(skill.description.contains("If location permission is missing, the assistant will prompt for it."))
+        assertFalse(skill.description.contains("Future #1164 work will add profile/home-location fallback"))
     }
 
     @Test

@@ -2214,14 +2214,25 @@ class NativeIntentHandler @Inject constructor(
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today
         val targetDate = parseDateString(targetStr, preferPast = preferPast)
-            ?: return SkillResult.Failure(
+        ?: run {
+            if (targetStr.contains("birthday", ignoreCase = true)) {
+                if (!calendarBirthdayLookup.hasPermission()) {
+                    return SkillResult.CapabilityRequired(
+                        capabilityKey = CapabilityKey.CalendarLookup,
+                        skillName = "get_date_diff",
+                        contextParams = mapOf("target_date" to targetStr),
+                    )
+                }
+                return SkillResult.Failure(
+                    "get_date_diff",
+                    "Could not parse date: \"$targetStr\". Enable Calendar birthdays in Important dates if this should be a birthday lookup.",
+                )
+            }
+            return SkillResult.Failure(
                 "get_date_diff",
-                if (targetStr.contains("birthday", ignoreCase = true) && !calendarBirthdayLookup.hasPermission()) {
-                    "Could not parse date: \"$targetStr\". If this is a synced contact birthday, enable Calendar birthdays in Important dates first."
-                } else {
-                    "Could not parse date: \"$targetStr\""
-                },
+                "Could not parse date: \"$targetStr\"",
             )
+        }
 
         val days = ChronoUnit.DAYS.between(fromDate, targetDate)
         val absDays = Math.abs(days)

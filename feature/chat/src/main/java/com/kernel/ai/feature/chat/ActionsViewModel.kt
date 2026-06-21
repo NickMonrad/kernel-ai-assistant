@@ -285,6 +285,7 @@ class ActionsViewModel @Inject constructor(
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
     private var pendingCalendarLookupAction: PendingCalendarLookupAction? = null
     private var pendingDndAction: PendingDndAction? = null
+    private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     /**
      * Set when the user taps "Open DND access settings" and cleared on resume check completion.
      * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
@@ -683,30 +684,57 @@ class ActionsViewModel @Inject constructor(
             _events.emit(UiEvent.RequestWeatherLocationPermission)
         }
     }
-
-    /** User chooses to type a place instead of using location. Routes to slot-fill. */
+    /** User chooses to type a place instead of using location. Shows guidance prompt. */
     fun onWeatherLocationTypePlace() {
         _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
+        _error.value = "Type a place name in the quick command bar, like \"weather in Tokyo\"."
     }
 
-    /** User chooses to use their saved profile/home location. */
+    /** User chooses to use their saved profile/home location — not yet available. */
     fun onWeatherLocationUseSavedLocation() {
         _weatherLocationState.value = null
-        // The saved location retry is handled by re-executing the intent with the saved location param.
-        // Actually this is a slot-fill fallback — the ViewModel signals the UI.
-        // For now, setting error as a prompt. TODO(#1164): route to slot-fill for "type a place".
+        pendingWeatherLocationAction = null
+        _error.value = "No saved location found. Type a place name in the quick command bar."
     }
 
     /** Dismiss the weather location dialog without any action. */
     fun dismissWeatherLocationDialog() {
         _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
         _error.value = null
     }
-
     /** Called when the user grants ACCESS_COARSE_LOCATION. Retries the original weather action. */
     fun onWeatherLocationPermissionGranted() {
-        // Weather location doesn't use a pending action — the skill just needs to be called again.
+        val pending = pendingWeatherLocationAction ?: return
+        pendingWeatherLocationAction = null
         _weatherLocationState.value = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                setSlotReplyAutoRearmArmed(false, "onWeatherLocationPermissionGranted")
+                clearExpectedSlotPromptSpeech()
+                voiceOutputController.stop()
+                val result = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onWeatherLocationPermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
     }
 
     /** Called when the user denies ACCESS_COARSE_LOCATION. */
@@ -722,6 +750,7 @@ class ActionsViewModel @Inject constructor(
     /** Navigate to App Permissions for manual repair. */
     fun onWeatherLocationOpenAppPermissions() {
         _weatherLocationState.value = null
+        pendingWeatherLocationAction = null
         _error.value = null
         viewModelScope.launch {
             _events.emit(UiEvent.NavigateToAppPermissions)
@@ -737,11 +766,16 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    /** User chooses to enter phone number or email manually. Triggers slot-fill. */
+    /** User chooses to enter phone number or email manually. Shows guidance prompt. */
     fun onContactEnterManually() {
+        val pending = pendingContactPermissionAction
+        pendingContactPermissionAction = null
         _contactPermissionState.value = null
-        // The slot-fill will be handled by the UI — for now just clear state.
-        // TODO(#1164): Trigger appropriate slot-fill based on actionType.
+        _error.value = when (pending?.intentName) {
+            "make_call", "send_sms" -> "Type a phone number in the quick command bar."
+            "send_email" -> "Type an email address in the quick command bar."
+            else -> "Enter the contact details in the quick command bar."
+        }
     }
 
     /** Dismiss the contact permission dialog without any action. */
@@ -815,9 +849,11 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    /** User chooses to add important dates manually. Clears the dialog state. */
+    /** User chooses to add important dates manually. Shows guidance prompt. */
     fun onCalendarAddManually() {
+        pendingCalendarLookupAction = null
         _calendarPermissionState.value = null
+        _error.value = "Add important dates in Settings → Important Dates."
     }
 
     /** Dismiss the calendar permission dialog without any action. */
@@ -1378,9 +1414,13 @@ class ActionsViewModel @Inject constructor(
                 )
             }
 
-            if (shouldRequestWeatherLocationAccess(skillResult)) {
-                _weatherLocationState.value = WeatherLocationState()
-            }
+            pendingWeatherLocationAction = PendingWeatherLocationAction(
+                query = query,
+                intentName = intentName,
+                params = params,
+                inputMode = inputMode,
+            )
+            _weatherLocationState.value = WeatherLocationState()
 
             if (shouldRequestContactPermission(skillResult)) {
                 val capResult = skillResult as SkillResult.CapabilityRequired
