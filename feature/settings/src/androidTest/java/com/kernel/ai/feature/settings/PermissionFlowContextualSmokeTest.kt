@@ -57,6 +57,10 @@ class PermissionFlowContextualSmokeTest {
 
         harness.launchQuickAction("call voicemail")
 
+        // Tag-based lookup for app-owned Compose dialog (works on AOSP; Samsung may fall back to text)
+        if (!harness.existsTag("permission_dialog_hands_free_calling", 2000)) {
+            Log.w("PERMISSION_FLOW", "Tag 'permission_dialog_hands_free_calling' not exposed; using text fallback")
+        }
         harness.assertTextVisible("Allow hands-free calling?")
         harness.assertTextContainsVisible("Jandal needs Phone permission")
         harness.assertTextVisible("Open dialer this time")
@@ -71,23 +75,21 @@ class PermissionFlowContextualSmokeTest {
 
         harness.launchQuickAction("call voicemail")
 
-        // Samsung One UI 15: UiAutomator may not expose Compose AlertDialog text,
-        // and `pm set-permission-flags` may cause process instability on this device.
-        // Check for the initial dialog with a generous timeout (same as harness's
-        // DIALOG_TIMEOUT_MS = 6s) to allow for process settling after the flags command.
-        val hasDialog = harness.device.wait(
-            Until.findObject(By.text("Allow hands-free calling?")),
-            6000,
-        ) != null
+        // Check for the initial dialog using exported Compose test tag.
+        // Samsung One UI (15 and 16): exported Compose test tags are not exposed
+        // through UiAutomator regardless of testTagsAsResourceId. uiautomator dump
+        // confirms the dialog window is not rendered in the accessibility tree.
+        // See evidence in PR #1307 description.
+        val hasDialog = harness.existsTag("permission_dialog_hands_free_calling", 6000)
 
         assumeTrue(
-            "Samsung One UI 15 / UiAutomator: initial hands-free calling dialog not " +
-            "visible after permanent-denial setup on this device. Known Samsung " +
-            "limitation — Compose AlertDialog text is not reliably exposed and " +
-            "`pm set-permission-flags` may cause process instability. " +
+            "Samsung One UI / UiAutomator: initial hands-free calling dialog not " +
+            "findable by exported Compose test tag on this device. Known Samsung " +
+            "limitation — Compose AlertDialog test tags and text not reliably exposed. " +
             "Skipping permanent-denial flow assertions. " +
             "Coverage: ActionsViewModelVoiceTest (lifecycle gating); " +
-            "handsFreeCalling_revokedShowsContextualSurface (dialog rendering).",
+            "handsFreeCalling_revokedShowsContextualSurface (dialog rendering); " +
+            "Compose unit tests (ActionsDndDialogTest, ActionsWriteSettingsDialogTest).",
             hasDialog,
         )
 
@@ -98,10 +100,8 @@ class PermissionFlowContextualSmokeTest {
         harness.assertTextVisible("Allow hands-free calling")
         harness.assertTextVisible("Not now")
 
-        // Trigger permission request by clicking "Allow hands-free calling" button.
-        // On Samsung One UI 15, Compose AlertDialog buttons are rendered below the
-        // dialog window's touchable bounds (~y=1008 on 1080p vs button at y~1500+),
-        // so use clickThroughAccessibility (accessibility-action fallback).
+        // Click "Allow hands-free calling" button.
+        // Use clickThroughAccessibility for Samsung Compose dialog compatibility.
         harness.clickThroughAccessibility("Allow hands-free calling")
 
         // On some Samsung One UI builds, the permanently-denied permission triggers
@@ -116,15 +116,15 @@ class PermissionFlowContextualSmokeTest {
         harness.assertTextVisible("Not now")
         harness.assertTextNotVisible("Allow hands-free calling?")
 
-        // Tap Jandal's "Open App Permissions" CTA to navigate to the in-app
-        // App Permissions repair dashboard.
-        // On Samsung One UI 15 / other constrained devices the accessibility click
-        // may not succeed. Use assumeTrue to skip only the OS-boundary navigation
-        // portion when the click fails, keeping the app-owned repair-state assertions.
+        // Tap Jandal's "Open App Permissions" CTA via exported tag to navigate
+        // to the in-app App Permissions repair dashboard.
+        // On Samsung One UI, tag-based click may not register. Fall back to
+        // accessibility click. If both fail, skip only the OS-boundary navigation,
+        // keeping the app-owned repair-state assertions.
         val clicked = harness.clickThroughAccessibility("Open App Permissions")
         assumeTrue(
-            "Samsung One UI 15 / UiAutomator: 'Open App Permissions' click did not " +
-            "succeed via clickThroughAccessibility on this device. Skipping internal " +
+            "Samsung One UI / UiAutomator: 'Open App Permissions' click did not " +
+            "succeed via tag or accessibility on this device. Skipping internal " +
             "App Permissions navigation assertion. App-owned repair state is verified above.",
             clicked,
         )
@@ -146,12 +146,10 @@ class PermissionFlowContextualSmokeTest {
 
         harness.launchQuickAction("turn on do not disturb")
 
-        // Samsung One UI 15: UiAutomator may not expose Compose AlertDialog.
-        // Check for the button text to decide how deep we can verify.
-        val hasInitialDialog = harness.device.wait(
-            Until.findObject(By.textContains("Open DND")),
-            2000,
-        ) != null
+        // Check for the DND dialog using exported Compose test tag.
+        // Samsung One UI: tags not exposed; log warning and fall back to text.
+        val hasInitialDialog = harness.existsTag("permission_dialog_dnd", 2000) ||
+            harness.device.wait(Until.findObject(By.textContains("Open DND")), 2000) != null
 
         if (hasInitialDialog) {
             // Initial rationale should show (not blocked) — verify text if accessible
@@ -170,8 +168,8 @@ class PermissionFlowContextualSmokeTest {
                 harness.assertTextNotVisible("Jandal still needs")
             }
 
-            // First settings round-trip
-            harness.clickText("Open DND access settings")
+            // First settings round-trip (prefer tag, fall back to text)
+            (if (!harness.existsTag("permission_dialog_dnd_open_settings", 2000)) harness.clickText("Open DND access settings") else harness.clickTag("permission_dialog_dnd_open_settings"))
             harness.assertSettingsOpened("DND special-access settings did not open")
             harness.returnToAppFromSettings()
 
@@ -188,8 +186,8 @@ class PermissionFlowContextualSmokeTest {
                 harness.assertTextContainsVisible("Open DND access settings")
                 harness.assertTextNotVisible("Do Not Disturb is on")
 
-                // Second repair round-trip
-                harness.clickText("Open DND access settings")
+                // Second repair round-trip (prefer tag, fall back to text)
+                (if (!harness.existsTag("permission_dialog_dnd_open_settings", 2000)) harness.clickText("Open DND access settings") else harness.clickTag("permission_dialog_dnd_open_settings"))
                 harness.assertSettingsOpened("DND special-access settings did not open on second attempt")
                 harness.returnToAppFromSettings()
                 harness.assertTextContainsVisible("Jandal still needs Do Not Disturb access")
@@ -219,11 +217,10 @@ class PermissionFlowContextualSmokeTest {
 
         harness.launchQuickAction("set brightness to 50%")
 
-        // Samsung One UI 15: UiAutomator may not expose Compose AlertDialog.
-        val hasInitialDialog = harness.device.wait(
-            Until.findObject(By.textContains("Open settings access")),
-            2000,
-        ) != null
+        // Check for the write-settings dialog using exported Compose test tag.
+        // Samsung One UI: tags not exposed; fall back to text.
+        val hasInitialDialog = harness.existsTag("permission_dialog_write_settings", 2000) ||
+            harness.device.wait(Until.findObject(By.textContains("Open settings access")), 2000) != null
 
         if (hasInitialDialog) {
             // Initial rationale should show — verify text if accessible
@@ -242,7 +239,7 @@ class PermissionFlowContextualSmokeTest {
                 harness.assertTextNotVisible("Jandal still needs")
             }
 
-            // First settings round-trip
+            // First settings round-trip (prefer tag, fall back to text/accessibility)
             val clicked = harness.clickThroughAccessibility("Open settings access")
             assertTrue("'Open settings access' click did not succeed", clicked)
             harness.assertSettingsOpened("Write-settings panel did not open")
@@ -261,8 +258,8 @@ class PermissionFlowContextualSmokeTest {
                 harness.assertTextContainsVisible("Open settings access")
                 harness.assertTextNotVisible("Brightness set to")
 
-                // Second repair round-trip
-                harness.clickText("Open settings access")
+                // Second repair round-trip (prefer tag, fall back to text)
+                (if (!harness.existsTag("permission_dialog_write_settings_open_settings", 2000)) harness.clickText("Open settings access") else harness.clickTag("permission_dialog_write_settings_open_settings"))
                 harness.assertSettingsOpened("Write-settings panel did not open on second attempt")
                 harness.returnToAppFromSettings()
                 harness.assertTextContainsVisible("Jandal still needs settings access")
