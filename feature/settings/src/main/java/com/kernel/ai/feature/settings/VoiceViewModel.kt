@@ -555,15 +555,18 @@ class VoiceViewModel @Inject constructor(
     }
 
     /**
-     * Enforce that Hey Jandal is only enabled when microphone readiness is durable.
-     * If Hey Jandal is currently enabled and [readiness] is not [DurableWhileInUse],
+     * Enforce Hey Jandal microphone grant state.
+     * If Hey Jandal is currently enabled and [readiness] is not [MicrophoneReadiness.Granted],
      * disable it. Call from VoiceScreen's ON_RESUME handler and after grant callbacks.
      */
-    fun enforceHeyJandalMicReadiness(readiness: MicrophoneReadiness) {
-        if (!_uiState.value.heyJandalEnabled) return
+    fun enforceHeyJandalMicReadiness(readiness: MicrophoneReadiness): Boolean {
+        if (!_uiState.value.heyJandalEnabled) return false
         when (readiness) {
-            MicrophoneReadiness.Granted -> Unit
-            else -> setHeyJandalEnabled(false)
+            MicrophoneReadiness.Granted -> return false
+            else -> {
+                setHeyJandalEnabled(false)
+                return true
+            }
         }
     }
 

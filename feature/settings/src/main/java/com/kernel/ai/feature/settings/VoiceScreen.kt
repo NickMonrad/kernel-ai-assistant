@@ -143,11 +143,12 @@ fun VoiceScreen(
                     }
                 }
 
-                // 2. General enforcement: if Hey Jandal is enabled but mic
-                // readiness is not durable, disable it and explain why.
+                // 2. General enforcement: if Hey Jandal was enabled and mic
+                // is no longer granted, disable it and explain why.
+                val wasHeyJandalEnabled = uiState.heyJandalEnabled
                 val micReadiness = MicrophonePermissionReadiness.evaluate(context)
-                viewModel.enforceHeyJandalMicReadiness(micReadiness)
-                if (!uiState.heyJandalEnabled) {
+                if (wasHeyJandalEnabled && micReadiness != MicrophoneReadiness.Granted) {
+                    viewModel.enforceHeyJandalMicReadiness(micReadiness)
                     showMicDurableRequiredDialog = true
                 }
             }

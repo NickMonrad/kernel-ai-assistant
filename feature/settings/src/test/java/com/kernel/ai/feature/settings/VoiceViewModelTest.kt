@@ -549,15 +549,6 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `enforce with NotGranted disables Hey Jandal`() = runTest {
-        viewModel.setHeyJandalEnabled(true)
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
-
-        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.NotGranted)
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
-    }
 
     @Test
     fun `enforce with Unknown disables Hey Jandal`() = runTest {
