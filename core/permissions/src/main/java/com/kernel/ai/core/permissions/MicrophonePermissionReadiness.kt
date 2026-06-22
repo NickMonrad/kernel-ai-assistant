@@ -3,6 +3,7 @@ package com.kernel.ai.core.permissions
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
@@ -29,30 +30,23 @@ enum class MicrophoneReadiness {
 }
 
 /**
- * Evaluates microphone permission readiness using Android's public permission
- * flag API to distinguish one-time / "Ask every time" grants from durable grants.
+ * Evaluates microphone permission readiness using available public APIs.
  *
- * The heuristic uses [PackageManager.getPermissionFlags] to check whether the
- * one-time permission flag ([FLAG_PERMISSION_ONE_TIME]) is set. If the flag is
- * set (or cannot be determined), the permission is classified as
- * [MicrophoneReadiness.GrantedForCurrentUseOnly] — it exists right now but may
- * not persist.
+ * **Heuristic:** This implementation uses [shouldShowRequestPermissionRationale]
+ * as a weak signal. After a permission grant, if the system returns `false`
+ * for shouldShowRationale, the grant may be one-time/ask-every-time (the system
+ * does not expect a rationale dialog for temporary grants).
  *
- * Note: [FLAG_PERMISSION_ONE_TIME] is a hidden AOSP constant (0x00000080). Its
- * value is stable across Android versions but not part of the public SDK. This
- * approach is widely used in practice. On older API levels or OEM builds that
- * do not set this flag, the behaviour degrades to [DurableWhileInUse] for
- * granted permissions (safe but permissive for Hey Jandal).
- *
- * **Known limitation:** Some OEM builds may not set the one-time flag even for
- * one-time grants, or may set it inconsistently. On such devices, one-time
- * grants may be misclassified as [DurableWhileInUse]. This is a best-effort
- * heuristic using only public APIs.
+ * **Known limitation:** Android does not expose a public API for third-party
+ * apps to reliably distinguish one-time grants from durable grants. The
+ * `PackageManager.getPermissionFlags` API requires the system-level
+ * `GET_PERMISSIONS` permission not available to normal apps. This heuristic
+ * is a best-effort approximation. Some one-time grants may be misclassified as
+ * durable, and vice versa. On devices where this matters, the lifecycle-based
+ * re-check (ON_RESUME observer) provides a second line of defence: if a
+ * one-time grant expires on backgrounding, the next resume catches it.
  */
 object MicrophonePermissionReadiness {
-
-    /** One-time permission flag value (hidden constant, stable since API 33). */
-    private const val FLAG_PERMISSION_ONE_TIME = 0x00000080
 
     /**
      * Evaluate microphone permission readiness for the given [context].
@@ -67,20 +61,21 @@ object MicrophonePermissionReadiness {
             return MicrophoneReadiness.NotGranted
         }
 
-        val flags = try {
-            context.packageManager.getPermissionFlags(
-                Manifest.permission.RECORD_AUDIO,
-                context.packageName,
-            )
-        } catch (e: Exception) {
-            // getPermissionFlags may throw on unusual Android builds.
-            return MicrophoneReadiness.Unknown
-        }
-
-        return if ((flags and FLAG_PERMISSION_ONE_TIME) != 0) {
-            MicrophoneReadiness.GrantedForCurrentUseOnly
-        } else {
-            MicrophoneReadiness.DurableWhileInUse
+        // Weak signal: if the system doesn't expect rationale after a grant,
+        // the grant may be one-time. This is not definitive — some OEMs always
+        // return false — but it's the best public API signal available.
+        return try {
+            val activity = context as? android.app.Activity
+            if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, Manifest.permission.RECORD_AUDIO
+                )
+            ) {
+                MicrophoneReadiness.GrantedForCurrentUseOnly
+            } else {
+                MicrophoneReadiness.DurableWhileInUse
+            }
+        } catch (_: Exception) {
+            MicrophoneReadiness.Unknown
         }
     }
 }

@@ -5,18 +5,6 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import org.junit.jupiter.api.Test
 import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
-import kotlin.test.assertEquals
-
-package com.kernel.ai.core.permissions
-
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import org.junit.jupiter.api.Test
-import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
