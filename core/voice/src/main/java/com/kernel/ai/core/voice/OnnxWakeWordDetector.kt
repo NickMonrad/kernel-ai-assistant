@@ -580,7 +580,7 @@ class OnnxWakeWordDetector @Inject constructor(
         } finally {
             activeAudioRecord = null
             runCatching { audioRecord.stop() }
-            audioRecord.release()
+            runCatching { audioRecord.release() }
             melsSession?.close()
             embedSession?.close()
             classSession?.close()

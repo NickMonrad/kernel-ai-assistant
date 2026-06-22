@@ -91,6 +91,13 @@ class WakeWordService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        // If RECORD_AUDIO is not granted, refuse to start the service.
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
@@ -243,7 +250,6 @@ class WakeWordService : Service() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
-            stopSelf()
             return
         }
         wakeWordDetector.start(
