@@ -300,9 +300,8 @@ fun VoiceScreen(
 
     if (showMicDurableRequiredDialog) {
         PermissionOverlayDialog(
-            title = "Microphone permission must stay allowed",
-            body = "Hey Jandal needs microphone access to keep listening for the wake word. " +
-                "If Android removes microphone access after a one-time grant, Jandal will turn Hey Jandal off and ask you to allow microphone access again.",
+            title = "Microphone access was removed",
+            body = "Hey Jandal was turned off because Android removed microphone access. Allow Microphone access again to use the wake word.",
             actions = listOf(
                 PermissionDialogAction(
                     label = "Open Microphone permission settings",
