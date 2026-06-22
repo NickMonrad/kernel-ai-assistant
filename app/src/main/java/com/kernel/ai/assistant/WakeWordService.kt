@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -239,6 +240,12 @@ class WakeWordService : Service() {
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
         if (!wakeWordDetector.isAvailable) return
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
+            stopSelf()
+            return
+        }
         wakeWordDetector.start(
             onDetected = { handleDetection() },
             verifyWindow = { pcm ->

@@ -197,6 +197,10 @@ class OnnxWakeWordDetector @Inject constructor(
             Log.d(TAG, "WakeWordDetector: start() called but model(s) absent — no-op")
             return
         }
+        if (!hasMicrophonePermission()) {
+            Log.w(TAG, "WakeWordDetector: RECORD_AUDIO not granted — start suppressed")
+            return
+        }
         if (!running.compareAndSet(false, true)) return
 
         val highThreshold = runBlocking { wakeWordPreferences.confidenceThreshold.first() }
@@ -245,8 +249,8 @@ class OnnxWakeWordDetector @Inject constructor(
 
     override fun stop() {
         running.set(false)
-        activeAudioRecord?.stop()   // unblocks AudioRecord.read() immediately
-        detectionThread?.interrupt()
+        runCatching { activeAudioRecord?.stop() }
+        runCatching { detectionThread?.interrupt() }
         detectionThread = null
         Log.d(TAG, "WakeWordDetector: stopped")
     }
@@ -314,6 +318,16 @@ class OnnxWakeWordDetector @Inject constructor(
             if (melsSession == null || embedSession == null || classSession == null) {
                 Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
                 return
+
+    /** Returns true if the app currently holds RECORD_AUDIO permission. */
+    private fun hasMicrophonePermission(): Boolean {
+        return runCatching {
+            context.packageManager.checkPermission(
+                android.Manifest.permission.RECORD_AUDIO,
+                context.packageName,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }.getOrDefault(false)
+    }
             }
             Log.i(TAG, "WakeWordDetector: models loaded (embedding: NNAPI CPU_DISABLED, mel+classifier: CPU)")
 
@@ -345,13 +359,20 @@ class OnnxWakeWordDetector @Inject constructor(
             var silenceFrames = 0
             var voicedFrameStreak = 0
             var wasGated = false
-            audioRecord.startRecording()
+            runCatching { audioRecord.startRecording() }
+                .onFailure { e -> Log.e(TAG, "WakeWordDetector: startRecording failed", e); running.set(false); return }
             Log.d(TAG, "WakeWordDetector: recording started")
             while (running.get() && !Thread.currentThread().isInterrupted) {
                 // Read exactly one 80ms frame; abort if AudioRecord signals an error.
                 var totalRead = 0
                 while (totalRead < FRAME_SAMPLES && running.get()) {
-                    val read = audioRecord.read(chunk, totalRead, FRAME_SAMPLES - totalRead)
+                    val read = try {
+                        audioRecord.read(chunk, totalRead, FRAME_SAMPLES - totalRead)
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "WakeWordDetector: permission revoked during read", e)
+                        running.set(false)
+                        -1
+                    }
                     when {
                         read > 0 -> totalRead += read
                         read < 0 -> {
