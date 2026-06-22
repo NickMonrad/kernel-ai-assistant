@@ -71,6 +71,7 @@ object MicrophonePermissionReadiness {
             context.packageManager.getPermissionFlags(
                 Manifest.permission.RECORD_AUDIO,
                 context.packageName,
+                android.os.Process.myUserHandle(),
             )
         } catch (e: Exception) {
             // getPermissionFlags may throw on unusual Android builds.
