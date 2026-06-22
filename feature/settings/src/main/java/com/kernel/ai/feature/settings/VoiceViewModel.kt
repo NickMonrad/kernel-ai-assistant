@@ -562,7 +562,7 @@ class VoiceViewModel @Inject constructor(
     fun enforceHeyJandalMicReadiness(readiness: MicrophoneReadiness) {
         if (!_uiState.value.heyJandalEnabled) return
         when (readiness) {
-            MicrophoneReadiness.DurableWhileInUse -> Unit
+            MicrophoneReadiness.Granted -> Unit
             else -> setHeyJandalEnabled(false)
         }
     }

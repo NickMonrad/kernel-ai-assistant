@@ -131,7 +131,7 @@ fun VoiceScreen(
                     ) == PackageManager.PERMISSION_GRANTED
                     if (micGranted) {
                         val micReadiness = MicrophonePermissionReadiness.evaluate(context)
-                        if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+                        if (micReadiness == MicrophoneReadiness.Granted) {
                             showMicRepairDialog = false
                             micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
                             viewModel.setHeyJandalEnabled(true)
@@ -174,7 +174,7 @@ fun VoiceScreen(
             }
         } else {
             val micReadiness = MicrophonePermissionReadiness.evaluate(context)
-            if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+            if (micReadiness == MicrophoneReadiness.Granted) {
                 viewModel.setHeyJandalEnabled(true)
             } else {
                 showMicDurableRequiredDialog = true
@@ -226,7 +226,7 @@ fun VoiceScreen(
             } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
                 val micReadiness = MicrophonePermissionReadiness.evaluate(context)
-                if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+                if (micReadiness == MicrophoneReadiness.Granted) {
                     viewModel.setHeyJandalEnabled(true)
                 } else {
                     showMicDurableRequiredDialog = true
@@ -300,8 +300,8 @@ fun VoiceScreen(
     if (showMicDurableRequiredDialog) {
         PermissionOverlayDialog(
             title = "Microphone permission must stay allowed",
-            body = "Hey Jandal needs ongoing microphone access to listen for the wake word. " +
-                "Change Microphone permission to allow access while using the app, then return to Jandal.",
+            body = "Hey Jandal needs microphone access to keep listening for the wake word. " +
+                "If Android removes microphone access after a one-time grant, Jandal will turn Hey Jandal off and ask you to allow microphone access again.",
             actions = listOf(
                 PermissionDialogAction(
                     label = "Open Microphone permission settings",
