@@ -1299,8 +1299,8 @@ class ChatViewModel @Inject constructor(
             val mode = _pendingChatMicMode.value
             _pendingChatMicMode.value = null
             _microphoneState.value = null
+            denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
             when (mode) {
-        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
                 VoiceMode.BackAndForth -> startBackAndForthVoiceInput()
                 else -> startVoiceInput()
             }

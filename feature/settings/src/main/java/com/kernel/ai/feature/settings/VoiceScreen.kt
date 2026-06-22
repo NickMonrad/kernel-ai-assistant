@@ -112,6 +112,7 @@ fun VoiceScreen(
     var showMicRepairDialog by remember { mutableStateOf(false) }
     var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
     
+    val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -144,7 +145,6 @@ fun VoiceScreen(
         ActivityResultContracts.StartActivityForResult(),
     ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
 
-    val micDenialClassifier = remember { PermissionDenialClassifier() }
     // Permission launcher for Hey Jandal: grants mic then enables wake word.
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
