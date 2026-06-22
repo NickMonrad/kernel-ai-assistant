@@ -1177,7 +1177,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         // onPhonePermissionDenied is called after dismiss, but requestState was cleared
-        viewModel.onPhonePermissionDenied(permanent = true)
+        viewModel.onPhonePermissionDenied(shouldShowRationale = false)
         advanceUntilIdle()
         assertNull(viewModel.handsFreeCallingState.value)
     }
@@ -1242,7 +1242,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         // Non-permanent denial: dialog stays visible with normal state
-        viewModel.onPhonePermissionDenied(permanent = false)
+        viewModel.onPhonePermissionDenied(shouldShowRationale = true)
         advanceUntilIdle()
         assertNotNull(viewModel.handsFreeCallingState.value)
         assertEquals(false, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
@@ -1277,7 +1277,10 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.handsFreeCallingState.value)
 
         // Permanent denial: dialog shows repair state
-        viewModel.onPhonePermissionDenied(permanent = true)
+        // First denial: always retryable (primes the classifier)
+        viewModel.onPhonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onPhonePermissionDenied(shouldShowRationale = false)
         advanceUntilIdle()
         assertNotNull(viewModel.handsFreeCallingState.value)
         assertEquals(true, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
@@ -3044,7 +3047,10 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.weatherLocationState.value)
         assertEquals(false, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
 
-        viewModel.onWeatherLocationPermissionDenied(permanent = true)
+        // First denial primes classifier to retryable
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
         advanceUntilIdle()
         assertEquals(true, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
     }
@@ -3521,7 +3527,10 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.microphoneState.value)
         assertEquals(false, viewModel.microphoneState.value!!.isPermanentlyDenied)
 
-        viewModel.onMicrophonePermissionDenied(permanent = true)
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false)
         advanceUntilIdle()
         assertEquals(true, viewModel.microphoneState.value!!.isPermanentlyDenied)
 
@@ -3716,5 +3725,205 @@ class ActionsViewModelVoiceTest {
         every { skill.description } returns "Test skill"
         every { skill.schema } returns SkillSchema()
         coEvery { skill.execute(any()) } returns result
+    }
+
+
+    // ── Denial classifier behavioural tests ──────────────────────────────────────
+
+    @Test
+    fun `phone first denial with shouldShowRationale false is retryable not repair`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.HandsFreeCalling,
+            skillName = "make_call",
+            contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.handsFreeCallingState.value)
+
+        // First denial with shouldShowRationale = false must NOT be repair-only
+        viewModel.onPhonePermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `phone second denial with shouldShowRationale false is repair-only`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.HandsFreeCalling,
+            skillName = "make_call",
+            contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+
+        // First denial primes classifier
+        viewModel.onPhonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+
+        // Second denial with shouldShowRationale = false -> repair-only
+        viewModel.onPhonePermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(true, viewModel.handsFreeCallingState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `phone denial then grant resets classifier`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.HandsFreeCalling,
+                skillName = "make_call",
+                contextParams = mapOf("phoneNumber" to "021111222", "contact" to "susan monrad"),
+            ),
+            SkillResult.Success("Calling susan monrad"),
+        )
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+
+        // First denial primes classifier
+        viewModel.onPhonePermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+
+        // Grant clears classifier and retries
+        viewModel.onPhonePermissionGranted()
+        advanceUntilIdle()
+        assertNull(viewModel.handsFreeCallingState.value)
+    }
+
+    @Test
+    fun `weather location first denial with false is retryable`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("weather") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather_gps",
+        )
+        viewModel.executeAction("weather", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.weatherLocationState.value)
+
+        // First denial must be retryable regardless of shouldShowRationale
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.weatherLocationState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `contacts first denial with false is retryable`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("email fred") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "fred"),
+                ),
+            )
+        every { skillRegistry.get("send_email") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ContactLookup,
+            skillName = "send_email",
+            contextParams = mapOf("contact" to "fred"),
+        )
+        viewModel.executeAction("email fred", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.contactPermissionState.value)
+
+        viewModel.onContactPermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.contactPermissionState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `calendar first denial with false is retryable`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        every { quickIntentRouter.route("important dates") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "calendar_birthdays",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("calendar_birthdays") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returns SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarLookup,
+            skillName = "calendar_birthdays",
+        )
+        viewModel.executeAction("important dates", InputMode.Text)
+        advanceUntilIdle()
+        assertNotNull(viewModel.calendarPermissionState.value)
+
+        viewModel.onCalendarPermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.calendarPermissionState.value!!.isPermanentlyDenied)
+    }
+
+    @Test
+    fun `microphone first denial with false is retryable`() = runTest(dispatcher) {
+        viewModel.onVoiceCaptureRequiresPermission(VoiceCaptureMode.Command)
+        advanceUntilIdle()
+        assertNotNull(viewModel.microphoneState.value)
+
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false)
+        advanceUntilIdle()
+        assertEquals(false, viewModel.microphoneState.value!!.isPermanentlyDenied)
     }
 }

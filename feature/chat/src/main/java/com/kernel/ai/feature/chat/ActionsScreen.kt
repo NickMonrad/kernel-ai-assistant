@@ -170,11 +170,11 @@ fun ActionsScreen(
     ) { granted ->
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
         if (!granted) {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.RECORD_AUDIO,
             )
-            viewModel.onMicrophonePermissionDenied(permanent)
+            viewModel.onMicrophonePermissionDenied(shouldShowRationale)
             return@rememberLauncherForActivityResult
         }
         viewModel.onMicrophonePermissionGranted()
@@ -185,11 +185,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.CALL_PHONE,
             )
-            viewModel.onPhonePermissionDenied(permanent)
+            viewModel.onPhonePermissionDenied(shouldShowRationale)
         }
     }
 
@@ -199,11 +199,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onWeatherLocationPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             )
-            viewModel.onWeatherLocationPermissionDenied(permanent)
+            viewModel.onWeatherLocationPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -213,11 +213,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onContactPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.READ_CONTACTS,
             )
-            viewModel.onContactPermissionDenied(permanent)
+            viewModel.onContactPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -227,11 +227,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onCalendarPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.READ_CALENDAR,
             )
-            viewModel.onCalendarPermissionDenied(permanent)
+            viewModel.onCalendarPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -851,7 +851,7 @@ fun ActionsScreen(
             },
             body = if (state.isPermanentlyDenied) {
                 "Android will not show the Location permission prompt. Open system settings to allow local weather, " +
-                    "or type a place instead."
+                    "or ask for weather in a named place instead."
             } else {
                 "Jandal can use approximate location to answer weather questions for where you are now. " +
                     "You can also type a place instead."
@@ -865,7 +865,7 @@ fun ActionsScreen(
                         isPrimary = true,
                     ),
                     PermissionDialogAction(
-                        label = "Type a place",
+                        label = "Use a named location",
                         testTag = "permission_dialog_location_type_place",
                         onClick = { viewModel.onWeatherLocationTypePlace() },
                     ),
@@ -884,7 +884,7 @@ fun ActionsScreen(
                         isPrimary = true,
                     ),
                     PermissionDialogAction(
-                        label = "Type a place",
+                        label = "Use a named location",
                         testTag = "permission_dialog_location_type_place",
                         onClick = { viewModel.onWeatherLocationTypePlace() },
                     ),

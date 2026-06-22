@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.Manifest
 import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -64,6 +65,8 @@ import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -208,6 +211,7 @@ class ChatViewModel @Inject constructor(
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
@@ -1239,23 +1243,32 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun onMicrophonePermissionDenied(permanent: Boolean = false, requestedAction: String? = null) {
-        if (permanent) {
-            _pendingChatMicMode.value = when (requestedAction) {
-                "loop" -> VoiceMode.BackAndForth
-                else -> VoiceMode.OneShot
+    fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false, requestedAction: String? = null) {
+        val outcome = denialClassifier.classify(
+            Manifest.permission.RECORD_AUDIO,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _pendingChatMicMode.value = when (requestedAction) {
+                    "loop" -> VoiceMode.BackAndForth
+                    else -> VoiceMode.OneShot
+                }
+                _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+                _error.value = null
             }
-            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
-            _error.value = null
-        } else {
-            _pendingChatMicMode.value = null
-            _microphoneState.value = null
-            _error.value = "Microphone permission is required for voice input."
+            DenialOutcome.RetryableDenied -> {
+                _pendingChatMicMode.value = null
+                _microphoneState.value = null
+                _error.value = "Microphone permission is required for voice input."
+            }
         }
     }
 
+
     fun onChatMicrophoneKeepTyping() {
         _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
         _pendingChatMicMode.value = null
         _awaitingChatMicSettingsReturn.value = false
     }
@@ -1269,6 +1282,7 @@ class ChatViewModel @Inject constructor(
     
     fun dismissMicrophoneRepairDialog() {
         _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
         _pendingChatMicMode.value = null
         _awaitingChatMicSettingsReturn.value = false
     }
@@ -1286,6 +1300,7 @@ class ChatViewModel @Inject constructor(
             _pendingChatMicMode.value = null
             _microphoneState.value = null
             when (mode) {
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
                 VoiceMode.BackAndForth -> startBackAndForthVoiceInput()
                 else -> startVoiceInput()
             }

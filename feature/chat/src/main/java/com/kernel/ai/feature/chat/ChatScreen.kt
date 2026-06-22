@@ -313,20 +313,16 @@ fun ChatScreen(
                         "loop" -> viewModel.startBackAndForthVoiceInput()
                     }
                 } else {
-                    val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                    val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                         context as android.app.Activity,
                         Manifest.permission.RECORD_AUDIO,
                     )
-                    if (permanent) {
-                        // Keep pendingVoiceAction alive — ViewModel stores it for repair retry.
-                        viewModel.onMicrophonePermissionDenied(
-                            permanent = true,
-                            requestedAction = action,
-                        )
-                    } else {
-                        pendingVoiceAction = null
-                        viewModel.onMicrophonePermissionDenied(permanent = false)
-                    }
+                    // Let ViewModel classify denial using internal counter
+                    pendingVoiceAction = null
+                    viewModel.onMicrophonePermissionDenied(
+                        shouldShowRationale = shouldShowRationale,
+                        requestedAction = action,
+                    )
                 }
             }
 

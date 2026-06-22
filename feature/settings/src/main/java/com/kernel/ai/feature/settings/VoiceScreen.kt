@@ -48,6 +48,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
+import com.kernel.ai.core.permissions.DenialOutcome
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -125,6 +127,7 @@ fun VoiceScreen(
                     ) == PackageManager.PERMISSION_GRANTED
                     if (micGranted) {
                         showMicRepairDialog = false
+            micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
                         viewModel.setHeyJandalEnabled(true)
                     } else {
                         // Still denied — re-show the blocked repair dialog.
@@ -141,16 +144,17 @@ fun VoiceScreen(
         ActivityResultContracts.StartActivityForResult(),
     ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
 
+    val micDenialClassifier = remember { PermissionDenialClassifier() }
     // Permission launcher for Hey Jandal: grants mic then enables wake word.
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (!granted) {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.RECORD_AUDIO,
             )
-            if (permanent) {
+            if (micDenialClassifier.classify(Manifest.permission.RECORD_AUDIO, shouldShowRationale) == DenialOutcome.RepairOnlyDenied) {
                 showMicRepairDialog = true
             }
         } else {

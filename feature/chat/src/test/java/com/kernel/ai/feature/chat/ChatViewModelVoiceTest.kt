@@ -1078,7 +1078,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "loop")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
         advanceUntilIdle()
         
         assertTrue(viewModel.microphoneState.value?.isPermanentlyDenied == true)
@@ -1089,13 +1092,16 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "loop")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
         advanceUntilIdle()
         // Open settings — should NOT clear pending mode.
         viewModel.onChatMicrophoneOpenAppPermissions()
         advanceUntilIdle()
         // Clear with non-permanent denial — should clear everything.
-        viewModel.onMicrophonePermissionDenied(permanent = false)
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
         advanceUntilIdle()
         
         assertNull(viewModel.microphoneState.value)
@@ -1107,7 +1113,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "ptt")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
         advanceUntilIdle()
         viewModel.onChatMicrophoneOpenAppPermissions()
         advanceUntilIdle()
@@ -1123,7 +1132,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "loop")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
         advanceUntilIdle()
         viewModel.onChatMicrophoneOpenAppPermissions()
         advanceUntilIdle()
@@ -1138,7 +1150,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "ptt")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
         advanceUntilIdle()
         viewModel.onChatMicrophoneOpenAppPermissions()
         advanceUntilIdle()
@@ -1153,7 +1168,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "ptt")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
         advanceUntilIdle()
         viewModel.onChatMicrophoneKeepTyping()
         advanceUntilIdle()
@@ -1166,7 +1184,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "ptt")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
         advanceUntilIdle()
         viewModel.dismissMicrophoneRepairDialog()
         advanceUntilIdle()
@@ -1179,7 +1200,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         
-        viewModel.onMicrophonePermissionDenied(permanent = true, requestedAction = "ptt")
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
         advanceUntilIdle()
         viewModel.onChatMicrophoneOpenAppPermissions()
         advanceUntilIdle()
