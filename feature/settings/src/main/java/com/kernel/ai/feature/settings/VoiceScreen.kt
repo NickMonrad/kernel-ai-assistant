@@ -290,6 +290,44 @@ fun VoiceScreen(
     }
 }
 
+    if (showMicDurableRequiredDialog) {
+        PermissionOverlayDialog(
+            title = "Microphone permission must stay allowed",
+            body = "Hey Jandal needs ongoing microphone access to listen for the wake word. " +
+                "Change Microphone permission to allow access while using the app, then return to Jandal.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open Microphone permission settings",
+                    testTag = "hey_jandal_mic_open_settings",
+                    onClick = {
+                        showMicDurableRequiredDialog = false
+                        awaitingMicSettingsReturn = true
+                        runCatching {
+                            context.startActivity(
+                                RuntimePermissionRepair.intentFor(context, Manifest.permission.RECORD_AUDIO)
+                            )
+                        }
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "hey_jandal_mic_not_now",
+                    onClick = {
+                        showMicDurableRequiredDialog = false
+                        awaitingMicSettingsReturn = false
+                    },
+                ),
+            ),
+            dialogTestTag = "hey_jandal_microphone_durability_dialog",
+            onDismissRequest = {
+                showMicDurableRequiredDialog = false
+                awaitingMicSettingsReturn = false
+            },
+        )
+    }
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceScreenContent(
