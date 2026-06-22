@@ -16,7 +16,11 @@
         "remind me to take out the trash",
         "reminder to pick up dry cleaning",
         "add a reminder",
-        "can you remind me"
+        "can you remind me",
+        "set a reminder to take out the bins",
+        "reminder to call mum next week",
+        "remind me to buy milk at 5pm",
+        "remind me to call the dentist tomorrow"
       ]
     },
     "add_to_list": {
@@ -445,7 +449,10 @@
         "create an alarm",
         "I need a wake-up call",
         "set an alarm please",
-        "morning alarm"
+        "morning alarm",
+        "wake me up Monday at 7am",
+        "set my alarm for tomorrow morning",
+        "set an alarm for Monday at 7am"
       ]
     },
     "set_timer": {

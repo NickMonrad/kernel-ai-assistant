@@ -3879,30 +3879,14 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "add_reminder", "please remind me to water plants tomorrow at 12pm")
         }
         @Test
-        fun `remind me to call dentist tomorrow routes to add_reminder with missing time slot`() {
+        fun `remind me to call dentist tomorrow routes to add_reminder directly`() {
             val result = hybridRouter.route("remind me to call dentist tomorrow")
-            assertInstanceOf(
-                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
-                result,
-                "Expected NeedsSlot for '$result'",
-            )
-            assertEquals(
-                "add_reminder",
-                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
-            )
+            assertRegexMatch(result, "add_reminder", "remind me to call dentist tomorrow")
         }
         @Test
-        fun `remind me to take out trash monday routes to add_reminder with missing time slot`() {
+        fun `remind me to take out trash monday routes to add_reminder directly`() {
             val result = hybridRouter.route("remind me to take out trash monday")
-            assertInstanceOf(
-                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
-                result,
-                "Expected NeedsSlot for '$result'",
-            )
-            assertEquals(
-                "add_reminder",
-                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
-            )
+            assertRegexMatch(result, "add_reminder", "remind me to take out trash monday")
         }
         @Test
         fun `remind me at 9am routes to set_alarm not add_reminder`() {
@@ -3931,14 +3915,11 @@ class QuickIntentRouterTest {
         }
 
         @Test
-        fun `slot fill with abbreviated day mon normalizes`() {
+        fun `remind me to call dentist mon normalizes day param directly`() {
             val result = hybridRouter.route("remind me to call dentist mon")
-            assertInstanceOf(
-                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
-                result,
-            )
-            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
-            assertEquals("monday", needsSlot.intent.params["day"])
+            assertRegexMatch(result, "add_reminder", "remind me to call dentist mon")
+            val match = result as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("monday", match.intent.params["day"])
         }
     }
 
