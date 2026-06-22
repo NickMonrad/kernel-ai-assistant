@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -130,17 +129,17 @@ fun VoiceScreen(
                         Manifest.permission.RECORD_AUDIO,
                     ) == PackageManager.PERMISSION_GRANTED
                     if (micGranted) {
-                    val micReadiness = MicrophonePermissionReadiness.evaluate(context)
-                    if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
-                        showMicRepairDialog = false
-                        micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
-                        viewModel.setHeyJandalEnabled(true)
+                        val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                        if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+                            showMicRepairDialog = false
+                            micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+                            viewModel.setHeyJandalEnabled(true)
+                        } else {
+                            showMicDurableRequiredDialog = true
+                        }
                     } else {
-                        showMicDurableRequiredDialog = true
+                        showMicRepairDialog = true
                     }
-                } else {
-                    showMicRepairDialog = true
-                }
                 }
             }
         }
@@ -288,7 +287,6 @@ fun VoiceScreen(
             },
         )
     }
-}
 
     if (showMicDurableRequiredDialog) {
         PermissionOverlayDialog(
@@ -328,6 +326,7 @@ fun VoiceScreen(
     }
 
 
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceScreenContent(
