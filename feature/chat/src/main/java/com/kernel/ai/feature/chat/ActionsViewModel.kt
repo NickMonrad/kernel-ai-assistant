@@ -729,22 +729,38 @@ class ActionsViewModel @Inject constructor(
         }
     }
     /** User chooses to type a place instead of using location. Shows guidance prompt. */
+    /** User chooses to type a place name or say a place name instead of using location. */
     fun onWeatherLocationTypePlace() {
         awaitingLocationSettingsReturn = false
+        val pending = pendingWeatherLocationAction
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
         denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
-        _error.value = "Type a place name in the quick command bar, like \"weather in Tokyo\"."
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "Say or type a place name, like \"weather in Tokyo\"."
+        } else {
+            "Type a place name in the quick command bar, like \"weather in Tokyo\"."
+        }
     }
 
+
+    /** User chooses to use their saved profile/home location — not yet available. */
     /** User chooses to use their saved profile/home location — not yet available. */
     fun onWeatherLocationUseSavedLocation() {
         awaitingLocationSettingsReturn = false
+        val pending = pendingWeatherLocationAction
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
         denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
-        _error.value = "No saved location found. Type a place name in the quick command bar."
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "No saved location found. Say or type a place name, like \"weather in Tokyo\"."
+        } else {
+            "No saved location found. Type a place name in the quick command bar."
+        }
     }
+
 
     /** Dismiss the weather location dialog without any action. */
     fun dismissWeatherLocationDialog() {
@@ -827,18 +843,34 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** User chooses to enter phone number or email manually. Shows guidance prompt. */
+    /** User chooses to enter phone number or email manually. Shows guidance prompt. */
     fun onContactEnterManually() {
         awaitingContactsSettingsReturn = false
         val pending = pendingContactPermissionAction
         pendingContactPermissionAction = null
         denialClassifier.clear(Manifest.permission.READ_CONTACTS)
         _contactPermissionState.value = null
+        val origin = pending?.inputMode
+        val isVoice = origin == InputMode.Voice
         _error.value = when (pending?.intentName) {
-            "make_call", "send_sms" -> "Type a phone number in the quick command bar."
-            "send_email" -> "Type an email address in the quick command bar."
-            else -> "Enter the contact details in the quick command bar."
+            "make_call", "send_sms" -> if (isVoice) {
+                "Say or type the phone number you want to use."
+            } else {
+                "Type a phone number in the quick command bar."
+            }
+            "send_email" -> if (isVoice) {
+                "Say or type the email address you want to use."
+            } else {
+                "Type an email address in the quick command bar."
+            }
+            else -> if (isVoice) {
+                "Say or type the contact details you want to use."
+            } else {
+                "Enter the contact details in the quick command bar."
+            }
         }
     }
+
 
     /** Dismiss the contact permission dialog without any action. */
     fun dismissContactPermissionDialog() {
@@ -1016,13 +1048,21 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** User chooses to keep typing instead of using voice. */
+    /** User chooses to type or speak their request instead of using continuous voice. */
     fun onMicrophoneKeepTyping() {
         awaitingMicrophoneSettingsReturn = false
+        val pending = pendingMicrophoneAction
         _microphoneState.value = null
         pendingMicrophoneAction = null
         denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
-        _error.value = "Type your request in the quick command bar."
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "Say or type your request."
+        } else {
+            "Type your request in the quick command bar."
+        }
     }
+
 
     /** Called from the screen when the user taps the voice button but RECORD_AUDIO is not granted.
      *  Stores the requested [mode] as a pending action and shows the microphone permission dialog. */

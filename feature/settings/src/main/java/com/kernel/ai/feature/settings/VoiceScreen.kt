@@ -50,6 +50,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
+import com.kernel.ai.core.permissions.MicrophoneReadiness
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -110,6 +112,7 @@ fun VoiceScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showMicRepairDialog by remember { mutableStateOf(false) }
+    var showMicDurableRequiredDialog by remember { mutableStateOf(false) }
     var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
     
     val micDenialClassifier = remember { PermissionDenialClassifier() }
@@ -127,13 +130,17 @@ fun VoiceScreen(
                         Manifest.permission.RECORD_AUDIO,
                     ) == PackageManager.PERMISSION_GRANTED
                     if (micGranted) {
+                    val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                    if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
                         showMicRepairDialog = false
-            micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+                        micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
                         viewModel.setHeyJandalEnabled(true)
                     } else {
-                        // Still denied — re-show the blocked repair dialog.
-                        showMicRepairDialog = true
+                        showMicDurableRequiredDialog = true
                     }
+                } else {
+                    showMicRepairDialog = true
+                }
                 }
             }
         }
@@ -158,7 +165,12 @@ fun VoiceScreen(
                 showMicRepairDialog = true
             }
         } else {
-            viewModel.setHeyJandalEnabled(true)
+            val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+            if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+                viewModel.setHeyJandalEnabled(true)
+            } else {
+                showMicDurableRequiredDialog = true
+            }
         }
     }
 
@@ -205,7 +217,12 @@ fun VoiceScreen(
                 viewModel.setHeyJandalEnabled(false)
             } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
-                viewModel.setHeyJandalEnabled(true)
+                val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                if (micReadiness == MicrophoneReadiness.DurableWhileInUse) {
+                    viewModel.setHeyJandalEnabled(true)
+                } else {
+                    showMicDurableRequiredDialog = true
+                }
             } else {
                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
