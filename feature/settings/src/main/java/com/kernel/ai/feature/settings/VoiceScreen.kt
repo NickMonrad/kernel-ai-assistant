@@ -121,7 +121,8 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
-                // If we were awaiting mic settings return, re-check mic permission.
+
+                // 1. Settings-return handling: explicit mic repair round-trip.
                 if (awaitingMicSettingsReturn) {
                     awaitingMicSettingsReturn = false
                     val micGranted = ContextCompat.checkSelfPermission(
@@ -140,6 +141,14 @@ fun VoiceScreen(
                     } else {
                         showMicRepairDialog = true
                     }
+                }
+
+                // 2. General enforcement: if Hey Jandal is enabled but mic
+                // readiness is not durable, disable it and explain why.
+                val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                viewModel.enforceHeyJandalMicReadiness(micReadiness)
+                if (!uiState.heyJandalEnabled) {
+                    showMicDurableRequiredDialog = true
                 }
             }
         }

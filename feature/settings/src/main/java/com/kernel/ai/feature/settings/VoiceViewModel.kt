@@ -35,6 +35,7 @@ import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.UnavailableReason
+import com.kernel.ai.core.permissions.MicrophoneReadiness
 import javax.inject.Inject
 
 data class SherpaSttDownloadIssue(
@@ -550,6 +551,19 @@ class VoiceViewModel @Inject constructor(
             if (enabled) {
                 downloadSherpaStt(resolveWakeEngineForDownload())
             }
+        }
+    }
+
+    /**
+     * Enforce that Hey Jandal is only enabled when microphone readiness is durable.
+     * If Hey Jandal is currently enabled and [readiness] is not [DurableWhileInUse],
+     * disable it. Call from VoiceScreen's ON_RESUME handler and after grant callbacks.
+     */
+    fun enforceHeyJandalMicReadiness(readiness: MicrophoneReadiness) {
+        if (!_uiState.value.heyJandalEnabled) return
+        when (readiness) {
+            MicrophoneReadiness.DurableWhileInUse -> Unit
+            else -> setHeyJandalEnabled(false)
         }
     }
 

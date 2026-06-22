@@ -522,4 +522,57 @@ class VoiceViewModelTest {
         assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
         coVerify { wakeWordPreferences.setHeyJandalEnabled(false) }
     }
+
+
+    // ── Hey Jandal mic readiness enforcement ─────────────────────────────
+
+    @Test
+    fun `enforce with DurableWhileInUse leaves enabled Hey Jandal alone`() = runTest {
+        viewModel.setHeyJandalEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
+
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.DurableWhileInUse)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
+    }
+
+    @Test
+    fun `enforce with GrantedForCurrentUseOnly disables Hey Jandal`() = runTest {
+        viewModel.setHeyJandalEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
+
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.GrantedForCurrentUseOnly)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
+    }
+
+    @Test
+    fun `enforce with NotGranted disables Hey Jandal`() = runTest {
+        viewModel.setHeyJandalEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.heyJandalEnabled)
+
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.NotGranted)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
+    }
+
+    @Test
+    fun `enforce with Unknown disables Hey Jandal`() = runTest {
+        viewModel.setHeyJandalEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.Unknown)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
+    }
+
+    @Test
+    fun `enforce does nothing when Hey Jandal is already disabled`() = runTest {
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.GrantedForCurrentUseOnly)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
+    }
 }
