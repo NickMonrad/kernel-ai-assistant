@@ -191,6 +191,14 @@ class OnnxWakeWordDetector @Inject constructor(
         }
     }
 
+    fun hasMicrophonePermission(): Boolean {
+        return runCatching {
+            context.packageManager.checkPermission(
+                android.Manifest.permission.RECORD_AUDIO,
+                context.packageName,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }.getOrDefault(false)
+    }
     override fun start(onDetected: () -> Unit, verifyWindow: ((ShortArray) -> Boolean)?) {
         val bytes = modelBytes
         if (bytes == null) {
@@ -320,14 +328,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 return
 
     /** Returns true if the app currently holds RECORD_AUDIO permission. */
-    private fun hasMicrophonePermission(): Boolean {
-        return runCatching {
-            context.packageManager.checkPermission(
-                android.Manifest.permission.RECORD_AUDIO,
-                context.packageName,
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }.getOrDefault(false)
-    }
             }
             Log.i(TAG, "WakeWordDetector: models loaded (embedding: NNAPI CPU_DISABLED, mel+classifier: CPU)")
 
