@@ -585,6 +585,17 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
+        // "wake me up <day> at <time>" — day-anchored wake alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """(?:wake|get)\s+me\s+up\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
         IntentPattern(
             intentName = "set_alarm",
             regex = Regex(
@@ -628,7 +639,7 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_reminder"),
         ),
-        // "remind me to <task> <day>" (day without 'on') — needs time slot-fill
+        // "remind me to <task> <day>" (day without 'on') — dispatches directly; handler defaults time
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
@@ -641,7 +652,19 @@ class QuickIntentRouter(
                     "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
-            requiredSlots = slotContract("add_reminder"),
+            requiredSlots = emptyMap(),
+        ),
+        // "remind me to <task> at <time>" — time without explicit day (dispatches directly)
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(?!(?:get|wake)\s+up\b)(.+?)\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("item" to match.groupValues[1].trim()) + parseAlarmTime(match.groupValues[2].trim())
+            },
+            requiredSlots = emptyMap(),
         ),
         // "remind me at <time> [on] <day> to <task>" — task-bearing reminder must be routed as
         // add_reminder, NOT set_alarm. Must be before the bare "remind me at/by <time>" set_alarm
@@ -661,7 +684,7 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_reminder"),
         ),
-        // "remind me at <time> to <task>" — task-bearing without explicit day (slot fill will ask)
+        // "remind me at <time> to <task>" — task-bearing without explicit day (dispatches directly; handler handles missing day)
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
@@ -671,7 +694,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
             },
-            requiredSlots = slotContract("add_reminder"),
+            requiredSlots = emptyMap(),
         ),
         IntentPattern(
             intentName = "set_alarm",
