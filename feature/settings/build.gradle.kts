@@ -36,6 +36,7 @@ dependencies {
     implementation(project(":core:memory"))
     implementation(project(":core:voice"))
     implementation(project(":core:skills"))
+    implementation(project(":core:permissions"))
     implementation(project(":core:model-availability"))
 
     // Compose

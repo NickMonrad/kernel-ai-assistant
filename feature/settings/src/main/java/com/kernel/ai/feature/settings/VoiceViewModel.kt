@@ -35,6 +35,7 @@ import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.UnavailableReason
+import com.kernel.ai.core.permissions.MicrophoneReadiness
 import javax.inject.Inject
 
 data class SherpaSttDownloadIssue(
@@ -549,6 +550,22 @@ class VoiceViewModel @Inject constructor(
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
                 downloadSherpaStt(resolveWakeEngineForDownload())
+            }
+        }
+    }
+
+    /**
+     * Enforce Hey Jandal microphone grant state.
+     * If Hey Jandal is currently enabled and [readiness] is not [MicrophoneReadiness.Granted],
+     * disable it. Call from VoiceScreen's ON_RESUME handler and after grant callbacks.
+     */
+    fun enforceHeyJandalMicReadiness(readiness: MicrophoneReadiness): Boolean {
+        if (!_uiState.value.heyJandalEnabled) return false
+        when (readiness) {
+            MicrophoneReadiness.Granted -> return false
+            else -> {
+                setHeyJandalEnabled(false)
+                return true
             }
         }
     }

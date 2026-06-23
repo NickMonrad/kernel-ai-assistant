@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -89,6 +90,16 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // If RECORD_AUDIO is not granted, refuse to start the foreground service.
+        // startForeground with foregroundServiceType=microphone requires RECORD_AUDIO
+        // or FOREGROUND_SERVICE_MICROPHONE — without it Android throws SecurityException.
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!wakeWordDetector.isAvailable) {
@@ -239,6 +250,11 @@ class WakeWordService : Service() {
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
         if (!wakeWordDetector.isAvailable) return
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
+            return
+        }
         wakeWordDetector.start(
             onDetected = { handleDetection() },
             verifyWindow = { pcm ->
@@ -325,6 +341,13 @@ class WakeWordService : Service() {
         private var instance: WeakReference<WakeWordService>? = null
 
         fun start(context: Context) {
+            // Don't start if RECORD_AUDIO is not granted — startForegroundService
+            // for a service with foregroundServiceType=microphone requires it.
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — cannot start FGS")
+                return
+            }
             try {
                 context.startForegroundService(Intent(context, WakeWordService::class.java))
             } catch (e: Exception) {
@@ -335,6 +358,7 @@ class WakeWordService : Service() {
                 Log.w(TAG, "WakeWordService: cannot start from background: ${e.message}")
             }
         }
+
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))

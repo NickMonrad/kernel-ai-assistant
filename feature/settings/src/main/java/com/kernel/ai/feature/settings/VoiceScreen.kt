@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,6 +47,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
+import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
+import com.kernel.ai.core.permissions.MicrophoneReadiness
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,8 +76,11 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
+import com.kernel.ai.core.ui.permissions.PermissionDialogAction
+import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.Manifest
@@ -88,6 +94,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,13 +110,47 @@ fun VoiceScreen(
     val roleManager = context.getSystemService(RoleManager::class.java)
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
+    var showMicRepairDialog by remember { mutableStateOf(false) }
+    var showMicDurableRequiredDialog by remember { mutableStateOf(false) }
+    var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
+    
+    val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+
+                // 1. Settings-return handling: explicit mic repair round-trip.
+                if (awaitingMicSettingsReturn) {
+                    awaitingMicSettingsReturn = false
+                    val micGranted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO,
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (micGranted) {
+                        val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                        if (micReadiness == MicrophoneReadiness.Granted) {
+                            showMicRepairDialog = false
+                            micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+                            viewModel.setHeyJandalEnabled(true)
+                        } else {
+                            showMicDurableRequiredDialog = true
+                        }
+                    } else {
+                        showMicRepairDialog = true
+                    }
+                }
+
+                // 2. General enforcement: if Hey Jandal was enabled and mic
+                // is no longer granted, disable it and explain why.
+                val wasHeyJandalEnabled = uiState.heyJandalEnabled
+                val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                if (wasHeyJandalEnabled && micReadiness != MicrophoneReadiness.Granted) {
+                    viewModel.enforceHeyJandalMicReadiness(micReadiness)
+                    showMicDurableRequiredDialog = true
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -123,8 +165,22 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) viewModel.setHeyJandalEnabled(true)
-        // On denial: leave toggle off — user can retry by tapping again.
+        if (!granted) {
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            )
+            if (micDenialClassifier.classify(Manifest.permission.RECORD_AUDIO, shouldShowRationale) == DenialOutcome.RepairOnlyDenied) {
+                showMicRepairDialog = true
+            }
+        } else {
+            val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+            if (micReadiness == MicrophoneReadiness.Granted) {
+                viewModel.setHeyJandalEnabled(true)
+            } else {
+                showMicDurableRequiredDialog = true
+            }
+        }
     }
 
     VoiceScreenContent(
@@ -170,7 +226,12 @@ fun VoiceScreen(
                 viewModel.setHeyJandalEnabled(false)
             } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
-                viewModel.setHeyJandalEnabled(true)
+                val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+                if (micReadiness == MicrophoneReadiness.Granted) {
+                    viewModel.setHeyJandalEnabled(true)
+                } else {
+                    showMicDurableRequiredDialog = true
+                }
             } else {
                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
@@ -200,8 +261,81 @@ fun VoiceScreen(
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
     )
-}
 
+    if (showMicRepairDialog) {
+        PermissionOverlayDialog(
+            title = "Microphone permission is blocked",
+            body = "Android will not show the Microphone permission prompt. Open system settings to allow voice input for Hey Jandal.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open Microphone permission settings",
+                    testTag = "hey_jandal_mic_open_settings",
+                    onClick = {
+                        showMicRepairDialog = false
+                        awaitingMicSettingsReturn = true
+                        runCatching {
+                            context.startActivity(
+                                RuntimePermissionRepair.intentFor(context, Manifest.permission.RECORD_AUDIO)
+                            )
+                        }
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "hey_jandal_mic_not_now",
+                    onClick = {
+                        showMicRepairDialog = false
+                        awaitingMicSettingsReturn = false
+                    },
+                ),
+            ),
+            dialogTestTag = "hey_jandal_microphone_permission_dialog",
+            onDismissRequest = {
+                showMicRepairDialog = false
+                awaitingMicSettingsReturn = false
+            },
+        )
+    }
+
+    if (showMicDurableRequiredDialog) {
+        PermissionOverlayDialog(
+            title = "Microphone access was removed",
+            body = "Hey Jandal was turned off because Android removed microphone access. Allow Microphone access again to use the wake word.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open Microphone permission settings",
+                    testTag = "hey_jandal_mic_open_settings",
+                    onClick = {
+                        showMicDurableRequiredDialog = false
+                        awaitingMicSettingsReturn = true
+                        runCatching {
+                            context.startActivity(
+                                RuntimePermissionRepair.intentFor(context, Manifest.permission.RECORD_AUDIO)
+                            )
+                        }
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "hey_jandal_mic_not_now",
+                    onClick = {
+                        showMicDurableRequiredDialog = false
+                        awaitingMicSettingsReturn = false
+                    },
+                ),
+            ),
+            dialogTestTag = "hey_jandal_microphone_durability_dialog",
+            onDismissRequest = {
+                showMicDurableRequiredDialog = false
+                awaitingMicSettingsReturn = false
+            },
+        )
+    }
+
+
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceScreenContent(

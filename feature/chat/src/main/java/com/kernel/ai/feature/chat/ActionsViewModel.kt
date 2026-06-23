@@ -12,6 +12,8 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.permissions.CapabilityKey
+import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
@@ -105,10 +107,22 @@ class ActionsViewModel @Inject constructor(
         data class NavigateToChat(val query: String, val speakResponse: Boolean) : UiEvent
         /** Request CALL_PHONE permission via system dialog. */
         object RequestPhonePermission : UiEvent
+        /** Request RECORD_AUDIO permission via system dialog. */
+        object RequestMicrophonePermission : UiEvent
         /** Launch dialer with the resolved tel: URI (no CALL_PHONE needed). */
         data class LaunchDialer(val phoneNumber: String, val contact: String) : UiEvent
         /** Navigate to internal Settings → App Permissions for manual repair. */
         object NavigateToAppPermissions : UiEvent
+        /** Navigate to app settings to repair CALL_PHONE permission. */
+        object RepairPhonePermission : UiEvent
+        /** Navigate to app settings to repair location permission. */
+        object RepairLocationPermission : UiEvent
+        /** Navigate to app settings to repair contacts permission. */
+        object RepairContactsPermission : UiEvent
+        /** Navigate to app settings to repair calendar permission. */
+        object RepairCalendarPermission : UiEvent
+        /** Navigate to app settings to repair microphone permission. */
+        object RepairMicrophonePermission : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
@@ -230,6 +244,19 @@ class ActionsViewModel @Inject constructor(
         val isPermanentlyDenied: Boolean = false,
     )
 
+    /** State for the contextual microphone permission dialog. */
+    data class MicrophoneState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
+    private data class PendingMicrophoneAction(
+        val mode: VoiceCaptureMode,
+        val query: String? = null,
+        val intentName: String? = null,
+        val params: Map<String, String>? = null,
+        val inputMode: InputMode? = null,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -267,6 +294,10 @@ class ActionsViewModel @Inject constructor(
     private val _calendarPermissionState = MutableStateFlow<CalendarPermissionState?>(null)
     val calendarPermissionState: StateFlow<CalendarPermissionState?> = _calendarPermissionState.asStateFlow()
 
+    /** Non-null while the contextual microphone permission dialog should be shown. */
+    private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
+
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
 
@@ -284,6 +315,7 @@ class ActionsViewModel @Inject constructor(
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
     private var pendingCalendarLookupAction: PendingCalendarLookupAction? = null
+    private var pendingMicrophoneAction: PendingMicrophoneAction? = null
     private var pendingDndAction: PendingDndAction? = null
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     /**
@@ -296,6 +328,12 @@ class ActionsViewModel @Inject constructor(
      * Prevents lifecycle ON_RESUME from skipping the initial rationale dialog.
      */
     private var awaitingWriteSettingsReturn = false
+    private var awaitingPhoneSettingsReturn = false
+    private var awaitingLocationSettingsReturn = false
+    private var awaitingContactsSettingsReturn = false
+    private var awaitingCalendarSettingsReturn = false
+    private var awaitingMicrophoneSettingsReturn = false
+    private val denialClassifier = PermissionDenialClassifier()
     /** Snapshot of pendingPhonePermissionAction set by onHandsFreeCallingRequestPermission.
      *  Used by onPhonePermissionDenied to reconstruct dialog state after dismiss clears
      *  the original pending action (true cancel). NOT nulled by dismiss — only by
@@ -556,18 +594,13 @@ class ActionsViewModel @Inject constructor(
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
-        _error.value = if (permanent) {
-            "Microphone access permanently denied. Enable it in Settings → App permissions."
-        } else {
-            "Microphone permission is required for voice input."
-        }
-    }
 
     fun onPhonePermissionGranted() {
+        awaitingPhoneSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.CALL_PHONE)
+        handsFreeCallingRequestState = null
         val pending = pendingPhonePermissionAction ?: return
         pendingPhonePermissionAction = null
-        handsFreeCallingRequestState = null
         _handsFreeCallingState.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
@@ -597,7 +630,7 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    fun onPhonePermissionDenied(permanent: Boolean = false) {
+    fun onPhonePermissionDenied(shouldShowRationale: Boolean = false) {
         // Reconstruct state from requestState snapshot (set by onHandsFreeCallingRequestPermission)
         // or from pending action. requestState survives dismissHandsFreeCallingDialog so the
         // callback can transition the dialog to repair/retry even after a true cancel.
@@ -606,7 +639,7 @@ class ActionsViewModel @Inject constructor(
                 HandsFreeCallingState(
                     phoneNumber = req.phoneNumber ?: "",
                     contact = req.contact ?: "",
-                    isPermanentlyDenied = permanent,
+                    isPermanentlyDenied = false,
                 )
             }
             ?: run {
@@ -615,20 +648,30 @@ class ActionsViewModel @Inject constructor(
                 return
             }
         handsFreeCallingRequestState = null
-        if (permanent) {
-            _handsFreeCallingState.value = currentState.copy(isPermanentlyDenied = true)
-            // pendingPhonePermissionAction kept alive for repair navigation
-        } else {
-            _handsFreeCallingState.value = currentState
-            // pendingPhonePermissionAction kept alive for retry
+        val outcome = denialClassifier.classify(
+            Manifest.permission.CALL_PHONE,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _handsFreeCallingState.value = currentState.copy(isPermanentlyDenied = true)
+                // pendingPhonePermissionAction kept alive for repair navigation
+            }
+            DenialOutcome.RetryableDenied -> {
+                _handsFreeCallingState.value = currentState
+                // pendingPhonePermissionAction kept alive for retry
+            }
         }
     }
 
+
     /** Launch ACTION_DIAL for the dialer fallback (no CALL_PHONE required). */
     fun onHandsFreeCallingDialerFallback() {
+        awaitingPhoneSettingsReturn = false
         val state = _handsFreeCallingState.value ?: return
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
+        denialClassifier.clear(Manifest.permission.CALL_PHONE)
         val phoneNumber = state.phoneNumber
         if (phoneNumber.isNotBlank()) {
             viewModelScope.launch {
@@ -657,12 +700,11 @@ class ActionsViewModel @Inject constructor(
     }
     /** Navigate to App Permissions for manual repair. */
     fun onHandsFreeCallingOpenAppPermissions() {
+        awaitingPhoneSettingsReturn = true
         _handsFreeCallingState.value = null
-        pendingPhonePermissionAction = null
-        handsFreeCallingRequestState = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairPhonePermission)
         }
     }
 
@@ -670,9 +712,11 @@ class ActionsViewModel @Inject constructor(
      *  TRUE CANCEL: clears visible state, pending action, and request snapshot
      *  so no stale callback can reconstruct or retry. */
     fun dismissHandsFreeCallingDialog() {
+        awaitingPhoneSettingsReturn = false
         _handsFreeCallingState.value = null
         pendingPhonePermissionAction = null
         handsFreeCallingRequestState = null
+        denialClassifier.clear(Manifest.permission.CALL_PHONE)
         _error.value = null
     }
 
@@ -685,27 +729,51 @@ class ActionsViewModel @Inject constructor(
         }
     }
     /** User chooses to type a place instead of using location. Shows guidance prompt. */
+    /** User chooses to type a place name or say a place name instead of using location. */
     fun onWeatherLocationTypePlace() {
+        awaitingLocationSettingsReturn = false
+        val pending = pendingWeatherLocationAction
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
-        _error.value = "Type a place name in the quick command bar, like \"weather in Tokyo\"."
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "Say or type a place name, like \"weather in Tokyo\"."
+        } else {
+            "Type a place name in the quick command bar, like \"weather in Tokyo\"."
+        }
     }
 
+
+    /** User chooses to use their saved profile/home location — not yet available. */
     /** User chooses to use their saved profile/home location — not yet available. */
     fun onWeatherLocationUseSavedLocation() {
+        awaitingLocationSettingsReturn = false
+        val pending = pendingWeatherLocationAction
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
-        _error.value = "No saved location found. Type a place name in the quick command bar."
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "No saved location found. Say or type a place name, like \"weather in Tokyo\"."
+        } else {
+            "No saved location found. Type a place name in the quick command bar."
+        }
     }
+
 
     /** Dismiss the weather location dialog without any action. */
     fun dismissWeatherLocationDialog() {
+        awaitingLocationSettingsReturn = false
         _weatherLocationState.value = null
         pendingWeatherLocationAction = null
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
         _error.value = null
     }
     /** Called when the user grants ACCESS_COARSE_LOCATION. Retries the original weather action. */
     fun onWeatherLocationPermissionGranted() {
+        awaitingLocationSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
         val pending = pendingWeatherLocationAction ?: return
         pendingWeatherLocationAction = null
         _weatherLocationState.value = null
@@ -738,22 +806,30 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** Called when the user denies ACCESS_COARSE_LOCATION. */
-    fun onWeatherLocationPermissionDenied(permanent: Boolean = false) {
+    fun onWeatherLocationPermissionDenied(shouldShowRationale: Boolean = false) {
         val currentState = _weatherLocationState.value ?: return
-        if (permanent) {
-            _weatherLocationState.value = currentState.copy(isPermanentlyDenied = true)
-        } else {
-            _weatherLocationState.value = currentState
+        val outcome = denialClassifier.classify(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _weatherLocationState.value = currentState.copy(isPermanentlyDenied = true)
+            }
+            DenialOutcome.RetryableDenied -> {
+                _weatherLocationState.value = currentState
+            }
         }
     }
 
+
     /** Navigate to App Permissions for manual repair. */
     fun onWeatherLocationOpenAppPermissions() {
+        awaitingLocationSettingsReturn = true
         _weatherLocationState.value = null
-        pendingWeatherLocationAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairLocationPermission)
         }
     }
 
@@ -767,26 +843,48 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** User chooses to enter phone number or email manually. Shows guidance prompt. */
+    /** User chooses to enter phone number or email manually. Shows guidance prompt. */
     fun onContactEnterManually() {
+        awaitingContactsSettingsReturn = false
         val pending = pendingContactPermissionAction
         pendingContactPermissionAction = null
+        denialClassifier.clear(Manifest.permission.READ_CONTACTS)
         _contactPermissionState.value = null
+        val origin = pending?.inputMode
+        val isVoice = origin == InputMode.Voice
         _error.value = when (pending?.intentName) {
-            "make_call", "send_sms" -> "Type a phone number in the quick command bar."
-            "send_email" -> "Type an email address in the quick command bar."
-            else -> "Enter the contact details in the quick command bar."
+            "make_call", "send_sms" -> if (isVoice) {
+                "Say or type the phone number you want to use."
+            } else {
+                "Type a phone number in the quick command bar."
+            }
+            "send_email" -> if (isVoice) {
+                "Say or type the email address you want to use."
+            } else {
+                "Type an email address in the quick command bar."
+            }
+            else -> if (isVoice) {
+                "Say or type the contact details you want to use."
+            } else {
+                "Enter the contact details in the quick command bar."
+            }
         }
     }
 
+
     /** Dismiss the contact permission dialog without any action. */
     fun dismissContactPermissionDialog() {
+        awaitingContactsSettingsReturn = false
         _contactPermissionState.value = null
         pendingContactPermissionAction = null
+        denialClassifier.clear(Manifest.permission.READ_CONTACTS)
         _error.value = null
     }
 
     /** Called when the user grants READ_CONTACTS. Retries the original action. */
     fun onContactPermissionGranted() {
+        awaitingContactsSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.READ_CONTACTS)
         val pending = pendingContactPermissionAction ?: return
         pendingContactPermissionAction = null
         _contactPermissionState.value = null
@@ -819,24 +917,32 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** Called when the user denies READ_CONTACTS. */
-    fun onContactPermissionDenied(permanent: Boolean = false) {
+    fun onContactPermissionDenied(shouldShowRationale: Boolean = false) {
         val currentState = _contactPermissionState.value ?: return
-        if (permanent) {
-            _contactPermissionState.value = currentState.copy(isPermanentlyDenied = true)
-            // pendingContactPermissionAction kept alive for repair navigation
-        } else {
-            _contactPermissionState.value = currentState
-            // pendingContactPermissionAction kept alive for retry
+        val outcome = denialClassifier.classify(
+            Manifest.permission.READ_CONTACTS,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _contactPermissionState.value = currentState.copy(isPermanentlyDenied = true)
+                // pendingContactPermissionAction kept alive for repair navigation
+            }
+            DenialOutcome.RetryableDenied -> {
+                _contactPermissionState.value = currentState
+                // pendingContactPermissionAction kept alive for retry
+            }
         }
     }
 
+
     /** Navigate to App Permissions for manual repair. */
     fun onContactOpenAppPermissions() {
+        awaitingContactsSettingsReturn = true
         _contactPermissionState.value = null
-        pendingContactPermissionAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairContactsPermission)
         }
     }
 
@@ -851,20 +957,26 @@ class ActionsViewModel @Inject constructor(
 
     /** User chooses to add important dates manually. Shows guidance prompt. */
     fun onCalendarAddManually() {
+        awaitingCalendarSettingsReturn = false
         pendingCalendarLookupAction = null
+        denialClassifier.clear(Manifest.permission.READ_CALENDAR)
         _calendarPermissionState.value = null
         _error.value = "Add important dates in Settings → Important Dates."
     }
 
     /** Dismiss the calendar permission dialog without any action. */
     fun dismissCalendarPermissionDialog() {
+        awaitingCalendarSettingsReturn = false
         _calendarPermissionState.value = null
         pendingCalendarLookupAction = null
+        denialClassifier.clear(Manifest.permission.READ_CALENDAR)
         _error.value = null
     }
 
     /** Called when the user grants READ_CALENDAR. Retries the original date lookup. */
     fun onCalendarPermissionGranted() {
+        awaitingCalendarSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.READ_CALENDAR)
         val pending = pendingCalendarLookupAction ?: return
         pendingCalendarLookupAction = null
         _calendarPermissionState.value = null
@@ -897,24 +1009,193 @@ class ActionsViewModel @Inject constructor(
     }
 
     /** Called when the user denies READ_CALENDAR. */
-    fun onCalendarPermissionDenied(permanent: Boolean = false) {
+    fun onCalendarPermissionDenied(shouldShowRationale: Boolean = false) {
         val currentState = _calendarPermissionState.value ?: return
-        if (permanent) {
-            _calendarPermissionState.value = currentState.copy(isPermanentlyDenied = true)
-            // pendingCalendarLookupAction kept alive for repair navigation
-        } else {
-            _calendarPermissionState.value = currentState
-            // pendingCalendarLookupAction kept alive for retry
+        val outcome = denialClassifier.classify(
+            Manifest.permission.READ_CALENDAR,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _calendarPermissionState.value = currentState.copy(isPermanentlyDenied = true)
+                // pendingCalendarLookupAction kept alive for repair navigation
+            }
+            DenialOutcome.RetryableDenied -> {
+                _calendarPermissionState.value = currentState
+                // pendingCalendarLookupAction kept alive for retry
+            }
         }
     }
 
+
     /** Navigate to App Permissions for manual repair. */
     fun onCalendarOpenAppPermissions() {
+        awaitingCalendarSettingsReturn = true
         _calendarPermissionState.value = null
-        pendingCalendarLookupAction = null
         _error.value = null
         viewModelScope.launch {
-            _events.emit(UiEvent.NavigateToAppPermissions)
+            _events.emit(UiEvent.RepairCalendarPermission)
+        }
+    }
+
+    // ── Microphone permission ──────────────────────────────────────────────────
+
+    /** Request RECORD_AUDIO permission. */
+    fun onMicrophoneRequestPermission() {
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestMicrophonePermission)
+        }
+    }
+
+    /** User chooses to keep typing instead of using voice. */
+    /** User chooses to type or speak their request instead of using continuous voice. */
+    fun onMicrophoneKeepTyping() {
+        awaitingMicrophoneSettingsReturn = false
+        val pending = pendingMicrophoneAction
+        _microphoneState.value = null
+        pendingMicrophoneAction = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        val isVoice = pending?.inputMode == InputMode.Voice
+        _error.value = if (isVoice) {
+            "Say or type your request."
+        } else {
+            "Type your request in the quick command bar."
+        }
+    }
+
+
+    /** Called from the screen when the user taps the voice button but RECORD_AUDIO is not granted.
+     *  Stores the requested [mode] as a pending action and shows the microphone permission dialog. */
+    fun onVoiceCaptureRequiresPermission(mode: VoiceCaptureMode) {
+        pendingMicrophoneAction = PendingMicrophoneAction(mode = mode)
+        _microphoneState.value = MicrophoneState()
+    }
+
+    /** Dismiss the microphone dialog without any action. */
+    fun dismissMicrophoneDialog() {
+        awaitingMicrophoneSettingsReturn = false
+        _microphoneState.value = null
+        pendingMicrophoneAction = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        _error.value = null
+    }
+
+    /** Called when the user grants RECORD_AUDIO. Resumes the original voice mode. */
+    fun onMicrophonePermissionGranted() {
+        awaitingMicrophoneSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        val pending = pendingMicrophoneAction ?: return
+        pendingMicrophoneAction = null
+        _microphoneState.value = null
+        when (pending.mode) {
+            VoiceCaptureMode.Command -> startVoiceCommand()
+            VoiceCaptureMode.SlotReply -> startVoiceSlotReply()
+            VoiceCaptureMode.AlertCommand -> Unit
+        }
+    }
+
+    /** Called when the user denies RECORD_AUDIO. */
+    fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false) {
+        val currentState = _microphoneState.value
+        val outcome = if (currentState != null) {
+            denialClassifier.classify(
+                Manifest.permission.RECORD_AUDIO,
+                shouldShowRationale,
+            )
+        } else {
+            null
+        }
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _microphoneState.value = currentState?.copy(isPermanentlyDenied = true)
+                    ?: MicrophoneState(isPermanentlyDenied = true)
+                // Keep pending action alive for repair navigation
+            }
+            else -> {
+                _microphoneState.value = currentState ?: MicrophoneState()
+                // Keep pending action alive for retry
+            }
+        }
+    }
+
+
+    /** Open system settings for microphone permission repair. */
+    fun onMicrophoneOpenAppPermissions() {
+        awaitingMicrophoneSettingsReturn = true
+        _microphoneState.value = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RepairMicrophonePermission)
+        }
+    }
+
+    fun onPhoneRepairResumeCheck(hasPermission: Boolean) {
+        val pending = pendingPhonePermissionAction ?: return
+        if (!awaitingPhoneSettingsReturn) return
+        awaitingPhoneSettingsReturn = false
+        if (hasPermission) {
+        denialClassifier.clear(Manifest.permission.CALL_PHONE)
+            onPhonePermissionGranted()
+        } else {
+            _handsFreeCallingState.value = HandsFreeCallingState(
+                phoneNumber = pending.phoneNumber ?: "",
+                contact = pending.contact ?: "",
+                isPermanentlyDenied = true,
+            )
+        }
+    }
+
+    fun onLocationRepairResumeCheck(hasPermission: Boolean) {
+        pendingWeatherLocationAction ?: return
+        if (!awaitingLocationSettingsReturn) return
+        awaitingLocationSettingsReturn = false
+        if (hasPermission) {
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+            onWeatherLocationPermissionGranted()
+        } else {
+            _weatherLocationState.value = WeatherLocationState(
+                isPermanentlyDenied = true,
+                hasSavedLocation = _weatherLocationState.value?.hasSavedLocation ?: false,
+            )
+        }
+    }
+
+    fun onContactsRepairResumeCheck(hasPermission: Boolean) {
+        val pending = pendingContactPermissionAction ?: return
+        if (!awaitingContactsSettingsReturn) return
+        awaitingContactsSettingsReturn = false
+        if (hasPermission) {
+        denialClassifier.clear(Manifest.permission.READ_CONTACTS)
+            onContactPermissionGranted()
+        } else {
+            _contactPermissionState.value = ContactPermissionState(
+                actionName = pending.contact,
+                isPermanentlyDenied = true,
+            )
+        }
+    }
+
+    fun onCalendarRepairResumeCheck(hasPermission: Boolean) {
+        pendingCalendarLookupAction ?: return
+        if (!awaitingCalendarSettingsReturn) return
+        awaitingCalendarSettingsReturn = false
+        if (hasPermission) {
+        denialClassifier.clear(Manifest.permission.READ_CALENDAR)
+            onCalendarPermissionGranted()
+        } else {
+            _calendarPermissionState.value = CalendarPermissionState(isPermanentlyDenied = true)
+        }
+    }
+
+    fun onMicrophoneRepairResumeCheck(hasPermission: Boolean) {
+        pendingMicrophoneAction ?: return
+        if (!awaitingMicrophoneSettingsReturn) return
+        awaitingMicrophoneSettingsReturn = false
+        if (hasPermission) {
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+            onMicrophonePermissionGranted()
+        } else {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
         }
     }
 
@@ -1484,6 +1765,24 @@ class ActionsViewModel @Inject constructor(
                 _calendarPermissionState.value = CalendarPermissionState()
             }
 
+            if (shouldRequestMicrophoneAccess(skillResult)) {
+                // Clear stale weather/contact/calendar states
+                pendingWeatherLocationAction = null
+                _weatherLocationState.value = null
+                pendingContactPermissionAction = null
+                _contactPermissionState.value = null
+                pendingCalendarLookupAction = null
+                _calendarPermissionState.value = null
+                pendingMicrophoneAction = PendingMicrophoneAction(
+                    mode = VoiceCaptureMode.Command,
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _microphoneState.value = MicrophoneState()
+            }
+
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
@@ -1561,6 +1860,8 @@ class ActionsViewModel @Inject constructor(
                 "Jandal needs contact access to find $contact."
             } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
                 "Jandal needs calendar access to find important dates and birthdays."
+            } else if (result.capabilityKey == CapabilityKey.VoiceInput) {
+                "Jandal needs microphone access for voice input."
             } else {
                 "Permission required for $skillName"
             }
@@ -1613,6 +1914,11 @@ class ActionsViewModel @Inject constructor(
     private fun shouldRequestCalendarPermission(result: SkillResult): Boolean {
         return result is SkillResult.CapabilityRequired &&
             result.capabilityKey == CapabilityKey.CalendarLookup
+    }
+
+    private fun shouldRequestMicrophoneAccess(result: SkillResult): Boolean {
+        return result is SkillResult.CapabilityRequired &&
+            result.capabilityKey == CapabilityKey.VoiceInput
     }
 
     private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =

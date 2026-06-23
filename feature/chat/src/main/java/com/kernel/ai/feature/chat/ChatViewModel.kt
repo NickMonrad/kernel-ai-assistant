@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.Manifest
 import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -64,6 +65,8 @@ import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -184,6 +187,16 @@ class ChatViewModel @Inject constructor(
         data class Speaking(val text: String) : VoicePlaybackState
     }
 
+    data class MicrophoneState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+    
+    /** The voice mode the user chose before requesting mic permission (OneShot or BackAndForth). */
+    private val _pendingChatMicMode = MutableStateFlow<VoiceMode?>(null)
+    
+    /** True while we are waiting for the user to return from mic settings after repair CTA. */
+    private val _awaitingChatMicSettingsReturn = MutableStateFlow(false)
+
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -197,6 +210,9 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
+    private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    private val denialClassifier = PermissionDenialClassifier()
+    val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
@@ -1227,13 +1243,73 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
-        _error.value = if (permanent) {
-            "Microphone access permanently denied. Enable it in Settings → App permissions."
-        } else {
-            "Microphone permission is required for voice input."
+    fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false, requestedAction: String? = null) {
+        val outcome = denialClassifier.classify(
+            Manifest.permission.RECORD_AUDIO,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _pendingChatMicMode.value = when (requestedAction) {
+                    "loop" -> VoiceMode.BackAndForth
+                    else -> VoiceMode.OneShot
+                }
+                _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+                _error.value = null
+            }
+            DenialOutcome.RetryableDenied -> {
+                _pendingChatMicMode.value = null
+                _microphoneState.value = null
+                _error.value = "Microphone permission is required for voice input."
+            }
         }
     }
+
+
+    fun onChatMicrophoneKeepTyping() {
+        _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
+    }
+    
+    fun onChatMicrophoneOpenAppPermissions() {
+        _awaitingChatMicSettingsReturn.value = true
+        // Do NOT clear _pendingChatMicMode — it must survive the settings round-trip.
+        // Do NOT clear _microphoneState — the dialog is dismissed by the screen,
+        // and we'll need isPermanentlyDenied if resume shows still-denied.
+    }
+    
+    fun dismissMicrophoneRepairDialog() {
+        _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
+    }
+    
+    /**
+     * Called by ChatScreen's lifecycle ON_RESUME after the user returns from mic settings.
+     * If the permission was granted, restarts the original requested voice mode.
+     * If still denied, re-shows the blocked repair dialog.
+     */
+    fun onChatMicRepairResumeCheck(hasPermission: Boolean) {
+        if (!_awaitingChatMicSettingsReturn.value) return
+        _awaitingChatMicSettingsReturn.value = false
+        if (hasPermission) {
+            val mode = _pendingChatMicMode.value
+            _pendingChatMicMode.value = null
+            _microphoneState.value = null
+            denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+            when (mode) {
+                VoiceMode.BackAndForth -> startBackAndForthVoiceInput()
+                else -> startVoiceInput()
+            }
+        } else {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+            // Keep _pendingChatMicMode alive for another repair attempt.
+        }
+    }
+
 
     fun stopVoiceInput() {
         awaitingVoicePlaybackCompletion = false

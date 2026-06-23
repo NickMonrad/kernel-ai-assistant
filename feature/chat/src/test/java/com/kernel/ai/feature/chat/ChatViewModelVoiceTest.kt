@@ -1070,6 +1070,147 @@ class ChatViewModelVoiceTest {
             clearViewModel(viewModel)
         }
     }
+    
+    // ── Microphone repair & pending-action preservation ─────────────────────
+    
+    @Test
+    fun `permanent mic denial stores voice mode and shows blocked state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
+        advanceUntilIdle()
+        
+        assertTrue(viewModel.microphoneState.value?.isPermanentlyDenied == true)
+    }
+    
+    @Test
+    fun `non-permanent mic denial clears pending mode`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
+        advanceUntilIdle()
+        // Open settings — should NOT clear pending mode.
+        viewModel.onChatMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        // Clear with non-permanent denial — should clear everything.
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        
+        assertNull(viewModel.microphoneState.value)
+    }
+    
+    @Test
+    fun `mic repair resume with grant restarts one shot voice input`() = runTest(dispatcher) {
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
+        advanceUntilIdle()
+        viewModel.onChatMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        viewModel.onChatMicRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+        
+        coVerify { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+    
+    @Test
+    fun `mic repair resume with grant restarts back and forth voice`() = runTest(dispatcher) {
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "loop")
+        advanceUntilIdle()
+        viewModel.onChatMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        viewModel.onChatMicRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+        
+        coVerify { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+    
+    @Test
+    fun `mic repair resume without grant shows blocked state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
+        advanceUntilIdle()
+        viewModel.onChatMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        viewModel.onChatMicRepairResumeCheck(hasPermission = false)
+        advanceUntilIdle()
+        
+        assertTrue(viewModel.microphoneState.value?.isPermanentlyDenied == true)
+    }
+    
+    @Test
+    fun `mic keep typing clears all state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
+        advanceUntilIdle()
+        viewModel.onChatMicrophoneKeepTyping()
+        advanceUntilIdle()
+        
+        assertNull(viewModel.microphoneState.value)
+    }
+    
+    @Test
+    fun `mic dismiss clears all state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
+        advanceUntilIdle()
+        viewModel.dismissMicrophoneRepairDialog()
+        advanceUntilIdle()
+        
+        assertNull(viewModel.microphoneState.value)
+    }
+    
+    @Test
+    fun `mic open app permissions keeps microphone state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        
+        // First denial primes classifier to retryable
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = true)
+        advanceUntilIdle()
+        viewModel.onMicrophonePermissionDenied(shouldShowRationale = false, requestedAction = "ptt")
+        advanceUntilIdle()
+        viewModel.onChatMicrophoneOpenAppPermissions()
+        advanceUntilIdle()
+        
+        // State should still be set — not cleared — because we need it for resume check.
+        assertTrue(viewModel.microphoneState.value?.isPermanentlyDenied == true)
+    }
 
 
     private fun clearViewModel(viewModel: ChatViewModel) {

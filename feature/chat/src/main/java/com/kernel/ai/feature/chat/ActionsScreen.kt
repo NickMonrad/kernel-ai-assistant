@@ -28,8 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -93,8 +91,9 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTagsAsResourceId
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.ui.permissions.PermissionDialogAction
+import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
@@ -139,6 +138,7 @@ fun ActionsScreen(
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val contactPermissionState by viewModel.contactPermissionState.collectAsStateWithLifecycle()
     val calendarPermissionState by viewModel.calendarPermissionState.collectAsStateWithLifecycle()
+    val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -153,33 +153,31 @@ fun ActionsScreen(
     }
 
     val context = LocalContext.current
+
+    fun openRuntimePermissionRepair(permission: String) {
+        runCatching {
+            context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
+        }
+    }
     var initialSheetText by remember { mutableStateOf("") }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
-    var pendingPermissionMode by rememberSaveable { mutableStateOf<VoiceCaptureMode?>(null) }
     val listState = rememberLazyListState()
 
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        val mode = pendingPermissionMode
-        pendingPermissionMode = null
-        Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted mode=$mode")
+        Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
         if (!granted) {
-                val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
-                    context as android.app.Activity,
-                    Manifest.permission.RECORD_AUDIO,
-                )
-                viewModel.onMicrophonePermissionDenied(permanent)
-                return@rememberLauncherForActivityResult
-            }
-        when (mode) {
-            VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
-            VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
-            VoiceCaptureMode.AlertCommand -> Unit
-            null -> Unit
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            )
+            viewModel.onMicrophonePermissionDenied(shouldShowRationale)
+            return@rememberLauncherForActivityResult
         }
+        viewModel.onMicrophonePermissionGranted()
     }
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -187,11 +185,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.CALL_PHONE,
             )
-            viewModel.onPhonePermissionDenied(permanent)
+            viewModel.onPhonePermissionDenied(shouldShowRationale)
         }
     }
 
@@ -201,11 +199,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onWeatherLocationPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             )
-            viewModel.onWeatherLocationPermissionDenied(permanent)
+            viewModel.onWeatherLocationPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -215,11 +213,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onContactPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.READ_CONTACTS,
             )
-            viewModel.onContactPermissionDenied(permanent)
+            viewModel.onContactPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -229,11 +227,11 @@ fun ActionsScreen(
         if (granted) {
             viewModel.onCalendarPermissionGranted()
         } else {
-            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+            val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
                 Manifest.permission.READ_CALENDAR,
             )
-            viewModel.onCalendarPermissionDenied(permanent)
+            viewModel.onCalendarPermissionDenied(shouldShowRationale)
         }
     }
 
@@ -254,8 +252,7 @@ fun ActionsScreen(
             }
             return
         }
-        pendingPermissionMode = mode
-        microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        viewModel.onVoiceCaptureRequiresPermission(mode)
     }
 
     // Auto-scroll to top when a new action result arrives (#607).
@@ -316,6 +313,8 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                ActionsViewModel.UiEvent.RequestMicrophonePermission ->
+                    microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -327,6 +326,16 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.NavigateToAppPermissions ->
                     onNavigateToAppPermissions()
+                ActionsViewModel.UiEvent.RepairPhonePermission ->
+                    openRuntimePermissionRepair(Manifest.permission.CALL_PHONE)
+                ActionsViewModel.UiEvent.RepairLocationPermission ->
+                    openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
+                ActionsViewModel.UiEvent.RepairContactsPermission ->
+                    openRuntimePermissionRepair(Manifest.permission.READ_CONTACTS)
+                ActionsViewModel.UiEvent.RepairCalendarPermission ->
+                    openRuntimePermissionRepair(Manifest.permission.READ_CALENDAR)
+                ActionsViewModel.UiEvent.RepairMicrophonePermission ->
+                    openRuntimePermissionRepair(Manifest.permission.RECORD_AUDIO)
                 ActionsViewModel.UiEvent.OpenDndSettings -> {
                     val dndSettingsIntent = Intent(
                         android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS,
@@ -366,6 +375,36 @@ fun ActionsScreen(
                 viewModel.onDndResumeCheck(hasDndAccess)
                 viewModel.onWriteSettingsResumeCheck(
                     hasAccess = android.provider.Settings.System.canWrite(context),
+                )
+                viewModel.onPhoneRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CALL_PHONE,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onLocationRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onContactsRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.READ_CONTACTS,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onCalendarRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.READ_CALENDAR,
+                    ) == PackageManager.PERMISSION_GRANTED,
+                )
+                viewModel.onMicrophoneRepairResumeCheck(
+                    hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO,
+                    ) == PackageManager.PERMISSION_GRANTED,
                 )
             }
             if (event == Lifecycle.Event.ON_STOP) {
@@ -663,67 +702,60 @@ fun ActionsScreen(
     }
     // Hands-free calling contextual permission surface
     handsFreeCallingState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissHandsFreeCallingDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_hands_free_calling"),
-            title = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Jandal needs Phone permission for hands-free calling"
-                    } else {
-                        "Allow hands-free calling?"
-                    },
+        PermissionOverlayDialog(
+            title = if (state.isPermanentlyDenied) {
+                "Phone permission is blocked"
+            } else {
+                "Allow hands-free calling?"
+            },
+            body = if (state.isPermanentlyDenied) {
+                "Android will not show the Phone permission prompt. Open system settings to allow hands-free calling, " +
+                    "or use the dialer for this call."
+            } else {
+                "Jandal needs Phone permission to place calls directly. You can open the dialer for this call " +
+                    "without granting permission."
+            },
+            actions = if (state.isPermanentlyDenied) {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Open Phone permission settings",
+                        testTag = "permission_dialog_hands_free_open_app_permissions",
+                        onClick = { viewModel.onHandsFreeCallingOpenAppPermissions() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Open dialer this time",
+                        testTag = "permission_dialog_hands_free_open_dialer",
+                        onClick = { viewModel.onHandsFreeCallingDialerFallback() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_hands_free_not_now",
+                        onClick = { viewModel.dismissHandsFreeCallingDialog() },
+                    ),
+                )
+            } else {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Allow hands-free calling",
+                        testTag = "permission_dialog_hands_free_allow",
+                        onClick = { viewModel.onHandsFreeCallingRequestPermission() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Open dialer this time",
+                        testTag = "permission_dialog_hands_free_open_dialer",
+                        onClick = { viewModel.onHandsFreeCallingDialerFallback() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_hands_free_not_now",
+                        onClick = { viewModel.dismissHandsFreeCallingDialog() },
+                    ),
                 )
             },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        if (state.isPermanentlyDenied) {
-                            "Phone permission is blocked. Open App Permissions to allow hands-free calling, " +
-                                "or open the dialer this time."
-                        } else {
-                            "Jandal needs Phone permission to call ${state.contact.ifBlank { "this number" }} " +
-                                "hands-free. You can open the dialer this time without granting permission."
-                        },
-                    )
-                    TextButton(
-                        onClick = { viewModel.onHandsFreeCallingDialerFallback() },
-                        modifier = Modifier.testTag("permission_dialog_hands_free_open_dialer"),
-                    ) {
-                        Text("Open dialer this time")
-                    }
-                }
-            },
-            confirmButton = {
-                if (state.isPermanentlyDenied) {
-                    TextButton(
-                        onClick = { viewModel.onHandsFreeCallingOpenAppPermissions() },
-                        modifier = Modifier.testTag("permission_dialog_hands_free_open_app_permissions"),
-                    ) {
-                        Text("Open App Permissions")
-                    }
-                } else {
-                    TextButton(
-                        onClick = { viewModel.onHandsFreeCallingRequestPermission() },
-                        modifier = Modifier.testTag("permission_dialog_hands_free_allow"),
-                    ) {
-                        Text("Allow hands-free calling")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { viewModel.dismissHandsFreeCallingDialog() },
-                    modifier = Modifier.testTag("permission_dialog_hands_free_not_now"),
-                ) {
-                    Text("Not now")
-                }
-            },
+            dialogTestTag = "permission_dialog_hands_free_calling",
+            onDismissRequest = { viewModel.dismissHandsFreeCallingDialog() },
         )
     }
     // Clear history confirmation
@@ -748,300 +780,308 @@ fun ActionsScreen(
 
     // DND special-access contextual surface
     dndState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissDndDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_dnd"),
-            title = {
-                Text(
-                    if (state.isAccessBlocked) {
-                        "Jandal still needs Do Not Disturb access"
-                    } else {
-                        "Allow Jandal to control Do Not Disturb?"
-                    },
-                )
+        PermissionOverlayDialog(
+            title = if (state.isAccessBlocked) {
+                "Do Not Disturb access is blocked"
+            } else {
+                "Allow Do Not Disturb control?"
             },
-            text = {
-                Text(
-                    if (state.isAccessBlocked) {
-                        "Grant Do Not Disturb access in Android settings, " +
-                            "then return to Jandal to continue."
-                    } else {
-                        "Android requires special access before Jandal can " +
-                            "turn Do Not Disturb on or off."
-                    },
-                )
+            body = if (state.isAccessBlocked) {
+                "Jandal still does not have Do Not Disturb access. Grant access in Android settings, then return " +
+                    "to Jandal to continue."
+            } else {
+                "Android requires special access before Jandal can turn Do Not Disturb on or off."
             },
-            confirmButton = {
-                TextButton(
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open DND access settings",
+                    testTag = "permission_dialog_dnd_open_settings",
                     onClick = { viewModel.onDndOpenSettings() },
-                    modifier = Modifier.testTag("permission_dialog_dnd_open_settings"),
-                ) {
-                    Text("Open DND access settings")
-                }
-            },
-            dismissButton = {
-                TextButton(
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "permission_dialog_dnd_not_now",
                     onClick = { viewModel.dismissDndDialog() },
-                    modifier = Modifier.testTag("permission_dialog_dnd_not_now"),
-                ) {
-                    Text("Not now")
-                }
-            },
+                ),
+            ),
+            dialogTestTag = "permission_dialog_dnd",
+            onDismissRequest = { viewModel.dismissDndDialog() },
         )
     }
 
     // Write-settings special-access contextual surface
     writeSettingsState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_write_settings"),
-            title = {
-                Text(
-                    if (state.isAccessBlocked) {
-                        "Jandal still needs settings access"
-                    } else {
-                        "Allow Jandal to modify system settings?"
-                    },
-                )
+        PermissionOverlayDialog(
+            title = if (state.isAccessBlocked) {
+                "Settings access is blocked"
+            } else {
+                "Allow settings changes?"
             },
-            text = {
-                Text(
-                    if (state.isAccessBlocked) {
-                        "Jandal still does not have access to modify system settings."
-                    } else {
-                        "Android requires special access before Jandal can " +
-                            "change settings such as screen brightness."
-                    },
-                )
+            body = if (state.isAccessBlocked) {
+                "Jandal still does not have access to modify system settings."
+            } else {
+                "Android requires special access before Jandal can change settings such as screen brightness."
             },
-            confirmButton = {
-                TextButton(
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open settings access",
+                    testTag = "permission_dialog_write_settings_open_settings",
                     onClick = { viewModel.onWriteSettingsOpenSettings() },
-                    modifier = Modifier.testTag("permission_dialog_write_settings_open_settings"),
-                ) {
-                    Text("Open settings access")
-                }
-            },
-            dismissButton = {
-                TextButton(
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "permission_dialog_write_settings_not_now",
                     onClick = { viewModel.dismissWriteSettingsDialog() },
-                    modifier = Modifier.testTag("permission_dialog_write_settings_not_now"),
-                ) {
-                    Text("Not now")
-                }
-            },
+                ),
+            ),
+            dialogTestTag = "permission_dialog_write_settings",
+            onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
         )
     }
 
     // Weather-location contextual permission surface
     weatherLocationState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissWeatherLocationDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_location"),
-            title = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Jandal needs location permission for local weather"
+        PermissionOverlayDialog(
+            title = if (state.isPermanentlyDenied) {
+                "Location permission is blocked"
+            } else {
+                "Use your location for local weather?"
+            },
+            body = if (state.isPermanentlyDenied) {
+                "Android will not show the Location permission prompt. Open system settings to allow local weather, " +
+                    "or ask for weather in a named place instead."
+            } else {
+                "Jandal can use approximate location to answer weather questions for where you are now. " +
+                    "You can also type a place instead."
+            },
+            actions = if (state.isPermanentlyDenied) {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Open Location permission settings",
+                        testTag = "permission_dialog_open_app_permissions",
+                        onClick = { viewModel.onWeatherLocationOpenAppPermissions() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Use a named location",
+                        testTag = "permission_dialog_location_type_place",
+                        onClick = { viewModel.onWeatherLocationTypePlace() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_location_not_now",
+                        onClick = { viewModel.dismissWeatherLocationDialog() },
+                    ),
+                )
+            } else {
+                listOfNotNull(
+                    PermissionDialogAction(
+                        label = "Use my location",
+                        testTag = "permission_dialog_location_use_my_location",
+                        onClick = { viewModel.onWeatherLocationRequestPermission() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Use a named location",
+                        testTag = "permission_dialog_location_type_place",
+                        onClick = { viewModel.onWeatherLocationTypePlace() },
+                    ),
+                    if (state.hasSavedLocation) {
+                        PermissionDialogAction(
+                            label = "Use saved location",
+                            testTag = "permission_dialog_location_use_saved_location",
+                            onClick = { viewModel.onWeatherLocationUseSavedLocation() },
+                        )
                     } else {
-                        "Use your location for local weather?"
+                        null
                     },
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_location_not_now",
+                        onClick = { viewModel.dismissWeatherLocationDialog() },
+                    ),
                 )
             },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        if (state.isPermanentlyDenied) {
-                            "Location permission is blocked or revoked. Open App Permissions to allow Jandal " +
-                                "to use approximate location for local weather."
-                        } else {
-                            "Jandal can use approximate location to answer weather questions for where " +
-                                "you are now. You can also type a place instead."
-                        },
-                    )
-                    if (state.hasSavedLocation && !state.isPermanentlyDenied) {
-                        TextButton(
-                            onClick = { viewModel.onWeatherLocationUseSavedLocation() },
-                            modifier = Modifier.testTag("permission_dialog_location_use_saved_location"),
-                        ) {
-                            Text("Use saved location")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                if (state.isPermanentlyDenied) {
-                    TextButton(
-                        onClick = { viewModel.onWeatherLocationOpenAppPermissions() },
-                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
-                    ) {
-                        Text("Open App Permissions")
-                    }
-                } else {
-                    TextButton(
-                        onClick = { viewModel.onWeatherLocationRequestPermission() },
-                        modifier = Modifier.testTag("permission_dialog_location_use_my_location"),
-                    ) {
-                        Text("Use my location")
-                    }
-                }
-            },
-            dismissButton = {
-                Column {
-                    if (!state.isPermanentlyDenied) {
-                        TextButton(
-                            onClick = { viewModel.onWeatherLocationTypePlace() },
-                            modifier = Modifier.testTag("permission_dialog_location_type_place"),
-                        ) {
-                            Text("Type a place")
-                        }
-                    }
-                    TextButton(
-                        onClick = { viewModel.dismissWeatherLocationDialog() },
-                        modifier = Modifier.testTag("permission_dialog_location_not_now"),
-                    ) {
-                        Text("Not now")
-                    }
-                }
-            },
+            dialogTestTag = "permission_dialog_location",
+            onDismissRequest = { viewModel.dismissWeatherLocationDialog() },
         )
     }
 
     // Contact-permission contextual surface
     contactPermissionState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissContactPermissionDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_contacts"),
-            title = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Jandal needs Contacts permission"
-                    } else {
-                        "Allow contact lookup?"
-                    },
-                )
+        PermissionOverlayDialog(
+            title = if (state.isPermanentlyDenied) {
+                "Contacts permission is blocked"
+            } else {
+                "Allow contact lookup?"
             },
-            text = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Contacts permission is blocked or revoked. Open App Permissions to allow Jandal " +
-                            "to find people by name."
-                    } else {
-                        "Jandal needs contacts access to find people by name. You can also enter " +
-                            "the phone number or email address manually."
-                    },
-                )
+            body = if (state.isPermanentlyDenied) {
+                "Android will not show the Contacts permission prompt. Open system settings to allow contact lookup, " +
+                    "or enter the details manually."
+            } else {
+                "Jandal needs Contacts access to find people by name. You can also enter the phone number or " +
+                    "email address manually."
             },
-            confirmButton = {
-                if (state.isPermanentlyDenied) {
-                    TextButton(
+            actions = if (state.isPermanentlyDenied) {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Open Contacts permission settings",
+                        testTag = "permission_dialog_open_app_permissions",
                         onClick = { viewModel.onContactOpenAppPermissions() },
-                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
-                    ) {
-                        Text("Open App Permissions")
-                    }
-                } else {
-                    TextButton(
-                        onClick = { viewModel.onContactRequestPermission() },
-                        modifier = Modifier.testTag("permission_dialog_contacts_allow"),
-                    ) {
-                        Text("Allow contact lookup")
-                    }
-                }
-            },
-            dismissButton = {
-                Column {
-                    if (!state.isPermanentlyDenied) {
-                        TextButton(
-                            onClick = { viewModel.onContactEnterManually() },
-                            modifier = Modifier.testTag("permission_dialog_contacts_enter_manually"),
-                        ) {
-                            Text("Enter manually")
-                        }
-                    }
-                    TextButton(
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Enter manually",
+                        testTag = "permission_dialog_contacts_enter_manually",
+                        onClick = { viewModel.onContactEnterManually() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_contacts_not_now",
                         onClick = { viewModel.dismissContactPermissionDialog() },
-                        modifier = Modifier.testTag("permission_dialog_contacts_not_now"),
-                    ) {
-                        Text("Not now")
-                    }
-                }
+                    ),
+                )
+            } else {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Allow contact lookup",
+                        testTag = "permission_dialog_contacts_allow",
+                        onClick = { viewModel.onContactRequestPermission() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Enter manually",
+                        testTag = "permission_dialog_contacts_enter_manually",
+                        onClick = { viewModel.onContactEnterManually() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_contacts_not_now",
+                        onClick = { viewModel.dismissContactPermissionDialog() },
+                    ),
+                )
             },
+            dialogTestTag = "permission_dialog_contacts",
+            onDismissRequest = { viewModel.dismissContactPermissionDialog() },
         )
     }
 
     // Calendar-permission contextual surface
     calendarPermissionState?.let { state ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissCalendarPermissionDialog() },
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("permission_dialog_calendar"),
-            title = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Jandal needs Calendar permission"
-                    } else {
-                        "Allow calendar lookup?"
-                    },
-                )
+        PermissionOverlayDialog(
+            title = if (state.isPermanentlyDenied) {
+                "Calendar permission is blocked"
+            } else {
+                "Allow calendar lookup?"
             },
-            text = {
-                Text(
-                    if (state.isPermanentlyDenied) {
-                        "Calendar permission is blocked or revoked. Open App Permissions to allow Jandal " +
-                            "to find synced birthdays and important dates."
-                    } else {
-                        "Jandal can read your calendar to find synced birthdays and important dates. " +
-                            "You can also add important dates manually."
-                    },
-                )
+            body = if (state.isPermanentlyDenied) {
+                "Android will not show the Calendar permission prompt. Open system settings to allow calendar lookup, " +
+                    "or add the date manually."
+            } else {
+                "Jandal can read your calendar to find synced birthdays and important dates. You can also add " +
+                    "important dates manually."
             },
-            confirmButton = {
-                if (state.isPermanentlyDenied) {
-                    TextButton(
+            actions = if (state.isPermanentlyDenied) {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Open Calendar permission settings",
+                        testTag = "permission_dialog_open_app_permissions",
                         onClick = { viewModel.onCalendarOpenAppPermissions() },
-                        modifier = Modifier.testTag("permission_dialog_open_app_permissions"),
-                    ) {
-                        Text("Open App Permissions")
-                    }
-                } else {
-                    TextButton(
-                        onClick = { viewModel.onCalendarRequestPermission() },
-                        modifier = Modifier.testTag("permission_dialog_calendar_allow"),
-                    ) {
-                        Text("Allow calendar lookup")
-                    }
-                }
-            },
-            dismissButton = {
-                Column {
-                    if (!state.isPermanentlyDenied) {
-                        TextButton(
-                            onClick = { viewModel.onCalendarAddManually() },
-                            modifier = Modifier.testTag("permission_dialog_calendar_add_manually"),
-                        ) {
-                            Text("Add manually")
-                        }
-                    }
-                    TextButton(
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Add manually",
+                        testTag = "permission_dialog_calendar_add_manually",
+                        onClick = { viewModel.onCalendarAddManually() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_calendar_not_now",
                         onClick = { viewModel.dismissCalendarPermissionDialog() },
-                        modifier = Modifier.testTag("permission_dialog_calendar_not_now"),
-                    ) {
-                        Text("Not now")
-                    }
-                }
+                    ),
+                )
+            } else {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Allow calendar lookup",
+                        testTag = "permission_dialog_calendar_allow",
+                        onClick = { viewModel.onCalendarRequestPermission() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Add manually",
+                        testTag = "permission_dialog_calendar_add_manually",
+                        onClick = { viewModel.onCalendarAddManually() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_calendar_not_now",
+                        onClick = { viewModel.dismissCalendarPermissionDialog() },
+                    ),
+                )
             },
+            dialogTestTag = "permission_dialog_calendar",
+            onDismissRequest = { viewModel.dismissCalendarPermissionDialog() },
+        )
+    }
+
+    // Microphone-permission contextual surface
+    microphoneState?.let { state ->
+        PermissionOverlayDialog(
+            title = if (state.isPermanentlyDenied) {
+                "Microphone permission is blocked"
+            } else {
+                "Allow voice input?"
+            },
+            body = if (state.isPermanentlyDenied) {
+                "Android will not show the Microphone permission prompt. Open system settings to allow voice input, " +
+                    "or keep typing."
+            } else {
+                "Jandal needs Microphone permission to listen for voice input. You can keep typing instead."
+            },
+            actions = if (state.isPermanentlyDenied) {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Open Microphone permission settings",
+                        testTag = "permission_dialog_microphone_open_settings",
+                        onClick = { viewModel.onMicrophoneOpenAppPermissions() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Keep typing",
+                        testTag = "permission_dialog_microphone_keep_typing",
+                        onClick = { viewModel.onMicrophoneKeepTyping() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_microphone_not_now",
+                        onClick = { viewModel.dismissMicrophoneDialog() },
+                    ),
+                )
+            } else {
+                listOf(
+                    PermissionDialogAction(
+                        label = "Allow voice input",
+                        testTag = "permission_dialog_microphone_allow",
+                        onClick = { viewModel.onMicrophoneRequestPermission() },
+                        isPrimary = true,
+                    ),
+                    PermissionDialogAction(
+                        label = "Keep typing",
+                        testTag = "permission_dialog_microphone_keep_typing",
+                        onClick = { viewModel.onMicrophoneKeepTyping() },
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_microphone_not_now",
+                        onClick = { viewModel.dismissMicrophoneDialog() },
+                    ),
+                )
+            },
+            dialogTestTag = "permission_dialog_microphone",
+            onDismissRequest = { viewModel.dismissMicrophoneDialog() },
         )
     }
 }
