@@ -90,14 +90,62 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification())
-        // If RECORD_AUDIO is not granted, refuse to start the service.
+        // If RECORD_AUDIO is not granted, refuse to start the foreground service.
+        // startForeground with foregroundServiceType=microphone requires RECORD_AUDIO
+        // or FOREGROUND_SERVICE_MICROPHONE — without it Android throws SecurityException.
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+            return START_NOT_STICKY
+        }
+
+        startForeground(NOTIFICATION_ID, buildNotification())
+
+        if (!wakeWordDetector.isAvailable) {
+            Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
             stopSelf(startId)
             return START_NOT_STICKY
         }
+
+        // Guard: if the detector and collector are already running (re-delivery of a
+        // START_STICKY intent or a spurious onResume retry), do not start duplicates.
+        if (eventCollectorJob?.isActive == true) {
+            Log.d(TAG, "WakeWordService: already running — ignoring duplicate onStartCommand")
+            return START_STICKY
+        }
+
+        Log.i(TAG, "WakeWordService: starting wake word detection")
+        rearmDetector()
+
+        // Automatically yield the AudioRecord whenever another voice session is active.
+        eventCollectorJob = serviceScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
+                        wakeWordDetector.stop()
+                    }
+
+                    is VoiceInputEvent.ListeningStopped -> {
+                        if (isHandlingDetection) return@collect
+                        Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
+                        rearmDetector()
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        return START_STICKY
+    }
+
+            return START_NOT_STICKY
+            stopSelf(startId)
+            Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+        // If RECORD_AUDIO is not granted, refuse to start the service.
+        startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
