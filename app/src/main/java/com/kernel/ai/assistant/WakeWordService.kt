@@ -345,7 +345,9 @@ class WakeWordService : Service() {
             if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
                     != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — cannot start FGS")
-            android.widget.Toast.makeText(context, "Hey Jandal was turned off because Microphone permission was removed. Allow Microphone access again to use the wake word.", android.widget.Toast.LENGTH_LONG).show()
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "Hey Jandal was turned off because Microphone permission was removed. Allow Microphone access again to use the wake word.", android.widget.Toast.LENGTH_LONG).show()
+                }
                 return
             }
             try {
