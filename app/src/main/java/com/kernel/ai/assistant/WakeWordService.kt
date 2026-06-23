@@ -340,6 +340,13 @@ class WakeWordService : Service() {
         private var instance: WeakReference<WakeWordService>? = null
 
         fun start(context: Context) {
+            // Don't start if RECORD_AUDIO is not granted — startForegroundService
+            // for a service with foregroundServiceType=microphone requires it.
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — cannot start FGS")
+                return
+            }
             try {
                 context.startForegroundService(Intent(context, WakeWordService::class.java))
             } catch (e: Exception) {
@@ -350,6 +357,7 @@ class WakeWordService : Service() {
                 Log.w(TAG, "WakeWordService: cannot start from background: ${e.message}")
             }
         }
+
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
