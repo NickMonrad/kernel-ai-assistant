@@ -94,7 +94,7 @@ class AppPermissionsViewModel @Inject constructor(
         val knownPermissions = listOf(
             AppPermissionItem(
                 label = "Phone",
-                description = "Hands-free calling via make_call and voicemail",
+                description = "Hands-free calling",
                 permission = Manifest.permission.CALL_PHONE,
             ),
             AppPermissionItem(
@@ -104,22 +104,22 @@ class AppPermissionsViewModel @Inject constructor(
             ),
             AppPermissionItem(
                 label = "Notifications",
-                description = "Alarm, timer and download notifications",
+                description = "Alarms, timers, and download notifications",
                 permission = Manifest.permission.POST_NOTIFICATIONS,
             ),
             AppPermissionItem(
                 label = "Location",
-                description = "GPS-based weather lookup",
+                description = "Local weather",
                 permission = Manifest.permission.ACCESS_COARSE_LOCATION,
             ),
             AppPermissionItem(
                 label = "Contacts",
-                description = "Call, SMS and email by contact name",
+                description = "Contact lookup for calls, SMS, and email",
                 permission = Manifest.permission.READ_CONTACTS,
             ),
             AppPermissionItem(
                 label = "Calendar",
-                description = "Synced birthday reminders",
+                description = "Calendar lookup for important dates",
                 permission = Manifest.permission.READ_CALENDAR,
             ),
         )
@@ -128,7 +128,7 @@ class AppPermissionsViewModel @Inject constructor(
         val specialPermissions = listOf(
             AppPermissionItem(
                 label = "Do Not Disturb",
-                description = "Toggle DND mode on/off",
+                description = "Do Not Disturb control",
                 permission = Manifest.permission.ACCESS_NOTIFICATION_POLICY,
                 isGranted = checkNotificationPolicyAccess(),
                 isSpecial = true,
@@ -137,7 +137,7 @@ class AppPermissionsViewModel @Inject constructor(
             // but included for completeness on devices that deny it.
             AppPermissionItem(
                 label = "Modify system settings",
-                description = "Change screen brightness",
+                description = "Brightness and system settings",
                 permission = Manifest.permission.WRITE_SETTINGS,
                 isGranted = Settings.System.canWrite(context),
                 isSpecial = true,

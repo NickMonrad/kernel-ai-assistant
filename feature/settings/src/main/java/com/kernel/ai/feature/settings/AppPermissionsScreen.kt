@@ -87,7 +87,7 @@ fun AppPermissionsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "These are the permissions Jandal uses. Tap any revoked permission to open the right system settings page.",
+                text = "Review the permissions and Android access Jandal uses for specific features. Tap an item to repair access in Android settings.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -112,7 +112,7 @@ fun AppPermissionsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Tip: Revoked runtime permissions open App info. Revoked special-access items open their dedicated system settings page.",
+            // Removed: tip text was redundant with per-item repair actions
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
