@@ -2073,7 +2073,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s|s| is)\s+(?:the\s+)?)?forecast[.!?]*$""",
+                """^(?:what(?:'s|s| is)\s+(?:the\s+)?)?forecast[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },

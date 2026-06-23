@@ -23,6 +23,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
@@ -68,6 +69,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -121,14 +123,14 @@ class ChatViewModelQuickIntentRouterTest {
     // Real QIR (no classifier — regex-only)
     private val realRouter = QuickIntentRouter()
 
-    // Fake weather skill for testing
+    private var weatherSkillResult: SkillResult = SkillResult.Success("Currently 18°C and partly cloudy in your area.")
+
     private val weatherSkill = object : Skill {
         override val name = "get_weather"
         override val description = "Get weather"
         override val schema = SkillSchema()
 
-        override suspend fun execute(call: SkillCall): SkillResult =
-            SkillResult.Success("Currently 18°C and partly cloudy in your area.")
+        override suspend fun execute(call: SkillCall): SkillResult = weatherSkillResult
     }
 
     private val spokenResponsesEnabled = MutableStateFlow(false)
@@ -136,6 +138,7 @@ class ChatViewModelQuickIntentRouterTest {
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        weatherSkillResult = SkillResult.Success("Currently 18°C and partly cloudy in your area.")
         mockkStatic(Log::class)
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.i(any<String>(), any<String>()) } returns 0
@@ -259,6 +262,29 @@ class ChatViewModelQuickIntentRouterTest {
         assert(chatText.contains("partly cloudy") || chatText.contains("weather")) {
             "Expected weather response in chat for '$input' but got: $chatText"
         }
+    }
+
+    @Test
+    fun `weather capability required surfaces repair message and skips LLM`() = runTest(dispatcher) {
+        val input = "what's the weather"
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+
+        val chatText = viewModel.getConversationAsText()
+        assertTrue(chatText.contains("Location access"), "Expected location-repair guidance, got: $chatText")
+        assertTrue(chatText.contains("named city"), "Expected named-city fallback guidance, got: $chatText")
+        assertTrue(!chatText.contains("get_weather"), "Did not expect raw tool JSON or tool name in: $chatText")
     }
 
     @Test

@@ -66,6 +66,7 @@ import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
 import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
@@ -2168,6 +2169,20 @@ class ChatViewModel @Inject constructor(
                             // Action failed — inject error context so E4B can explain naturally.
                             systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
                         }
+                        is com.kernel.ai.core.skills.SkillResult.CapabilityRequired -> {
+                            val message = capabilityRequiredMessage(skillResult)
+                            appendAssistantMessage(
+                                convId = convId,
+                                content = message,
+                                shouldIndex = false,
+                                spokenSummary = message,
+                            )
+                            Log.d(
+                                "KernelAI",
+                                "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
+                            )
+                            return@launch
+                        }
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
                     }
                 }
@@ -3269,6 +3284,13 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
+    private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
+        if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+            "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
+        } else {
+            "Permission required for ${result.skillName}."
+        }
 
     private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
         is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
