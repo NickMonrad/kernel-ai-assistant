@@ -191,6 +191,8 @@ class OnnxWakeWordDetector @Inject constructor(
         }
     }
 
+/** Returns true if the app currently holds RECORD_AUDIO permission. */
+
     fun hasMicrophonePermission(): Boolean {
         return runCatching {
             context.packageManager.checkPermission(
@@ -332,7 +334,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
                 return
 
-    /** Returns true if the app currently holds RECORD_AUDIO permission. */
             }
             Log.i(TAG, "WakeWordDetector: models loaded (embedding: NNAPI CPU_DISABLED, mel+classifier: CPU)")
 
