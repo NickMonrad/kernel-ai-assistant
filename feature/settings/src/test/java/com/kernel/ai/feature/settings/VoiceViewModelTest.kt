@@ -549,8 +549,6 @@ class VoiceViewModelTest {
     }
 
     @Test
-
-    @Test
     fun `enforce with Unknown disables Hey Jandal`() = runTest {
         viewModel.setHeyJandalEnabled(true)
         testDispatcher.scheduler.advanceUntilIdle()

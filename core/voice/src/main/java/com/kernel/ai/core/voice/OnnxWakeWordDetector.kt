@@ -279,13 +279,18 @@ class OnnxWakeWordDetector @Inject constructor(
         val minBufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
             .coerceAtLeast(FRAME_SAMPLES * Short.SIZE_BYTES * 2)
 
-        val audioRecord = AudioRecord(
+        val audioRecord = try { AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             SAMPLE_RATE,
             CHANNEL_CONFIG,
             AUDIO_FORMAT,
             minBufSize,
         )
+        } catch (e: Exception) {
+            Log.e(TAG, "WakeWordDetector: AudioRecord construction failed", e)
+            running.set(false)
+            return
+        }
         if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
             Log.e(TAG, "WakeWordDetector: AudioRecord failed to initialise")
             running.set(false)

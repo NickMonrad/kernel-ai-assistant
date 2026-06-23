@@ -96,6 +96,7 @@ class WakeWordService : Service() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+            stopSelf(startId)
             return START_NOT_STICKY
         }
 
