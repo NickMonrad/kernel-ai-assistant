@@ -89,6 +89,10 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("how long until the timer goes off", "get_timer_remaining"),
     ]),
     ("weather", [
+        # #1318 — bare/local weather and forecast
+        TestCase("what's the weather", "get_weather"),
+        TestCase("what's the 5-day forecast", "get_weather"),
+        # Location-based weather
         TestCase("what's the weather in Auckland", "get_weather"),
         TestCase("will it rain today", "get_weather"),
         TestCase("how hot is it outside", "get_weather"),

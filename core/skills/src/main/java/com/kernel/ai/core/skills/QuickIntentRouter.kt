@@ -1563,11 +1563,11 @@ class QuickIntentRouter(
             requiredSlots = emptyMap(),
         ),
 
-        // "What's the 5 day forecast?" — exact Learn wording
+        // "What's the 5 day forecast?" / "What's the 5-day forecast?" — exact Learn wording + hyphen variant
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+)?(?:the\s+)?(\d+)\s+day\s+(?:weather\s+)?forecast\s*[.!?]*$""",
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(\d+)\s*[ -]?\s*day\s+(?:weather\s+)?forecast\s*[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1696,11 +1696,11 @@ class QuickIntentRouter(
                 }
             },
         ),
-        // Multi-day forecast (digit): "7 day weather forecast for Brisbane"
+        // Multi-day forecast (digit): "7 day weather forecast for Brisbane" / "7-day weather forecast for Brisbane"
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(\d+)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                """(\d+)\s*[ -]?\s*day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2058,6 +2058,41 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Expanded bare/local weather: "whats the weather", "weather here", "local weather",
+        // "what's the weather here" (no-apostrophe, "here", and "local" forms not covered by GPS pattern)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s|s| is)\s+(?:the\s+)?weather(?:\s+(?:here|like|today|tonight|now|outside|currently))?|weather(?:\s+here)?|local\s+weather)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Bare/local forecast: "forecast", "what's the forecast", "what is the forecast", "whats the forecast"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s|s| is)\s+(?:the\s+)?)?forecast[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Word-form bare forecast: "five day forecast", "five-day forecast"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s|s| is)\s+)?(?:the\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)\s*[ -]?\s*day\s+forecast[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val daysWord = match.groupValues[1].lowercase()
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                mapOf("forecast_days" to (wordToNum[daysWord] ?: daysWord))
+            },
         ),
         // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella"
         IntentPattern(

@@ -3334,6 +3334,7 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun weatherGpsRegexPhrases(): Stream<Arguments> = Stream.of(
+            // Existing GPS weather patterns
             Arguments.of("what's the weather"),
             Arguments.of("what is the weather"),
             Arguments.of("weather today"),
@@ -3349,6 +3350,17 @@ class QuickIntentRouterTest {
             Arguments.of("what's the weather like"),
             Arguments.of("how's the weather like"),
             Arguments.of("What's the weather?"),
+            // #1318 — expanded bare/local weather coverage
+            Arguments.of("whats the weather"),
+            Arguments.of("weather"),
+            Arguments.of("weather here"),
+            Arguments.of("local weather"),
+            Arguments.of("what's the weather here"),
+            // #1318 — bare forecast coverage
+            Arguments.of("forecast"),
+            Arguments.of("what's the forecast"),
+            Arguments.of("what is the forecast"),
+            Arguments.of("whats the forecast"),
         )
 
         @JvmStatic
@@ -3413,6 +3425,12 @@ class QuickIntentRouterTest {
             Arguments.of("what's the weather looking like for the next few days in Wellington", "3", "Wellington"),
             // Issue #1280 — explicit exact prompt coverage
             Arguments.of("What's the 5 day forecast?", "5", null),
+            // #1318 — hyphenated and word-form forecast coverage
+            Arguments.of("what's the 5-day forecast", "5", null),
+            Arguments.of("5-day forecast", "5", null),
+            Arguments.of("five day forecast", "5", null),
+            Arguments.of("what's the five day forecast", "5", null),
+            Arguments.of("five-day forecast", "5", null),
         )
 
         @JvmStatic
