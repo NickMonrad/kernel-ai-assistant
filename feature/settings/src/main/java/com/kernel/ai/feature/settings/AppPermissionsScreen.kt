@@ -109,14 +109,6 @@ fun AppPermissionsScreen(
                 HorizontalDivider()
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-            // Removed: tip text was redundant with per-item repair actions
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
         }
     }
 }
