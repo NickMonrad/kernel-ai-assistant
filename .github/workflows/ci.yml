@@ -82,7 +82,7 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
-        run: ./gradlew :core:skills:testDebugUnitTest :feature:chat:testDebugUnitTest
+        run: ./gradlew :core:skills:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Upload test results
         if: always()
@@ -159,7 +159,6 @@ jobs:
           # Post or update sticky comment (identified by marker in first line)
           EXISTING_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.body | startswith("<!-- pr-apk-comment -->"))][0].id // empty')
-
           if [ -n "$EXISTING_ID" ]; then
             gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
               -X PATCH --input /tmp/pr-comment.json
