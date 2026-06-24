@@ -27,20 +27,23 @@ import kotlinx.coroutines.launch
 import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationResponse
 import javax.inject.Inject
-
-     * Currently only POST_NOTIFICATIONS is included (needed for alarms, timers,
-     * reminders, and download progress). Other runtime permissions (Location,
-     * Contacts, Calendar, Phone) are requested on first feature use via
-     * contextual permission overlays (#1312).
-     *
-     * Extracted for testability. Package-private to allow unit testing.
-     */
+/**
+    * Build the list of runtime permissions that should be requested at startup.
+    * Currently only POST_NOTIFICATIONS is included (needed for alarms, timers,
+    * reminders, and download progress). Other runtime permissions (Location,
+    * Contacts, Calendar, Phone) are requested on first feature use via
+    * contextual permission overlays (#1312).
+    *
+    * @param context Application context.
+    * @param sdkInt Device SDK version (injected for test determinism).
+    */
     internal fun buildMissingStartupPermissions(context: android.content.Context, sdkInt: Int = Build.VERSION.SDK_INT): List<String> {
         return buildList {
             if (sdkInt >= Build.VERSION_CODES.TIRAMISU &&
                 androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
