@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import android.Manifest
+import android.net.Uri
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -8,9 +9,11 @@ import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.mockk.every
+import io.mockk.slot
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.mockkConstructor
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -148,34 +151,110 @@ class AppPermissionsViewModelTest {
 
 
     // ── Repair routing ────────────────────────────────────────────────
-    // These tests verify that repair methods dispatch intents correctly.
-    // On JVM without Robolectric, startActivity may not work, so the tests
-    // verify the method completes and inspect the internal logic.
+    // Intent constructors are mocked via mockkConstructor since the Android
+    // framework stub JAR on JVM has no working constructors. Uri.parse is
+    // also mocked via mockkStatic since the stub returns null. Property
+    // answers use Kotlin synthetic properties (which map to getters).
+    // For the chained-call pattern (openAppInfoSettings), we set up the
+    // addFlags return mock with the same property answers.
 
     @Test
-    fun `openAppInfoSettings completes without exception`() = runTest {
+    fun `openAppInfoSettings sends application details intent`() = runTest {
+        val mockPackageUri = mockk<Uri>()
+        mockkStatic(Uri::class)
+        every { Uri.parse("package:com.kernel.ai.test") } returns mockPackageUri
+        every { mockPackageUri.toString() } returns "package:com.kernel.ai.test"
+
+        mockkConstructor(Intent::class)
+        val addFlagsReturn = mockk<Intent>()
+        every { anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } returns addFlagsReturn
+        every { addFlagsReturn.getAction() } returns Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        every { addFlagsReturn.data } returns mockPackageUri
+        every { addFlagsReturn.flags } returns Intent.FLAG_ACTIVITY_NEW_TASK
+
         val vm = createViewModel()
-        // Should not throw even if startActivity fails
-        runCatching { vm.openAppInfoSettings() }
+        val intentSlot = slot<Intent>()
+
+        vm.openAppInfoSettings()
+
+        verify { context.startActivity(capture(intentSlot)) }
+        with(intentSlot.captured) {
+            assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, getAction())
+            assertEquals("package:com.kernel.ai.test", data?.toString())
+            assertTrue(flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        }
     }
 
     @Test
-    fun `openSpecialPermissionSettings completes without exception for DND`() = runTest {
+    fun `openSpecialPermissionSettings for DND sends notification policy intent`() = runTest {
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().getAction() } returns Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS
+        every { anyConstructed<Intent>().flags } returns Intent.FLAG_ACTIVITY_NEW_TASK
+
         val vm = createViewModel()
-        runCatching { vm.openSpecialPermissionSettings(Manifest.permission.ACCESS_NOTIFICATION_POLICY) }
+        val intentSlot = slot<Intent>()
+
+        vm.openSpecialPermissionSettings(Manifest.permission.ACCESS_NOTIFICATION_POLICY)
+
+        verify { context.startActivity(capture(intentSlot)) }
+        with(intentSlot.captured) {
+            assertEquals(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS, getAction())
+            assertTrue(flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        }
     }
 
     @Test
-    fun `openSpecialPermissionSettings completes for WRITE_SETTINGS`() = runTest {
+    fun `openSpecialPermissionSettings for WRITE_SETTINGS sends manage write settings intent`() = runTest {
+        val mockPackageUri = mockk<Uri>()
+        mockkStatic(Uri::class)
+        every { Uri.parse("package:com.kernel.ai.test") } returns mockPackageUri
+        every { mockPackageUri.toString() } returns "package:com.kernel.ai.test"
+
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().getAction() } returns Settings.ACTION_MANAGE_WRITE_SETTINGS
+        every { anyConstructed<Intent>().data } returns mockPackageUri
+        every { anyConstructed<Intent>().flags } returns Intent.FLAG_ACTIVITY_NEW_TASK
+
         val vm = createViewModel()
-        runCatching { vm.openSpecialPermissionSettings(Manifest.permission.WRITE_SETTINGS) }
+        val intentSlot = slot<Intent>()
+
+        vm.openSpecialPermissionSettings(Manifest.permission.WRITE_SETTINGS)
+
+        verify { context.startActivity(capture(intentSlot)) }
+        with(intentSlot.captured) {
+            assertEquals(Settings.ACTION_MANAGE_WRITE_SETTINGS, getAction())
+            assertEquals("package:com.kernel.ai.test", data?.toString())
+            assertTrue(flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        }
     }
 
     @Test
-    fun `openSpecialPermissionSettings completes for unknown permission`() = runTest {
+    fun `openSpecialPermissionSettings for unknown permission falls back to app info`() = runTest {
+        val mockPackageUri = mockk<Uri>()
+        mockkStatic(Uri::class)
+        every { Uri.parse("package:com.kernel.ai.test") } returns mockPackageUri
+        every { mockPackageUri.toString() } returns "package:com.kernel.ai.test"
+
+        mockkConstructor(Intent::class)
+        val addFlagsReturn = mockk<Intent>()
+        every { anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } returns addFlagsReturn
+        every { addFlagsReturn.getAction() } returns Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        every { addFlagsReturn.data } returns mockPackageUri
+        every { addFlagsReturn.flags } returns Intent.FLAG_ACTIVITY_NEW_TASK
+
         val vm = createViewModel()
-        runCatching { vm.openSpecialPermissionSettings("unknown.permission") }
+        val intentSlot = slot<Intent>()
+
+        vm.openSpecialPermissionSettings("unknown.permission")
+
+        verify { context.startActivity(capture(intentSlot)) }
+        with(intentSlot.captured) {
+            assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, getAction())
+            assertEquals("package:com.kernel.ai.test", data?.toString())
+            assertTrue(flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        }
     }
+
     // ── Refresh ───────────────────────────────────────────────────────
 
     @Test
