@@ -179,15 +179,13 @@ class MainActivity : ComponentActivity() {
         if (!forcePromptForTests && prefs.getBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, false)) return
 
         val missingPermissions = buildList {
+            // Notifications: needed for alarms, timers, reminders, and download progress.
+            // Kept as a startup prompt because these are launch-critical notification-backed
+            // features. Other runtime permissions (Location, Contacts, Calendar, Phone) are
+            // requested on first feature use via contextual permission overlays (#1312).
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            }
-            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.READ_CONTACTS)
             }
         }
 

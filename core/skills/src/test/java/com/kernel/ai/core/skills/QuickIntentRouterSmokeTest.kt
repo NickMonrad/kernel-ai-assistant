@@ -40,8 +40,15 @@ class QuickIntentRouterSmokeTest {
             // get_weather
             Arguments.of("what's the weather", "get_weather"),
             Arguments.of("what's the forecast for the next seven days", "get_weather"),
-
-            // set_alarm
+            // #1318 — expanded bare weather and forecast
+            Arguments.of("whats the weather", "get_weather"),
+            Arguments.of("weather here", "get_weather"),
+            Arguments.of("local weather", "get_weather"),
+            Arguments.of("what's the weather here", "get_weather"),
+            Arguments.of("what's the forecast", "get_weather"),
+            Arguments.of("what's the 5-day forecast", "get_weather"),
+            Arguments.of("5-day forecast", "get_weather"),
+            Arguments.of("five day forecast", "get_weather"),
             Arguments.of("set an alarm for 7am", "set_alarm"),
             Arguments.of("wake me up at 6:30", "set_alarm"),
 
