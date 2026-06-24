@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.memory.clock.ClockSoundConfig
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.ClockTimer
@@ -56,42 +57,42 @@ class SidePanelViewModelTest {
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
         val draft = sampleAlarmDraft(label = "Wake")
-        coEvery { clockRepository.createAlarm(draft) } returns null
+        coEvery { clockRepository.createAlarm(draft) } returns SchedulingResult.ExactAlarmBlocked
         val viewModel = SidePanelViewModel(clockRepository)
 
         val result = viewModel.tryScheduleAlarm(draft)
 
-        assertEquals(false, result)
+        assertEquals(AlarmSaveResult.EXACT_ALARM_BLOCKED, result)
     }
 
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
         val draft = sampleAlarmDraft(label = "Wake")
-        coEvery { clockRepository.createAlarm(draft) } returns null
+        coEvery { clockRepository.createAlarm(draft) } returns SchedulingResult.SchedulingFailed(null)
         val viewModel = SidePanelViewModel(clockRepository)
         var result: AlarmSaveResult? = null
 
         viewModel.scheduleAlarm(draft) { result = it }
         advanceUntilIdle()
 
-        assertEquals(AlarmSaveResult.FAILED, result)
+        assertEquals(AlarmSaveResult.FAILED(null), result)
     }
 
     @Test
     fun `scheduleTimer returns true when repository accepts timer`() = runTest {
-        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns ClockTimer(
+        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns SchedulingResult.Success(ClockTimer(
             id = "timer-1",
             triggerAtMillis = 5_000L,
             label = "Tea",
             createdAtMillis = 1_000L,
             durationMs = 60_000L,
             startedAtMillis = 2_000L,
-        )
+        ))
         val viewModel = SidePanelViewModel(clockRepository)
 
         val result = viewModel.tryScheduleTimer(60_000L, "Tea")
 
-        assertEquals(true, result)
+        assertEquals(AlarmSaveResult.STORED, result)
     }
 
     @Test
@@ -105,14 +106,14 @@ class SidePanelViewModelTest {
             startedAtMillis = 2_000L,
             completedAtMillis = 5_000L,
         )
-        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns timer
+        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns SchedulingResult.Success(timer)
         val viewModel = SidePanelViewModel(clockRepository)
-        var success: Boolean? = null
+        var result: AlarmSaveResult? = null
 
-        viewModel.restartTimer(timer) { success = it }
+        viewModel.restartTimer(timer) { result = it }
         advanceUntilIdle()
 
-        assertEquals(true, success)
+        assertEquals(AlarmSaveResult.STORED, result)
         coVerify(exactly = 1) { clockRepository.scheduleTimer(60_000L, "Tea") }
     }
 
@@ -163,12 +164,12 @@ class SidePanelViewModelTest {
     fun `editAlarm returns false when repository rejects update`() = runTest {
         val alarm = sampleAlarm()
         val draft = sampleAlarmDraft(label = "Updated")
-        coEvery { clockRepository.updateAlarm(alarm.id, draft) } returns null
+        coEvery { clockRepository.updateAlarm(alarm.id, draft) } returns SchedulingResult.ExactAlarmBlocked
         val viewModel = SidePanelViewModel(clockRepository)
 
         val result = viewModel.tryEditAlarm(alarm, draft)
 
-        assertEquals(false, result)
+        assertEquals(AlarmSaveResult.EXACT_ALARM_BLOCKED, result)
     }
 
     @Test

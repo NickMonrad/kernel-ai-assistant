@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -11,9 +12,9 @@ import java.time.Instant
 import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ScheduledAlarmsViewModel @Inject constructor(
@@ -24,22 +25,17 @@ class ScheduledAlarmsViewModel @Inject constructor(
         clockRepository.observeUpcomingAlarms()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
-        clockRepository.createAlarm(triggerAtMillis.toOneOffAlarmDraft(label)) != null
+    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): AlarmSaveResult =
+        clockRepository.createAlarm(triggerAtMillis.toOneOffAlarmDraft(label)).toAlarmSaveResult()
 
     fun scheduleAlarm(triggerAtMillis: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
-            val result = if (tryScheduleAlarm(triggerAtMillis, label)) {
-                AlarmSaveResult.STORED
-            } else {
-                AlarmSaveResult.FAILED
-            }
-            onResult(result)
+            onResult(tryScheduleAlarm(triggerAtMillis, label))
         }
     }
 
-    suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): Boolean =
-        clockRepository.updateAlarm(alarm.id, newTriggerAtMillis.toOneOffAlarmDraft(newLabel)) != null
+    suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): AlarmSaveResult =
+        clockRepository.updateAlarm(alarm.id, newTriggerAtMillis.toOneOffAlarmDraft(newLabel)).toAlarmSaveResult()
 
     fun editAlarm(
         alarm: ClockAlarm,
@@ -48,11 +44,7 @@ class ScheduledAlarmsViewModel @Inject constructor(
         onResult: (AlarmSaveResult) -> Unit = {},
     ) {
         viewModelScope.launch {
-            val result = if (tryEditAlarm(alarm, newTriggerAtMillis, newLabel)) {
-                AlarmSaveResult.STORED
-            } else {
-                AlarmSaveResult.FAILED
-            }
+            val result = tryEditAlarm(alarm, newTriggerAtMillis, newLabel)
             onResult(result)
         }
     }

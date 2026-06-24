@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.memory.clock.ClockAlertConfig
 import com.kernel.ai.core.voice.VoiceInputController
@@ -641,7 +642,7 @@ class ClockAlertService : Service() {
             ClockEventType.TIMER -> clockRepository.scheduleTimer(
                 durationMs = ALERT_ADD_MINUTE_MS,
                 label = alert.label.takeIf { it.isNotBlank() },
-            ) != null
+            ) is SchedulingResult.Success
 
             ClockEventType.PRE_ALARM -> false
         }

@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockPlatformState
 import com.kernel.ai.core.memory.clock.ClockScheduledEvent
 import com.kernel.ai.core.memory.clock.ClockScheduler
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,14 +26,22 @@ class AlarmManagerClockScheduler @Inject constructor(
     private val notificationManager: NotificationManager
         get() = context.getSystemService(NotificationManager::class.java)
 
-    override fun getPlatformState(): ClockPlatformState =
-        ClockPlatformState(
-            canScheduleExactAlarms = alarmManager.canScheduleExactAlarms(),
+    override fun getPlatformState(): ClockPlatformState {
+        val canScheduleExact = alarmManager.canScheduleExactAlarms()
+        return ClockPlatformState(
+            canScheduleExactAlarms = canScheduleExact,
             notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
             canUseFullScreenIntent = notificationManager.canUseFullScreenIntent(),
+            bootRestoreLimited = !canScheduleExact,
         )
+    }
 
-    override fun schedule(event: ClockScheduledEvent) {
+    override fun schedule(event: ClockScheduledEvent): SchedulingResult<Unit> {
+        val state = getPlatformState()
+        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
+        if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
+        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
+
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             event.eventId.hashCode(),
@@ -44,6 +53,7 @@ class AlarmManagerClockScheduler @Inject constructor(
             event.triggerAtMillis,
             pendingIntent,
         )
+        return SchedulingResult.Success(Unit)
     }
 
     override fun cancel(event: ClockScheduledEvent) {

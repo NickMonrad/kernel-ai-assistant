@@ -40,8 +40,8 @@ interface ClockRepository {
 
     fun getPlatformState(): ClockPlatformState
 
-    suspend fun createAlarm(draft: AlarmDraft): ClockAlarm?
-    suspend fun updateAlarm(alarmId: String, draft: AlarmDraft): ClockAlarm?
+    suspend fun createAlarm(draft: AlarmDraft): SchedulingResult<ClockAlarm>
+    suspend fun updateAlarm(alarmId: String, draft: AlarmDraft): SchedulingResult<ClockAlarm>
     suspend fun setAlarmEnabled(alarmId: String, enabled: Boolean): Boolean
     suspend fun cancelAlarm(alarmId: String)
     suspend fun cancelAlarms(alarmIds: Collection<String>)
@@ -50,7 +50,7 @@ interface ClockRepository {
     suspend fun skipAlarmOccurrence(alarmId: String, occurrenceTriggerAtMillis: Long): Boolean
     suspend fun setDefaultAlarmSoundUri(soundUri: String?)
 
-    suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
+    suspend fun scheduleTimer(durationMs: Long, label: String?): SchedulingResult<ClockTimer>
     suspend fun cancelTimer(timerId: String)
     suspend fun deleteCompletedTimer(timerId: String): Boolean
     suspend fun clearCompletedTimers(): Int

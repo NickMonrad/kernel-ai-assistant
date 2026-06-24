@@ -17,6 +17,7 @@ import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.StopwatchLap
 import com.kernel.ai.core.memory.clock.StopwatchStatus
@@ -828,7 +829,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `set_alarm without explicit date uses internal clock repository`() {
-        coEvery { clockRepository.createAlarm(any()) } returns ClockAlarm(
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.Success(ClockAlarm(
             id = "alarm-1",
             label = "Wake",
             createdAtMillis = 1_699_000_000_000L,
@@ -838,7 +839,7 @@ class NativeIntentHandlerTest {
             repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
             timeZoneId = java.time.ZoneId.systemDefault().id,
             triggerAtMillis = 1_700_000_000_000L,
-        )
+        ))
 
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
@@ -850,7 +851,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `set_alarm returns exact alarm unavailable failure when platform scheduling is off`() {
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.ExactAlarmBlocked
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
             canScheduleExactAlarms = false,
             notificationsEnabled = true,
@@ -859,13 +860,13 @@ class NativeIntentHandlerTest {
 
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
-        assertEquals(SkillResult.Failure("run_intent", "Exact alarms are unavailable right now."), result)
+        assertEquals(SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission in system settings."), result)
         verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test
     fun `set_alarm returns failure when repository rejects alarm despite exact alarm availability`() {
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.SchedulingFailed()
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
             canScheduleExactAlarms = true,
             notificationsEnabled = true,
@@ -960,7 +961,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `set_timer returns generic failure when repository rejects despite exact alarm availability`() {
-        coEvery { clockRepository.scheduleTimer(any(), any()) } returns null
+        coEvery { clockRepository.scheduleTimer(any(), any()) } returns SchedulingResult.SchedulingFailed()
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
             canScheduleExactAlarms = true,
             notificationsEnabled = true,

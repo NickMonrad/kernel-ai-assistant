@@ -158,12 +158,22 @@ fun SidePanelScreen(
         ClockSurfaceTab.WORLD_CLOCK, ClockSurfaceTab.STOPWATCH -> emptyList()
     }
 
-    fun onTimerScheduled(success: Boolean, closeDialog: Boolean = false) {
-        if (success) {
-            schedulingError = null
-            if (closeDialog) showCreateTimerDialog = false
-        } else {
-            schedulingError = "Couldn't schedule the timer."
+    fun onTimerScheduled(result: AlarmSaveResult, closeDialog: Boolean = false) {
+        schedulingError = when (result) {
+            is AlarmSaveResult.STORED -> {
+                if (closeDialog) showCreateTimerDialog = false
+                null
+            }
+            is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
+                "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+            is AlarmSaveResult.NOTIFICATION_BLOCKED ->
+                "Notifications are disabled. Enable in Settings."
+            is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                "Full-screen alerts unavailable."
+            is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
+                "Alarm saved, but boot restore is limited."
+            is AlarmSaveResult.FAILED ->
+                result.message ?: "Couldn't schedule the timer."
         }
     }
 
@@ -273,8 +283,8 @@ fun SidePanelScreen(
                     selectedIds = selectedIds,
                     onCreateCustomTimer = { showCreateTimerDialog = true },
                     onPresetTimer = { durationMs ->
-                        viewModel.scheduleTimer(durationMs, null) { success ->
-                            onTimerScheduled(success)
+                        viewModel.scheduleTimer(durationMs, null) { result ->
+                            onTimerScheduled(result)
                         }
                     },
                     onTimerTap = { timer ->
@@ -285,8 +295,8 @@ fun SidePanelScreen(
                     },
                     onCancelTimer = { timer -> pendingCancel = timer },
                     onRestartTimer = { timer ->
-                        viewModel.restartTimer(timer) { success ->
-                            onTimerScheduled(success)
+                        viewModel.restartTimer(timer) { result ->
+                            onTimerScheduled(result)
                         }
                     },
                     onDeleteCompletedTimer = { timer -> pendingDeleteCompleted = timer },
@@ -476,11 +486,20 @@ fun SidePanelScreen(
             onConfirm = { draft ->
                 viewModel.scheduleAlarm(draft) { result ->
                     when (result) {
-                        AlarmSaveResult.STORED -> {
+                        is AlarmSaveResult.STORED -> {
                             schedulingError = null
                             showCreateAlarmDialog = false
                         }
-                        AlarmSaveResult.FAILED -> schedulingError = "Couldn't save the alarm."
+                        is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
+                            schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+                        is AlarmSaveResult.NOTIFICATION_BLOCKED ->
+                            schedulingError = "Notifications are disabled. Enable in Settings."
+                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            schedulingError = "Full-screen alerts unavailable."
+                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
+                            schedulingError = "Alarm saved, but boot restore is limited."
+                        is AlarmSaveResult.FAILED ->
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }
             },
@@ -495,11 +514,20 @@ fun SidePanelScreen(
             onConfirm = { draft ->
                 viewModel.editAlarm(alarm, draft) { result ->
                     when (result) {
-                        AlarmSaveResult.STORED -> {
+                        is AlarmSaveResult.STORED -> {
                             schedulingError = null
                             editingAlarm = null
                         }
-                        AlarmSaveResult.FAILED -> schedulingError = "Couldn't save the alarm."
+                        is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
+                            schedulingError = "Exact alarm scheduling is unavailable."
+                        is AlarmSaveResult.NOTIFICATION_BLOCKED ->
+                            schedulingError = "Notifications are disabled."
+                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            schedulingError = "Full-screen alerts unavailable."
+                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
+                            schedulingError = "Alarm saved, but boot restore is limited."
+                        is AlarmSaveResult.FAILED ->
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }
             },
@@ -510,8 +538,8 @@ fun SidePanelScreen(
     if (showCreateTimerDialog) {
         TimerCreateDialog(
             onConfirm = { durationMs, label ->
-                viewModel.scheduleTimer(durationMs, label) { success ->
-                    onTimerScheduled(success, closeDialog = true)
+                viewModel.scheduleTimer(durationMs, label) { result ->
+                    onTimerScheduled(result, closeDialog = true)
                 }
             },
             onDismiss = { showCreateTimerDialog = false },

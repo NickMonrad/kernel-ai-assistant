@@ -220,10 +220,15 @@ class ClockRepositoryImpl @Inject constructor(
 
     override fun getPlatformState(): ClockPlatformState = scheduler.getPlatformState()
 
-    override suspend fun createAlarm(draft: AlarmDraft): ClockAlarm? {
-        if (!scheduler.getPlatformState().canScheduleExactAlarms) return null
+    override suspend fun createAlarm(draft: AlarmDraft): SchedulingResult<ClockAlarm> {
+        val state = scheduler.getPlatformState()
+        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
+        if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
+        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
+        if (state.bootRestoreLimited) return SchedulingResult.BootRestoreLimited
+
         val now = System.currentTimeMillis()
-        val triggerAtMillis = draft.nextTriggerAtMillis(now) ?: return null
+        val triggerAtMillis = draft.nextTriggerAtMillis(now) ?: return SchedulingResult.SchedulingFailed("Could not compute next trigger time")
         val entity = ScheduledAlarmEntity(
             id = UUID.randomUUID().toString(),
             ownerId = null,
@@ -240,21 +245,29 @@ class ClockRepositoryImpl @Inject constructor(
             timeZoneId = draft.timeZoneId,
             soundUri = draft.soundUri,
         ).withDefaultOwnerId()
-        scheduleAlarmEvents(entity, now)
+
+        val scheduleResult = scheduler.schedule(entity.toScheduledEvent())
+        if (scheduleResult !is SchedulingResult.Success) {
+            return scheduleResult as SchedulingResult<ClockAlarm>
+        }
         return try {
             scheduledAlarmDao.insert(entity)
-            entity.toClockAlarm()
-        } catch (_: Exception) {
-            cancelAlarmEvents(entity, now)
-            null
+            SchedulingResult.Success(
+                entity.toClockAlarm() ?: error("created alarm entity could not be converted to ClockAlarm")
+            )
+        } catch (e: Exception) {
+            scheduler.cancel(entity.toScheduledEvent())
+            SchedulingResult.SchedulingFailed(e.message)
         }
     }
 
-    override suspend fun updateAlarm(alarmId: String, draft: AlarmDraft): ClockAlarm? {
-        val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId() ?: return null
-        if (existing.entryType != ClockEventType.ALARM.name) return null
+    override suspend fun updateAlarm(alarmId: String, draft: AlarmDraft): SchedulingResult<ClockAlarm> {
+        val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId()
+            ?: return SchedulingResult.SchedulingFailed("Alarm not found")
+        if (existing.entryType != ClockEventType.ALARM.name) return SchedulingResult.SchedulingFailed("Not an alarm")
         val now = System.currentTimeMillis()
-        val triggerAtMillis = draft.nextTriggerAtMillis(now) ?: return null
+        val triggerAtMillis = draft.nextTriggerAtMillis(now)
+            ?: return SchedulingResult.SchedulingFailed("Could not compute next trigger time")
         val updated = existing.copy(
             triggerAtMillis = triggerAtMillis,
             label = draft.label?.takeIf { it.isNotBlank() },
@@ -270,14 +283,21 @@ class ClockRepositoryImpl @Inject constructor(
             snoozedUntilMs = null,
         )
         cancelAlarmEvents(existing, now)
-        scheduleAlarmEvents(updated, now)
+
+        val scheduleResult = scheduler.schedule(updated.toScheduledEvent())
+        if (scheduleResult !is SchedulingResult.Success) {
+            scheduleAlarmEvents(existing, now)
+            return scheduleResult as SchedulingResult<ClockAlarm>
+        }
         return try {
             scheduledAlarmDao.insert(updated)
-            updated.toClockAlarm()
-        } catch (_: Exception) {
+            SchedulingResult.Success(
+                updated.toClockAlarm() ?: error("updated alarm entity could not be converted to ClockAlarm")
+            )
+        } catch (e: Exception) {
             cancelAlarmEvents(updated, now)
             scheduleAlarmEvents(existing, now)
-            null
+            SchedulingResult.SchedulingFailed(e.message)
         }
     }
 
@@ -400,8 +420,13 @@ class ClockRepositoryImpl @Inject constructor(
         clockSoundPreferences.setDefaultAlarmSoundUri(soundUri)
     }
 
-    override suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer? {
-        if (!scheduler.getPlatformState().canScheduleExactAlarms) return null
+    override suspend fun scheduleTimer(durationMs: Long, label: String?): SchedulingResult<ClockTimer> {
+        val state = scheduler.getPlatformState()
+        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
+        if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
+        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
+        if (state.bootRestoreLimited) return SchedulingResult.BootRestoreLimited
+
         val now = System.currentTimeMillis()
         val entity = ScheduledAlarmEntity(
             id = UUID.randomUUID().toString(),
@@ -414,13 +439,19 @@ class ClockRepositoryImpl @Inject constructor(
             durationMs = durationMs,
             startedAtMs = now,
         ).withDefaultOwnerId()
-        scheduler.schedule(entity.toScheduledEvent())
+
+        val scheduleResult = scheduler.schedule(entity.toScheduledEvent())
+        if (scheduleResult !is SchedulingResult.Success) {
+            return scheduleResult as SchedulingResult<ClockTimer>
+        }
         return try {
             scheduledAlarmDao.insert(entity)
-            entity.toClockTimer() ?: error("Timer schedule missing duration metadata")
-        } catch (_: Exception) {
+            SchedulingResult.Success(
+                entity.toClockTimer() ?: error("Timer schedule missing duration metadata")
+            )
+        } catch (e: Exception) {
             scheduler.cancel(entity.toScheduledEvent())
-            null
+            SchedulingResult.SchedulingFailed(e.message)
         }
     }
 

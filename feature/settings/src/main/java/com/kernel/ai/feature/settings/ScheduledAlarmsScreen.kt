@@ -178,12 +178,20 @@ fun ScheduledAlarmsScreen(
             onConfirm = { triggerAtMillis, label ->
                 viewModel.scheduleAlarm(triggerAtMillis, label) { result ->
                     when (result) {
-                        AlarmSaveResult.STORED -> {
+                        is AlarmSaveResult.STORED -> {
                             schedulingError = null
                             showCreateDialog = false
                         }
-                        AlarmSaveResult.FAILED -> {
-                            schedulingError = "Couldn't save the alarm."
+                        is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
+                            schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+                        is AlarmSaveResult.NOTIFICATION_BLOCKED ->
+                            schedulingError = "Notifications are disabled. Enable in Settings."
+                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            schedulingError = "Full-screen alerts unavailable."
+                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
+                            schedulingError = "Alarm saved, but boot restore is limited."
+                        is AlarmSaveResult.FAILED -> {
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                         }
                     }
                 }
@@ -198,12 +206,20 @@ fun ScheduledAlarmsScreen(
             onConfirm = { triggerAtMillis, label ->
                 viewModel.editAlarm(alarm, triggerAtMillis, label) { result ->
                     when (result) {
-                        AlarmSaveResult.STORED -> {
+                        is AlarmSaveResult.STORED -> {
                             schedulingError = null
                             editingAlarm = null
                         }
-                        AlarmSaveResult.FAILED -> {
-                            schedulingError = "Couldn't save the alarm."
+                        is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
+                            schedulingError = "Exact alarm scheduling is unavailable."
+                        is AlarmSaveResult.NOTIFICATION_BLOCKED ->
+                            schedulingError = "Notifications are disabled."
+                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            schedulingError = "Full-screen alerts unavailable."
+                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
+                            schedulingError = "Alarm saved, but boot restore is limited."
+                        is AlarmSaveResult.FAILED -> {
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                         }
                     }
                 }
