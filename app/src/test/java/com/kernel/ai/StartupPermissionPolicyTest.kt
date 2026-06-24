@@ -31,7 +31,7 @@ class StartupPermissionPolicyTest {
         } returns PackageManager.PERMISSION_DENIED
 
         val ctx = mockk<Context>()
-        val result = MainActivity().buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
+        val result = buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
         assertEquals(listOf(Manifest.permission.POST_NOTIFICATIONS), result)
     }
 
@@ -43,7 +43,7 @@ class StartupPermissionPolicyTest {
         } returns PackageManager.PERMISSION_GRANTED
 
         val ctx = mockk<Context>()
-        val result = MainActivity().buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
+        val result = buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
         assertEquals(emptyList<String>(), result)
     }
 
@@ -54,7 +54,7 @@ class StartupPermissionPolicyTest {
             ContextCompat.checkSelfPermission(any(), Manifest.permission.POST_NOTIFICATIONS)
         } returns PackageManager.PERMISSION_DENIED
         val ctx = mockk<Context>()
-        val result = MainActivity().buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
+        val result = buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
         assertFalse(Manifest.permission.ACCESS_COARSE_LOCATION in result)
         assertFalse(Manifest.permission.ACCESS_FINE_LOCATION in result)
         assertFalse(Manifest.permission.READ_CONTACTS in result)
@@ -68,7 +68,7 @@ class StartupPermissionPolicyTest {
     @Test
     fun `preApi33 does not request POST_NOTIFICATIONS`() {
         val ctx = mockk<Context>()
-        val result = MainActivity().buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.Q)
+        val result = buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.Q)
         assertFalse(Manifest.permission.POST_NOTIFICATIONS in result)
     }
 }
