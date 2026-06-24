@@ -149,11 +149,11 @@ class AppPermissionsViewModelTest {
 
 
     // ── Repair routing ────────────────────────────────────────────────
-    // Intent correctness (action, data, flags) is tested on-device or via
-    // Robolectric. These tests verify the ViewModel delegates to the
-    // correct helper function and calls startActivity. We mock the helper
-    // functions to avoid Android framework Intent constructors that don't
-    // work on plain JVM.
+    // The permission-to-route mapping is tested in SpecialPermissionRouteTest
+    // using the pure SettingsRoute descriptor (no Android framework needed).
+    // These tests verify the ViewModel delegates to the correct helper
+    // function and calls startActivity.
+
 
     @Test
     fun `openAppInfoSettings delegates to startActivity`() = runTest {

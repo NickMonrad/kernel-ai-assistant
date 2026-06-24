@@ -49,18 +49,51 @@ internal fun buildAppInfoSettingsIntent(packageName: String): Intent =
 
 /**
  * Builds an Intent for a special-access permission settings panel, or null
- * if the permission is not recognised (caller should fall back to app info).
- * Extracted for testability — can be verified directly with Robolectric.
+ * if the permission is not recognised (caller falls back to app info).
+ * The mapping from permission to route is handled by [specialPermissionRoute].
+ * Includes [Intent.FLAG_ACTIVITY_NEW_TASK].
  */
-internal fun buildSpecialPermissionSettingsIntent(permission: String, packageName: String): Intent? = when (permission) {
-    Manifest.permission.ACCESS_NOTIFICATION_POLICY ->
-        Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-    Manifest.permission.WRITE_SETTINGS ->
-        Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-            data = Uri.parse("package:$packageName")
-        }
+internal fun buildSpecialPermissionSettingsIntent(permission: String, packageName: String): Intent? =
+    specialPermissionRoute(permission, packageName)?.let { route ->
+        when (route) {
+            is SettingsRoute.NotificationPolicy ->
+                Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+            is SettingsRoute.WriteSettings ->
+                Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:${route.packageName}")
+                }
+            is SettingsRoute.AppInfo ->
+                error("AppInfo route should not reach special-permission builder")
+        }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+/**
+ * Describes a system settings destination reachable by the app.
+ * Extracted for testability — the mapping from permission to route
+ * is pure logic and testable on JVM without Android framework.
+ */
+internal sealed class SettingsRoute {
+    /** Opens the App Info page for [packageName]. */
+    data class AppInfo(val packageName: String) : SettingsRoute()
+    /** Opens Notification Policy Access settings. */
+    data object NotificationPolicy : SettingsRoute()
+    /** Opens Manage Write Settings for [packageName]. */
+    data class WriteSettings(val packageName: String) : SettingsRoute()
+}
+
+/**
+ * Maps a special-access permission string to its [SettingsRoute].
+ * Returns null for unrecognised permissions (caller falls back to App Info).
+ *
+ * This is a pure function with no Android framework dependency — testable
+ * on plain JVM.
+ */
+internal fun specialPermissionRoute(permission: String, packageName: String): SettingsRoute? = when (permission) {
+    Manifest.permission.ACCESS_NOTIFICATION_POLICY -> SettingsRoute.NotificationPolicy
+    Manifest.permission.WRITE_SETTINGS -> SettingsRoute.WriteSettings(packageName)
     else -> null
 }
+
 
 @HiltViewModel
 class AppPermissionsViewModel @Inject constructor(
@@ -89,13 +122,9 @@ class AppPermissionsViewModel @Inject constructor(
 
     /** Opens a specific system settings panel for a special-access permission. */
     fun openSpecialPermissionSettings(permission: String) {
-        val intent = buildSpecialPermissionSettingsIntent(permission, context.packageName)
-        if (intent != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        buildSpecialPermissionSettingsIntent(permission, context.packageName)?.let { intent ->
             context.startActivity(intent)
-        } else {
-            openAppInfoSettings()
-        }
+        } ?: openAppInfoSettings()
     }
 
     private fun buildPermissionList(): List<AppPermissionItem> {
