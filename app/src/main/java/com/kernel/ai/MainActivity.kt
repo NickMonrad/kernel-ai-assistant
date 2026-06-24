@@ -173,21 +173,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    /**
+     * Build the list of runtime permissions that should be requested at startup.
+     * Currently only POST_NOTIFICATIONS is included (needed for alarms, timers,
+     * reminders, and download progress). Other runtime permissions (Location,
+     * Contacts, Calendar, Phone) are requested on first feature use via
+     * contextual permission overlays (#1312).
+     *
+     * Extracted for testability. Package-private to allow unit testing.
+     */
+    internal fun buildMissingStartupPermissions(context: android.content.Context, sdkInt: Int = Build.VERSION.SDK_INT): List<String> {
+        return buildList {
+            if (sdkInt >= Build.VERSION_CODES.TIRAMISU &&
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                add(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     private fun requestStartupPermissionsIfNeeded() {
         val prefs = getSharedPreferences(PREFS_RUNTIME_PERMISSIONS, MODE_PRIVATE)
         val forcePromptForTests = intent?.getBooleanExtra("force_permission_prompt", false) == true
         if (!forcePromptForTests && prefs.getBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, false)) return
 
-        val missingPermissions = buildList {
-            // Notifications: needed for alarms, timers, reminders, and download progress.
-            // Kept as a startup prompt because these are launch-critical notification-backed
-            // features. Other runtime permissions (Location, Contacts, Calendar, Phone) are
-            // requested on first feature use via contextual permission overlays (#1312).
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
+        val missingPermissions = buildMissingStartupPermissions(this@MainActivity)
 
         if (missingPermissions.isEmpty()) {
             prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
