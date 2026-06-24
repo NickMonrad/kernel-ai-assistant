@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.permissions.MicrophoneReadiness
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
