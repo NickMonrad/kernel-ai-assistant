@@ -49,6 +49,10 @@ class StartupPermissionPolicyTest {
 
     @Test
     fun `api33plus does not include optional runtime permissions in startup bundle`() {
+        mockkStatic(ContextCompat::class)
+        every {
+            ContextCompat.checkSelfPermission(any(), Manifest.permission.POST_NOTIFICATIONS)
+        } returns PackageManager.PERMISSION_DENIED
         val ctx = mockk<Context>()
         val result = MainActivity().buildMissingStartupPermissions(ctx, sdkInt = Build.VERSION_CODES.TIRAMISU)
         assertFalse(Manifest.permission.ACCESS_COARSE_LOCATION in result)
