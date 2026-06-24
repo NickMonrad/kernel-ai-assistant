@@ -102,7 +102,6 @@ jobs:
 
       # ── CI test evidence ─────────────────────────────────────────────
       - name: Generate CI test evidence
-        continue-on-error: true
         if: always()
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
