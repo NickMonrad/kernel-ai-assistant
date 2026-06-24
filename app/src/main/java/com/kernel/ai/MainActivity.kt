@@ -44,6 +44,9 @@ import javax.inject.Inject
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
 
+        }
+    }
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
@@ -190,10 +193,6 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    /**
-     * Build the list of runtime permissions that should be requested at startup.
-        }
-    }
 
     private fun requestStartupPermissionsIfNeeded() {
         val prefs = getSharedPreferences(PREFS_RUNTIME_PERMISSIONS, MODE_PRIVATE)
