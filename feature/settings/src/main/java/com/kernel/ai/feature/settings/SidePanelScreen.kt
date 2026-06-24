@@ -168,10 +168,6 @@ fun SidePanelScreen(
                 "Exact alarm scheduling is unavailable. Grant exact alarm permission."
             is AlarmSaveResult.NOTIFICATION_BLOCKED ->
                 "Notifications are disabled. Enable in Settings."
-            is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                "Full-screen alerts unavailable."
-            is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
-                "Alarm saved, but boot restore is limited."
             is AlarmSaveResult.FAILED ->
                 result.message ?: "Couldn't schedule the timer."
         }
@@ -494,11 +490,7 @@ fun SidePanelScreen(
                             schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
                             schedulingError = "Notifications are disabled. Enable in Settings."
-                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            schedulingError = "Full-screen alerts unavailable."
-                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
-                            schedulingError = "Alarm saved, but boot restore is limited."
-                        is AlarmSaveResult.FAILED ->
+                                                is AlarmSaveResult.FAILED ->
                             schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }
@@ -522,11 +514,7 @@ fun SidePanelScreen(
                             schedulingError = "Exact alarm scheduling is unavailable."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
                             schedulingError = "Notifications are disabled."
-                        is AlarmSaveResult.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            schedulingError = "Full-screen alerts unavailable."
-                        is AlarmSaveResult.BOOT_RESTORE_LIMITED ->
-                            schedulingError = "Alarm saved, but boot restore is limited."
-                        is AlarmSaveResult.FAILED ->
+                                                is AlarmSaveResult.FAILED ->
                             schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }

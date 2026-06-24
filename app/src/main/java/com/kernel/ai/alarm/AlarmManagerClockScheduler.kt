@@ -37,10 +37,8 @@ class AlarmManagerClockScheduler @Inject constructor(
     }
 
     override fun schedule(event: ClockScheduledEvent): SchedulingResult<Unit> {
-        val state = getPlatformState()
-        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
-        if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
-        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
+        if (!alarmManager.canScheduleExactAlarms()) return SchedulingResult.ExactAlarmBlocked
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return SchedulingResult.NotificationBlocked
 
         val pendingIntent = PendingIntent.getBroadcast(
             context,

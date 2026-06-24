@@ -29,6 +29,7 @@ import com.kernel.ai.core.memory.clock.WorldClockCatalog
 import com.kernel.ai.core.memory.clock.WorldClockResolution
 import com.kernel.ai.core.memory.clock.ClockTimer
 import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -446,18 +447,24 @@ class NativeIntentHandler @Inject constructor(
                 val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
                     .withZone(ZoneId.systemDefault())
                 val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
-                SkillResult.Success(
-                    "Alarm set for $formattedTime${if (label != null) " — $label" else ""}"
-                )
+                val warningText = result.warnings.joinToString(" ") { warning ->
+                    when (warning) {
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            "Full-screen alerts are unavailable for this alarm."
+                        SchedulingWarning.BOOT_RESTORE_LIMITED ->
+                            "The alarm may not persist across device restarts."
+                    }
+                }
+                val message = buildString {
+                    append("Alarm set for $formattedTime${if (label != null) " — $label" else ""}.")
+                    if (warningText.isNotEmpty()) append(" $warningText")
+                }
+                SkillResult.Success(message)
             }
             is SchedulingResult.ExactAlarmBlocked ->
                 SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission in system settings.")
             is SchedulingResult.NotificationBlocked ->
                 SkillResult.Failure("run_intent", "Notifications are disabled. Jandal needs notification access to alert you. You can enable it in Settings.")
-            is SchedulingResult.FullScreenIntentUnavailable ->
-                SkillResult.Failure("run_intent", "Full-screen alerts are unavailable for this alarm. The alarm was registered but may use a less prominent alert.")
-            is SchedulingResult.BootRestoreLimited ->
-                SkillResult.Failure("run_intent", "Alarm scheduled, but boot restore is limited — the alarm may not persist across device restarts.")
             is SchedulingResult.SchedulingFailed ->
                 SkillResult.Failure("run_intent", result.message ?: "Could not schedule the alarm.")
         }
@@ -478,21 +485,29 @@ class NativeIntentHandler @Inject constructor(
                 val scheduled = result.data
                 val mins = (scheduled.durationMs / 1000) / 60
                 val secs = (scheduled.durationMs / 1000) % 60
-                val labelStr = when {
-                    mins > 0 && secs > 0 -> "$mins min $secs min"
+                val durationStr = when {
+                    mins > 0 && secs > 0 -> "$mins min $secs sec"
                     mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
                     else -> "${scheduled.durationMs / 1000} seconds"
                 }
-                SkillResult.Success("Timer set for $labelStr.")
+                val warningText = result.warnings.joinToString(" ") { warning ->
+                    when (warning) {
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            "Full-screen alerts are unavailable for this timer."
+                        SchedulingWarning.BOOT_RESTORE_LIMITED ->
+                            "The timer may not persist across device restarts."
+                    }
+                }
+                val message = buildString {
+                    append("Timer set for $durationStr.")
+                    if (warningText.isNotEmpty()) append(" $warningText")
+                }
+                SkillResult.Success(message)
             }
             is SchedulingResult.ExactAlarmBlocked ->
                 SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission.")
             is SchedulingResult.NotificationBlocked ->
                 SkillResult.Failure("run_intent", "Notifications are disabled. Jandal needs notification access to alert you.")
-            is SchedulingResult.FullScreenIntentUnavailable ->
-                SkillResult.Failure("run_intent", "Full-screen timer alerts are unavailable.")
-            is SchedulingResult.BootRestoreLimited ->
-                SkillResult.Failure("run_intent", "Timer set, but boot restore is limited.")
             is SchedulingResult.SchedulingFailed ->
                 SkillResult.Failure("run_intent", result.message ?: "Could not schedule the timer.")
         }

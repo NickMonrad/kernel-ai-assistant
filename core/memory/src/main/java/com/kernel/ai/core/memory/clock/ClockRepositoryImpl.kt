@@ -224,8 +224,6 @@ class ClockRepositoryImpl @Inject constructor(
         val state = scheduler.getPlatformState()
         if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
         if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
-        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
-        if (state.bootRestoreLimited) return SchedulingResult.BootRestoreLimited
 
         val now = System.currentTimeMillis()
         val triggerAtMillis = draft.nextTriggerAtMillis(now) ?: return SchedulingResult.SchedulingFailed("Could not compute next trigger time")
@@ -246,17 +244,24 @@ class ClockRepositoryImpl @Inject constructor(
             soundUri = draft.soundUri,
         ).withDefaultOwnerId()
 
-        val scheduleResult = scheduler.schedule(entity.toScheduledEvent())
+        val scheduleResult = scheduleAlarmEvents(entity, now)
         if (scheduleResult !is SchedulingResult.Success) {
             return scheduleResult as SchedulingResult<ClockAlarm>
         }
+
+        val warnings = buildList {
+            if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
+            if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
+        }
+
         return try {
             scheduledAlarmDao.insert(entity)
             SchedulingResult.Success(
-                entity.toClockAlarm() ?: error("created alarm entity could not be converted to ClockAlarm")
+                entity.toClockAlarm() ?: error("created alarm entity could not be converted to ClockAlarm"),
+                warnings = warnings,
             )
         } catch (e: Exception) {
-            scheduler.cancel(entity.toScheduledEvent())
+            cancelAlarmEvents(entity, now)
             SchedulingResult.SchedulingFailed(e.message)
         }
     }
@@ -265,6 +270,12 @@ class ClockRepositoryImpl @Inject constructor(
         val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId()
             ?: return SchedulingResult.SchedulingFailed("Alarm not found")
         if (existing.entryType != ClockEventType.ALARM.name) return SchedulingResult.SchedulingFailed("Not an alarm")
+
+        // Check platform readiness before touching the existing schedule
+        val state = scheduler.getPlatformState()
+        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
+        if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
+
         val now = System.currentTimeMillis()
         val triggerAtMillis = draft.nextTriggerAtMillis(now)
             ?: return SchedulingResult.SchedulingFailed("Could not compute next trigger time")
@@ -282,17 +293,26 @@ class ClockRepositoryImpl @Inject constructor(
             soundUri = draft.soundUri,
             snoozedUntilMs = null,
         )
-        cancelAlarmEvents(existing, now)
 
-        val scheduleResult = scheduler.schedule(updated.toScheduledEvent())
+        // Readiness confirmed — cancel old and schedule replacement
+        cancelAlarmEvents(existing, now)
+        val scheduleResult = scheduleAlarmEvents(updated, now)
         if (scheduleResult !is SchedulingResult.Success) {
+            // Scheduling failed (timing race: state changed between check and schedule)
             scheduleAlarmEvents(existing, now)
             return scheduleResult as SchedulingResult<ClockAlarm>
         }
+
+        val warnings = buildList {
+            if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
+            if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
+        }
+
         return try {
             scheduledAlarmDao.insert(updated)
             SchedulingResult.Success(
-                updated.toClockAlarm() ?: error("updated alarm entity could not be converted to ClockAlarm")
+                updated.toClockAlarm() ?: error("updated alarm entity could not be converted to ClockAlarm"),
+                warnings = warnings,
             )
         } catch (e: Exception) {
             cancelAlarmEvents(updated, now)
@@ -424,8 +444,6 @@ class ClockRepositoryImpl @Inject constructor(
         val state = scheduler.getPlatformState()
         if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
         if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
-        if (!state.canUseFullScreenIntent) return SchedulingResult.FullScreenIntentUnavailable
-        if (state.bootRestoreLimited) return SchedulingResult.BootRestoreLimited
 
         val now = System.currentTimeMillis()
         val entity = ScheduledAlarmEntity(
@@ -444,10 +462,17 @@ class ClockRepositoryImpl @Inject constructor(
         if (scheduleResult !is SchedulingResult.Success) {
             return scheduleResult as SchedulingResult<ClockTimer>
         }
+
+        val warnings = buildList {
+            if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
+            if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
+        }
+
         return try {
             scheduledAlarmDao.insert(entity)
             SchedulingResult.Success(
-                entity.toClockTimer() ?: error("Timer schedule missing duration metadata")
+                entity.toClockTimer() ?: error("Timer schedule missing duration metadata"),
+                warnings = warnings,
             )
         } catch (e: Exception) {
             scheduler.cancel(entity.toScheduledEvent())
@@ -643,10 +668,13 @@ class ClockRepositoryImpl @Inject constructor(
         clockAlertPreferences.setMaxAutoSnoozes(value)
     }
 
-    private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long, currentAutoSnoozeCount: Int = 0) {
-        entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
+    /** Schedules the full alarm event set. Returns the primary event result. */
+    private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long, currentAutoSnoozeCount: Int = 0): SchedulingResult<Unit> {
+        val primary = entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
+            ?: return SchedulingResult.SchedulingFailed("Could not create primary alarm event")
         entity.toSnoozeScheduledEvent(nowMillis, currentAutoSnoozeCount)?.let(scheduler::schedule)
         entity.toPreAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
+        return primary
     }
 
     private fun cancelAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {
