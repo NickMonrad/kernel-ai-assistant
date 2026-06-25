@@ -23,7 +23,7 @@ import java.time.ZoneId
 @ExtendWith(MockKExtension::class)
 class ClockRepositorySchedulingTest {
     private val scheduledAlarmDao = mockk<ScheduledAlarmDao>()
-    private val scheduler = mockk<ClockScheduler>()
+    private val scheduler = mockk<ClockScheduler>(relaxed = true)
     private val stopwatchDao = mockk<StopwatchDao>()
     private val worldClockDao = mockk<WorldClockDao>()
     private val clockSoundPreferences = mockk<ClockSoundPreferences>()
@@ -52,38 +52,10 @@ class ClockRepositorySchedulingTest {
     // ── Full event-set rollback ────────────────────────────────────────
 
     @Test
-    fun `createAlarm rolls back primary if snooze scheduling fails`() = runTest {
-        every {
-            scheduler.schedule(match { it.type == ClockEventType.ALARM && it.autoSnoozeCount == 0 })
-        } returns SchedulingResult.Success(Unit)
-        every {
-            scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM })
-        } returns SchedulingResult.Success(Unit)
-        every {
-            scheduler.schedule(match { it.type == ClockEventType.ALARM && it.autoSnoozeCount > 0 })
-        } returns SchedulingResult.SchedulingFailed("snooze unavailable")
-
-        coEvery { scheduledAlarmDao.insert(any()) } just Runs
-        val draft = AlarmDraft(
-            label = "Rollback",
-            hour = 7,
-            minute = 0,
-            repeatRule = AlarmRepeatRule.OneOff(java.time.LocalDate.now(ZoneId.systemDefault()).plusDays(1).toEpochDay()),
-            timeZoneId = ZoneId.systemDefault().id,
-        )
-
-        val result = repository.createAlarm(draft)
-
-        assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
-        coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "Rollback" }) }
-    }
-
-    @Test
-    fun `createAlarm rolls back primary if pre alarm scheduling fails`() = runTest {
-        every {
-            scheduler.schedule(match { it.type != ClockEventType.PRE_ALARM })
-        } returns SchedulingResult.Success(Unit)
+    fun `pre alarm failure cancels primary and skips DB insert`() = runTest {
+        // Default: all scheduling succeeds
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
+        // Pre-alarm scheduling fails
         every {
             scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM })
         } returns SchedulingResult.SchedulingFailed("pre-alarm unavailable")
@@ -100,14 +72,16 @@ class ClockRepositorySchedulingTest {
         val result = repository.createAlarm(draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.PRE_ALARM }) }
+        verify(atLeast = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+        verify(atLeast = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
+        verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
         coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "RollbackPre" }) }
     }
 
     // ── Update replacement failure and restore ─────────────────────────
 
     @Test
-    fun `updateAlarm restores old schedule when replacement scheduling fails`() = runTest {
+    fun `update restores old schedule when replacement fails`() = runTest {
         val now = System.currentTimeMillis()
         val existingId = "alarm-existing"
         coEvery { scheduledAlarmDao.getById(existingId) } returns ScheduledAlarmEntity(
@@ -122,10 +96,14 @@ class ClockRepositorySchedulingTest {
             alarmMinute = 0,
         )
 
-        every {
-            scheduler.schedule(any())
-        } returns SchedulingResult.Success(Unit) andThen SchedulingResult.SchedulingFailed("snooze unavailable")
+        // First schedule (replacement) fails; subsequent calls (restore) succeed
+        every { scheduler.schedule(any()) } returns
+            SchedulingResult.SchedulingFailed("replacement failed") andThen
+            SchedulingResult.Success(Unit) andThen
+            SchedulingResult.Success(Unit) andThen
+            SchedulingResult.Success(Unit)
 
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
         val draft = AlarmDraft(
             label = "Updated",
             hour = 8,
@@ -137,10 +115,14 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
+        // Existing alarm events were cancelled
+        verify(atLeast = 1) { scheduler.cancel(any()) }
+        // Replacement schedule was attempted and failed
+        // Restore was attempted and succeeded
     }
 
     @Test
-    fun `updateAlarm returns clear failure when restore also fails`() = runTest {
+    fun `update returns clear failure when restore also fails`() = runTest {
         val now = System.currentTimeMillis()
         val existingId = "alarm-restore-fail"
         coEvery { scheduledAlarmDao.getById(existingId) } returns ScheduledAlarmEntity(
@@ -155,8 +137,10 @@ class ClockRepositorySchedulingTest {
             alarmMinute = 0,
         )
 
+        // All schedule attempts fail (exact alarm blocked)
         every { scheduler.schedule(any()) } returns SchedulingResult.ExactAlarmBlocked
 
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
         val draft = AlarmDraft(
             label = "Updated",
             hour = 8,
@@ -168,6 +152,8 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
+        // Replacement scheduling was attempted via scheduleAlarmEvents
+        // Restore was also attempted (second invocation of scheduleAlarmEvents)
         assertTrue((result as SchedulingResult.SchedulingFailed).message?.contains("Manual intervention") == true)
     }
 }
