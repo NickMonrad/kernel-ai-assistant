@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -72,6 +73,7 @@ fun ScheduledAlarmsScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
+    var schedulingWarning by remember { mutableStateOf<String?>(null) }
     val inSelectionMode = selectedIds.isNotEmpty()
 
     Scaffold(
@@ -180,7 +182,7 @@ fun ScheduledAlarmsScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             showCreateDialog = false
-                            schedulingError = result.warnings.toWarningMessage()
+                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -204,7 +206,7 @@ fun ScheduledAlarmsScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             editingAlarm = null
-                            schedulingError = result.warnings.toWarningMessage()
+                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable."
@@ -271,6 +273,16 @@ fun ScheduledAlarmsScreen(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingError = null }) { Text("OK") }
+            },
+        )
+    }
+    schedulingWarning?.let { message ->
+        AlertDialog(
+            onDismissRequest = { schedulingWarning = null },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
             },
         )
     }

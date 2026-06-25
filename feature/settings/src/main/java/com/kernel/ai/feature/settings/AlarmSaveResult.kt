@@ -31,14 +31,22 @@ internal fun SchedulingResult<*>.toAlarmSaveResult(): AlarmSaveResult = when (th
 }
 
 /** Build a user-facing warning message from scheduling warnings, or null if there are none. */
-internal fun List<SchedulingWarning>.toWarningMessage(): String? {
+internal fun List<SchedulingWarning>.toWarningMessage(isTimer: Boolean): String? {
     if (isEmpty()) return null
-    return joinToString(" ") { warning ->
-        when (warning) {
-            SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                "Full-screen alerts are unavailable."
-            SchedulingWarning.BOOT_RESTORE_LIMITED ->
-                "Scheduled events may not persist across device restarts."
-        }
+    val messages = mutableListOf<String>()
+    
+    val savedPrefix = if (isTimer) "Timer set." else "Alarm saved."
+    
+    if (contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
+        messages.add("$savedPrefix It may appear as a notification instead of opening full-screen.")
     }
+    
+    if (contains(SchedulingWarning.BOOT_RESTORE_LIMITED)) {
+        if (!contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
+            messages.add(savedPrefix)
+        }
+        messages.add("Scheduled events may need to be recreated after a device restart.")
+    }
+    
+    return messages.joinToString(" ")
 }

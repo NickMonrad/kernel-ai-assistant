@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -126,6 +127,7 @@ fun SidePanelScreen(
     var showCreateTimerDialog by remember { mutableStateOf(false) }
     var showAddWorldClockDialog by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
+    var schedulingWarning by remember { mutableStateOf<String?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var nowElapsedRealtimeMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -159,17 +161,17 @@ fun SidePanelScreen(
     }
 
     fun onTimerScheduled(result: AlarmSaveResult, closeDialog: Boolean = false) {
-        schedulingError = when (result) {
+        when (result) {
             is AlarmSaveResult.STORED -> {
                 if (closeDialog) showCreateTimerDialog = false
-                result.warnings.toWarningMessage()
+                schedulingWarning = result.warnings.toWarningMessage(isTimer = true)
             }
             is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
-                "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+                schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
             is AlarmSaveResult.NOTIFICATION_BLOCKED ->
-                "Notifications are disabled. Enable in Settings."
+                schedulingError = "Notifications are disabled. Enable in Settings."
             is AlarmSaveResult.FAILED ->
-                result.message ?: "Couldn't schedule the timer."
+                schedulingError = result.message ?: "Couldn't schedule the timer."
         }
     }
 
@@ -481,17 +483,17 @@ fun SidePanelScreen(
             defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.scheduleAlarm(draft) { result ->
-                    schedulingError = when (result) {
+                    when (result) {
                         is AlarmSaveResult.STORED -> {
                             showCreateAlarmDialog = false
-                            result.warnings.toWarningMessage()
+                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
-                            "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+                            schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
-                            "Notifications are disabled. Enable in Settings."
+                            schedulingError = "Notifications are disabled. Enable in Settings."
                         is AlarmSaveResult.FAILED ->
-                            result.message ?: "Couldn't save the alarm."
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }
             },
@@ -505,17 +507,17 @@ fun SidePanelScreen(
             defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.editAlarm(alarm, draft) { result ->
-                    schedulingError = when (result) {
+                    when (result) {
                         is AlarmSaveResult.STORED -> {
                             editingAlarm = null
-                            result.warnings.toWarningMessage()
+                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
-                            "Exact alarm scheduling is unavailable."
+                            schedulingError = "Exact alarm scheduling is unavailable."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
-                            "Notifications are disabled."
+                            schedulingError = "Notifications are disabled."
                         is AlarmSaveResult.FAILED ->
-                            result.message ?: "Couldn't save the alarm."
+                            schedulingError = result.message ?: "Couldn't save the alarm."
                     }
                 }
             },
@@ -559,6 +561,16 @@ fun SidePanelScreen(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingError = null }) { Text("OK") }
+            },
+        )
+    }
+    schedulingWarning?.let { message ->
+        AlertDialog(
+            onDismissRequest = { schedulingWarning = null },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
             },
         )
     }
