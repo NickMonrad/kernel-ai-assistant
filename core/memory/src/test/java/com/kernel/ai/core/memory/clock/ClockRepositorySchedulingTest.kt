@@ -12,6 +12,7 @@ import io.mockk.just
 import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifySequence
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -105,14 +106,15 @@ class ClockRepositorySchedulingTest {
         val scheduledEvents = mutableListOf<ClockScheduledEvent>()
         every { scheduler.schedule(any()) } answers {
             scheduledEvents += args[0] as ClockScheduledEvent
-            if (scheduledEvents.size == 1) {
-                SchedulingResult.SchedulingFailed("replacement failed")
-            } else {
-                SchedulingResult.Success(Unit)
+            when (scheduledEvents.size) {
+                1 -> SchedulingResult.SchedulingFailed("replacement failed")
+                2, 3, 4, 5, 6 -> SchedulingResult.Success(Unit)
+                else -> error("unexpected extra schedule call")
             }
         }
 
-        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+        val oldTrigger = now + 86_400_000L
+        coEvery { scheduledAlarmDao.insert(match { it.label == "Updated" }) } just Runs
         val draft = AlarmDraft(
             label = "Updated",
             hour = 8,
@@ -124,9 +126,15 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 1) { scheduler.cancel(match { it.label == "Old" }) }
+        result as SchedulingResult.SchedulingFailed
+        assertEquals("replacement failed", result.message)
+        assertEquals(2, scheduledEvents.size)
         assertEquals(listOf("Updated", "Old"), scheduledEvents.map { it.label })
-        coVerify(exactly = 0) { scheduledAlarmDao.insert(any()) }
+        assertEquals(listOf(ClockEventType.ALARM, ClockEventType.ALARM), scheduledEvents.map { it.type })
+        assertTrue(scheduledEvents[0].occurrenceTriggerAtMillis != oldTrigger)
+        assertEquals(oldTrigger, scheduledEvents[1].occurrenceTriggerAtMillis)
+        verify(atLeast = 1) { scheduler.cancel(match { it.eventId == existingId && it.type == ClockEventType.ALARM && it.label == "Old" }) }
+        coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "Updated" }) }
     }
 
     @Test
