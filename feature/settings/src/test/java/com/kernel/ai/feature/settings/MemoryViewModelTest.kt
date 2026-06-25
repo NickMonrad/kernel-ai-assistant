@@ -98,7 +98,7 @@ class MemoryViewModelTest {
         viewModel.addCoreMemory()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) {
+        coVerify(timeout = 2_000, exactly = 1) {
             memoryRepository.addCoreMemory(
                 content = "remember this",
                 source = "user",
@@ -126,6 +126,7 @@ class MemoryViewModelTest {
         viewModel.addCoreMemory()
         testDispatcher.scheduler.advanceUntilIdle()
 
+        coVerify(timeout = 2_000, exactly = 1) { embeddingEngine.embed(any()) }
         coVerify(exactly = 0) { memoryRepository.addCoreMemory(any(), any(), any()) }
     }
 
