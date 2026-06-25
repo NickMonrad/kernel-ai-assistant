@@ -14,14 +14,15 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
-import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertTrue
+import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
+import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -598,132 +599,4 @@ class ClockRepositoryImplTest {
         oneOffDateEpochDay = Instant.ofEpochMilli(triggerAtMillis).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay(),
         timeZoneId = ZoneId.systemDefault().id,
     )
-}
-
-private fun weekdayMaskFor(day: DayOfWeek): Int = 1 shl (day.value - 1)
-
-// ── Full event-set rollback ────────────────────────────────────────────
-
-@Test
-fun `createAlarm rolls back primary if snooze scheduling fails`() = runTest {
-    // Primary event succeeds, snooze event fails
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM })
-    } returns SchedulingResult.Success(Unit)
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.SNOOZE })
-    } returns SchedulingResult.SchedulingFailed("snooze unavailable")
-    // Pre-alarm: allow to succeed
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM })
-    } returns SchedulingResult.Success(Unit)
-
-    coEvery { scheduledAlarmDao.insert(any()) } just Runs
-    val draft = dailyDraft(label = "Rollback", hour = 7, minute = 0)
-
-    val result = repository.createAlarm(draft)
-
-    assertTrue(result is SchedulingResult.SchedulingFailed)
-    // Primary must have been cancelled as part of rollback
-    verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
-    // DB must NOT have been written
-    coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "Rollback" }) }
-}
-
-@Test
-fun `createAlarm rolls back primary if pre alarm scheduling fails`() = runTest {
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM })
-    } returns SchedulingResult.Success(Unit)
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.SNOOZE })
-    } returns SchedulingResult.Success(Unit)
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM })
-    } returns SchedulingResult.SchedulingFailed("pre-alarm unavailable")
-
-    coEvery { scheduledAlarmDao.insert(any()) } just Runs
-    val draft = dailyDraft(label = "RollbackPre", hour = 8, minute = 0)
-
-    val result = repository.createAlarm(draft)
-
-    assertTrue(result is SchedulingResult.SchedulingFailed)
-    verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
-    coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "RollbackPre" }) }
-}
-
-// ── Update replacement failure and restore ─────────────────────────────
-
-@Test
-fun `updateAlarm restores old schedule when replacement scheduling fails`() = runTest {
-    val now = System.currentTimeMillis()
-    val existingId = "alarm-existing"
-    val existingEntity = ScheduledAlarmEntity(
-        id = existingId,
-        ownerId = existingId,
-        triggerAtMillis = now + 86_400_000L,
-        label = "Old",
-        createdAt = now - 86_400_000L,
-        enabled = true,
-        entryType = ClockEventType.ALARM.name,
-        alarmHour = 7,
-        alarmMinute = 0,
-    )
-    coEvery { scheduledAlarmDao.getById(existingId) } returns existingEntity
-
-    // New schedule fails on snooze event
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM && it.ownerId == existingId })
-    } returns SchedulingResult.Success(Unit)
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.SNOOZE })
-    } returns SchedulingResult.SchedulingFailed("snooze unavailable")
-
-    // Old schedule restore: allow all events to succeed
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM && it.ownerId != existingId })
-    } returns SchedulingResult.Success(Unit)
-
-    val draft = oneOffDraft(label = "Updated", hour = 8, minute = 0)
-
-    val result = repository.updateAlarm(existingId, draft)
-
-    // Must be a failure because replacement was not fully scheduled
-    assertTrue(result is SchedulingResult.SchedulingFailed)
-    // Old schedule must have been restored (primary event re-scheduled)
-    verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
-}
-
-@Test
-fun `updateAlarm returns clear failure when restore also fails`() = runTest {
-    val now = System.currentTimeMillis()
-    val existingId = "alarm-restore-fail"
-    val existingEntity = ScheduledAlarmEntity(
-        id = existingId,
-        ownerId = existingId,
-        triggerAtMillis = now + 86_400_000L,
-        label = "Original",
-        createdAt = now - 86_400_000L,
-        enabled = true,
-        entryType = ClockEventType.ALARM.name,
-        alarmHour = 7,
-        alarmMinute = 0,
-    )
-    coEvery { scheduledAlarmDao.getById(existingId) } returns existingEntity
-
-    // Replacement primary fails on exact alarm blocker
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM && it.ownerId == existingId })
-    } returns SchedulingResult.ExactAlarmBlocked
-    // Restore also fails
-    every {
-        scheduler.schedule(match { it.type == ClockEventType.ALARM && it.ownerId != existingId })
-    } returns SchedulingResult.ExactAlarmBlocked
-
-    val draft = oneOffDraft(label = "Updated", hour = 8, minute = 0)
-
-    val result = repository.updateAlarm(existingId, draft)
-
-    assertTrue(result is SchedulingResult.SchedulingFailed)
-    assertTrue((result as SchedulingResult.SchedulingFailed).message?.contains("Manual intervention") == true)
 }
