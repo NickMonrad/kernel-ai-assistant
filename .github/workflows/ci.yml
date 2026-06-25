@@ -82,7 +82,7 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
-        run: ./gradlew :core:skills:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
+        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Upload test results
         if: always()
