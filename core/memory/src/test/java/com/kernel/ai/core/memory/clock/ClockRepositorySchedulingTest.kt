@@ -14,6 +14,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -53,12 +54,15 @@ class ClockRepositorySchedulingTest {
 
     @Test
     fun `pre alarm failure cancels primary and skips DB insert`() = runTest {
-        // Default: all scheduling succeeds
-        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
-        // Pre-alarm scheduling fails
-        every {
-            scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM })
-        } returns SchedulingResult.SchedulingFailed("pre-alarm unavailable")
+        val scheduledEvents = mutableListOf<ClockScheduledEvent>()
+        every { scheduler.schedule(any()) } answers {
+            scheduledEvents += args[0] as ClockScheduledEvent
+            if (scheduledEvents.size == 1) {
+                SchedulingResult.Success(Unit)
+            } else {
+                SchedulingResult.SchedulingFailed("pre-alarm unavailable")
+            }
+        }
 
         coEvery { scheduledAlarmDao.insert(any()) } just Runs
         val draft = AlarmDraft(
@@ -72,10 +76,12 @@ class ClockRepositorySchedulingTest {
         val result = repository.createAlarm(draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
-        verify(atLeast = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
-        verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
-        coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "RollbackPre" }) }
+        assertEquals(
+            listOf(ClockEventType.ALARM, ClockEventType.PRE_ALARM),
+            scheduledEvents.map { it.type },
+        )
+        verify(exactly = 1) { scheduler.cancel(match { it.type == ClockEventType.ALARM }) }
+        coVerify(exactly = 0) { scheduledAlarmDao.insert(any()) }
     }
 
     // ── Update replacement failure and restore ─────────────────────────
@@ -96,12 +102,15 @@ class ClockRepositorySchedulingTest {
             alarmMinute = 0,
         )
 
-        // First schedule (replacement) fails; subsequent calls (restore) succeed
-        every { scheduler.schedule(any()) } returns
-            SchedulingResult.SchedulingFailed("replacement failed") andThen
-            SchedulingResult.Success(Unit) andThen
-            SchedulingResult.Success(Unit) andThen
-            SchedulingResult.Success(Unit)
+        val scheduledEvents = mutableListOf<ClockScheduledEvent>()
+        every { scheduler.schedule(any()) } answers {
+            scheduledEvents += args[0] as ClockScheduledEvent
+            if (scheduledEvents.size == 1) {
+                SchedulingResult.SchedulingFailed("replacement failed")
+            } else {
+                SchedulingResult.Success(Unit)
+            }
+        }
 
         coEvery { scheduledAlarmDao.insert(any()) } just Runs
         val draft = AlarmDraft(
@@ -115,8 +124,9 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 1) { scheduler.cancel(any()) }
-        verify(atLeast = 1) { scheduler.schedule(any()) }
+        verify(atLeast = 1) { scheduler.cancel(match { it.label == "Old" }) }
+        assertEquals(listOf("Updated", "Old"), scheduledEvents.map { it.label })
+        coVerify(exactly = 0) { scheduledAlarmDao.insert(any()) }
     }
 
     @Test
@@ -135,8 +145,11 @@ class ClockRepositorySchedulingTest {
             alarmMinute = 0,
         )
 
-        // All schedule attempts fail (exact alarm blocked)
-        every { scheduler.schedule(any()) } returns SchedulingResult.ExactAlarmBlocked
+        val scheduledEvents = mutableListOf<ClockScheduledEvent>()
+        every { scheduler.schedule(any()) } answers {
+            scheduledEvents += args[0] as ClockScheduledEvent
+            SchedulingResult.ExactAlarmBlocked
+        }
 
         coEvery { scheduledAlarmDao.insert(any()) } just Runs
         val draft = AlarmDraft(
@@ -150,7 +163,9 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        verify(atLeast = 2) { scheduler.schedule(any()) }
+        verify(atLeast = 1) { scheduler.cancel(match { it.label == "Original" }) }
+        assertEquals(listOf("Updated", "Original"), scheduledEvents.map { it.label })
+        coVerify(exactly = 0) { scheduledAlarmDao.insert(any()) }
         assertTrue((result as SchedulingResult.SchedulingFailed).message?.contains("Manual intervention") == true)
     }
 }
