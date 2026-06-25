@@ -77,6 +77,6 @@ class ScheduledAlarmsViewModelTest {
 
         val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")
 
-        assertEquals(AlarmSaveResult.STORED, result)
+ assertEquals(AlarmSaveResult.STORED(), result)
     }
 }

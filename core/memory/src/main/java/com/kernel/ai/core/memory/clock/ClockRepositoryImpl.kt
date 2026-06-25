@@ -298,9 +298,15 @@ class ClockRepositoryImpl @Inject constructor(
         cancelAlarmEvents(existing, now)
         val scheduleResult = scheduleAlarmEvents(updated, now)
         if (scheduleResult !is SchedulingResult.Success) {
-            // Scheduling failed (timing race: state changed between check and schedule)
-            scheduleAlarmEvents(existing, now)
-            return scheduleResult as SchedulingResult<ClockAlarm>
+            // Replacement scheduling failed — attempt to restore old schedule
+            val restoreResult = scheduleAlarmEvents(existing, now)
+            return when (restoreResult) {
+                is SchedulingResult.Success -> scheduleResult as SchedulingResult<ClockAlarm>
+                else -> SchedulingResult.SchedulingFailed(
+                    "Replacement scheduling failed and old schedule could not be restored. " +
+                        "Manual intervention may be required."
+                )
+            }
         }
 
         val warnings = buildList {
@@ -316,7 +322,13 @@ class ClockRepositoryImpl @Inject constructor(
             )
         } catch (e: Exception) {
             cancelAlarmEvents(updated, now)
-            scheduleAlarmEvents(existing, now)
+            val restoreResult = scheduleAlarmEvents(existing, now)
+            if (restoreResult !is SchedulingResult.Success) {
+                return SchedulingResult.SchedulingFailed(
+                    "DB insert failed and old schedule could not be restored. " +
+                        "Manual intervention may be required."
+                )
+            }
             SchedulingResult.SchedulingFailed(e.message)
         }
     }
@@ -668,13 +680,24 @@ class ClockRepositoryImpl @Inject constructor(
         clockAlertPreferences.setMaxAutoSnoozes(value)
     }
 
-    /** Schedules the full alarm event set. Returns the primary event result. */
+    /** Schedules the full alarm event set. Every required event must succeed or the operation is rolled back. */
     private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long, currentAutoSnoozeCount: Int = 0): SchedulingResult<Unit> {
-        val primary = entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
-            ?: return SchedulingResult.SchedulingFailed("Could not create primary alarm event")
-        entity.toSnoozeScheduledEvent(nowMillis, currentAutoSnoozeCount)?.let(scheduler::schedule)
-        entity.toPreAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
-        return primary
+        val events = listOfNotNull(
+            entity.toPrimaryAlarmScheduledEvent(nowMillis),
+            entity.toSnoozeScheduledEvent(nowMillis, currentAutoSnoozeCount),
+            entity.toPreAlarmScheduledEvent(nowMillis),
+        )
+        val scheduled = mutableListOf<ClockScheduledEvent>()
+        for (event in events) {
+            when (val result = scheduler.schedule(event)) {
+                is SchedulingResult.Success -> scheduled.add(event)
+                else -> {
+                    scheduled.forEach(scheduler::cancel)
+                    return result as SchedulingResult<Unit>
+                }
+            }
+        }
+        return SchedulingResult.Success(Unit)
     }
 
     private fun cancelAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {

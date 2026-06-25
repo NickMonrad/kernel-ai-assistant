@@ -179,8 +179,8 @@ fun ScheduledAlarmsScreen(
                 viewModel.scheduleAlarm(triggerAtMillis, label) { result ->
                     when (result) {
                         is AlarmSaveResult.STORED -> {
-                            schedulingError = null
                             showCreateDialog = false
+                            schedulingError = result.warnings.toWarningMessage()
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -203,8 +203,8 @@ fun ScheduledAlarmsScreen(
                 viewModel.editAlarm(alarm, triggerAtMillis, label) { result ->
                     when (result) {
                         is AlarmSaveResult.STORED -> {
-                            schedulingError = null
                             editingAlarm = null
+                            schedulingError = result.warnings.toWarningMessage()
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable."

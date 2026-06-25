@@ -162,7 +162,7 @@ fun SidePanelScreen(
         schedulingError = when (result) {
             is AlarmSaveResult.STORED -> {
                 if (closeDialog) showCreateTimerDialog = false
-                null
+                result.warnings.toWarningMessage()
             }
             is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                 "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -481,17 +481,17 @@ fun SidePanelScreen(
             defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.scheduleAlarm(draft) { result ->
-                    when (result) {
+                    schedulingError = when (result) {
                         is AlarmSaveResult.STORED -> {
-                            schedulingError = null
                             showCreateAlarmDialog = false
+                            result.warnings.toWarningMessage()
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
-                            schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
+                            "Exact alarm scheduling is unavailable. Grant exact alarm permission."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
-                            schedulingError = "Notifications are disabled. Enable in Settings."
-                                                is AlarmSaveResult.FAILED ->
-                            schedulingError = result.message ?: "Couldn't save the alarm."
+                            "Notifications are disabled. Enable in Settings."
+                        is AlarmSaveResult.FAILED ->
+                            result.message ?: "Couldn't save the alarm."
                     }
                 }
             },
@@ -505,17 +505,17 @@ fun SidePanelScreen(
             defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.editAlarm(alarm, draft) { result ->
-                    when (result) {
+                    schedulingError = when (result) {
                         is AlarmSaveResult.STORED -> {
-                            schedulingError = null
                             editingAlarm = null
+                            result.warnings.toWarningMessage()
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
-                            schedulingError = "Exact alarm scheduling is unavailable."
+                            "Exact alarm scheduling is unavailable."
                         is AlarmSaveResult.NOTIFICATION_BLOCKED ->
-                            schedulingError = "Notifications are disabled."
-                                                is AlarmSaveResult.FAILED ->
-                            schedulingError = result.message ?: "Couldn't save the alarm."
+                            "Notifications are disabled."
+                        is AlarmSaveResult.FAILED ->
+                            result.message ?: "Couldn't save the alarm."
                     }
                 }
             },

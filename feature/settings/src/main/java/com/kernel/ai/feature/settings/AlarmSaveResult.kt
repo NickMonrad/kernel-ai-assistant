@@ -1,16 +1,16 @@
 package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
 
 /**
  * Result of saving an alarm from the UI layer.
  * [STORED] is the success case; all other values indicate a specific blocker.
- * Warnings (full-screen, boot-restore) are embedded in [SchedulingResult.Success.warnings]
- * and the event is genuinely saved — they are not separate [AlarmSaveResult] variants.
+ * [warnings] carries non-blocking platform limitations (e.g. full-screen unavailable).
  */
 sealed class AlarmSaveResult {
-    /** Alarm was successfully stored and scheduled. */
-    data object STORED : AlarmSaveResult()
+    /** Alarm was successfully stored and scheduled. [warnings] lists any degraded-delivery conditions. */
+    data class STORED(val warnings: List<SchedulingWarning> = emptyList()) : AlarmSaveResult()
 
     /** Exact alarm scheduling is blocked on this device. */
     data object EXACT_ALARM_BLOCKED : AlarmSaveResult()
@@ -24,8 +24,21 @@ sealed class AlarmSaveResult {
 
 /** Convert a [SchedulingResult] from the repository layer into an [AlarmSaveResult]. */
 internal fun SchedulingResult<*>.toAlarmSaveResult(): AlarmSaveResult = when (this) {
-    is SchedulingResult.Success -> AlarmSaveResult.STORED
+    is SchedulingResult.Success -> AlarmSaveResult.STORED(warnings = this.warnings)
     is SchedulingResult.ExactAlarmBlocked -> AlarmSaveResult.EXACT_ALARM_BLOCKED
     is SchedulingResult.NotificationBlocked -> AlarmSaveResult.NOTIFICATION_BLOCKED
     is SchedulingResult.SchedulingFailed -> AlarmSaveResult.FAILED(this.message)
+}
+
+/** Build a user-facing warning message from scheduling warnings, or null if there are none. */
+internal fun List<SchedulingWarning>.toWarningMessage(): String? {
+    if (isEmpty()) return null
+    return joinToString(" ") { warning ->
+        when (warning) {
+            SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                "Full-screen alerts are unavailable."
+            SchedulingWarning.BOOT_RESTORE_LIMITED ->
+                "Scheduled events may not persist across device restarts."
+        }
+    }
 }

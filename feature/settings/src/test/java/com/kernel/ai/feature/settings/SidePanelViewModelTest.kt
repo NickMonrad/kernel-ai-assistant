@@ -92,7 +92,7 @@ class SidePanelViewModelTest {
 
         val result = viewModel.tryScheduleTimer(60_000L, "Tea")
 
-        assertEquals(AlarmSaveResult.STORED, result)
+        assertEquals(AlarmSaveResult.STORED(), result)
     }
 
     @Test
@@ -113,7 +113,7 @@ class SidePanelViewModelTest {
         viewModel.restartTimer(timer) { result = it }
         advanceUntilIdle()
 
-        assertEquals(AlarmSaveResult.STORED, result)
+        assertEquals(AlarmSaveResult.STORED(), result)
         coVerify(exactly = 1) { clockRepository.scheduleTimer(60_000L, "Tea") }
     }
 
