@@ -115,10 +115,8 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        // Existing alarm events were cancelled
         verify(atLeast = 1) { scheduler.cancel(any()) }
-        // Replacement schedule was attempted and failed
-        // Restore was attempted and succeeded
+        verify(atLeast = 1) { scheduler.schedule(any()) }
     }
 
     @Test
@@ -152,8 +150,7 @@ class ClockRepositorySchedulingTest {
         val result = repository.updateAlarm(existingId, draft)
 
         assertTrue(result is SchedulingResult.SchedulingFailed)
-        // Replacement scheduling was attempted via scheduleAlarmEvents
-        // Restore was also attempted (second invocation of scheduleAlarmEvents)
+        verify(atLeast = 2) { scheduler.schedule(any()) }
         assertTrue((result as SchedulingResult.SchedulingFailed).message?.contains("Manual intervention") == true)
     }
 }
