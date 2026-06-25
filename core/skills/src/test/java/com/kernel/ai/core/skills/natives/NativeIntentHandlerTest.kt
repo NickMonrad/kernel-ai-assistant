@@ -975,6 +975,30 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `set_timer mixed duration formats minutes and seconds correctly`() {
+        every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
+            canScheduleExactAlarms = true,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+        coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
+            com.kernel.ai.core.memory.clock.ClockTimer(
+                id = "timer-1",
+                triggerAtMillis = 5_000L,
+                label = "Tea",
+                createdAtMillis = 1_000L,
+                durationMs = 90_000L,
+                startedAtMillis = 2_000L,
+            )
+        )
+
+        val result = handleIntent("set_timer", mapOf("duration_seconds" to "90", "label" to "Tea"))
+
+        assertTrue(result is SkillResult.Success)
+        assertEquals("Timer set for 1 min 30 sec.", (result as SkillResult.Success).content)
+    }
+
+    @Test
     fun `cancel_timer dismisses active timer alert when no running timers remain`() {
         coEvery { clockRepository.cancelAllTimers() } returns 0
         every { clockAlertController.dismissActiveTimerAlerts() } returns true
