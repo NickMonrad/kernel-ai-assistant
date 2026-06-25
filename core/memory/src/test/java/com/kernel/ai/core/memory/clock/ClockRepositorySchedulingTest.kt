@@ -108,9 +108,14 @@ class ClockRepositorySchedulingTest {
             scheduledEvents += args[0] as ClockScheduledEvent
             when (scheduledEvents.size) {
                 1 -> SchedulingResult.SchedulingFailed("replacement failed")
-                2, 3, 4, 5, 6 -> SchedulingResult.Success(Unit)
+                2 -> SchedulingResult.Success(Unit)
                 else -> error("unexpected extra schedule call")
             }
+        }
+
+        val cancelEvents = mutableListOf<ClockScheduledEvent>()
+        every { scheduler.cancel(any()) } answers {
+            cancelEvents += args[0] as ClockScheduledEvent
         }
 
         val oldTrigger = now + 86_400_000L
@@ -133,7 +138,7 @@ class ClockRepositorySchedulingTest {
         assertEquals(listOf(ClockEventType.ALARM, ClockEventType.ALARM), scheduledEvents.map { it.type })
         assertTrue(scheduledEvents[0].occurrenceTriggerAtMillis != oldTrigger)
         assertEquals(oldTrigger, scheduledEvents[1].occurrenceTriggerAtMillis)
-        verify(atLeast = 1) { scheduler.cancel(match { it.eventId == existingId && it.type == ClockEventType.ALARM && it.label == "Old" }) }
+        assertTrue(cancelEvents.any { it.eventId == existingId && it.type == ClockEventType.ALARM && it.label == "Old" })
         coVerify(exactly = 0) { scheduledAlarmDao.insert(match { it.label == "Updated" }) }
     }
 
