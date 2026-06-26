@@ -96,11 +96,25 @@ class MemoryViewModelTest {
         viewModel.openAddDialog()
         viewModel.onAddDialogTextChange("  remember this  ")
         viewModel.addCoreMemory()
+
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(timeout = 2_000, exactly = 1) {
+            embeddingEngine.embed("remember this")
+        }
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
             memoryRepository.addCoreMemory(
                 content = "remember this",
+                source = "user",
+                embeddingVector = match { it.isNotEmpty() },
+            )
+        }
+        coVerify(exactly = 0) {
+            memoryRepository.addCoreMemory(
+                content = "  remember this  ",
                 source = "user",
                 embeddingVector = any<FloatArray>(),
             )
@@ -124,9 +138,15 @@ class MemoryViewModelTest {
         viewModel.openAddDialog()
         viewModel.onAddDialogTextChange("some text")
         viewModel.addCoreMemory()
+
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(timeout = 2_000, exactly = 1) { embeddingEngine.embed(any()) }
+        coVerify(timeout = 2_000, exactly = 1) {
+            embeddingEngine.embed("some text")
+        }
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
         coVerify(exactly = 0) { memoryRepository.addCoreMemory(any(), any(), any()) }
     }
 
