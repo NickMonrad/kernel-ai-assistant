@@ -27,6 +27,9 @@ import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
 import com.kernel.ai.core.memory.clock.WorldClockResolution
+import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -434,49 +437,80 @@ class NativeIntentHandler @Inject constructor(
             timeZoneId = zone.id,
         )
 
-        val scheduled = runBlocking {
+        val result = runBlocking {
             clockRepository.createAlarm(draft)
         }
-        if (scheduled != null) {
-            val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
-                .withZone(ZoneId.systemDefault())
-            val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
-            return SkillResult.Success(
-                "Alarm set for $formattedTime${if (label != null) " — $label" else ""}"
-            )
-        }
-        if (!clockRepository.getPlatformState().canScheduleExactAlarms) {
-            return SkillResult.Failure(
-                "run_intent",
-                "Exact alarms are unavailable right now.",
-            )
-        }
 
-        return SkillResult.Failure("run_intent", "Could not schedule the alarm.")
+        return when (result) {
+            is SchedulingResult.Success -> {
+                val scheduled = result.data
+                val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
+                    .withZone(ZoneId.systemDefault())
+                val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
+                val warningText = result.warnings.joinToString(" ") { warning ->
+                    when (warning) {
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            "Full-screen alerts are unavailable for this alarm."
+                        SchedulingWarning.BOOT_RESTORE_LIMITED ->
+                            "The alarm may not persist across device restarts."
+                    }
+                }
+                val message = buildString {
+                    append("Alarm set for $formattedTime${if (label != null) " — $label" else ""}.")
+                    if (warningText.isNotEmpty()) append(" $warningText")
+                }
+                SkillResult.Success(message)
+            }
+            is SchedulingResult.ExactAlarmBlocked ->
+                SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission in system settings.")
+            is SchedulingResult.NotificationBlocked ->
+                SkillResult.Failure("run_intent", "Notifications are disabled. Jandal needs notification access to alert you. You can enable it in Settings.")
+            is SchedulingResult.SchedulingFailed ->
+                SkillResult.Failure("run_intent", result.message ?: "Could not schedule the alarm.")
+        }
     }
-
-    // ── Timer ─────────────────────────────────────────────────────────────────
 
     private fun setTimer(params: Map<String, String>): SkillResult {
         val seconds = params["duration_seconds"]?.toIntOrNull()
             ?: return SkillResult.Failure("run_intent", "duration_seconds is required and must be an integer.")
         val durationMs = seconds * 1000L
         val label = params["label"]?.takeIf { it.isNotBlank() }
-        val scheduled = runBlocking {
+
+        val result = runBlocking {
             clockRepository.scheduleTimer(durationMs, label)
-        } ?: return if (!clockRepository.getPlatformState().canScheduleExactAlarms) {
-            SkillResult.Failure("run_intent", "Exact alarms are unavailable right now.")
-        } else {
-            SkillResult.Failure("run_intent", "Could not schedule the timer.")
         }
-        val mins = (scheduled.durationMs / 1000) / 60
-        val secs = (scheduled.durationMs / 1000) % 60
-        val labelStr = when {
-            mins > 0 && secs > 0 -> "$mins min $secs sec"
-            mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
-            else -> "${scheduled.durationMs / 1000} seconds"
+
+        return when (result) {
+            is SchedulingResult.Success -> {
+                val scheduled = result.data
+                val mins = (scheduled.durationMs / 1000) / 60
+                val secs = (scheduled.durationMs / 1000) % 60
+                val durationStr = when {
+                    mins > 0 && secs > 0 -> "$mins min $secs sec"
+                    mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
+                    else -> "${scheduled.durationMs / 1000} seconds"
+                }
+                val warningText = result.warnings.joinToString(" ") { warning ->
+                    when (warning) {
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
+                            "Full-screen alerts are unavailable for this timer."
+                        SchedulingWarning.BOOT_RESTORE_LIMITED ->
+                            "The timer may not persist across device restarts."
+                    }
+                }
+                val message = buildString {
+                    append("Timer set for $durationStr.")
+                    if (warningText.isNotEmpty()) append(" $warningText")
+                }
+                SkillResult.Success(message)
+            }
+            is SchedulingResult.ExactAlarmBlocked ->
+                SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission.")
+            is SchedulingResult.NotificationBlocked ->
+                SkillResult.Failure("run_intent", "Notifications are disabled. Jandal needs notification access to alert you.")
+            is SchedulingResult.SchedulingFailed ->
+                SkillResult.Failure("run_intent", result.message ?: "Could not schedule the timer.")
         }
-        return SkillResult.Success("Timer set for $labelStr.")
     }
 
     private fun cancelTimer(): SkillResult {

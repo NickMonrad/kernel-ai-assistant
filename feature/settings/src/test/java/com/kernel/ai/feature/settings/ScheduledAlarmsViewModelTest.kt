@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.SchedulingResult
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -36,25 +37,25 @@ class ScheduledAlarmsViewModelTest {
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.ExactAlarmBlocked
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
 
         val result = viewModel.tryScheduleAlarm(1_234L, "Wake")
 
-        assertEquals(false, result)
+        assertEquals(AlarmSaveResult.EXACT_ALARM_BLOCKED, result)
     }
 
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.SchedulingFailed(null)
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
         var result: AlarmSaveResult? = null
 
         viewModel.scheduleAlarm(System.currentTimeMillis() + 172_800_000L, "Wake") { result = it }
         advanceUntilIdle()
 
-        assertEquals(AlarmSaveResult.FAILED, result)
+        assertEquals(AlarmSaveResult.FAILED(null), result)
     }
 
     @Test
@@ -71,11 +72,11 @@ class ScheduledAlarmsViewModelTest {
             triggerAtMillis = 1_234L,
         )
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.updateAlarm(alarm.id, any()) } returns alarm
+        coEvery { clockRepository.updateAlarm(alarm.id, any()) } returns SchedulingResult.Success(alarm)
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
 
         val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")
 
-        assertEquals(true, result)
+ assertEquals(AlarmSaveResult.STORED(), result)
     }
 }

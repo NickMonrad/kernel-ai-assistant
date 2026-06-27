@@ -143,7 +143,7 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    fun restartTimer(timer: ClockTimer, onResult: (Boolean) -> Unit = {}) {
+    fun restartTimer(timer: ClockTimer, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
             onResult(tryScheduleTimer(timer.durationMs, timer.label))
         }
@@ -161,20 +161,15 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    suspend fun tryScheduleAlarm(draft: AlarmDraft): Boolean =
-        clockRepository.createAlarm(draft) != null
+    suspend fun tryScheduleAlarm(draft: AlarmDraft): AlarmSaveResult =
+        clockRepository.createAlarm(draft).toAlarmSaveResult()
 
-    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
+    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): AlarmSaveResult =
         tryScheduleAlarm(triggerAtMillis.toOneOffAlarmDraft(label))
 
     fun scheduleAlarm(draft: AlarmDraft, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
-            val result = if (tryScheduleAlarm(draft)) {
-                AlarmSaveResult.STORED
-            } else {
-                AlarmSaveResult.FAILED
-            }
-            onResult(result)
+            onResult(tryScheduleAlarm(draft))
         }
     }
 
@@ -182,10 +177,10 @@ class SidePanelViewModel @Inject constructor(
         scheduleAlarm(triggerAtMillis.toOneOffAlarmDraft(label), onResult)
     }
 
-    suspend fun tryEditAlarm(alarm: ClockAlarm, draft: AlarmDraft): Boolean =
-        clockRepository.updateAlarm(alarm.id, draft) != null
+    suspend fun tryEditAlarm(alarm: ClockAlarm, draft: AlarmDraft): AlarmSaveResult =
+        clockRepository.updateAlarm(alarm.id, draft).toAlarmSaveResult()
 
-    suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): Boolean =
+    suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): AlarmSaveResult =
         tryEditAlarm(alarm, newTriggerAtMillis.toOneOffAlarmDraft(newLabel))
 
     fun editAlarm(
@@ -194,12 +189,7 @@ class SidePanelViewModel @Inject constructor(
         onResult: (AlarmSaveResult) -> Unit = {},
     ) {
         viewModelScope.launch {
-            val result = if (tryEditAlarm(alarm, draft)) {
-                AlarmSaveResult.STORED
-            } else {
-                AlarmSaveResult.FAILED
-            }
-            onResult(result)
+            onResult(tryEditAlarm(alarm, draft))
         }
     }
 
@@ -221,10 +211,10 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    suspend fun tryScheduleTimer(durationMs: Long, label: String?): Boolean =
-        clockRepository.scheduleTimer(durationMs, label) != null
+    suspend fun tryScheduleTimer(durationMs: Long, label: String?): AlarmSaveResult =
+        clockRepository.scheduleTimer(durationMs, label).toAlarmSaveResult()
 
-    fun scheduleTimer(durationMs: Long, label: String?, onResult: (Boolean) -> Unit = {}) {
+    fun scheduleTimer(durationMs: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
             onResult(tryScheduleTimer(durationMs, label))
         }

@@ -28,7 +28,8 @@ import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-
+import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
 @ExtendWith(MockKExtension::class)
 class ClockRepositoryImplTest {
     private val scheduledAlarmDao = mockk<ScheduledAlarmDao>()
@@ -50,6 +51,7 @@ class ClockRepositoryImplTest {
             clockSoundPreferences,
             clockAlertPreferences,
         )
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
         every {
             scheduler.getPlatformState()
         } returns ClockPlatformState(
@@ -74,10 +76,12 @@ class ClockRepositoryImplTest {
         )
 
         val result = repository.createAlarm(draft)
+        assertTrue(result is SchedulingResult.Success)
+        val alarm = (result as SchedulingResult.Success).data
 
-        assertEquals("Morning", result?.label)
-        assertEquals(7, result?.hour)
-        assertEquals(30, result?.minute)
+        assertEquals("Morning", alarm.label)
+        assertEquals(7, alarm.hour)
+        assertEquals(30, alarm.minute)
         coVerify(exactly = 1) {
             scheduledAlarmDao.insert(match {
                 it.entryType == ClockEventType.ALARM.name &&
@@ -97,8 +101,10 @@ class ClockRepositoryImplTest {
         val draft = dailyDraft(label = "Gym", hour = 8, minute = 0)
 
         val result = repository.createAlarm(draft)
+        assertTrue(result is SchedulingResult.Success)
+        val alarm = (result as SchedulingResult.Success).data
 
-        assertEquals(AlarmRepeatRule.Daily, result?.repeatRule)
+        assertEquals(AlarmRepeatRule.Daily, alarm.repeatRule)
         verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
         verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
     }
@@ -110,8 +116,10 @@ class ClockRepositoryImplTest {
             .copy(soundUri = "content://media/internal/audio/media/7")
 
         val result = repository.createAlarm(draft)
+        assertTrue(result is SchedulingResult.Success)
+        val alarm = (result as SchedulingResult.Success).data
 
-        assertEquals("content://media/internal/audio/media/7", result?.soundUri)
+        assertEquals("content://media/internal/audio/media/7", alarm.soundUri)
         coVerify(exactly = 1) {
             scheduledAlarmDao.insert(match { it.soundUri == "content://media/internal/audio/media/7" })
         }

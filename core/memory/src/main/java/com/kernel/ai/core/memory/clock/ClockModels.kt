@@ -129,7 +129,40 @@ data class ClockPlatformState(
     val canScheduleExactAlarms: Boolean,
     val notificationsEnabled: Boolean,
     val canUseFullScreenIntent: Boolean,
+    /** True when boot-complete restore of scheduled events may be limited. */
+    val bootRestoreLimited: Boolean = false,
  )
+
+/**
+ * Warnings that don't prevent scheduling but indicate degraded delivery.
+ * Carried inside [SchedulingResult.Success.warnings].
+ */
+enum class SchedulingWarning {
+    /** [NotificationManager.canUseFullScreenIntent] returned false — alert may use a standard notification. */
+    FULL_SCREEN_INTENT_UNAVAILABLE,
+    /** Device boot restore of scheduled events is limited or unavailable. */
+    BOOT_RESTORE_LIMITED,
+}
+
+/**
+ * Result of scheduling an alarm, timer, or reminder — distinguishes platform
+ * blockers from ordinary failures so callers can offer contextual repair.
+ */
+sealed class SchedulingResult<out T> {
+    /** The event was successfully scheduled. [warnings] contains any non-blocking platform limitations. */
+    data class Success<T>(val data: T, val warnings: List<SchedulingWarning> = emptyList()) : SchedulingResult<T>()
+
+    /** Android's [AlarmManager.canScheduleExactAlarms] returned false. */
+    data object ExactAlarmBlocked : SchedulingResult<Nothing>()
+
+    /** Notifications are disabled at the system or permission level. */
+    data object NotificationBlocked : SchedulingResult<Nothing>()
+
+    /** An internal scheduling error occurred (DB, parsing, etc.). */
+    data class SchedulingFailed(val message: String? = null) : SchedulingResult<Nothing>()
+}
+
+
 
 data class ClockRestoreReport(
     val restoredCount: Int,
