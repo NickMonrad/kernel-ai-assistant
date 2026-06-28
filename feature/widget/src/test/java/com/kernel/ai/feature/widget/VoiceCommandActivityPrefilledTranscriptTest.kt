@@ -15,6 +15,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
  * Verifies the security contract: the prefilled transcript extra is only trusted
  * when it matches the in-process [WakeWordHandoff.pendingTranscript] token set by
  * [WakeWordService] immediately before launching this activity.
+ *
+ * **Android-boundary cases (manual testing required):**
+ * - **Missing permission path**: When RECORD_AUDIO is not granted,
+ *   [VoiceCommandActivity.onCreate] requests the permission and returns immediately.
+ *   The activity must NOT fall through to [VoiceCommandActivity.startVoiceSession]
+ *   until the permission callback returns granted. On grant, startVoiceSession();
+ *   on deny, finish(). This is tested manually on device with permission denied.
+ * - **Prefilled transcript with missing permission**: The permission request happens
+ *   after handlePrefilledTranscript returns false. If permission is denied, the
+ *   prefilled transcript is lost (activity finishes). This is tested manually on
+ *   device with permission denied.
  */
 class VoiceCommandActivityPrefilledTranscriptTest {
 

@@ -37,7 +37,7 @@ fun VoicePermissionPrompt(
     val positiveLabel = androidx.compose.ui.res.stringResource(config.positiveButtonRes)
     val negativeLabel = config.negativeButtonRes?.let { androidx.compose.ui.res.stringResource(it) }
 
-    val actions = remember(config, positiveLabel, negativeLabel) {
+    val actions = remember(config, positiveLabel, negativeLabel, onGrant, onRetry, onOpenSettings, onCancel) {
         buildPromptActions(config.state, positiveLabel, negativeLabel, onGrant, onRetry, onOpenSettings, onCancel)
     }
 
