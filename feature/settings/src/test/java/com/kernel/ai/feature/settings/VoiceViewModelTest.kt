@@ -565,4 +565,29 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
     }
+    @Test
+    fun `refreshAssistantStatus updates isDefaultAssistant to true when role granted`() {
+        viewModel.refreshAssistantStatus(isRoleHeld = true)
+
+        assertTrue(viewModel.uiState.value.isDefaultAssistant)
+    }
+
+    @Test
+    fun `refreshAssistantStatus updates isDefaultAssistant to false when role denied`() {
+        viewModel.refreshAssistantStatus(isRoleHeld = false)
+
+        assertTrue(!viewModel.uiState.value.isDefaultAssistant)
+    }
+
+    @Test
+    fun `refreshAssistantStatus is independent of microphone permission state`() {
+        // Set mic permission to denied
+        viewModel.enforceHeyJandalMicReadiness(MicrophoneReadiness.NotGranted)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Grant assistant role — should not be affected by mic permission state
+        viewModel.refreshAssistantStatus(isRoleHeld = true)
+
+        assertTrue(viewModel.uiState.value.isDefaultAssistant)
+    }
 }

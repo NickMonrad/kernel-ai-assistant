@@ -72,6 +72,19 @@ private const val TAG = "KernelAI"
  * the in-process token matches and then clears it — external apps cannot write the token.
  */
 const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
+/**
+ * Validates a prefilled transcript extra against the in-process [WakeWordHandoff] token.
+ *
+ * Returns `true` if the extra matches the token (trusted), `false` otherwise.
+ * Does NOT modify [WakeWordHandoff.pendingTranscript] — callers decide whether to clear it.
+ *
+ * This is extracted as a top-level function so it can be unit-tested without Android dependencies.
+ */
+fun validatePrefilledTranscriptToken(extra: String?): Boolean {
+    if (extra == null) return false
+    val token = WakeWordHandoff.pendingTranscript
+    return token == extra
+}
 
 @AndroidEntryPoint
 class VoiceCommandActivity : ComponentActivity() {
@@ -125,7 +138,7 @@ class VoiceCommandActivity : ComponentActivity() {
      * Returns `false` if the extra is absent or the in-process token does not match
      * (external caller or stale delivery — fall through to normal voice session).
      */
-    private fun handlePrefilledTranscript(intent: Intent): Boolean {
+    internal fun handlePrefilledTranscript(intent: Intent): Boolean {
         val extra = intent.getStringExtra(EXTRA_PREFILLED_TRANSCRIPT) ?: return false
         // Validate against the in-process token set by WakeWordService immediately before
         // startActivity. External apps cannot write this JVM field.
@@ -150,7 +163,7 @@ class VoiceCommandActivity : ComponentActivity() {
      * so the user can see what was heard, then call [WidgetNavigator.navigateToActions]
      * to open the ActionsScreen result card with voice TTS reply.
      */
-    private fun routePrefilledTranscript(transcript: String) {
+    internal fun routePrefilledTranscript(transcript: String) {
         setContent {
             KernelAITheme {
                 Box(
