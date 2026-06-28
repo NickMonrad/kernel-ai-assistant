@@ -47,6 +47,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
+import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
+import com.kernel.ai.core.permissions.VoicePermissionPromptState
+import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -91,15 +95,38 @@ class VoiceCommandActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        if (handlePrefilledTranscript(intent)) return
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
-            // Permission missing — request it. The system dialog will appear over this
-            // translucent activity. On grant, startVoiceSession(); on deny, finish().
-            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+            // Permission missing — show contextual prompt before requesting.
+            val promptConfig = VoicePermissionPromptFactory.create(
+                VoicePermissionEntryPoint.WIDGET_VOICE,
+                VoicePermissionPromptState.Missing,
+            )
+            setContent {
+                KernelAITheme {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f)) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            VoicePermissionPrompt(
+                                config = promptConfig,
+                                onGrant = {
+                                    requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                                onRetry = {
+                                    requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                                onOpenSettings = {
+                                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${packageName}")
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    })
+                                    finish()
+                                },
+                                onCancel = { finish() },
+                            )
+                        }
+                    }
+                }
+            }
             return
         }
 

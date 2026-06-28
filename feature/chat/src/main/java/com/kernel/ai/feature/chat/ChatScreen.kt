@@ -152,6 +152,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
+import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
+import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
+import com.kernel.ai.core.permissions.VoicePermissionPromptState
+import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.DownloadSource
@@ -298,6 +302,7 @@ fun ChatScreen(
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
             val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
+            var showVoicePermissionPrompt by remember { mutableStateOf(false) }
             val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
@@ -338,7 +343,7 @@ fun ChatScreen(
                     }
                 } else {
                     pendingVoiceAction = action
-                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    showVoicePermissionPrompt = true
                 }
             }
             
@@ -411,6 +416,44 @@ fun ChatScreen(
                 showModelSettings = showModelSettings,
                 onShowModelSettingsChange = { showModelSettings = it },
             )
+
+            // Contextual voice permission prompt (shared with ActionsScreen, widget, settings).
+            if (showVoicePermissionPrompt) {
+                val promptConfig = VoicePermissionPromptFactory.create(
+                    VoicePermissionEntryPoint.CHAT_VOICE,
+                    VoicePermissionPromptState.Missing,
+                )
+                VoicePermissionPrompt(
+                    config = promptConfig,
+                    onGrant = {
+                        showVoicePermissionPrompt = false
+                        pendingVoiceAction?.let { action ->
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onRetry = {
+                        showVoicePermissionPrompt = false
+                        pendingVoiceAction?.let { action ->
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onOpenSettings = {
+                        showVoicePermissionPrompt = false
+                        viewModel.onChatMicrophoneOpenAppPermissions()
+                        openRuntimePermissionRepair(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onCancel = {
+                        showVoicePermissionPrompt = false
+                        viewModel.onMicrophonePermissionDenied(
+                            shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                                context as android.app.Activity,
+                                Manifest.permission.RECORD_AUDIO,
+                            ),
+                            requestedAction = pendingVoiceAction,
+                        )
+                    },
+                )
+            }
 
             microphoneState?.let { state: MicrophoneState ->
                 if (state.isPermanentlyDenied) {

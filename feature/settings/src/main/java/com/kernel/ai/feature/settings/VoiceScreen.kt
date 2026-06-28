@@ -50,6 +50,11 @@ import androidx.compose.runtime.remember
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
+import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
+import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
+import com.kernel.ai.core.permissions.VoicePermissionPromptState
+import com.kernel.ai.core.permissions.VoicePermissionPromptConfig
+import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -182,44 +187,21 @@ fun VoiceScreen(
             }
         }
     }
+    var showVoicePermissionPrompt by remember { mutableStateOf(false) }
+    var voicePermissionPromptConfig by remember { mutableStateOf<VoicePermissionPromptConfig?>(null) }
 
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            // Several OEM RoleControllerService implementations silently reject third-party
-            // VoiceInteractionService packages or return null from createRequestRoleIntent,
-            // making the standard role-request dialog a no-op. For these OEMs we deep-link
-            // directly into the system Default Apps settings page.
-            //
-            // Samsung One UI and Honor Magic OS: reject or no-op third-party VIS packages →
-            // deep-link to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
-            // Other OEMs: attempt the standard role dialog first; if the intent is null
-            // (broken RoleControllerService) fall back to ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
-            val manufacturer = Build.MANUFACTURER
-            val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                manufacturer.equals("honor", ignoreCase = true)
-            when {
-                usesSettingsFlow -> {
-                    try {
-                        assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                    } catch (_: Exception) {
-                        assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                    }
-                }
-                else -> {
-                    val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                    if (intent != null) {
-                        assistantRoleLauncher.launch(intent)
-                    } else {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        } catch (_: Exception) {
-                            // No standard default-apps page — nothing more we can do.
-                        }
-                    }
-                }
-            }
+            // Show contextual voice permission prompt before navigating to role setup.
+            val micGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            showVoicePermissionPrompt = true
+            // Store current state for the prompt's onGrant callback
+            voicePermissionPromptConfig = VoicePermissionPromptFactory.create(
+                VoicePermissionEntryPoint.VOICE_SETTINGS,
+                if (micGranted) VoicePermissionPromptState.Missing else VoicePermissionPromptState.Denied,
+            )
         },
         onHeyJandalEnabledChanged = { enabled ->
             if (!enabled) {
@@ -330,6 +312,79 @@ fun VoiceScreen(
             onDismissRequest = {
                 showMicDurableRequiredDialog = false
                 awaitingMicSettingsReturn = false
+            },
+        )
+    }
+
+    // Contextual voice permission prompt for default assistant setup.
+    if (showVoicePermissionPrompt && voicePermissionPromptConfig != null) {
+        VoicePermissionPrompt(
+            config = voicePermissionPromptConfig!!,
+            onGrant = {
+                showVoicePermissionPrompt = false
+                // Launch the assistant role setup intent
+                val manufacturer = Build.MANUFACTURER
+                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
+                    manufacturer.equals("honor", ignoreCase = true)
+                when {
+                    usesSettingsFlow -> {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                        } catch (_: Exception) {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        }
+                    }
+                    else -> {
+                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                        if (intent != null) {
+                            assistantRoleLauncher.launch(intent)
+                        } else {
+                            try {
+                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                            } catch (_: Exception) {
+                                // No standard default-apps page — nothing more we can do.
+                            }
+                        }
+                    }
+                }
+            },
+            onRetry = {
+                showVoicePermissionPrompt = false
+                // Retry: launch the assistant role setup intent
+                val manufacturer = Build.MANUFACTURER
+                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
+                    manufacturer.equals("honor", ignoreCase = true)
+                when {
+                    usesSettingsFlow -> {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                        } catch (_: Exception) {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        }
+                    }
+                    else -> {
+                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                        if (intent != null) {
+                            assistantRoleLauncher.launch(intent)
+                        } else {
+                            try {
+                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                            } catch (_: Exception) {
+                                // No standard default-apps page — nothing more we can do.
+                            }
+                        }
+                    }
+                }
+            },
+            onOpenSettings = {
+                showVoicePermissionPrompt = false
+                context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                })
+            },
+            onCancel = {
+                showVoicePermissionPrompt = false
             },
         )
     }
@@ -1094,6 +1149,7 @@ private fun VoiceScreenContent(
 
         }
     }
+
 }
 
 /**
