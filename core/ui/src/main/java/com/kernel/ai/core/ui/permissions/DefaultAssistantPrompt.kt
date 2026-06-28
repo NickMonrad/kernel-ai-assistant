@@ -27,7 +27,7 @@ fun DefaultAssistantPrompt(
     val grantLabel = stringResource(R.string.default_assistant_setup_grant)
     val cancelLabel = stringResource(R.string.default_assistant_setup_cancel)
 
-    val actions = remember {
+    val actions = remember(onGrant, onCancel, grantLabel, cancelLabel) {
         listOf(
             PermissionDialogAction(
                 label = grantLabel,
@@ -68,7 +68,7 @@ fun DefaultAssistantPromptSuccess(
     val body = stringResource(R.string.default_assistant_setup_success_description)
     val okLabel = stringResource(R.string.default_assistant_setup_success_ok)
 
-    val actions = remember {
+    val actions = remember(onOk, okLabel) {
         listOf(
             PermissionDialogAction(
                 label = okLabel,

@@ -22,6 +22,15 @@ import org.junit.Test
  *     (`refreshAssistantStatus updates isDefaultAssistant to true when role granted`).
  *   - Full grant/revoke automation (toggling the assistant role in Android settings)
  *     is OEM-specific and inherently unstable across Samsung One UI vs AOSP.
+ *
+ * Execution notes:
+ *   - This is an instrumented test (androidTest) that requires a connected
+ *     Android device or emulator. It is NOT run by CI (which only runs
+ *     unit tests via `./gradlew testDebugUnitTest`).
+ *   - To run locally: `adb install -r ...apk && adb shell am instrument
+ *     -w com.kernel.ai.feature.settings/androidx.test.runner.AndroidJUnitRunner
+ *     -e class com.kernel.ai.feature.settings.DefaultAssistantPromptTest`
+ *   - Or via Gradle: `./gradlew :feature:settings:connectedDebugAndroidTest`
  */
 class DefaultAssistantPromptTest {
 

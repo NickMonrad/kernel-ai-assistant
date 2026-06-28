@@ -42,8 +42,8 @@
     <string name="voice_permission_granted_description">You can now use voice commands and conversations.</string>
 
     <!-- Default assistant role setup -->
-    <string name="default_assistant_setup_title">Set Jandal as your default assistant?</string>
-    <string name="default_assistant_setup_description">Allow Jandal to respond to your \'Hey Jandal\' wake word and handle voice commands system-wide.</string>
+    <string name="default_assistant_setup_title">Set Hey Jandal as default assistant</string>
+    <string name="default_assistant_setup_description">Hey Jandal needs to be set as your default assistant to respond to the wake word.</string>
     <string name="default_assistant_setup_grant">Set as default</string>
     <string name="default_assistant_setup_cancel">Not now</string>
     <string name="default_assistant_setup_success_title">Default assistant set</string>

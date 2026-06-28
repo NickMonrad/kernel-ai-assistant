@@ -34,9 +34,11 @@ fun VoicePermissionPrompt(
 ) {
     val title = androidx.compose.ui.res.stringResource(config.titleRes)
     val body = androidx.compose.ui.res.stringResource(config.descriptionRes)
+    val positiveLabel = androidx.compose.ui.res.stringResource(config.positiveButtonRes)
+    val negativeLabel = config.negativeButtonRes?.let { androidx.compose.ui.res.stringResource(it) }
 
-    val actions = remember(config) {
-        buildPromptActions(config, onGrant, onRetry, onOpenSettings, onCancel)
+    val actions = remember(config, positiveLabel, negativeLabel) {
+        buildPromptActions(config.state, positiveLabel, negativeLabel, onGrant, onRetry, onOpenSettings, onCancel)
     }
 
     PermissionOverlayDialog(
@@ -50,24 +52,29 @@ fun VoicePermissionPrompt(
 
 /**
  * Build the action list for a voice permission prompt based on the config state.
+ *
+ * String labels are resolved in the @Composable caller to avoid requiring
+ * @Composable on this helper function.
  */
 private fun buildPromptActions(
-    config: VoicePermissionPromptConfig,
+    state: VoicePermissionPromptState,
+    positiveLabel: String,
+    negativeLabel: String?,
     onGrant: () -> Unit,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
     onCancel: () -> Unit,
 ): List<PermissionDialogAction> {
-    return when (config.state) {
+    return when (state) {
         VoicePermissionPromptState.Missing -> listOf(
             PermissionDialogAction(
-                label = "Grant",
+                label = positiveLabel,
                 testTag = "voice_permission_grant",
                 onClick = onGrant,
                 isPrimary = true,
             ),
             PermissionDialogAction(
-                label = "Cancel",
+                label = negativeLabel ?: "Cancel",
                 testTag = "voice_permission_cancel",
                 onClick = onCancel,
                 isPrimary = false,
@@ -75,13 +82,13 @@ private fun buildPromptActions(
         )
         VoicePermissionPromptState.Denied -> listOf(
             PermissionDialogAction(
-                label = "Retry",
+                label = positiveLabel,
                 testTag = "voice_permission_retry",
                 onClick = onRetry,
                 isPrimary = true,
             ),
             PermissionDialogAction(
-                label = "Cancel",
+                label = negativeLabel ?: "Cancel",
                 testTag = "voice_permission_cancel",
                 onClick = onCancel,
                 isPrimary = false,
@@ -89,13 +96,13 @@ private fun buildPromptActions(
         )
         VoicePermissionPromptState.PermanentlyDenied -> listOf(
             PermissionDialogAction(
-                label = "Open Settings",
+                label = positiveLabel,
                 testTag = "voice_permission_open_settings",
                 onClick = onOpenSettings,
                 isPrimary = true,
             ),
             PermissionDialogAction(
-                label = "Cancel",
+                label = negativeLabel ?: "Cancel",
                 testTag = "voice_permission_cancel",
                 onClick = onCancel,
                 isPrimary = false,
@@ -103,7 +110,7 @@ private fun buildPromptActions(
         )
         VoicePermissionPromptState.Granted -> listOf(
             PermissionDialogAction(
-                label = "OK",
+                label = positiveLabel,
                 testTag = "voice_permission_ok",
                 onClick = onCancel,
                 isPrimary = true,
@@ -111,7 +118,7 @@ private fun buildPromptActions(
         )
         else -> listOf(
             PermissionDialogAction(
-                label = "OK",
+                label = positiveLabel,
                 testTag = "voice_permission_ok",
                 onClick = onCancel,
                 isPrimary = true,

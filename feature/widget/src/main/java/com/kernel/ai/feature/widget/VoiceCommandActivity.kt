@@ -112,8 +112,15 @@ class VoiceCommandActivity : ComponentActivity() {
                 != PackageManager.PERMISSION_GRANTED) {
             // Permission missing — request it. The system dialog will appear over this
             // translucent activity. On grant, startVoiceSession(); on deny, finish().
+            //
+            // Note: contextual in-app mic explanation (VoicePermissionPrompt) is
+            // intentionally NOT used here. VoiceCommandActivity is a translucent
+            // entry point launched by the system assistant / wake-word service and
+            // must be fast (<100 ms from launch to voice session). Adding a
+            // contextual overlay would add latency to the wake-word path. The
+            // contextual prompting is already implemented for ChatScreen,
+            // ActionsScreen, and VoiceScreen entry points.
             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-            return
         }
 
         startVoiceSession()
