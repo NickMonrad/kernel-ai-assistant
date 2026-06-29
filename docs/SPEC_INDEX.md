@@ -51,7 +51,7 @@ These documents explain how to run, inspect, or verify something. They should po
 
 | Path | Scope |
 |---|---|
-| `docs/automated-testing.md` | Current automated testing commands, report shapes, and harness operations. |
+| `docs/automated-testing.md` | Current operational entrypoint for automated testing commands, report shapes, and harness operations. |
 | `docs/adb-testing.md` | ADB setup, device setup, logcat filters, and manual device commands. |
 | `.docs/agents/test-evidence-workflow.md` | Evidence publishing workflow for agents. |
 | `.docs/agents/validation.md` | Validation hierarchy and CI constraints. |
@@ -64,7 +64,7 @@ Review gates define evidence and review expectations for PRs. They are not produ
 | Path | Scope |
 |---|---|
 | `.docs/agents/review-gates-permissions.md` | Permission PR evidence and review checklist. |
-| `.docs/agents/review-gates-test-harness.md` | Test harness and evidence PR checklist. |
+| `.docs/agents/review-gates-test-harness.md` | Test harness PR review and evidence checklist. It is not the runbook or evidence schema source of truth. |
 | `.docs/agents/review-gates-navigation-ui.md` | Navigation and UI PR checklist. |
 | `.docs/agents/review-gates-voice.md` | Voice, STT, TTS, VAD, and wake-word review gate. |
 | `.docs/agents/review-gates-litert.md` | LiteRT and model-runtime review gate. |
@@ -77,8 +77,8 @@ Research docs are useful context. Treat them as draft or historical unless they 
 | Path | Scope |
 |---|---|
 | `docs/research/` | Technical research, design exploration, and feature-specific draft specs. |
-| `docs/testing/automated-test-specification.md` | Deeper test design and target coverage. Some sections are implemented; some remain draft. |
-| `docs/testing/harness-metrics-dashboard-design.md` | Dashboard design and staged follow-up work. |
+| `docs/testing/automated-test-specification.md` | Target and draft test design. Sections marked implemented can be treated as implemented references; use `docs/automated-testing.md` for current run commands. |
+| `docs/testing/harness-metrics-dashboard-design.md` | Dashboard metrics design plus implemented/staged status. Use `docs/testing/test-evidence-schema.md` for the evidence schema contract. |
 
 ### Evidence schemas
 
@@ -86,7 +86,7 @@ Evidence schemas are contracts for generated artifacts. Update schema docs and c
 
 | Path | Scope |
 |---|---|
-| `docs/testing/test-evidence-schema.md` | Normalised evidence schema for CI, physical device runs, dashboards, and PR summaries. |
+| `docs/testing/test-evidence-schema.md` | Authoritative normalised evidence schema for CI, physical device runs, dashboards, and PR summaries. Consumers must tolerate missing optional fields from older evidence. |
 
 ### Roadmap and status docs
 
