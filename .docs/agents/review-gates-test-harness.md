@@ -1,5 +1,14 @@
 # Review Gate: Test Harness
 
+> **Purpose:** This is a PR review gate and evidence checklist for test harness changes.
+> It is not the operational runbook or the evidence schema source of truth.
+>
+> **Current run commands:** `docs/automated-testing.md`
+>
+> **Evidence schema contract:** `docs/testing/test-evidence-schema.md`
+>
+> **Target and draft test design:** `docs/testing/automated-test-specification.md`
+
 ## When This Gate Applies
 
 This gate applies when the PR touches:
