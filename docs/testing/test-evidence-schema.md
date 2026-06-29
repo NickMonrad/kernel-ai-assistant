@@ -1,8 +1,16 @@
 # Normalised Test Evidence Schema
 
-Status: **Design / Draft**  
-Parent: #1113 — GitHub-native test evidence dashboard for CI and on-device results  
-Implements: #1115 — Define normalised test result schema and device registry  
+Status: **Authoritative schema contract for normalised test evidence**
+Parent: #1113 — GitHub-native test evidence dashboard for CI and on-device results
+Implements: #1115 — Define normalised test result schema and device registry
+
+> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers and consumers should remain backward-compatible when optional fields are missing.
+>
+> **Current run commands:** [`../automated-testing.md`](../automated-testing.md)
+>
+> **Target and draft test design:** [`automated-test-specification.md`](./automated-test-specification.md)
+>
+> **Dashboard design:** [`harness-metrics-dashboard-design.md`](./harness-metrics-dashboard-design.md)
 
 ---
 
@@ -258,7 +266,7 @@ For CI runs that do not execute any model, set to:
 
 ### Suggested mapping from raw harness markers
 
-The normalisation script (to be implemented in #1116) should map raw harness fields to these categories as follows:
+Producer implementation can vary by suite, but normalised evidence should map raw harness fields to these categories as follows when those raw fields are available:
 
 - No `native_tool_marker` AND no `legacy_tool_marker` → **`model_tool_generation_miss`** (model didn't produce a tool call)
 - Tool called but `chip_text` is null → **`missing_marker`** (chip marker)
@@ -272,12 +280,7 @@ The normalisation script (to be implemented in #1116) should map raw harness fie
 
 ### Field transformation table
 
-The normaliser (to be implemented in #1116) should map raw `llm_tools` report fields
-(from `save_llm_tools_report()` in `scripts/adb_skill_test.py`) to normalised fields
-as shown below. Fields marked "not stored" are consumed during categorisation but do
-not appear in the normalised output. Fields marked "(derived)" are computed from
-multiple raw fields or harness configuration — the raw report does not contain them
-directly.
+Normalisers should map raw `llm_tools` report fields (from `save_llm_tools_report()` in `scripts/adb_skill_test.py`) to normalised fields as shown below. Fields marked "not stored" are consumed during categorisation but do not appear in the normalised output. Fields marked "(derived)" are computed from multiple raw fields or harness configuration — the raw report does not contain them directly.
 
 | Raw field | Normalised field | Transformation |
 |---|---|---|
@@ -408,11 +411,17 @@ These invariants MUST hold for every normalised report. The normalisation script
 - `source == "ci"` → `device.execution == "github_hosted_runner"`, `device.tier == "ci"`, all model fields `null`.
 - `source == "on_device"` → `device.execution == "physical"`, model fields are non-null (name, runtime, backend each non-null).
 
-## 8. Related documents
+## 8. Compatibility rule
+
+Consumers must tolerate missing optional fields from older evidence records and render unknown or empty values instead of crashing. Breaking changes require a `schema_version` bump, compatibility notes, and corresponding updates to dashboard builders, normalisers, and review-gate guidance.
+
+## 9. Related documents
 
 - `scripts/testdata/devices.yaml` — device registry consumed by normalisation scripts
 - `scripts/testdata/test_evidence.schema.json` — machine-verifiable JSON Schema
-- `docs/testing/automated-testing.md` — test harness documentation
+- `docs/automated-testing.md` — current operational run commands and report inspection
+- `docs/testing/automated-test-specification.md` — target and draft test design
+- `docs/testing/harness-metrics-dashboard-design.md` — dashboard metrics design and staged work
 - `docs/testing/llm-tools-harness.md` — `llm_tools` test details
 - [Issue #1115](https://github.com/NickMonrad/kernel-ai-assistant/issues/1115) — this issue
 - [Issue #1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113) — parent epic
