@@ -485,6 +485,13 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "cancel_timer", "cancel the timer")
         }
 
+        @ParameterizedTest(name = "\"{0}\" should route to cancel_timer")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#pluralCancelTimerPhrases")
+        fun `plural and all timer cancellation phrases should route to cancel_timer`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "cancel_timer", input)
+        }
+
         @Test
         fun `5 minute timer should still route to set_timer`() {
             val result = regexOnlyRouter.route("5 minute timer")
@@ -497,6 +504,7 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "set_timer", "10 minute tea timer")
         }
     }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CALENDAR TESTS
@@ -2420,6 +2428,16 @@ class QuickIntentRouterTest {
     // ═══════════════════════════════════════════════════════════════════════════
 
     companion object {
+
+        @JvmStatic
+        fun pluralCancelTimerPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("cancel all timers"),
+            Arguments.of("stop all timers"),
+            Arguments.of("clear all timers"),
+            Arguments.of("delete all timers"),
+            Arguments.of("cancel my timers"),
+            Arguments.of("stop my timers"),
+        )
 
         // ── Flashlight ON ─────────────────────────────────────────────────────
 

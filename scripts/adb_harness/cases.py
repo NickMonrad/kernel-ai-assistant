@@ -73,6 +73,8 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("stop the timer", "cancel_timer"),
         TestCase("turn off the timer", "cancel_timer"),
         TestCase("dismiss the timer", "cancel_timer"),
+        TestCase("cancel all timers", "cancel_timer"),
+        TestCase("stop all timers", "cancel_timer"),
         # list_timers (#525)
         TestCase("what timers do I have", "list_timers", expect_reply_contains=r"."),
         TestCase("show my timers", "list_timers"),

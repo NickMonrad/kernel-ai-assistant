@@ -806,7 +806,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|end|dismiss)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(?:all|my|the|a)\s+)?(?:timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
