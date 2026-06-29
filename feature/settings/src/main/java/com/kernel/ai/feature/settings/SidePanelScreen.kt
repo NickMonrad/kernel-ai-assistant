@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,9 +38,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -212,156 +208,88 @@ fun SidePanelScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode) {
-                when (selectedTab) {
-                    ClockSurfaceTab.ALARMS -> Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        SmallFloatingActionButton(
-                            onClick = onNavigateToVoiceActions,
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        ) {
-                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
-                        }
-                        ExtendedFloatingActionButton(
-                            text = { Text("New Alarm") },
-                            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                            onClick = { showCreateAlarmDialog = true },
-                        )
-                    }
-
-                    ClockSurfaceTab.WORLD_CLOCK -> Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        SmallFloatingActionButton(
-                            onClick = onNavigateToVoiceActions,
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        ) {
-                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
-                        }
-                        ExtendedFloatingActionButton(
-                            text = { Text("Add City") },
-                            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
-                            onClick = { showAddWorldClockDialog = true },
-                        )
-                    }
-
-                    ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> FloatingActionButton(
-                        onClick = onNavigateToVoiceActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice input")
-                    }
-                }
-            }
+            ClockScreenFloatingActionButton(
+                isInSelectionMode = isInSelectionMode,
+                onNavigateToVoiceActions = onNavigateToVoiceActions,
+            )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            ClockSurfaceTabs(
-                selectedTab = selectedTab,
-                onTabSelected = viewModel::setTab,
-            )
-
-
-            when (selectedTab) {
-                ClockSurfaceTab.TIMERS -> TimerDashboard(
-                    timers = timers,
-                    recentCompletedTimers = recentCompletedTimers,
-                    nowMs = nowMs,
-                    inSelectionMode = isInSelectionMode,
-                    selectedIds = selectedIds,
-                    onCreateCustomTimer = { showCreateTimerDialog = true },
-                    onPresetTimer = { durationMs ->
-                        viewModel.scheduleTimer(durationMs, null) { result ->
-                            onTimerScheduled(result)
-                        }
-                    },
-                    onTimerTap = { timer ->
-                        if (isInSelectionMode) viewModel.toggleSelection(timer.id) else pendingCancel = timer
-                    },
-                    onTimerLongPress = { timer ->
-                        if (!isInSelectionMode) viewModel.enterSelectionMode(timer.id)
-                    },
-                    onCancelTimer = { timer -> pendingCancel = timer },
-                    onRestartTimer = { timer ->
-                        viewModel.restartTimer(timer) { result ->
-                            onTimerScheduled(result)
-                        }
-                    },
-                    onDeleteCompletedTimer = { timer -> pendingDeleteCompleted = timer },
-                    onClearCompletedTimers = { pendingClearCompleted = true },
-                )
-
-                ClockSurfaceTab.ALARMS -> AlarmDashboard(
-                    alarms = alarms,
-                    inSelectionMode = isInSelectionMode,
-                    selectedIds = selectedIds,
-                    onNewAlarm = { showCreateAlarmDialog = true },
-                    onAlarmTap = { alarm ->
-                        if (isInSelectionMode) viewModel.toggleSelection(alarm.id) else editingAlarm = alarm
-                    },
-                    onAlarmLongPress = { alarm ->
-                        if (!isInSelectionMode) viewModel.enterSelectionMode(alarm.id)
-                    },
-                    onDismissAlarm = { alarm -> pendingDismiss = alarm },
-                    onToggleAlarm = { alarm ->
-                        viewModel.toggleEnabled(alarm) { success ->
-                            if (!success) schedulingError = "Couldn't update the alarm."
-                        }
-                    },
-                )
-
-                ClockSurfaceTab.STOPWATCH -> StopwatchDashboard(
-                    stopwatch = stopwatch,
+        ClockSurfaceContent(
+            selectedTab = selectedTab,
+            alarms = alarms,
+            timers = timers,
+            recentCompletedTimers = recentCompletedTimers,
+            stopwatch = stopwatch,
+            worldClocks = worldClocks,
+            nowMs = nowMs,
+            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            isInSelectionMode = isInSelectionMode,
+            selectedIds = selectedIds,
+            onTabSelected = viewModel::setTab,
+            onCreateCustomTimer = { showCreateTimerDialog = true },
+            onPresetTimer = { durationMs ->
+                viewModel.scheduleTimer(durationMs, null) { result ->
+                    onTimerScheduled(result)
+                }
+            },
+            onTimerTap = { timer ->
+                if (isInSelectionMode) viewModel.toggleSelection(timer.id) else pendingCancel = timer
+            },
+            onTimerLongPress = { timer ->
+                if (!isInSelectionMode) viewModel.enterSelectionMode(timer.id)
+            },
+            onCancelTimer = { timer -> pendingCancel = timer },
+            onRestartTimer = { timer ->
+                viewModel.restartTimer(timer) { result ->
+                    onTimerScheduled(result)
+                }
+            },
+            onDeleteCompletedTimer = { timer -> pendingDeleteCompleted = timer },
+            onClearCompletedTimers = { pendingClearCompleted = true },
+            onNewAlarm = { showCreateAlarmDialog = true },
+            onAlarmTap = { alarm ->
+                if (isInSelectionMode) viewModel.toggleSelection(alarm.id) else editingAlarm = alarm
+            },
+            onAlarmLongPress = { alarm ->
+                if (!isInSelectionMode) viewModel.enterSelectionMode(alarm.id)
+            },
+            onDismissAlarm = { alarm -> pendingDismiss = alarm },
+            onToggleAlarm = { alarm ->
+                viewModel.toggleEnabled(alarm) { success ->
+                    if (!success) schedulingError = "Couldn't update the alarm."
+                }
+            },
+            onStartStopwatch = {
+                viewModel.startStopwatch(
+                    nowWallClockMillis = nowMs,
                     nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                    nowWallClockMs = nowMs,
-                    onStart = {
-                        viewModel.startStopwatch(
-                            nowWallClockMillis = nowMs,
-                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                        )
-                    },
-                    onPause = {
-                        viewModel.pauseStopwatch(
-                            nowWallClockMillis = nowMs,
-                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                        )
-                    },
-                    onResume = {
-                        viewModel.resumeStopwatch(
-                            nowWallClockMillis = nowMs,
-                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                        )
-                    },
-                    onReset = viewModel::resetStopwatch,
-                    onLap = {
-                        viewModel.recordStopwatchLap(
-                            nowWallClockMillis = nowMs,
-                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                        )
-                    },
                 )
-
-
-                ClockSurfaceTab.WORLD_CLOCK -> WorldClockDashboard(
-                    worldClocks = worldClocks,
-                    nowMs = nowMs,
-                    onAddWorldClock = { showAddWorldClockDialog = true },
-                    onMoveUp = { worldClock -> viewModel.moveWorldClock(worldClock, direction = -1) },
-                    onMoveDown = { worldClock -> viewModel.moveWorldClock(worldClock, direction = 1) },
-                    onRemove = { worldClock -> pendingRemoveWorldClock = worldClock },
+            },
+            onPauseStopwatch = {
+                viewModel.pauseStopwatch(
+                    nowWallClockMillis = nowMs,
+                    nowElapsedRealtimeMs = nowElapsedRealtimeMs,
                 )
-            }
-        }
+            },
+            onResumeStopwatch = {
+                viewModel.resumeStopwatch(
+                    nowWallClockMillis = nowMs,
+                    nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                )
+            },
+            onResetStopwatch = viewModel::resetStopwatch,
+            onLapStopwatch = {
+                viewModel.recordStopwatchLap(
+                    nowWallClockMillis = nowMs,
+                    nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                )
+            },
+            onAddWorldClock = { showAddWorldClockDialog = true },
+            onMoveWorldClockUp = { worldClock -> viewModel.moveWorldClock(worldClock, direction = -1) },
+            onMoveWorldClockDown = { worldClock -> viewModel.moveWorldClock(worldClock, direction = 1) },
+            onRemoveWorldClock = { worldClock -> pendingRemoveWorldClock = worldClock },
+            modifier = Modifier.padding(innerPadding),
+        )
     }
 
     pendingCancel?.let { timer ->
@@ -573,6 +501,116 @@ fun SidePanelScreen(
                 TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
             },
         )
+    }
+}
+
+@Composable
+internal fun ClockScreenFloatingActionButton(
+    isInSelectionMode: Boolean,
+    onNavigateToVoiceActions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!isInSelectionMode) {
+        ClockVoiceFloatingActionButton(
+            onClick = onNavigateToVoiceActions,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+internal fun ClockSurfaceContent(
+    selectedTab: ClockSurfaceTab,
+    alarms: List<ClockAlarm>,
+    timers: List<ClockTimer>,
+    recentCompletedTimers: List<ClockTimer>,
+    stopwatch: ClockStopwatch,
+    worldClocks: List<WorldClock>,
+    nowMs: Long,
+    nowElapsedRealtimeMs: Long,
+    isInSelectionMode: Boolean,
+    selectedIds: Set<String>,
+    onTabSelected: (ClockSurfaceTab) -> Unit,
+    onCreateCustomTimer: () -> Unit,
+    onPresetTimer: (Long) -> Unit,
+    onTimerTap: (ClockTimer) -> Unit,
+    onTimerLongPress: (ClockTimer) -> Unit,
+    onCancelTimer: (ClockTimer) -> Unit,
+    onRestartTimer: (ClockTimer) -> Unit,
+    onDeleteCompletedTimer: (ClockTimer) -> Unit,
+    onClearCompletedTimers: () -> Unit,
+    onNewAlarm: () -> Unit,
+    onAlarmTap: (ClockAlarm) -> Unit,
+    onAlarmLongPress: (ClockAlarm) -> Unit,
+    onDismissAlarm: (ClockAlarm) -> Unit,
+    onToggleAlarm: (ClockAlarm) -> Unit,
+    onStartStopwatch: () -> Unit,
+    onPauseStopwatch: () -> Unit,
+    onResumeStopwatch: () -> Unit,
+    onResetStopwatch: () -> Unit,
+    onLapStopwatch: () -> Unit,
+    onAddWorldClock: () -> Unit,
+    onMoveWorldClockUp: (WorldClock) -> Unit,
+    onMoveWorldClockDown: (WorldClock) -> Unit,
+    onRemoveWorldClock: (WorldClock) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+    ) {
+        ClockSurfaceTabs(
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+        )
+
+        when (selectedTab) {
+            ClockSurfaceTab.TIMERS -> TimerDashboard(
+                timers = timers,
+                recentCompletedTimers = recentCompletedTimers,
+                nowMs = nowMs,
+                inSelectionMode = isInSelectionMode,
+                selectedIds = selectedIds,
+                onCreateCustomTimer = onCreateCustomTimer,
+                onPresetTimer = onPresetTimer,
+                onTimerTap = onTimerTap,
+                onTimerLongPress = onTimerLongPress,
+                onCancelTimer = onCancelTimer,
+                onRestartTimer = onRestartTimer,
+                onDeleteCompletedTimer = onDeleteCompletedTimer,
+                onClearCompletedTimers = onClearCompletedTimers,
+            )
+
+            ClockSurfaceTab.ALARMS -> AlarmDashboard(
+                alarms = alarms,
+                inSelectionMode = isInSelectionMode,
+                selectedIds = selectedIds,
+                onNewAlarm = onNewAlarm,
+                onAlarmTap = onAlarmTap,
+                onAlarmLongPress = onAlarmLongPress,
+                onDismissAlarm = onDismissAlarm,
+                onToggleAlarm = onToggleAlarm,
+            )
+
+            ClockSurfaceTab.STOPWATCH -> StopwatchDashboard(
+                stopwatch = stopwatch,
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                nowWallClockMs = nowMs,
+                onStart = onStartStopwatch,
+                onPause = onPauseStopwatch,
+                onResume = onResumeStopwatch,
+                onReset = onResetStopwatch,
+                onLap = onLapStopwatch,
+            )
+
+            ClockSurfaceTab.WORLD_CLOCK -> WorldClockDashboard(
+                worldClocks = worldClocks,
+                nowMs = nowMs,
+                onAddWorldClock = onAddWorldClock,
+                onMoveUp = onMoveWorldClockUp,
+                onMoveDown = onMoveWorldClockDown,
+                onRemove = onRemoveWorldClock,
+            )
+        }
     }
 }
 
@@ -1249,6 +1287,8 @@ private fun AlarmDashboard(
         item {
             SectionHeader(
                 title = "Alarms",
+                actionLabel = "New alarm",
+                onAction = onNewAlarm,
                 supportingText = alarms.firstOrNull()?.let { "Next: ${formatClockTime(it.triggerAtMillis)}" } ?: "",
             )
         }
@@ -1292,6 +1332,8 @@ private fun WorldClockDashboard(
         item {
             SectionHeader(
                 title = "World Clock",
+                actionLabel = "Add city",
+                onAction = onAddWorldClock,
                 supportingText = "Saved cities update live.",
             )
         }
