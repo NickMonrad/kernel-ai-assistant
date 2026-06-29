@@ -24,6 +24,7 @@ android {
 }
 
 dependencies {
+    api(project(":core:permissions"))
     // Compose
     api(platform(libs.compose.bom))
     api(libs.compose.ui)
@@ -37,3 +38,4 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+

@@ -24,6 +24,8 @@ android {
 dependencies {
     implementation(libs.core.ktx)
 
+    testImplementation(libs.mockk)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+

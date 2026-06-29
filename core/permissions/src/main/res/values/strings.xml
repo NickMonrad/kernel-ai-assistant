@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common button labels -->
+    <string name="voice_permission_grant">Grant</string>
+    <string name="voice_permission_retry">Retry</string>
+    <string name="voice_permission_open_settings">Open Settings</string>
+    <string name="voice_permission_cancel">Cancel</string>
+    <string name="voice_permission_ok">OK</string>
+
+    <!-- Missing permission (first time) -->
+    <string name="voice_permission_chat_title">Microphone access</string>
+    <string name="voice_permission_chat_description">Allow Jandal to use your microphone for voice commands and conversations.</string>
+    <string name="voice_permission_actions_title">Microphone access</string>
+    <string name="voice_permission_actions_description">Allow Jandal to use your microphone to hear your voice command.</string>
+    <string name="voice_permission_widget_title">Microphone access</string>
+    <string name="voice_permission_widget_description">Allow Jandal to use your microphone to hear your voice command.</string>
+    <string name="voice_permission_settings_title">Microphone access</string>
+    <string name="voice_permission_settings_description">Allow Jandal to use your microphone for voice features.</string>
+
+    <!-- Denied permission (user said no) -->
+    <string name="voice_permission_denied_chat_title">Microphone access needed</string>
+    <string name="voice_permission_denied_chat_description">You denied microphone access. Please grant it to use voice commands and conversations.</string>
+    <string name="voice_permission_denied_actions_title">Microphone access needed</string>
+    <string name="voice_permission_denied_actions_description">You denied microphone access. Please grant it to use voice commands.</string>
+    <string name="voice_permission_denied_widget_title">Microphone access needed</string>
+    <string name="voice_permission_denied_widget_description">You denied microphone access. Please grant it to use voice commands.</string>
+    <string name="voice_permission_denied_settings_title">Microphone access needed</string>
+    <string name="voice_permission_denied_settings_description">You denied microphone access. Please grant it to use voice features.</string>
+
+    <!-- Permanently denied (user checked "never ask") -->
+    <string name="voice_permission_permanently_denied_chat_title">Microphone access required</string>
+    <string name="voice_permission_permanently_denied_chat_description">Microphone access was denied permanently. Please enable it in your system settings to use voice commands and conversations.</string>
+    <string name="voice_permission_permanently_denied_actions_title">Microphone access required</string>
+    <string name="voice_permission_permanently_denied_actions_description">Microphone access was denied permanently. Please enable it in your system settings to use voice commands.</string>
+    <string name="voice_permission_permanently_denied_widget_title">Microphone access required</string>
+    <string name="voice_permission_permanently_denied_widget_description">Microphone access was denied permanently. Please enable it in your system settings to use voice commands.</string>
+    <string name="voice_permission_permanently_denied_settings_title">Microphone access required</string>
+    <string name="voice_permission_permanently_denied_settings_description">Microphone access was denied permanently. Please enable it in your system settings to use voice features.</string>
+
+    <!-- Granted -->
+    <string name="voice_permission_granted_title">Microphone access granted</string>
+    <string name="voice_permission_granted_description">You can now use voice commands and conversations.</string>
+
+    <!-- Default assistant role setup -->
+    <string name="default_assistant_setup_title">Set Hey Jandal as default assistant</string>
+    <string name="default_assistant_setup_description">Hey Jandal needs to be set as your default assistant to respond to the wake word.</string>
+    <string name="default_assistant_setup_grant">Set as default</string>
+    <string name="default_assistant_setup_cancel">Not now</string>
+    <string name="default_assistant_setup_success_title">Default assistant set</string>
+    <string name="default_assistant_setup_success_description">Jandal is now your default assistant. You can change this in System settings at any time.</string>
+    <string name="default_assistant_setup_success_ok">OK</string>
+</resources>

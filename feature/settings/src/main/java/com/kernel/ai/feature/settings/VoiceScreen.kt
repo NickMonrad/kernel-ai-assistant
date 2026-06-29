@@ -51,6 +51,10 @@ import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
 import com.kernel.ai.core.permissions.MicrophoneReadiness
+import com.kernel.ai.core.ui.permissions.DefaultAssistantPrompt
+import com.kernel.ai.core.ui.permissions.DefaultAssistantPromptSuccess
+import com.kernel.ai.core.ui.permissions.PermissionDialogAction
+import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,8 +80,6 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
-import com.kernel.ai.core.ui.permissions.PermissionDialogAction
-import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
@@ -157,9 +159,21 @@ fun VoiceScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
+    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
+    ) {
+        // Re-check role state immediately on return — do not rely solely on ON_RESUME.
+        val roleGranted = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+        if (roleGranted) {
+            showDefaultAssistantSuccess = true
+        } else {
+            // Role not granted — let the user try again.
+            showDefaultAssistantPrompt = true
+        }
+    }
 
     // Permission launcher for Hey Jandal: grants mic then enables wake word.
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -182,44 +196,12 @@ fun VoiceScreen(
             }
         }
     }
-
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            // Several OEM RoleControllerService implementations silently reject third-party
-            // VoiceInteractionService packages or return null from createRequestRoleIntent,
-            // making the standard role-request dialog a no-op. For these OEMs we deep-link
-            // directly into the system Default Apps settings page.
-            //
-            // Samsung One UI and Honor Magic OS: reject or no-op third-party VIS packages →
-            // deep-link to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
-            // Other OEMs: attempt the standard role dialog first; if the intent is null
-            // (broken RoleControllerService) fall back to ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
-            val manufacturer = Build.MANUFACTURER
-            val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                manufacturer.equals("honor", ignoreCase = true)
-            when {
-                usesSettingsFlow -> {
-                    try {
-                        assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                    } catch (_: Exception) {
-                        assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                    }
-                }
-                else -> {
-                    val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                    if (intent != null) {
-                        assistantRoleLauncher.launch(intent)
-                    } else {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        } catch (_: Exception) {
-                            // No standard default-apps page — nothing more we can do.
-                        }
-                    }
-                }
-            }
+            // Show default-assistant role setup prompt (separate from microphone permission).
+            showDefaultAssistantPrompt = true
         },
         onHeyJandalEnabledChanged = { enabled ->
             if (!enabled) {
@@ -330,6 +312,56 @@ fun VoiceScreen(
             onDismissRequest = {
                 showMicDurableRequiredDialog = false
                 awaitingMicSettingsReturn = false
+            },
+        )
+    }
+
+
+    // Default-assistant role setup prompt (separate from microphone permission).
+    if (showDefaultAssistantPrompt) {
+        DefaultAssistantPrompt(
+            onGrant = {
+                showDefaultAssistantPrompt = false
+                // Launch the assistant role setup intent
+                val manufacturer = Build.MANUFACTURER
+                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
+                    manufacturer.equals("honor", ignoreCase = true)
+                when {
+                    usesSettingsFlow -> {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                        } catch (_: Exception) {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        }
+                    }
+                    else -> {
+                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                        if (intent != null) {
+                            assistantRoleLauncher.launch(intent)
+                        } else {
+                            try {
+                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                            } catch (_: Exception) {
+                                // No standard default-apps page — nothing more we can do.
+                            }
+                        }
+                    }
+                }
+            },
+            onCancel = {
+                showDefaultAssistantPrompt = false
+            },
+        )
+    }
+
+    // Success state after default-assistant role is granted.
+    if (showDefaultAssistantSuccess) {
+        DefaultAssistantPromptSuccess(
+            onOk = {
+                showDefaultAssistantSuccess = false
+                viewModel.refreshAssistantStatus(
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
+                )
             },
         )
     }
@@ -1094,6 +1126,7 @@ private fun VoiceScreenContent(
 
         }
     }
+
 }
 
 /**
