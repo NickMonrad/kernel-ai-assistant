@@ -434,6 +434,16 @@ navigation or executing any action.
   a follow-up.
 - Sub-feature favourite affordances in the Tools hub are not yet surfaced in the main tools
   list grid.
+
+#### 1.8g Clock action pattern
+
+- All Clock tabs use one consistent bottom-right voice FAB.
+- Tab-specific primary actions stay inside tab content or empty states:
+  - Timers: preset and custom timer actions live in the Timers card.
+  - Alarms: `New alarm` lives in the alarms content header or empty state.
+  - World Clock: `Add city` lives in the world clock content header or empty state.
+  - Stopwatch: `Start stopwatch` lives in the stopwatch card.
+- Avoid stacked FABs or duplicate primary actions unless there is a documented reason.
 ---
 
 ## 2. List / Collection Screens
