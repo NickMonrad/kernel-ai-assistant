@@ -5,6 +5,14 @@ Parent: #1219
 Implements: #1224
 PR: #1237
 
+> **Authority:** This document records dashboard design, implemented dashboard metrics, and staged follow-up work. It is not the current harness runbook and it does not define the evidence schema contract.
+>
+> **Evidence schema contract:** [`test-evidence-schema.md`](./test-evidence-schema.md)
+>
+> **Current run commands:** [`../automated-testing.md`](../automated-testing.md)
+>
+> **Review gate:** [`.docs/agents/review-gates-test-harness.md`](../../.docs/agents/review-gates-test-harness.md)
+
 ---
 
 ## 1. Goal
