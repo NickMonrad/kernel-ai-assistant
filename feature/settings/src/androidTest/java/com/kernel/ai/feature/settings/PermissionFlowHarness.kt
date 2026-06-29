@@ -5,7 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import java.io.FileInputStream
+import android.os.Environment
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -16,6 +16,8 @@ import androidx.test.uiautomator.Until
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import java.io.File
+import java.io.FileInputStream
 
 /**
  * Shared UI Automator helpers for contextual permission-flow smoke tests (#1157).
@@ -298,6 +300,39 @@ internal class PermissionFlowHarness(
 
     fun assertAppForeground(message: String = "App should be in foreground") {
         assertTrue(message, waitForPackageForeground(PACKAGE, LAUNCH_TIMEOUT_MS))
+    }
+
+    fun waitForAppForeground(timeoutMs: Long = LAUNCH_TIMEOUT_MS): Boolean =
+        waitForPackageForeground(PACKAGE, timeoutMs)
+
+    fun hasTextVisible(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): Boolean =
+        device.wait(Until.findObject(By.text(text)), timeoutMs) != null
+
+    fun currentPackageSummary(): String = device.currentPackageName ?: "<null>"
+
+    fun resumedActivitySummary(): String =
+        shellOutput("dumpsys activity activities")
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.contains("ResumedActivity") }
+            ?: "<no ResumedActivity>"
+
+    fun focusedWindowSummary(): String =
+        shellOutput("dumpsys window windows")
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.contains("mCurrentFocus") || it.contains("mFocusedApp") }
+            ?: "<no focused window>"
+
+    fun captureDebugArtifacts(prefix: String): Pair<String, String> {
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            ?: File(context.filesDir, "pictures")
+        val artifactDir = File(baseDir, "permission-flow-debug").also { it.mkdirs() }
+        val screenshot = File(artifactDir, "$prefix.png")
+        val uiDump = File(artifactDir, "$prefix.xml")
+        device.takeScreenshot(screenshot)
+        executeShell("uiautomator dump ${uiDump.absolutePath}")
+        return screenshot.absolutePath to uiDump.absolutePath
     }
 
     fun assertSettingsOpened(message: String = "Expected Android Settings to open") {

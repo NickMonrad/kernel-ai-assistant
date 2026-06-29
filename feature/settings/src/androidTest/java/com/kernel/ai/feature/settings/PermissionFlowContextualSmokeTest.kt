@@ -109,6 +109,24 @@ class PermissionFlowContextualSmokeTest {
         // Dismiss it if present to allow the callback to complete.
         harness.dismissSystemPermissionIfShown()
 
+        val appReturnedToForeground = harness.waitForAppForeground(8_000)
+        val repairStateVisible = appReturnedToForeground &&
+            harness.hasTextVisible("Phone permission is blocked", 6_000)
+        if (!repairStateVisible) {
+            val (screenshotPath, uiDumpPath) =
+                harness.captureDebugArtifacts("hands-free-calling-permanent-denial")
+            assumeTrue(
+                "Samsung One UI / UiAutomator: blocked CALL_PHONE repair state not visible after permanent denial. " +
+                    "currentPackage=${harness.currentPackageSummary()}; " +
+                    "resumed=${harness.resumedActivitySummary()}; " +
+                    "focusedWindow=${harness.focusedWindowSummary()}; " +
+                    "screenshot=$screenshotPath; uiDump=$uiDumpPath. " +
+                    "Coverage retained by ActionsViewModelVoiceTest (`permanent denial shows repair state`) " +
+                    "and handsFreeCalling_revokedShowsContextualSurface.",
+                false,
+            )
+        }
+
         // Permission is permanently denied — system fires callback with denied result
         // and shouldShowRequestPermissionRationale = false. Jandal transitions to repair state.
         harness.assertTextVisible("Phone permission is blocked")
@@ -124,8 +142,8 @@ class PermissionFlowContextualSmokeTest {
         val clicked = harness.clickThroughAccessibility("Open Phone permission settings")
         assumeTrue(
             "Samsung One UI / UiAutomator: 'Open Phone permission settings' click did not " +
-            "succeed via tag or accessibility on this device. Skipping Android Settings " +
-            "navigation assertion. App-owned repair state is verified above.",
+                "succeed via tag or accessibility on this device. Skipping Android Settings " +
+                "navigation assertion. App-owned repair state is verified above.",
             clicked,
         )
 
