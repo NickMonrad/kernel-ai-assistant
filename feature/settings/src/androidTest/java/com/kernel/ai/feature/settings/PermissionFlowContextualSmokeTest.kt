@@ -111,28 +111,27 @@ class PermissionFlowContextualSmokeTest {
 
         // Permission is permanently denied — system fires callback with denied result
         // and shouldShowRequestPermissionRationale = false. Jandal transitions to repair state.
-        harness.assertTextVisible("Jandal needs Phone permission for hands-free calling")
-        harness.assertTextContainsVisible("Phone permission is blocked")
+        harness.assertTextVisible("Phone permission is blocked")
+        harness.assertTextContainsVisible("Android will not show the Phone permission prompt")
+        harness.assertTextVisible("Open Phone permission settings")
+        harness.assertTextVisible("Open dialer this time")
         harness.assertTextVisible("Not now")
         harness.assertTextNotVisible("Allow hands-free calling?")
 
-        // Tap Jandal's "Open App Permissions" CTA via exported tag to navigate
-        // to the in-app App Permissions repair dashboard.
-        // On Samsung One UI, tag-based click may not register. Fall back to
-        // accessibility click. If both fail, skip only the OS-boundary navigation,
-        // keeping the app-owned repair-state assertions.
-        val clicked = harness.clickThroughAccessibility("Open App Permissions")
+        // Tap Jandal's phone-permission repair CTA. On Samsung One UI, tag-based
+        // click may not register. Fall back to accessibility click. If both fail,
+        // skip only the OS-boundary navigation, keeping the app-owned repair-state assertions.
+        val clicked = harness.clickThroughAccessibility("Open Phone permission settings")
         assumeTrue(
-            "Samsung One UI / UiAutomator: 'Open App Permissions' click did not " +
-            "succeed via tag or accessibility on this device. Skipping internal " +
-            "App Permissions navigation assertion. App-owned repair state is verified above.",
+            "Samsung One UI / UiAutomator: 'Open Phone permission settings' click did not " +
+            "succeed via tag or accessibility on this device. Skipping Android Settings " +
+            "navigation assertion. App-owned repair state is verified above.",
             clicked,
         )
 
-        // Verify the internal App Permissions screen is shown, not system Settings.
-        // The CTA navigates to Jandal's in-app permission dashboard.
-        harness.assertTextVisible("App Permissions")
-        harness.assertTextContainsVisible("These are the permissions Jandal uses")
+        // Verify the CTA opens Android's permission repair surface, then returns to Jandal.
+        harness.assertSettingsOpened("Phone permission settings did not open")
+        harness.returnToAppFromSettings()
     }
 
     @Test
