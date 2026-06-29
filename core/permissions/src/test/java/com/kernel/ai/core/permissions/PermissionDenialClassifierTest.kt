@@ -1,7 +1,7 @@
 package com.kernel.ai.core.permissions
 
 import org.junit.jupiter.api.Test
-import kotlin.test.assertEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 
 class PermissionDenialClassifierTest {
 

@@ -98,6 +98,13 @@ class CapabilityRegistryTest {
         assertTrue(definition.hasFallback(CapabilityFallbackAction.ManualImportantDateEntry))
     }
 
+    @Test
+    fun voiceInputUsesMicrophoneRuntimePermission() {
+        val definition = CapabilityRegistry.require(CapabilityKey.VoiceInput)
+
+        assertTrue(definition.hasRuntimePermission(Manifest.permission.RECORD_AUDIO))
+    }
+
     private fun CapabilityDefinition.hasAnyRuntimePermission(): Boolean =
         requirements.any { it is CapabilityRequirement.RuntimePermission }
 

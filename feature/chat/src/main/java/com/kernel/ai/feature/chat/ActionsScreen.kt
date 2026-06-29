@@ -94,6 +94,10 @@ import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
+import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
+import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
+import com.kernel.ai.core.permissions.VoicePermissionPromptState
+import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
@@ -164,6 +168,7 @@ fun ActionsScreen(
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    var showVoicePermissionPrompt by remember { mutableStateOf(false) }
 
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -311,10 +316,10 @@ fun ActionsScreen(
                     viewModel.pauseTransientVoiceUi(reason = "navigateToChat")
                     onNavigateToChat(event.query, event.speakResponse)
                 }
+                ActionsViewModel.UiEvent.RequestMicrophonePermission ->
+                    showVoicePermissionPrompt = true
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
-                ActionsViewModel.UiEvent.RequestMicrophonePermission ->
-                    microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -1027,6 +1032,37 @@ fun ActionsScreen(
         )
     }
 
+    // Contextual voice permission prompt (shared with ChatScreen, widget, settings).
+    if (showVoicePermissionPrompt) {
+        val promptConfig = VoicePermissionPromptFactory.create(
+            VoicePermissionEntryPoint.ACTIONS_VOICE,
+            VoicePermissionPromptState.Missing,
+        )
+        VoicePermissionPrompt(
+            config = promptConfig,
+            onGrant = {
+                showVoicePermissionPrompt = false
+                microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            },
+            onRetry = {
+                showVoicePermissionPrompt = false
+                microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            },
+            onOpenSettings = {
+                showVoicePermissionPrompt = false
+                viewModel.onMicrophoneOpenAppPermissions()
+                openRuntimePermissionRepair(Manifest.permission.RECORD_AUDIO)
+            },
+            onCancel = {
+                showVoicePermissionPrompt = false
+                val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                    context as android.app.Activity,
+                    Manifest.permission.RECORD_AUDIO,
+                )
+                viewModel.onMicrophonePermissionDenied(shouldShowRationale)
+            },
+        )
+    }
     // Microphone-permission contextual surface
     microphoneState?.let { state ->
         PermissionOverlayDialog(
