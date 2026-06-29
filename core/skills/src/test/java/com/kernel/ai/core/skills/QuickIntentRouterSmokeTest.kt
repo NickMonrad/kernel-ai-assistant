@@ -63,6 +63,7 @@ class QuickIntentRouterSmokeTest {
             // cancel_timer
             Arguments.of("stop the timer", "cancel_timer"),
             Arguments.of("cancel the timer", "cancel_timer"),
+            Arguments.of("cancel all timers", "cancel_timer"),
 
             // get_battery
             Arguments.of("how's my battery", "get_battery"),
