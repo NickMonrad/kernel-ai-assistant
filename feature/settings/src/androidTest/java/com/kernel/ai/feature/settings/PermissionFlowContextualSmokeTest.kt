@@ -115,16 +115,24 @@ class PermissionFlowContextualSmokeTest {
         if (!repairStateVisible) {
             val (screenshotPath, uiDumpPath) =
                 harness.captureDebugArtifacts("hands-free-calling-permanent-denial")
-            assumeTrue(
-                "Samsung One UI / UiAutomator: blocked CALL_PHONE repair state not visible after permanent denial. " +
-                    "currentPackage=${harness.currentPackageSummary()}; " +
+            val debugMessage =
+                "currentPackage=${harness.currentPackageSummary()}; " +
                     "resumed=${harness.resumedActivitySummary()}; " +
                     "focusedWindow=${harness.focusedWindowSummary()}; " +
-                    "screenshot=$screenshotPath; uiDump=$uiDumpPath. " +
-                    "Coverage retained by ActionsViewModelVoiceTest (`permanent denial shows repair state`) " +
-                    "and handsFreeCalling_revokedShowsContextualSurface.",
-                false,
-            )
+                    "screenshot=$screenshotPath; uiDump=$uiDumpPath."
+            if (harness.isSamsungDevice()) {
+                assumeTrue(
+                    "Samsung One UI / UiAutomator: blocked CALL_PHONE repair state not visible after permanent denial. " +
+                        "$debugMessage Coverage retained by ActionsViewModelVoiceTest (`permanent denial shows repair state`) " +
+                        "and handsFreeCalling_revokedShowsContextualSurface.",
+                    false,
+                )
+            } else {
+                assertTrue(
+                    "Blocked CALL_PHONE repair state not visible after permanent denial. $debugMessage",
+                    repairStateVisible,
+                )
+            }
         }
 
         // Permission is permanently denied — system fires callback with denied result

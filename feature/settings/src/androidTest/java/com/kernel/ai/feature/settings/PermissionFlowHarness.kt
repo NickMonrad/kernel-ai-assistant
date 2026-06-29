@@ -308,6 +308,9 @@ internal class PermissionFlowHarness(
     fun hasTextVisible(text: String, timeoutMs: Long = DIALOG_TIMEOUT_MS): Boolean =
         device.wait(Until.findObject(By.text(text)), timeoutMs) != null
 
+    fun isSamsungDevice(): Boolean =
+        Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+
     fun currentPackageSummary(): String = device.currentPackageName ?: "<null>"
 
     fun resumedActivitySummary(): String =
