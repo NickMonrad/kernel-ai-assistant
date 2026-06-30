@@ -12,14 +12,15 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Instrumented UI tests | Gradle + Compose/AndroidX test | Compose UI and connected-device Android tests, including S21 `permission_flows` | `./gradlew connectedDebugAndroidTest` |
 | Device regression harness | `adb` + Python | End-to-end intent routing, profile extraction, and on-device chat/action flows | `python3 scripts/adb_skill_test.py` |
 | Permission scenario runner | `adb` + Python | Physical-device permission journeys with step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
+| Permission report publisher | Python + `gh` | Explicitly publish an existing permission report bundle to `test-results` and one sticky PR comment | `python3 scripts/publish_permission_scenario_report.py --report-dir … --pr … --commit … --device-id s21-exynos` |
 | Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
 
 ## Permission scenario runner
 
 The first-slice permission runner lives at [`scripts/run_permission_scenarios.py`](../scripts/run_permission_scenarios.py).
 It is a **local physical-device** runner for permission journeys that cross the app / Android
-boundary. It is **not CI evidence** and it does **not** auto-post GitHub comments or publish
-durable evidence in this first slice.
+boundary. It stays local-only by default: it does **not** auto-post GitHub comments or publish
+durable evidence unless you explicitly run the publisher step.
 
 Use it when you need:
 
@@ -36,7 +37,7 @@ Policy:
 - if no S21 / ADB device is available, stop on on-device validation rather than faking success
 
 See [`docs/testing/permission-scenario-runner.md`](./testing/permission-scenario-runner.md) for
-the command shape, output layout, and scope boundaries.
+the local run command, explicit publish flow, stale-report protections, and artifact layout.
 ## ADB regression harness
 
 The main device automation entry point is [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py).

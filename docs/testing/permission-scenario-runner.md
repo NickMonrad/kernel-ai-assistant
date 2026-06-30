@@ -45,9 +45,8 @@ Implemented now:
 
 Intentionally **not** implemented yet:
 
-- sticky GitHub comment posting
-- copying results into `test-results/`
-- dashboard publishing
+- automatic publish side effects during local scenario execution
+- CI merge-gate enforcement for permission scenarios
 - S23U automation mode
 - special-access flows like DND / write-settings / exact alarms
 - video capture, screenshot diffing, or runtime-planned steps
@@ -79,7 +78,7 @@ scripts/test-reports/permissions/<timestamp>/
 - `logcat.txt` — focused app/crash logcat grouped by scenario, filtered to the active app process
 - `screenshots/` — explicit checkpoint screenshots only
 
-## Running the first slice
+## Running locally
 
 ```bash
 ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
@@ -97,6 +96,59 @@ python3 scripts/run_permission_scenarios.py \
   --scenarios mic_denied_enable_hey_jandal \
   --list-scenarios
 ```
+
+## Publishing evidence explicitly
+
+Publishing is a **separate explicit step**. The runner stays local-only unless you invoke
+[`scripts/publish_permission_scenario_report.py`](../../scripts/publish_permission_scenario_report.py).
+
+```bash
+python3 scripts/publish_permission_scenario_report.py \
+  --report-dir scripts/test-reports/permissions/<timestamp> \
+  --pr <PR_NUMBER> \
+  --commit <EXPECTED_HEAD_SHA> \
+  --device-id s21-exynos
+```
+
+What the publisher does:
+
+- validates `result.json`, `evidence.json`, `summary.md`, and available artifacts
+- requires `source == on_device` and `device.execution == physical`
+- refuses stale publication by default if:
+  - the report commit does not match `--commit`, or
+  - the live PR head SHA does not match `--commit`
+- updates one sticky PR comment in place via marker
+  `<!-- jandal-permission-scenario-evidence -->`
+- publishes schema-valid evidence and reviewer artifacts separately so the dashboard only ingests
+  `evidence.json`
+
+Override only for recovery cases:
+
+```bash
+python3 scripts/publish_permission_scenario_report.py \
+  --report-dir scripts/test-reports/permissions/<timestamp> \
+  --pr <PR_NUMBER> \
+  --commit <EXPECTED_HEAD_SHA> \
+  --device-id s21-exynos \
+  --allow-stale-report
+```
+
+### Published layout
+
+```text
+results/pr/<PR>/on_device/permissions/<device>/<timestamp>/
+  evidence.json
+
+artifacts/pr/<PR>/permissions/<device>/<timestamp>/
+  result.json
+  summary.md
+  logcat-redacted.txt
+  screenshots/
+```
+
+This split is deliberate: the dashboard recursively ingests `results/**/*.json`, so only the
+schema-compatible `evidence.json` lives under `results/`. The richer reviewer bundle lives under
+`artifacts/` on the same `test-results` branch.
 
 ## When to use this runner
 
