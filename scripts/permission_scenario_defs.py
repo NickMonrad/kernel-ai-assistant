@@ -109,6 +109,14 @@ SCENARIOS: list[dict[str, object]] = [
                 "expected": "Jandal default-assistant prerequisite is satisfied",
             },
             {
+                "id": "reset_hey_jandal_toggle_off",
+                "action": "set_toggle_state",
+                "anchor_text": HEY_JANDAL_LABEL,
+                "checked": False,
+                "expected": "Hey Jandal toggle is reset to off before enablement",
+                "expected_toggle_state": {"anchor_text": HEY_JANDAL_LABEL, "checked": False},
+            },
+            {
                 "id": "enable_hey_jandal_toggle",
                 "action": "set_toggle_state",
                 "anchor_text": HEY_JANDAL_LABEL,
@@ -126,11 +134,11 @@ SCENARIOS: list[dict[str, object]] = [
         "tags": ["permissions", "microphone", "wake_word", "voice"],
         "steps": [
             {
-                "id": "reset_microphone_prompt_state",
+                "id": "grant_microphone_for_toggle_reset",
                 "action": "set_permission_state",
                 "permission": "android.permission.RECORD_AUDIO",
-                "state": "prompt",
-                "expected": "Microphone permission reset to promptable denied state",
+                "state": "granted",
+                "expected": "Microphone permission granted so the Hey Jandal toggle can be reset safely",
             },
             {
                 "id": "launch_app",
@@ -161,6 +169,21 @@ SCENARIOS: list[dict[str, object]] = [
                 "id": "check_default_assistant_ready",
                 "action": "check_default_assistant_ready",
                 "expected": "Jandal default-assistant prerequisite is satisfied",
+            },
+            {
+                "id": "reset_hey_jandal_toggle_off",
+                "action": "set_toggle_state",
+                "anchor_text": HEY_JANDAL_LABEL,
+                "checked": False,
+                "expected": "Hey Jandal toggle is reset to off before microphone permission prompting",
+                "expected_toggle_state": {"anchor_text": HEY_JANDAL_LABEL, "checked": False},
+            },
+            {
+                "id": "reset_microphone_prompt_state",
+                "action": "set_permission_state",
+                "permission": "android.permission.RECORD_AUDIO",
+                "state": "prompt",
+                "expected": "Microphone permission reset to promptable denied state",
             },
             {
                 "id": "request_microphone_via_toggle",

@@ -488,17 +488,17 @@ class ScenarioRunner:
 
     def _apply_expectations(self, step: dict[str, Any]) -> None:
         timeout_seconds = float(step.get("timeout_seconds", 8))
+        blocked_marker = step.get("blocked_if_visible")
+        if blocked_marker:
+            texts = blocked_marker.get("texts", [])
+            if texts and self._wait_for_any_text(texts, timeout_seconds=1.0):
+                raise ScenarioBlocked(blocked_marker.get("reason", f"Blocked by visible prerequisite: {texts!r}"))
         for text in step.get("expected_visible", []):
             if not self._wait_for_text(text, timeout_seconds=timeout_seconds):
                 raise StepFailure(f"Expected text not visible: {text}")
         any_visible = step.get("expected_any_visible", [])
         if any_visible and not self._wait_for_any_text(any_visible, timeout_seconds=timeout_seconds):
             raise StepFailure(f"Expected one of {any_visible!r} to be visible")
-        blocked_marker = step.get("blocked_if_visible")
-        if blocked_marker:
-            texts = blocked_marker.get("texts", [])
-            if texts and self._wait_for_any_text(texts, timeout_seconds=1.0):
-                raise ScenarioBlocked(blocked_marker.get("reason", f"Blocked by visible prerequisite: {texts!r}"))
         toggle_expectation = step.get("expected_toggle_state")
         if toggle_expectation:
             anchor = self._find_target({"text": toggle_expectation["anchor_text"]}, timeout_seconds=timeout_seconds)

@@ -158,16 +158,27 @@ The Hey Jandal scenarios now treat the Android default-assistant role as an expl
 precondition instead of a silent product failure. The runner detects the current assistant holder
 using non-mutating device checks and reports setup blockers as `functional_result = blocked`.
 
+The grouped voice scenarios are order-independent. Each enablement scenario now re-establishes a
+known local state before asserting permission behavior:
+
+- confirm the default-assistant prerequisite
+- reset the Hey Jandal toggle to off
+- only then grant/reset microphone permission for the specific case under test
+
 Current voice scenarios:
 
 - `hey_jandal_preflight` — verifies whether the device is ready to run the wake-word scenarios
-- `hey_jandal_enable_mic_granted` — microphone already granted, then enable the wake word toggle
-- `hey_jandal_enable_mic_denied` — microphone promptable denied, then confirm the permission prompt path
+- `hey_jandal_enable_mic_granted` — microphone already granted, reset the toggle off, then enable the wake word toggle
+- `hey_jandal_enable_mic_denied` — reset the toggle off, return microphone permission to a promptable denied state, then confirm the permission prompt path
 - `hey_jandal_mic_revoked_resume` — Hey Jandal enabled, microphone revoked externally, app resumes and shows repair UX
 
 When the assistant role is not configured, the blocked reason is explicit:
 
 > `Jandal is not configured as the Android default assistant; configure it manually before running Hey Jandal voice scenarios.`
+
+If the wake-word model is unavailable on the build, that setup blocker also reports as
+`functional_result = blocked` rather than a product failure, even when the toggle label is not
+rendered yet.
 
 This blocked/setup-required state is preserved in `result.json`, `summary.md`, and any later
 published sticky PR comment. It is **not** converted into schema pass/fail evidence.

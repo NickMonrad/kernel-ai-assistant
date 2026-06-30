@@ -35,6 +35,19 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         with self.assertRaises(permission_runner.RunnerError):
             permission_runner.select_scenarios(["missing_scenario"])
 
+    def _runner(self, responses: dict[str, str]) -> permission_runner.ScenarioRunner:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return permission_runner.ScenarioRunner(
+            adb=_FakeAdb(responses),
+            device={"id": "s21-exynos", "execution": "physical"},
+            branch="feature/test",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+        )
+
     def test_to_evidence_projects_rich_report_into_schema_shape(self) -> None:
         scenario = permission_runner.ScenarioResult(
             schema_version="1.0",
@@ -235,6 +248,48 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
 
         self.assertEqual({"pass": 1, "blocked": 1}, run_result.summary["functional"])
         self.assertEqual({"pass": 1, "not_assessed": 1}, run_result.summary["ux"])
+
+    def test_hey_jandal_enable_scenarios_reset_toggle_before_enable_or_prompt(self) -> None:
+        scenarios = {scenario["id"]: scenario for scenario in permission_runner.SCENARIOS}
+        enable_steps = [step["id"] for step in scenarios["hey_jandal_enable_mic_granted"]["steps"]]
+        denied_steps = [step["id"] for step in scenarios["hey_jandal_enable_mic_denied"]["steps"]]
+
+        self.assertLess(
+            enable_steps.index("reset_hey_jandal_toggle_off"),
+            enable_steps.index("enable_hey_jandal_toggle"),
+        )
+        self.assertLess(
+            denied_steps.index("reset_hey_jandal_toggle_off"),
+            denied_steps.index("reset_microphone_prompt_state"),
+        )
+        self.assertLess(
+            denied_steps.index("reset_microphone_prompt_state"),
+            denied_steps.index("request_microphone_via_toggle"),
+        )
+
+    def test_apply_expectations_prioritizes_blocked_marker_before_missing_expected_text(self) -> None:
+        runner = self._runner({
+            "cmd role get-role-holders android.app.role.ASSISTANT": "",
+            "settings get secure voice_interaction_service": "",
+            "settings get secure assistant": "",
+        })
+
+        def wait_for_any_text(texts: list[str], timeout_seconds: float, exact: bool = True) -> bool:
+            return "Wake word model not yet available" in texts
+
+        runner._wait_for_any_text = wait_for_any_text  # type: ignore[method-assign]
+        runner._wait_for_text = lambda text, timeout_seconds: False  # type: ignore[method-assign]
+
+        with self.assertRaisesRegex(permission_runner.ScenarioBlocked, "Wake word model"):
+            runner._apply_expectations(
+                {
+                    "expected_visible": ['Listen for "Hey Jandal"'],
+                    "blocked_if_visible": {
+                        "texts": ["Wake word model not yet available"],
+                        "reason": "Wake word model is not available on this build; Hey Jandal voice scenarios cannot run yet.",
+                    },
+                }
+            )
 
 
 class _FakeAdb:
