@@ -42,7 +42,6 @@ Implemented now:
   - `hey_jandal_preflight`
   - `hey_jandal_enable_mic_granted`
   - `hey_jandal_enable_mic_denied`
-  - `hey_jandal_mic_revoked_resume`
   - `weather_location_denied`
 
 Intentionally **not** implemented yet:
@@ -51,6 +50,7 @@ Intentionally **not** implemented yet:
 - CI merge-gate enforcement for permission scenarios
 - S23U automation mode
 - special-access flows like DND / write-settings / exact alarms
+- Hey Jandal microphone durability after external revoke / task resume; tracked in #1356
 - video capture, screenshot diffing, or runtime-planned steps
 
 ## Output layout
@@ -86,7 +86,7 @@ scripts/test-reports/permissions/<timestamp>/
 ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
   --serial "$ANDROID_SERIAL" \
-  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied,hey_jandal_mic_revoked_resume \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied \
   --out-dir scripts/test-reports/permissions
 ```
 
@@ -170,7 +170,10 @@ Current voice scenarios:
 - `hey_jandal_preflight` — verifies whether the device is ready to run the wake-word scenarios
 - `hey_jandal_enable_mic_granted` — microphone already granted, reset the toggle off, then enable the wake word toggle
 - `hey_jandal_enable_mic_denied` — reset the toggle off, return microphone permission to a promptable denied state, then confirm the permission prompt path
-- `hey_jandal_mic_revoked_resume` — Hey Jandal enabled, microphone revoked externally, app resumes and shows repair UX
+
+Follow-up coverage still pending:
+
+- `hey_jandal_mic_revoked_resume` — robust durability testing after external microphone revoke and task resume is deferred to #1356
 
 When the assistant role is not configured, the blocked reason is explicit:
 
@@ -196,7 +199,7 @@ python3 scripts/run_permission_scenarios.py \
 ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
   --serial "$ANDROID_SERIAL" \
-  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied,hey_jandal_mic_revoked_resume \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied \
   --out-dir scripts/test-reports/permissions
 
 # optionally publish an existing local report later (explicit step only)
