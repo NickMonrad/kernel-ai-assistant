@@ -607,8 +607,14 @@ class ScenarioRunner:
         while time.monotonic() < deadline:
             nodes = self.ui.dump_nodes()
             candidates = [
-                node for node in nodes
-                if node.class_name.endswith("Switch") and node.center is not None and node.enabled
+                node
+                for node in nodes
+                if node.center is not None
+                and node.enabled
+                and (
+                    node.class_name.endswith("Switch")
+                    or (node.checked is not None and node.clickable)
+                )
             ]
             if candidates:
                 candidates.sort(

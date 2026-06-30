@@ -291,6 +291,42 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
                 }
             )
 
+    def test_find_switch_for_anchor_accepts_compose_checkable_view(self) -> None:
+        runner = self._runner({
+            "cmd role get-role-holders android.app.role.ASSISTANT": "",
+            "settings get secure voice_interaction_service": "",
+            "settings get secure assistant": "",
+        })
+        anchor = permission_runner.UiNode(
+            text='Listen for "Hey Jandal"',
+            content_desc="",
+            resource_id="",
+            class_name="android.widget.TextView",
+            bounds=(168, 647, 693, 719),
+            clickable=False,
+            enabled=True,
+            checked=False,
+            package="com.kernel.ai.debug",
+        )
+        compose_toggle = permission_runner.UiNode(
+            text="",
+            content_desc="",
+            resource_id="",
+            class_name="android.view.View",
+            bounds=(876, 647, 1032, 791),
+            clickable=True,
+            enabled=True,
+            checked=True,
+            package="com.kernel.ai.debug",
+        )
+        runner.ui.dump_nodes = lambda timeout=15.0: [anchor, compose_toggle]  # type: ignore[method-assign]
+
+        switch = runner._find_switch_for_anchor(anchor, timeout_seconds=0.1)
+
+        self.assertEqual("android.view.View", switch.class_name)
+        self.assertTrue(switch.clickable)
+        self.assertTrue(switch.checked)
+
 
 class _FakeAdb:
     def __init__(self, responses: dict[str, str]) -> None:
