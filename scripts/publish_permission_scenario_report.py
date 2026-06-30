@@ -185,7 +185,7 @@ def validate_report_dir(report_dir: Path) -> ReportBundle:
     evidence = load_json(evidence_path)
     screenshots: list[Path] = []
     if screenshots_dir.is_dir():
-        screenshots = sorted(path for path in screenshots_dir.iterdir() if path.is_file())
+        screenshots_dir = screenshots_dir
     else:
         screenshots_dir = None
     referenced_screenshots = sorted({
@@ -204,6 +204,7 @@ def validate_report_dir(report_dir: Path) -> ReportBundle:
             raise PublishError(
                 "Report references missing screenshot artifact(s): " + ", ".join(missing_shots)
             )
+        screenshots = [report_dir / relpath for relpath in referenced_screenshots]
     if not logcat_path.is_file():
         logcat_path = None
     return ReportBundle(
@@ -272,6 +273,18 @@ def ensure_schema_compatible_evidence(bundle: ReportBundle) -> None:
         raise PublishError(f"evidence.json failed schema validation:\n{joined}")
 
 
+def ensure_no_serial_values(payload: Any, label: str, path: str = "$") -> None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            current = f"{path}.{key}"
+            if key == "serial" and value is not None:
+                raise PublishError(f"{label} contains non-null serial at {current}")
+            ensure_no_serial_values(value, label, current)
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            ensure_no_serial_values(value, label, f"{path}[{index}]")
+
+
 def ensure_evidence_matches_result(bundle: ReportBundle) -> None:
     scenarios = bundle.result.get("scenarios", [])
     pass_fail = [scenario for scenario in scenarios if scenario.get("functional_result") in {"pass", "fail"}]
@@ -309,13 +322,23 @@ def bundle_commit(bundle: ReportBundle) -> str:
     return commit
 
 
-def build_public_result(bundle: ReportBundle) -> dict[str, Any]:
+def build_public_result(bundle: ReportBundle, pr: int) -> dict[str, Any]:
     public_result = json.loads(json.dumps(bundle.result))
+    public_result["pr"] = pr
     public_result.setdefault("device", {})["serial"] = None
     for scenario in public_result.get("scenarios", []):
         if isinstance(scenario, dict):
+            scenario["pr"] = pr
             scenario.setdefault("device", {})["serial"] = None
+    ensure_no_serial_values(public_result, "public result.json")
     return public_result
+
+
+def build_public_evidence(bundle: ReportBundle, pr: int) -> dict[str, Any]:
+    public_evidence = json.loads(json.dumps(bundle.evidence))
+    public_evidence["pr"] = pr
+    ensure_no_serial_values(public_evidence, "public evidence.json")
+    return public_evidence
 
 
 def timestamp_slug(bundle: ReportBundle) -> str:
@@ -342,11 +365,13 @@ def build_published_paths(bundle: ReportBundle, pr: int, device_id: str) -> Publ
     )
 
 
-def prepare_publish_mapping(bundle: ReportBundle, published: PublishedPaths, scratch_dir: Path) -> dict[Path, str]:
+def prepare_publish_mapping(bundle: ReportBundle, published: PublishedPaths, scratch_dir: Path, pr: int) -> dict[Path, str]:
     public_result_path = scratch_dir / "result.json"
-    public_result_path.write_text(json.dumps(build_public_result(bundle), indent=2) + "\n", encoding="utf-8")
+    public_result_path.write_text(json.dumps(build_public_result(bundle, pr), indent=2) + "\n", encoding="utf-8")
+    public_evidence_path = scratch_dir / "evidence.json"
+    public_evidence_path.write_text(json.dumps(build_public_evidence(bundle, pr), indent=2) + "\n", encoding="utf-8")
     mapping: dict[Path, str] = {
-        bundle.evidence_path: published.evidence,
+        public_evidence_path: published.evidence,
         bundle.summary_path: published.summary,
         public_result_path: published.result,
     }
@@ -462,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     bundle = validate_report_dir(args.report_dir)
     ensure_schema_compatible_evidence(bundle)
+    ensure_no_serial_values(bundle.evidence, "evidence.json")
     ensure_evidence_matches_result(bundle)
     github = GitHubClient(args.repo)
     pr_head_sha = github.get_pr_head_sha(args.pr)
@@ -469,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
     existing_comment_id = github.find_sticky_comment_id(args.pr, STICKY_MARKER)
     published = build_published_paths(bundle, args.pr, args.device_id)
     with tempfile.TemporaryDirectory(prefix="permission-publish-") as scratch:
-        mapping = prepare_publish_mapping(bundle, published, Path(scratch))
+        mapping = prepare_publish_mapping(bundle, published, Path(scratch), args.pr)
         comment_body = build_comment_body(bundle, published, args)
         action = choose_comment_action(existing_comment_id)
         print_publish_plan(mapping, comment_body, action, args)

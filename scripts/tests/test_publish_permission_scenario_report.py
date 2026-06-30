@@ -262,9 +262,11 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
 
     def test_build_public_result_nulls_device_serial(self) -> None:
         bundle = publisher.validate_report_dir(self.report_dir)
-        public_result = publisher.build_public_result(bundle)
+        public_result = publisher.build_public_result(bundle, 1344)
+        self.assertEqual(public_result["pr"], 1344)
         self.assertIsNone(public_result["device"]["serial"])
         self.assertTrue(all(scenario["device"]["serial"] is None for scenario in public_result["scenarios"]))
+        self.assertTrue(all(scenario["pr"] == 1344 for scenario in public_result["scenarios"]))
 
     def test_build_published_paths_uses_results_and_artifacts_layout(self) -> None:
         bundle = publisher.validate_report_dir(self.report_dir)
@@ -318,10 +320,14 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
         bundle = publisher.validate_report_dir(self.report_dir)
         published = publisher.build_published_paths(bundle, 1344, "s21-exynos")
         with tempfile.TemporaryDirectory(prefix="publish_map_") as scratch:
-            mapping = publisher.prepare_publish_mapping(bundle, published, Path(scratch))
+            mapping = publisher.prepare_publish_mapping(bundle, published, Path(scratch), 1344)
             public_result_path = next(path for path, dest in mapping.items() if dest == published.result)
             public_result = json.loads(public_result_path.read_text(encoding="utf-8"))
+            public_evidence_path = next(path for path, dest in mapping.items() if dest == published.evidence)
+            public_evidence = json.loads(public_evidence_path.read_text(encoding="utf-8"))
+        self.assertEqual(public_result["pr"], 1344)
         self.assertIsNone(public_result["device"]["serial"])
+        self.assertEqual(public_evidence["pr"], 1344)
         self.assertIn("artifacts/pr/1344/permissions/s21-exynos/2026-06-30T08-48-39Z/logcat-redacted.txt", mapping.values())
 
     def test_prepare_publish_mapping_excludes_missing_optional_artifacts(self) -> None:
@@ -329,7 +335,7 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
         bundle = publisher.validate_report_dir(self.report_dir)
         published = publisher.build_published_paths(bundle, 1344, "s21-exynos")
         with tempfile.TemporaryDirectory(prefix="publish_map_") as scratch:
-            mapping = publisher.prepare_publish_mapping(bundle, published, Path(scratch))
+            mapping = publisher.prepare_publish_mapping(bundle, published, Path(scratch), 1344)
         self.assertNotIn("artifacts/pr/1344/permissions/s21-exynos/2026-06-30T08-48-39Z/logcat-redacted.txt", mapping.values())
 
     @mock.patch.object(publisher.GitHubClient, "find_sticky_comment_id", return_value=123)
