@@ -74,8 +74,11 @@ class UiNode:
     text: str
     content_desc: str
     resource_id: str
+    class_name: str
     bounds: tuple[int, int, int, int] | None
     clickable: bool
+    enabled: bool
+    checked: bool | None
     package: str
 
     @property
@@ -255,13 +258,18 @@ class UiAutomatorView:
             raise RunnerError(f"Could not parse UI dump XML: {exc}") from exc
         nodes: list[UiNode] = []
         for el in root.iter("node"):
+            checked_raw = el.attrib.get("checked")
+            checked = None if checked_raw not in {"true", "false"} else checked_raw == "true"
             nodes.append(
                 UiNode(
                     text=(el.attrib.get("text") or "").strip(),
                     content_desc=(el.attrib.get("content-desc") or "").strip(),
                     resource_id=(el.attrib.get("resource-id") or "").strip(),
+                    class_name=(el.attrib.get("class") or "").strip(),
                     bounds=self._parse_bounds(el.attrib.get("bounds")),
                     clickable=(el.attrib.get("clickable") == "true"),
+                    enabled=(el.attrib.get("enabled") != "false"),
+                    checked=checked,
                     package=(el.attrib.get("package") or "").strip(),
                 )
             )
@@ -458,6 +466,16 @@ class ScenarioRunner:
             if self._current_package().startswith(SETTINGS_PACKAGE_PREFIX):
                 deltas["settings_hops"] = 1
             return f"Tapped target {describe_target(step['target'])}", deltas
+        if action == "tap_toggle_for_text":
+            return self._tap_toggle_for_text(step["anchor_text"], timeout_seconds=float(step.get("timeout_seconds", 8)))
+        if action == "set_toggle_state":
+            return self._set_toggle_state_for_text(
+                step["anchor_text"],
+                bool(step["checked"]),
+                timeout_seconds=float(step.get("timeout_seconds", 8)),
+            )
+        if action == "check_default_assistant_ready":
+            return self._check_default_assistant_ready(), {}
         if action == "press_home":
             self.adb.shell("input keyevent KEYCODE_HOME", timeout=10)
             time.sleep(0.5)
@@ -481,6 +499,14 @@ class ScenarioRunner:
             texts = blocked_marker.get("texts", [])
             if texts and self._wait_for_any_text(texts, timeout_seconds=1.0):
                 raise ScenarioBlocked(blocked_marker.get("reason", f"Blocked by visible prerequisite: {texts!r}"))
+        toggle_expectation = step.get("expected_toggle_state")
+        if toggle_expectation:
+            anchor = self._find_target({"text": toggle_expectation["anchor_text"]}, timeout_seconds=timeout_seconds)
+            switch = self._find_switch_for_anchor(anchor, timeout_seconds=timeout_seconds)
+            if switch.checked is not bool(toggle_expectation["checked"]):
+                raise StepFailure(
+                    f"Expected toggle for {toggle_expectation['anchor_text']!r} to be {toggle_expectation['checked']}; saw {switch.checked}"
+                )
         for text in step.get("expected_not_visible", []):
             if self._is_text_visible(text, timeout_seconds=1.0):
                 raise StepFailure(f"Unexpected text visible: {text}")
@@ -515,6 +541,87 @@ class ScenarioRunner:
             )
             return
         raise StepFailure(f"Unsupported permission state: {state}")
+
+    def _check_default_assistant_ready(self) -> str:
+        configured, detail = self._detect_default_assistant_state()
+        if configured:
+            return f"Default assistant ready: {detail}"
+        raise ScenarioBlocked(
+            "Jandal is not configured as the Android default assistant; configure it manually before running Hey Jandal voice scenarios. "
+            f"Detection: {detail}"
+        )
+
+    def _detect_default_assistant_state(self) -> tuple[bool, str]:
+        role_holders = self.adb.shell("cmd role get-role-holders android.app.role.ASSISTANT", timeout=20, check=False)
+        voice_interaction = self.adb.shell("settings get secure voice_interaction_service", timeout=20, check=False)
+        assistant_setting = self.adb.shell("settings get secure assistant", timeout=20, check=False)
+        details = [
+            f"role_holders={role_holders or '<empty>'}",
+            f"voice_interaction_service={voice_interaction or '<empty>'}",
+            f"assistant={assistant_setting or '<empty>'}",
+        ]
+        package_match = any(APP_PACKAGE in value for value in (role_holders, voice_interaction, assistant_setting) if value)
+        foreign_holder = any(value and value.lower() not in {"null", "none"} for value in (role_holders, voice_interaction, assistant_setting))
+        if package_match:
+            return True, "; ".join(details)
+        if foreign_holder:
+            return False, "; ".join(details)
+        return False, "Could not deterministically detect the assistant role. " + "; ".join(details)
+
+    def _tap_toggle_for_text(self, anchor_text: str, timeout_seconds: float) -> tuple[str, dict[str, int | bool]]:
+        anchor = self._find_target({"text": anchor_text}, timeout_seconds=timeout_seconds)
+        switch = self._find_switch_for_anchor(anchor, timeout_seconds=timeout_seconds)
+        center = switch.center
+        if center is None:
+            raise StepFailure(f"Toggle for {anchor_text!r} has no tappable bounds")
+        x, y = center
+        before = switch.checked
+        self.adb.shell(f"input tap {x} {y}", timeout=10)
+        time.sleep(0.8)
+        return f"Tapped toggle for {anchor_text} (before={before})", {"tap_count": 1}
+
+    def _set_toggle_state_for_text(self, anchor_text: str, checked: bool, timeout_seconds: float) -> tuple[str, dict[str, int | bool]]:
+        anchor = self._find_target({"text": anchor_text}, timeout_seconds=timeout_seconds)
+        switch = self._find_switch_for_anchor(anchor, timeout_seconds=timeout_seconds)
+        if switch.checked is checked:
+            return f"Toggle for {anchor_text} already {'on' if checked else 'off'}", {}
+        center = switch.center
+        if center is None:
+            raise StepFailure(f"Toggle for {anchor_text!r} has no tappable bounds")
+        x, y = center
+        self.adb.shell(f"input tap {x} {y}", timeout=10)
+        time.sleep(0.8)
+        anchor_after = self._find_target({"text": anchor_text}, timeout_seconds=timeout_seconds)
+        switch_after = self._find_switch_for_anchor(anchor_after, timeout_seconds=timeout_seconds)
+        if switch_after.checked is not checked:
+            raise StepFailure(
+                f"Toggle for {anchor_text!r} did not reach expected state {checked}; saw {switch_after.checked}"
+            )
+        return f"Set toggle for {anchor_text} to {'on' if checked else 'off'}", {"tap_count": 1}
+
+    def _find_switch_for_anchor(self, anchor: UiNode, timeout_seconds: float) -> UiNode:
+        anchor_center = anchor.center
+        if anchor_center is None:
+            raise StepFailure(f"Anchor text has no bounds: {anchor.text!r}")
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            nodes = self.ui.dump_nodes()
+            candidates = [
+                node for node in nodes
+                if node.class_name.endswith("Switch") and node.center is not None and node.enabled
+            ]
+            if candidates:
+                candidates.sort(
+                    key=lambda node: (
+                        abs((node.center or (0, 0))[1] - anchor_center[1]),
+                        abs((node.center or (0, 0))[0] - anchor_center[0]),
+                    )
+                )
+                best = candidates[0]
+                if best.center and abs(best.center[1] - anchor_center[1]) <= 140:
+                    return best
+            time.sleep(0.3)
+        raise StepFailure(f"Could not find toggle associated with {anchor.text!r}")
 
     def _find_target(self, target: dict[str, Any], timeout_seconds: float) -> UiNode:
         deadline = time.monotonic() + timeout_seconds

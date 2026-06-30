@@ -11,12 +11,119 @@ DEFAULT_UX_THRESHOLDS = {
     "fail_on_manual_intervention": True,
 }
 
+DEFAULT_ASSISTANT_BLOCKER = (
+    "Jandal is not configured as the Android default assistant; configure it manually before "
+    "running Hey Jandal voice scenarios."
+)
+WAKE_WORD_MODEL_BLOCKER = (
+    "Wake word model is not available on this build; Hey Jandal voice scenarios cannot run yet."
+)
+HEY_JANDAL_LABEL = 'Listen for "Hey Jandal"'
+
 SCENARIOS: list[dict[str, object]] = [
     {
-        "id": "mic_denied_enable_hey_jandal",
-        "title": "Enable Hey Jandal with microphone denied",
+        "id": "hey_jandal_preflight",
+        "title": "Hey Jandal preflight checks default assistant setup",
         "capability": "wake_word",
-        "tags": ["permissions", "microphone", "wake_word"],
+        "tags": ["permissions", "microphone", "wake_word", "preflight", "voice"],
+        "steps": [
+            {
+                "id": "launch_app",
+                "action": "launch_main",
+                "expected": "Kernel AI app returns to foreground",
+                "screenshot": True,
+            },
+            {
+                "id": "open_settings",
+                "action": "tap_visible",
+                "target": {"content_desc": "Settings"},
+                "expected": "Settings screen opens",
+                "expected_visible": ["Settings"],
+                "screenshot": True,
+            },
+            {
+                "id": "open_voice_settings",
+                "action": "tap_visible",
+                "target": {"text": "Voice"},
+                "expected": "Voice settings opens",
+                "expected_visible": ["Hey Jandal", HEY_JANDAL_LABEL],
+                "expected_any_visible": [
+                    "Jandal is your default assistant",
+                    "Set Jandal as default assistant",
+                ],
+                "blocked_if_visible": {
+                    "texts": ["Wake word model not yet available"],
+                    "reason": WAKE_WORD_MODEL_BLOCKER,
+                },
+                "screenshot": True,
+            },
+            {
+                "id": "check_default_assistant_ready",
+                "action": "check_default_assistant_ready",
+                "expected": "Jandal default-assistant prerequisite is satisfied",
+                "screenshot": True,
+            },
+        ],
+    },
+    {
+        "id": "hey_jandal_enable_mic_granted",
+        "title": "Enable Hey Jandal with microphone already granted",
+        "capability": "wake_word",
+        "tags": ["permissions", "microphone", "wake_word", "voice"],
+        "steps": [
+            {
+                "id": "grant_microphone",
+                "action": "set_permission_state",
+                "permission": "android.permission.RECORD_AUDIO",
+                "state": "granted",
+                "expected": "Microphone permission granted",
+            },
+            {
+                "id": "launch_app",
+                "action": "launch_main",
+                "expected": "Kernel AI app returns to foreground",
+                "screenshot": True,
+            },
+            {
+                "id": "open_settings",
+                "action": "tap_visible",
+                "target": {"content_desc": "Settings"},
+                "expected": "Settings screen opens",
+                "expected_visible": ["Settings"],
+            },
+            {
+                "id": "open_voice_settings",
+                "action": "tap_visible",
+                "target": {"text": "Voice"},
+                "expected": "Voice settings opens",
+                "expected_visible": ["Hey Jandal", HEY_JANDAL_LABEL],
+                "blocked_if_visible": {
+                    "texts": ["Wake word model not yet available"],
+                    "reason": WAKE_WORD_MODEL_BLOCKER,
+                },
+                "screenshot": True,
+            },
+            {
+                "id": "check_default_assistant_ready",
+                "action": "check_default_assistant_ready",
+                "expected": "Jandal default-assistant prerequisite is satisfied",
+            },
+            {
+                "id": "enable_hey_jandal_toggle",
+                "action": "set_toggle_state",
+                "anchor_text": HEY_JANDAL_LABEL,
+                "checked": True,
+                "expected": "Hey Jandal toggle is enabled",
+                "expected_toggle_state": {"anchor_text": HEY_JANDAL_LABEL, "checked": True},
+                "screenshot": True,
+            },
+        ],
+    },
+    {
+        "id": "hey_jandal_enable_mic_denied",
+        "title": "Enable Hey Jandal with microphone promptable denied",
+        "capability": "wake_word",
+        "tags": ["permissions", "microphone", "wake_word", "voice"],
         "steps": [
             {
                 "id": "reset_microphone_prompt_state",
@@ -37,24 +144,28 @@ SCENARIOS: list[dict[str, object]] = [
                 "target": {"content_desc": "Settings"},
                 "expected": "Settings screen opens",
                 "expected_visible": ["Settings"],
-                "screenshot": True,
             },
             {
                 "id": "open_voice_settings",
                 "action": "tap_visible",
                 "target": {"text": "Voice"},
                 "expected": "Voice settings opens",
-                "expected_visible": ["Hey Jandal", 'Listen for "Hey Jandal"'],
+                "expected_visible": ["Hey Jandal", HEY_JANDAL_LABEL],
                 "blocked_if_visible": {
-                    "texts": ["Set Jandal as default assistant first for reliable background mic access"],
-                    "reason": "S21 requires Jandal to be the default assistant before the Hey Jandal toggle becomes actionable.",
+                    "texts": ["Wake word model not yet available"],
+                    "reason": WAKE_WORD_MODEL_BLOCKER,
                 },
                 "screenshot": True,
             },
             {
-                "id": "try_enable_hey_jandal",
-                "action": "tap_visible",
-                "target": {"text": 'Listen for "Hey Jandal"'},
+                "id": "check_default_assistant_ready",
+                "action": "check_default_assistant_ready",
+                "expected": "Jandal default-assistant prerequisite is satisfied",
+            },
+            {
+                "id": "request_microphone_via_toggle",
+                "action": "tap_toggle_for_text",
+                "anchor_text": HEY_JANDAL_LABEL,
                 "expected": "Android microphone permission prompt appears",
                 "expected_any_visible": ["Allow", "While using the app", "Only this time", "Don't allow", "Deny"],
                 "screenshot": True,
@@ -64,17 +175,18 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "tap_visible",
                 "target": {"any_text": ["Don't allow", "Deny", "No thanks", "Cancel"]},
                 "expected": "Permission prompt is denied and app remains usable",
-                "expected_visible": ['Listen for "Hey Jandal"'],
-                "expected_not_visible": ["Microphone permission is blocked"],
+                "expected_visible": [HEY_JANDAL_LABEL],
+                "expected_toggle_state": {"anchor_text": HEY_JANDAL_LABEL, "checked": False},
+                "expected_not_visible": ["Microphone permission is blocked", "Microphone access was removed"],
                 "screenshot": True,
             },
         ],
     },
     {
-        "id": "mic_revoke_while_hey_jandal_enabled",
-        "title": "Revoke microphone while Hey Jandal is enabled",
+        "id": "hey_jandal_mic_revoked_resume",
+        "title": "Hey Jandal enabled then microphone revoked externally",
         "capability": "wake_word",
-        "tags": ["permissions", "microphone", "wake_word", "durability"],
+        "tags": ["permissions", "microphone", "wake_word", "durability", "voice"],
         "steps": [
             {
                 "id": "grant_microphone",
@@ -100,19 +212,25 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "tap_visible",
                 "target": {"text": "Voice"},
                 "expected": "Voice settings opens",
-                "expected_visible": ["Hey Jandal", 'Listen for "Hey Jandal"'],
+                "expected_visible": ["Hey Jandal", HEY_JANDAL_LABEL],
                 "blocked_if_visible": {
-                    "texts": ["Set Jandal as default assistant first for reliable background mic access"],
-                    "reason": "S21 requires Jandal to be the default assistant before the Hey Jandal toggle can be enabled for revoke/resume validation.",
+                    "texts": ["Wake word model not yet available"],
+                    "reason": WAKE_WORD_MODEL_BLOCKER,
                 },
                 "screenshot": True,
             },
             {
-                "id": "enable_hey_jandal",
-                "action": "tap_visible",
-                "target": {"text": 'Listen for "Hey Jandal"'},
-                "expected": "Hey Jandal remains visible after enabling",
-                "expected_visible": ['Listen for "Hey Jandal"'],
+                "id": "check_default_assistant_ready",
+                "action": "check_default_assistant_ready",
+                "expected": "Jandal default-assistant prerequisite is satisfied",
+            },
+            {
+                "id": "enable_hey_jandal_toggle",
+                "action": "set_toggle_state",
+                "anchor_text": HEY_JANDAL_LABEL,
+                "checked": True,
+                "expected": "Hey Jandal toggle is enabled",
+                "expected_toggle_state": {"anchor_text": HEY_JANDAL_LABEL, "checked": True},
                 "screenshot": True,
             },
             {
@@ -130,7 +248,20 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "resume_app",
                 "action": "launch_main",
-                "expected": "Voice screen resumes and shows durable repair UX",
+                "expected": "Kernel AI app returns to foreground without crashing",
+            },
+            {
+                "id": "reopen_settings",
+                "action": "tap_visible",
+                "target": {"content_desc": "Settings"},
+                "expected": "Settings screen opens after resume",
+                "expected_visible": ["Settings"],
+            },
+            {
+                "id": "reopen_voice_settings",
+                "action": "tap_visible",
+                "target": {"text": "Voice"},
+                "expected": "Voice settings shows targeted repair UX after microphone removal",
                 "expected_visible": ["Microphone access was removed", "Open Microphone permission settings"],
                 "screenshot": True,
             },

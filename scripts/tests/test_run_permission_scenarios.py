@@ -22,12 +22,12 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         selected = permission_runner.select_scenarios(
             [
                 "weather_location_denied",
-                "mic_denied_enable_hey_jandal",
+                "hey_jandal_preflight",
             ]
         )
 
         self.assertEqual(
-            ["weather_location_denied", "mic_denied_enable_hey_jandal"],
+            ["weather_location_denied", "hey_jandal_preflight"],
             [scenario["id"] for scenario in selected],
         )
 
@@ -104,8 +104,8 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             schema_version="1.0",
             source="on_device",
             suite="permission_scenarios",
-            scenario_id="mic_denied_enable_hey_jandal",
-            scenario_title="Enable Hey Jandal with microphone denied",
+            scenario_id="hey_jandal_preflight",
+            scenario_title="Hey Jandal preflight checks default assistant setup",
             timestamp="2026-06-29T00:00:00Z",
             repo="NickMonrad/kernel-ai-assistant",
             branch="feature/test",
@@ -167,7 +167,7 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             written = path.read_text(encoding="utf-8")
 
         self.assertIn("| Scenario | Functional | UX | Steps |", markdown)
-        self.assertIn("Enable Hey Jandal with microphone denied", markdown)
+        self.assertIn("Hey Jandal preflight checks default assistant setup", markdown)
         self.assertIn("Schema-compatible evidence", markdown)
         self.assertEqual(markdown, written)
 
@@ -235,6 +235,48 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
 
         self.assertEqual({"pass": 1, "blocked": 1}, run_result.summary["functional"])
         self.assertEqual({"pass": 1, "not_assessed": 1}, run_result.summary["ux"])
+
+
+class _FakeAdb:
+    def __init__(self, responses: dict[str, str]) -> None:
+        self.responses = responses
+
+    def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+        return self.responses.get(command, "")
+
+
+class AssistantDetectionTest(unittest.TestCase):
+    def _runner(self, responses: dict[str, str]) -> permission_runner.ScenarioRunner:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return permission_runner.ScenarioRunner(
+            adb=_FakeAdb(responses),
+            device={"id": "s21-exynos", "execution": "physical"},
+            branch="feature/test",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+        )
+
+    def test_detect_default_assistant_ready_from_role_holder(self) -> None:
+        runner = self._runner({
+            "cmd role get-role-holders android.app.role.ASSISTANT": "com.kernel.ai.debug",
+            "settings get secure voice_interaction_service": "",
+            "settings get secure assistant": "",
+        })
+        configured, detail = runner._detect_default_assistant_state()
+        self.assertTrue(configured)
+        self.assertIn("com.kernel.ai.debug", detail)
+
+    def test_detect_default_assistant_blocked_when_google_is_holder(self) -> None:
+        runner = self._runner({
+            "cmd role get-role-holders android.app.role.ASSISTANT": "com.google.android.googlequicksearchbox",
+            "settings get secure voice_interaction_service": "com.google.android.googlequicksearchbox/com.google.android.voiceinteraction.GsaVoiceInteractionService",
+            "settings get secure assistant": "com.google.android.googlequicksearchbox/com.google.android.voiceinteraction.GsaVoiceInteractionService",
+        })
+        with self.assertRaisesRegex(permission_runner.ScenarioBlocked, "default assistant"):
+            runner._check_default_assistant_ready()
 
 
 if __name__ == "__main__":
