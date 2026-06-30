@@ -476,6 +476,15 @@ class ScenarioRunner:
             )
         if action == "check_default_assistant_ready":
             return self._check_default_assistant_ready(), {}
+        if action == "resume_existing_app":
+            self.wake_and_home()
+            self.adb.shell(
+                f"monkey -p {APP_PACKAGE} -c android.intent.category.LAUNCHER 1",
+                timeout=20,
+            )
+            self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
+            return "Resumed existing app task", {"current_pid": self._current_pid() or ""}
+
         if action == "press_home":
             self.adb.shell("input keyevent KEYCODE_HOME", timeout=10)
             time.sleep(0.5)

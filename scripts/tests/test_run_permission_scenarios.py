@@ -264,6 +264,18 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         )
         self.assertLess(
             denied_steps.index("reset_microphone_prompt_state"),
+            denied_steps.index("relaunch_app_after_permission_reset"),
+        )
+        self.assertLess(
+            denied_steps.index("relaunch_app_after_permission_reset"),
+            denied_steps.index("reopen_voice_settings_after_permission_reset"),
+        )
+        self.assertLess(
+            denied_steps.index("reopen_voice_settings_after_permission_reset"),
+            denied_steps.index("recheck_default_assistant_ready"),
+        )
+        self.assertLess(
+            denied_steps.index("recheck_default_assistant_ready"),
             denied_steps.index("request_microphone_via_toggle"),
         )
 
