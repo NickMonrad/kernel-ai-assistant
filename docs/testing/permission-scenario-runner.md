@@ -34,10 +34,10 @@ Implemented now:
 - ADB-driven permission-state setup
 - explicit step trace with expected / actual / duration
 - local screenshots at declared checkpoints
-- focused per-scenario logcat capture (started from the current device timestamp, not the full ring buffer)
+- focused per-scenario logcat capture from the latest PID-filtered app/crash lines, not the full ring buffer
 - rich local `result.json`
 - PR/issue-comment-ready `summary.md`
-- schema-shaped derived `evidence.json` for downstream tooling experiments
+- schema-compatible derived `evidence.json` for downstream tooling experiments, marked with explicit non-inference model metadata (`not_applicable` / `permission_scenario_runner` / `adb`)
 - initial scenarios:
   - `mic_denied_enable_hey_jandal` — currently reports **blocked** on S21 when Jandal is not already the default assistant
   - `mic_revoke_while_hey_jandal_enabled` — currently reports **blocked** on S21 when Jandal is not already the default assistant
@@ -70,7 +70,8 @@ scripts/test-reports/permissions/<timestamp>/
 ### Output files
 
 - `result.json` — rich local run report with per-step trace, UX metrics, and artifact paths
-- `evidence.json` — narrower schema-shaped projection derived from the raw run
+- `evidence.json` — narrower schema-compatible projection derived from the raw run, with explicit
+  non-inference model metadata because permission scenarios do not execute LiteRT/model inference
 - `evidence.json` intentionally omits scenarios that ended `blocked` / `skipped`, because the
   current shared schema can represent pass/fail but not environment-prerequisite blockers without
   misreporting them as product failures

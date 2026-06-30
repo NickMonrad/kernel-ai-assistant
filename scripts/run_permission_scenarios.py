@@ -8,7 +8,8 @@ First slice for issue #1330:
 - data-driven scenario definitions loaded from Python constants
 
 The runner writes a rich local report (`result.json`, `summary.md`, `logcat.txt`, screenshots)
-and a lightweight schema-compatible `evidence.json` derived from the richer output.
+and a lightweight schema-compatible `evidence.json` derived from the richer output, using
+explicit non-inference model metadata for permission-only scenarios.
 """
 
 from __future__ import annotations
@@ -44,6 +45,12 @@ LOGCAT_TAG_SPECS = [
     "AndroidRuntime:E",
     "System.err:W",
 ]
+
+NON_INFERENCE_MODEL = {
+    "name": "not_applicable",
+    "runtime": "permission_scenario_runner",
+    "backend": "adb",
+}
 
 
 class RunnerError(RuntimeError):
@@ -806,7 +813,7 @@ def to_evidence(run_result: RunResult) -> dict[str, Any]:
         "release": None,
         "run_id": run_result.run_id,
         "device": evidence_device,
-        "model": {"name": None, "runtime": None, "backend": None},
+        "model": dict(NON_INFERENCE_MODEL),
         "summary": {
             "total": len(cases),
             "passed": passed,
@@ -857,7 +864,7 @@ def write_summary(run_result: RunResult, path: Path) -> str:
         "## Artifacts",
         "",
         f"- Raw report: `{run_result.artifacts['raw_json']}`",
-        f"- Schema evidence: `{run_result.artifacts['evidence']}`",
+        f"- Schema-compatible evidence: `{run_result.artifacts['evidence']}`",
         f"- Logcat: `{run_result.artifacts['logcat']}`",
         f"- Screenshots: `{run_result.artifacts['screenshots_dir']}/`",
         "",

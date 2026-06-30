@@ -95,6 +95,9 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         self.assertEqual(1, len(evidence["cases"]))
         self.assertEqual("weather_location_denied", evidence["cases"][0]["name"])
         self.assertEqual([], evidence["cases"][0]["failures"])
+        self.assertEqual("not_applicable", evidence["model"]["name"])
+        self.assertEqual("permission_scenario_runner", evidence["model"]["runtime"])
+        self.assertEqual("adb", evidence["model"]["backend"])
 
     def test_write_summary_includes_artifacts_and_table(self) -> None:
         scenario = permission_runner.ScenarioResult(
@@ -165,7 +168,7 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
 
         self.assertIn("| Scenario | Functional | UX | Steps |", markdown)
         self.assertIn("Enable Hey Jandal with microphone denied", markdown)
-        self.assertIn("Schema evidence", markdown)
+        self.assertIn("Schema-compatible evidence", markdown)
         self.assertEqual(markdown, written)
 
     def test_build_run_result_counts_functional_and_ux_outcomes(self) -> None:
