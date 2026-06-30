@@ -302,9 +302,19 @@ def sanitize_logcat_for_publish(logcat_path: Path) -> str:
     return sanitized
 
 
+def bundle_commit(bundle: ReportBundle) -> str:
+    commit = bundle.result.get("commit") or bundle.evidence.get("commit")
+    if not isinstance(commit, str) or not commit:
+        raise PublishError("Report commit missing from result.json/evidence.json")
+    return commit
+
+
 def build_public_result(bundle: ReportBundle) -> dict[str, Any]:
     public_result = json.loads(json.dumps(bundle.result))
     public_result.setdefault("device", {})["serial"] = None
+    for scenario in public_result.get("scenarios", []):
+        if isinstance(scenario, dict):
+            scenario.setdefault("device", {})["serial"] = None
     return public_result
 
 
@@ -364,6 +374,7 @@ def tree_url(repo: str, branch: str, relpath: str) -> str:
 def build_comment_body(bundle: ReportBundle, published: PublishedPaths, args: argparse.Namespace) -> str:
     result = bundle.result
     scenarios = result.get("scenarios", [])
+    report_commit = bundle_commit(bundle)
     lines = [
         STICKY_MARKER,
         "",
@@ -371,7 +382,7 @@ def build_comment_body(bundle: ReportBundle, published: PublishedPaths, args: ar
         "",
         f"**Source:** `{result.get('source', 'unknown')}`  ",
         f"**Device:** {result.get('device', {}).get('label', 'Unknown')} (`{args.device_id}`)  ",
-        f"**Commit:** `{args.commit[:12]}`  ",
+        f"**Commit:** `{report_commit[:12]}`  ",
         f"**Report timestamp:** `{result.get('timestamp', 'unknown')}`",
         "",
         "| Scenario | Functional | UX | Steps | Taps | Settings | Back | Duration | Blocked reason |",
@@ -412,6 +423,8 @@ def build_comment_body(bundle: ReportBundle, published: PublishedPaths, args: ar
         lines.append(f"- [Screenshots]({tree_url(args.repo, args.target_branch, published.screenshots_dir)})")
     else:
         lines.append("- Screenshots: unavailable")
+    if args.allow_stale_report and report_commit != args.commit:
+        lines.extend(["", f"> Override used: report commit `{report_commit[:12]}` published against requested head `{args.commit[:12]}`."])
     if blocked_lines:
         lines.extend(["", "### Blocked scenarios", "", *blocked_lines])
     lines.extend([
@@ -432,7 +445,7 @@ def commit_message(pr: int, commit: str, device_id: str) -> str:
 
 def print_publish_plan(mapping: dict[Path, str], comment_body: str, action: str, args: argparse.Namespace) -> None:
     print(f"PR:             #{args.pr}")
-    print(f"Commit:         {args.commit}")
+    print(f"Expected head:  {args.commit}")
     print(f"Device:         {args.device_id}")
     print(f"Target branch:  {args.target_branch}")
     print(f"Dry run:        {args.dry_run}")
@@ -467,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
         publish_helpers._publish_to_branch(
             mapping=mapping,
             target_branch=args.target_branch,
-            commit_msg=commit_message(args.pr, args.commit, args.device_id),
+            commit_msg=commit_message(args.pr, bundle_commit(bundle), args.device_id),
             repo_url=repo_url,
             dry_run=False,
         )

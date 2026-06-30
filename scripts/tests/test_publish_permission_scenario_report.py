@@ -66,7 +66,7 @@ def sample_result(commit: str = "a" * 40, pr: int | None = None) -> dict:
                 "branch": "feature/1344-permission-report-publisher",
                 "commit": commit,
                 "pr": pr,
-                "device": {"id": "s21-exynos", "execution": "physical"},
+                "device": {"id": "s21-exynos", "execution": "physical", "serial": "R5CR605B71K"},
                 "functional_result": "pass",
                 "ux_result": "pass",
                 "step_count": 3,
@@ -104,7 +104,7 @@ def sample_result(commit: str = "a" * 40, pr: int | None = None) -> dict:
                 "branch": "feature/1344-permission-report-publisher",
                 "commit": commit,
                 "pr": pr,
-                "device": {"id": "s21-exynos", "execution": "physical"},
+                "device": {"id": "s21-exynos", "execution": "physical", "serial": "R5CR605B71K"},
                 "functional_result": "blocked",
                 "ux_result": "not_assessed",
                 "step_count": 4,
@@ -264,6 +264,7 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
         bundle = publisher.validate_report_dir(self.report_dir)
         public_result = publisher.build_public_result(bundle)
         self.assertIsNone(public_result["device"]["serial"])
+        self.assertTrue(all(scenario["device"]["serial"] is None for scenario in public_result["scenarios"]))
 
     def test_build_published_paths_uses_results_and_artifacts_layout(self) -> None:
         bundle = publisher.validate_report_dir(self.report_dir)
@@ -300,6 +301,14 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
         self.assertIn("Set Jandal as default assistant first for reliable background mic access", body)
         self.assertIn("Blocked/skipped scenarios remain visible", body)
         self.assertIn("Schema-compatible evidence", body)
+
+    def test_build_comment_body_uses_report_commit_when_stale_override_enabled(self) -> None:
+        bundle = publisher.validate_report_dir(self.report_dir)
+        published = publisher.build_published_paths(bundle, 1344, "s21-exynos")
+        args = argparse.Namespace(**{**vars(self.args), "allow_stale_report": True, "commit": "b" * 40})
+        body = publisher.build_comment_body(bundle, published, args)
+        self.assertIn("`aaaaaaaaaaaa`", body)
+        self.assertIn("requested head `bbbbbbbbbbbb`", body)
 
     def test_choose_comment_action(self) -> None:
         self.assertEqual(publisher.choose_comment_action(None), "create")
