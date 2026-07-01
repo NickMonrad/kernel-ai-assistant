@@ -182,6 +182,75 @@ python3 scripts/run_permission_scenarios.py \
   --dry-run
 ```
 
+## Weather/location scenario group
+
+The weather/location group covers location permission interactions for the
+`weather_current_location` capability. All scenarios use `permissions`,
+`location`, and `weather` tags and include cleanup to restore location
+permissions to `prompt` state after each run.
+
+| Scenario ID | Steps | Permission states | Cleanup | Screenshots |
+|------------|-------|-------------------|---------|-------------|
+| `weather_location_denied` | 3 | prompt → prompt + fallback | reset to prompt | 2 |
+| `weather_location_granted` | 2 | granted → query | reset to prompt | 1 |
+| `weather_location_prompt_denied` | 4 | prompt → deny system prompt | reset to prompt | 3 |
+| `weather_location_blocked_or_permanently_denied` | 2 | blocked → assert repair copy | reset to prompt | 1 |
+| `weather_typed_city_without_location` | 2 | prompt → typed city query | reset to prompt | 1 |
+
+### Scenario details
+
+- **`weather_location_denied`** — Existing baseline. Resets location to promptable
+  denied, launches a generic weather query, taps "Use a named location" on the
+  permission dialog, asserts fallback guidance.
+- **`weather_location_granted`** — Grants coarse and fine location, launches a
+  generic weather query, asserts that no current-location permission prompt or
+  blocked copy appears.
+- **`weather_location_prompt_denied`** — Resets location to promptable denied,
+  launches a generic weather query, taps "Use my location" to trigger the Android
+  system permission prompt, then denies the system prompt. Asserts the app does
+  not crash and returns to chat gracefully.
+- **`weather_location_blocked_or_permanently_denied`** — Sets location to
+  `blocked` (user-set, user-fixed flags), launches a generic weather query,
+  asserts that a permission-related dialog appears (either the blocked repair
+  copy or the standard permission request dialog depending on Samsung One UI
+  behavior).
+- **`weather_typed_city_without_location`** — Resets location to promptable
+  denied, launches a weather query with a named city (dynamically referencing
+  `weather_named_location` from `FIXTURES`), asserts that no current-location
+  permission prompt or blocked copy appears.
+
+### Running the weather group on S21
+
+```bash
+ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial "$ANDROID_SERIAL" \
+  --scenarios weather_location_denied,weather_location_granted,weather_location_prompt_denied,weather_location_blocked_or_permanently_denied,weather_typed_city_without_location \
+  --out-dir scripts/test-reports/permissions
+```
+
+### Known limitations
+- **Blocked/permanently denied state**: The `blocked` state uses
+  `pm set-permission-flags user-set user-fixed` which Android treats as
+  "don't ask again". On Samsung One UI 15 (and likely other Samsung builds),
+  this flag does NOT cause `shouldShowRequestPermissionRationale` to return
+  `false`, so the app shows the standard permission request dialog rather than
+  the permanently-blocked repair dialog. The scenario asserts that SOME dialog
+  appears (using `expected_any_visible` for both the blocked repair copy and
+  the standard dialog texts). If a future Samsung or Android version respects
+  the `user-fixed` flag differently, this scenario can be tightened to assert
+  only the blocked repair copy. The app correctly detects `ACCESS_COARSE_LOCATION`
+  as unavailable and returns `CapabilityRequired` in either case.
+- **System permission prompt**: The `weather_location_prompt_denied` scenario
+  taps "Deny" or "Don't allow" on the Android system permission dialog.
+  Samsung One UI may show different button labels; the runner uses
+  `any_text` matching to handle both.
+- **Named city weather**: The `weather_typed_city_without_location` scenario
+  sends a weather query for `weather_named_location` (from `FIXTURES`, currently
+  `Tokyo`) as the quick action input. If the app routes this through the GPS-based
+  weather skill rather than the named-city JS skill, the permission dialog may still
+  appear. This is a product behavior finding to document, not a harness issue.
+
 ## Publishing evidence explicitly
 
 Publishing is a **separate explicit step**. The runner stays local-only unless you invoke

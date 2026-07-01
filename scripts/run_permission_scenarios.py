@@ -888,6 +888,14 @@ def select_scenarios(selected_ids: list[str]) -> list[dict[str, Any]]:
     return [scenarios[scenario_id] for scenario_id in selected_ids]
 
 
+def get_scenario_by_id(scenario_id: str) -> dict[str, object] | None:
+    """Look up a scenario by ID. Returns None if not found."""
+    for scenario in load_scenarios():
+        if scenario["id"] == scenario_id:
+            return scenario
+    return None
+
+
 def validate_scenario_definitions(scenarios: list[dict[str, object]]) -> list[str]:
     """Validate all scenario definitions. Returns list of error messages."""
     errors: list[str] = []
