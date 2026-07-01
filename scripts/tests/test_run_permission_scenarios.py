@@ -279,6 +279,65 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             denied_steps.index("request_microphone_via_toggle"),
         )
 
+
+    def test_hey_jandal_mic_revoked_reopen_voice_orders_grant_enable_revoke_reopen(self) -> None:
+        scenarios = {scenario["id"]: scenario for scenario in permission_runner.SCENARIOS}
+        steps = [step["id"] for step in scenarios["hey_jandal_mic_revoked_reopen_voice"]["steps"]]
+
+        # Grant before enable
+        self.assertLess(
+            steps.index("grant_microphone"),
+            steps.index("enable_hey_jandal_toggle"),
+        )
+        # Toggle reset before enable
+        self.assertLess(
+            steps.index("reset_hey_jandal_toggle_off"),
+            steps.index("enable_hey_jandal_toggle"),
+        )
+        # Enable before background (revoke preparation)
+        self.assertLess(
+            steps.index("enable_hey_jandal_toggle"),
+            steps.index("background_app_before_revoke"),
+        )
+        # Background before revoke
+        self.assertLess(
+            steps.index("background_app_before_revoke"),
+            steps.index("revoke_microphone_externally"),
+        )
+        # Revoke before relaunch
+        self.assertLess(
+            steps.index("revoke_microphone_externally"),
+            steps.index("relaunch_and_assert_durability"),
+        )
+        # Durability dialog assertion is the final step
+        self.assertEqual(
+            steps[-1],
+            "relaunch_and_assert_durability",
+            "Durability dialog assertion should be the final step of the revoked/reopen scenario",
+        )
+        # No monkey/LeakCanary-prone actions in this scenario
+        self.assertNotIn("launch_app", steps[len(steps)-1])
+
+    def test_hey_jandal_mic_revoked_reopen_voice_asserts_durability_dialog_text(self) -> None:
+        scenarios = {scenario["id"]: scenario for scenario in permission_runner.SCENARIOS}
+        last_step = scenarios["hey_jandal_mic_revoked_reopen_voice"]["steps"][-1]
+        visible = last_step.get("expected_visible", [])
+        self.assertIn("Microphone access was removed", visible)
+        self.assertIn("Open Microphone permission settings", visible)
+
+    def test_hey_jandal_mic_revoked_reopen_voice_has_no_monkey_or_leakcanary_resume(self) -> None:
+        """Verifies the scenario uses deterministic re-entry, never monkey/LeakCanary-prone resume."""
+        scenarios = {scenario["id"]: scenario for scenario in permission_runner.SCENARIOS}
+        steps = scenarios["hey_jandal_mic_revoked_reopen_voice"]["steps"]
+        for step in steps:
+            action = step.get("action", "")
+            action_text = step.get("expected", "")
+            self.assertNotIn("monkey", action, f"Step {step['id']} uses monkey: {action}")
+            self.assertNotIn(
+                "LeakCanary",
+                action_text,
+                f"Step {step['id']} references LeakCanary-prone path: {action_text}",
+            )
     def test_apply_expectations_prioritizes_blocked_marker_before_missing_expected_text(self) -> None:
         runner = self._runner({
             "cmd role get-role-holders android.app.role.ASSISTANT": "",

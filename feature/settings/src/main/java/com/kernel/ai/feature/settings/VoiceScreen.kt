@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
@@ -157,6 +158,22 @@ fun VoiceScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 3. Async load guard: if heyJandalEnabled loads from DataStore as true
+    // after ON_RESUME already fired (e.g. after process restart), re-check
+    // durability when the state transitions from initial false to persisted true.
+    // This handles the case where DataStore hasn't loaded by the time
+    // the ON_RESUME lifecycle observer runs, so the durability check at (2)
+    // saw wasHeyJandalEnabled = false and did not trigger.
+    LaunchedEffect(uiState.heyJandalEnabled) {
+        if (uiState.heyJandalEnabled && !awaitingMicSettingsReturn) {
+            val micReadiness = MicrophonePermissionReadiness.evaluate(context)
+            if (micReadiness != MicrophoneReadiness.Granted) {
+                viewModel.enforceHeyJandalMicReadiness(micReadiness)
+                showMicDurableRequiredDialog = true
+            }
+        }
     }
 
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
