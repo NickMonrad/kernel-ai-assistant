@@ -143,7 +143,7 @@ private fun PermissionRow(
         trailingContent = {
             Icon(
                 imageVector = if (item.isGranted) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = if (item.isGranted) "Granted" else "Not granted",
+                contentDescription = if (item.isGranted) "${item.label} granted" else "${item.label} not granted",
                 tint = tint,
             )
         },

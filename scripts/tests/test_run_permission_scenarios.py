@@ -888,6 +888,103 @@ CLOCK_SCENARIO_IDS = frozenset({
 })
 
 
+DASHBOARD_SCENARIO_IDS = frozenset({
+    "permissions_dashboard_opens",
+    "permissions_dashboard_location_state_refresh",
+    "permissions_dashboard_microphone_state_refresh",
+    "permissions_dashboard_notification_state",
+    "permissions_dashboard_repair_cta_opens_settings",
+})
+
+
+class DashboardScenarioTest(unittest.TestCase):
+    """Tests for App Permissions dashboard scenario definitions."""
+
+    def test_all_dashboard_scenarios_validate(self) -> None:
+        for sid in DASHBOARD_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            errors = permission_runner.validate_scenario_definitions([sc])
+            self.assertEqual([], errors, f"{sid} should pass validation:\n" + "\n".join(errors))
+
+    def test_all_dashboard_scenarios_have_dashboard_tag(self) -> None:
+        for sid in DASHBOARD_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc.get("tags", []))
+            self.assertIn("dashboard", tags, f"{sid} missing 'dashboard' tag")
+
+    def test_all_dashboard_scenarios_have_permissions_tag(self) -> None:
+        for sid in DASHBOARD_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc.get("tags", []))
+            self.assertIn("permissions", tags, f"{sid} missing 'permissions' tag")
+
+    def test_state_refresh_scenarios_have_refresh_tag(self) -> None:
+        for sid in ("permissions_dashboard_location_state_refresh", "permissions_dashboard_microphone_state_refresh"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc.get("tags", []))
+            self.assertIn("refresh", tags, f"{sid} missing 'refresh' tag")
+
+    def test_repair_cta_scenario_has_repair_tag(self) -> None:
+        sc = permission_runner.get_scenario_by_id("permissions_dashboard_repair_cta_opens_settings")
+        tags = set(sc.get("tags", []))
+        self.assertIn("repair", tags, f"permissions_dashboard_repair_cta_opens_settings missing 'repair' tag")
+
+    def test_scenarios_that_change_permissions_have_cleanup(self) -> None:
+        for sid in DASHBOARD_SCENARIO_IDS - {"permissions_dashboard_opens"}:
+            sc = permission_runner.get_scenario_by_id(sid)
+            cleanup = sc.get("cleanup", [])
+            self.assertTrue(len(cleanup) > 0, f"{sid} should have cleanup steps")
+
+    def test_dashboard_opens_has_no_cleanup(self) -> None:
+        sc = permission_runner.get_scenario_by_id("permissions_dashboard_opens")
+        cleanup = sc.get("cleanup", [])
+        self.assertEqual(0, len(cleanup), "permissions_dashboard_opens should have no cleanup (no permissions changed)")
+
+    def test_repair_cta_scenario_uses_wait_for_package(self) -> None:
+        sc = permission_runner.get_scenario_by_id("permissions_dashboard_repair_cta_opens_settings")
+        steps = sc.get("steps", [])
+        self.assertTrue(
+            any(s.get("action") == "wait_for_package" for s in steps),
+            "repair CTA scenario should use wait_for_package action",
+        )
+
+    def test_dashboard_scenarios_capability_is_empty(self) -> None:
+        for sid in DASHBOARD_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            self.assertEqual("", sc.get("capability", "MISSING"),
+                f"{sid} capability should be empty string (not capability-gated)")
+
+
+class DashboardDryRunTest(unittest.TestCase):
+    """Tests for dry-run output covering dashboard scenarios."""
+
+    def test_all_dashboard_scenarios_appear_in_dry_run(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in DASHBOARD_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        plan_ids = {entry["id"] for entry in plan}
+        self.assertEqual(DASHBOARD_SCENARIO_IDS, plan_ids)
+
+    def test_dashboard_dry_run_shows_refresh_permissions(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in DASHBOARD_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        all_perms = set()
+        for entry in plan:
+            all_perms.update(entry["permissions_touched"])
+        self.assertIn("android.permission.ACCESS_COARSE_LOCATION", all_perms)
+        self.assertIn("android.permission.RECORD_AUDIO", all_perms)
+    def test_dashboard_dry_run_shows_screenshots(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in DASHBOARD_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_screenshots = sum(entry["screenshot_count"] for entry in plan)
+        self.assertGreater(total_screenshots, 0, "Dashboard scenarios should capture screenshots")
+
+    def test_dashboard_dry_run_shows_cleanup_steps(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in {"permissions_dashboard_location_state_refresh", "permissions_dashboard_microphone_state_refresh", "permissions_dashboard_notification_state", "permissions_dashboard_repair_cta_opens_settings"}]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_cleanup = sum(entry["cleanup_count"] for entry in plan)
+        self.assertGreater(total_cleanup, 0, "Dashboard scenarios that change permissions should have cleanup steps")
+
+
 class ClockScenarioTest(unittest.TestCase):
     """Tests for clock/timer/alarm permission scenario definitions."""
 

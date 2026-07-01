@@ -56,7 +56,7 @@ NON_INFERENCE_MODEL = {
 SUPPORTED_ACTIONS = frozenset({
     "set_permission_state", "set_appops", "launch_main", "launch_quick_action",
     "tap_visible", "tap_toggle_for_text", "set_toggle_state",
-    "check_default_assistant_ready", "press_home", "press_back",
+    "check_default_assistant_ready", "press_home", "press_back", "wait_for_package", "swipe",
 })
 
 SUPPORTED_PERMISSION_STATES = frozenset({"granted", "revoked", "prompt", "blocked"})
@@ -564,6 +564,20 @@ class ScenarioRunner:
             self.adb.shell("input keyevent KEYCODE_BACK", timeout=10)
             time.sleep(0.5)
             return "Pressed BACK", {"back_presses": 1}
+        if action == "wait_for_package":
+            package = step["package"]
+            timeout = step.get("timeout_seconds", 8)
+            self._wait_for_package(package, timeout_seconds=timeout)
+            return f"Waited for package {package} in foreground", {"settings_hops": 1 if package.startswith(SETTINGS_PACKAGE_PREFIX) else 0}
+        if action == "swipe":
+            start_x = step["start_x"]
+            start_y = step["start_y"]
+            end_x = step["end_x"]
+            end_y = step["end_y"]
+            duration_ms = step.get("duration_ms", 300)
+            self.adb.shell(f"input swipe {start_x} {start_y} {end_x} {end_y} {duration_ms}", timeout=10)
+            time.sleep(0.5)
+            return f"Swiped ({start_x},{start_y})→({end_x},{end_y})", {}
         raise StepFailure(f"Unsupported action: {action}")
 
     def _apply_expectations(self, step: dict[str, Any]) -> None:
@@ -1021,7 +1035,12 @@ def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_
             errors.append(f"{label}: action {action!r} requires 'mode' field")
         elif mode not in SUPPORTED_APPOPS_MODES:
             errors.append(f"{label}: unsupported appops mode {mode!r}; supported: {sorted(SUPPORTED_APPOPS_MODES)}")
-
+    elif action == "wait_for_package" and "package" not in step:
+        errors.append(f"{label}: action {action!r} requires 'package' field")
+    elif action == "swipe":
+        for field in ("start_x", "start_y", "end_x", "end_y"):
+            if field not in step:
+                errors.append(f"{label}: action {action!r} requires '{field}' field")
     return errors
 
 def merge_fixtures(scenario: dict[str, object]) -> dict[str, object]:
