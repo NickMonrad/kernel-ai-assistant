@@ -39,8 +39,9 @@ Implemented now:
 - PR/issue-comment-ready `summary.md`
 - schema-compatible derived `evidence.json` for downstream tooling experiments, marked with explicit non-inference model metadata (`not_applicable` / `permission_scenario_runner` / `adb`)
 - initial scenarios:
-  - `mic_denied_enable_hey_jandal` — currently reports **blocked** on S21 when Jandal is not already the default assistant
-  - `mic_revoke_while_hey_jandal_enabled` — currently reports **blocked** on S21 when Jandal is not already the default assistant
+  - `hey_jandal_preflight`
+  - `hey_jandal_enable_mic_granted`
+  - `hey_jandal_enable_mic_denied`
   - `weather_location_denied`
 
 Intentionally **not** implemented yet:
@@ -49,6 +50,7 @@ Intentionally **not** implemented yet:
 - CI merge-gate enforcement for permission scenarios
 - S23U automation mode
 - special-access flows like DND / write-settings / exact alarms
+- Hey Jandal microphone durability after external revoke / task resume; tracked in #1356
 - video capture, screenshot diffing, or runtime-planned steps
 
 ## Output layout
@@ -84,7 +86,7 @@ scripts/test-reports/permissions/<timestamp>/
 ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
   --serial "$ANDROID_SERIAL" \
-  --scenarios mic_denied_enable_hey_jandal,mic_revoke_while_hey_jandal_enabled,weather_location_denied \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied \
   --out-dir scripts/test-reports/permissions
 ```
 
@@ -93,7 +95,7 @@ List available scenarios:
 ```bash
 python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
-  --scenarios mic_denied_enable_hey_jandal \
+  --scenarios hey_jandal_preflight \
   --list-scenarios
 ```
 
@@ -149,6 +151,68 @@ artifacts/pr/<PR>/permissions/<device>/<timestamp>/
 This split is deliberate: the dashboard recursively ingests `results/**/*.json`, so only the
 schema-compatible `evidence.json` lives under `results/`. The richer reviewer bundle lives under
 `artifacts/` on the same `test-results` branch.
+
+## Hey Jandal voice scenarios
+
+The Hey Jandal scenarios now treat the Android default-assistant role as an explicit manual
+precondition instead of a silent product failure. The runner detects the current assistant holder
+using non-mutating device checks and reports setup blockers as `functional_result = blocked`.
+
+The grouped voice scenarios are order-independent. Each enablement scenario now re-establishes a
+known local state before asserting permission behavior:
+
+- confirm the default-assistant prerequisite
+- reset the Hey Jandal toggle to off
+- only then grant/reset microphone permission for the specific case under test
+
+Current voice scenarios:
+
+- `hey_jandal_preflight` — verifies whether the device is ready to run the wake-word scenarios
+- `hey_jandal_enable_mic_granted` — microphone already granted, reset the toggle off, then enable the wake word toggle
+- `hey_jandal_enable_mic_denied` — reset the toggle off, return microphone permission to a promptable denied state, then confirm the permission prompt path
+
+Follow-up coverage still pending:
+
+- `hey_jandal_mic_revoked_resume` — robust durability testing after external microphone revoke and task resume is deferred to #1356
+
+When the assistant role is not configured, the blocked reason is explicit:
+
+> `Jandal is not configured as the Android default assistant; configure it manually before running Hey Jandal voice scenarios.`
+
+If the wake-word model is unavailable on the build, that setup blocker also reports as
+`functional_result = blocked` rather than a product failure, even when the toggle label is not
+rendered yet.
+
+This blocked/setup-required state is preserved in `result.json`, `summary.md`, and any later
+published sticky PR comment. It is **not** converted into schema pass/fail evidence.
+
+Example commands:
+
+```bash
+# list scenarios
+python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --scenarios hey_jandal_preflight \
+  --list-scenarios
+
+# run only the Hey Jandal voice group
+ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial "$ANDROID_SERIAL" \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied \
+  --out-dir scripts/test-reports/permissions
+
+# optionally publish an existing local report later (explicit step only)
+python3 scripts/publish_permission_scenario_report.py \
+  --report-dir scripts/test-reports/permissions/<timestamp> \
+  --pr <PR_NUMBER> \
+  --commit <EXPECTED_HEAD_SHA> \
+  --device-id s21-exynos
+```
+
+The runner does **not** change the Android default-assistant state automatically. If the device is
+not configured, stop there, capture the blocker, and fix the role manually before re-running the
+Hey Jandal scenarios.
 
 ## When to use this runner
 
