@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from permission_scenario_defs import DEFAULT_UX_THRESHOLDS, SCENARIOS
+from permission_scenario_defs import DEFAULT_UX_THRESHOLDS, FIXTURES, SCENARIOS
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
@@ -62,9 +62,8 @@ SUPPORTED_ACTIONS = frozenset({
 SUPPORTED_PERMISSION_STATES = frozenset({"granted", "revoked", "prompt", "blocked"})
 
 REQUIRED_SCENARIO_FIELDS = frozenset({"id", "title", "capability", "tags", "steps"})
-REQUIRED_STEP_FIELDS = frozenset({"id", "action"})
 
-OPTIONAL_SCENARIO_FIELDS = frozenset({"preconditions", "cleanup", "fixtures"})
+REQUIRED_STEP_FIELDS = frozenset({"id", "action", "expected"})
 
 
 class RunnerError(RuntimeError):
@@ -112,6 +111,7 @@ class StepTrace:
     actual: str
     result: str
     duration_ms: int
+    phase: str = "main"
     screenshot: str | None = None
     screenshot_error: str | None = None
     debug: dict[str, Any] = field(default_factory=dict)
@@ -142,6 +142,8 @@ class ScenarioResult:
     artifacts: dict[str, Any]
     ux_warnings: list[str] = field(default_factory=list)
     blocked_reason: str | None = None
+    fixtures_used: dict[str, object] = field(default_factory=dict)
+
 
 
 @dataclass(slots=True)
@@ -345,66 +347,118 @@ class ScenarioRunner:
         logcat_capture.start()
         functional_result = "pass"
         blocked_reason: str | None = None
+
+        preconditions = scenario.get("preconditions", [])
+        main_steps = scenario.get("steps", [])
+        cleanup_steps = scenario.get("cleanup", [])
+
         try:
-            for index, step in enumerate(scenario.get("steps", []), start=1):
+            # ── Phase 1: Preconditions ────────────────────────────────────
+            # Precondition failure → blocked (not product failure).
+            for index, step in enumerate(preconditions, start=1):
                 step_started = time.monotonic()
                 action = step["action"]
                 expected = step.get("expected", action)
-                screenshot_error: str | None = None
                 debug: dict[str, Any] = {}
                 actual = ""
+                result = "pass"
                 try:
-                    actual, delta = self._execute_step(step)
-                    tap_count += delta.get("tap_count", 0)
-                    settings_hops += delta.get("settings_hops", 0)
-                    back_presses += delta.get("back_presses", 0)
-                    manual_intervention_required = manual_intervention_required or delta.get("manual_intervention_required", False)
-                    current_pid = (delta.get("current_pid") or current_pid) if isinstance(delta.get("current_pid"), str) else current_pid
+                    actual, _ = self._execute_step(step)
                     self._apply_expectations(step)
                     result = "pass"
-                except ScenarioBlocked as exc:
+                except (ScenarioBlocked, StepFailure) as exc:
                     functional_result = "blocked"
                     blocked_reason = str(exc)
                     actual = str(exc)
                     result = "blocked"
-                except StepFailure as exc:
-                    functional_result = "fail"
-                    actual = str(exc)
-                    result = "fail"
                 duration_ms = int((time.monotonic() - step_started) * 1000)
-                screenshot_path = None
-                if step.get("screenshot"):
-                    screenshot_path, screenshot_error = self._capture_screenshot(
-                        scenario_id=scenario["id"],
-                        step_index=index,
-                        step_id=step["id"],
-                    )
                 if functional_result != "pass":
                     debug.update(self._collect_debug_state())
-                steps.append(
-                    StepTrace(
-                        index=index,
-                        id=step["id"],
-                        action=action,
-                        expected=expected,
-                        actual=actual or "ok",
-                        result=result,
-                        duration_ms=duration_ms,
-                        screenshot=screenshot_path,
-                        screenshot_error=screenshot_error,
-                        debug=debug,
-                    )
-                )
-                if functional_result != "pass":
+                steps.append(StepTrace(
+                    index=index, id=step["id"], action=action, expected=expected,
+                    actual=actual or "ok", result=result, duration_ms=duration_ms,
+                    phase="precondition", debug=debug,
+                ))
+                if result != "pass":
                     break
+
+            # ── Phase 2: Main steps ───────────────────────────────────────
+            if functional_result == "pass":
+                offset = len(preconditions)
+                for index, step in enumerate(main_steps, start=1 + offset):
+                    step_started = time.monotonic()
+                    action = step["action"]
+                    expected = step.get("expected", action)
+                    screenshot_error: str | None = None
+                    debug = {}
+                    actual = ""
+                    try:
+                        actual, delta = self._execute_step(step)
+                        tap_count += delta.get("tap_count", 0)
+                        settings_hops += delta.get("settings_hops", 0)
+                        back_presses += delta.get("back_presses", 0)
+                        manual_intervention_required = manual_intervention_required or delta.get("manual_intervention_required", False)
+                        current_pid = (delta.get("current_pid") or current_pid) if isinstance(delta.get("current_pid"), str) else current_pid
+                        self._apply_expectations(step)
+                        result = "pass"
+                    except ScenarioBlocked as exc:
+                        functional_result = "blocked"
+                        blocked_reason = str(exc)
+                        actual = str(exc)
+                        result = "blocked"
+                    except StepFailure as exc:
+                        functional_result = "fail"
+                        actual = str(exc)
+                        result = "fail"
+                    duration_ms = int((time.monotonic() - step_started) * 1000)
+                    screenshot_path = None
+                    if step.get("screenshot"):
+                        screenshot_path, screenshot_error = self._capture_screenshot(
+                            scenario_id=scenario["id"],
+                            step_index=index,
+                            step_id=step["id"],
+                        )
+                    if functional_result != "pass":
+                        debug.update(self._collect_debug_state())
+                    steps.append(StepTrace(
+                        index=index, id=step["id"], action=action, expected=expected,
+                        actual=actual or "ok", result=result, duration_ms=duration_ms,
+                        screenshot=screenshot_path, screenshot_error=screenshot_error,
+                        phase="main", debug=debug,
+                    ))
+                    if functional_result != "pass":
+                        break
+
         finally:
+            # ── Phase 3: Cleanup — always, best-effort ──────────────────
+            cleanup_offset = len(preconditions) + len(main_steps)
+            for index, step in enumerate(cleanup_steps, start=1 + cleanup_offset):
+                step_started = time.monotonic()
+                action = step["action"]
+                expected = step.get("expected", action)
+                actual = ""
+                result = "pass"
+                try:
+                    actual, _ = self._execute_step(step)
+                    self._apply_expectations(step)
+                    result = "pass"
+                except Exception as exc:
+                    actual = f"Cleanup error (best-effort): {exc}"
+                    result = "error"
+                duration_ms = int((time.monotonic() - step_started) * 1000)
+                steps.append(StepTrace(
+                    index=index, id=step["id"], action=action, expected=expected,
+                    actual=actual or "ok", result=result, duration_ms=duration_ms,
+                    phase="cleanup",
+                ))
+
             scenario_lines = logcat_capture.stop(current_pid)
             self._append_scenario_logcat(scenario["id"], scenario_lines)
 
         duration_seconds = round(time.monotonic() - started, 2)
         ux_result, ux_warnings = self._evaluate_ux(
             functional_result=functional_result,
-            step_count=len(steps),
+            step_count=len([s for s in steps if s.phase == "main"]),
             tap_count=tap_count,
             settings_hops=settings_hops,
             back_presses=back_presses,
@@ -418,6 +472,7 @@ class ScenarioRunner:
             "summary": "summary.md",
             "evidence": "evidence.json",
         }
+        merged_fixtures = merge_fixtures(scenario)
         return ScenarioResult(
             schema_version=SCHEMA_VERSION,
             source="on_device",
@@ -442,6 +497,7 @@ class ScenarioRunner:
             artifacts=artifacts,
             ux_warnings=ux_warnings,
             blocked_reason=blocked_reason,
+            fixtures_used=merged_fixtures,
         )
 
     def _execute_step(self, step: dict[str, Any]) -> tuple[str, dict[str, int | bool]]:
@@ -939,6 +995,14 @@ def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_
 
     return errors
 
+def merge_fixtures(scenario: dict[str, object]) -> dict[str, object]:
+    """Merge global FIXTURES with per-scenario overrides."""
+    merged = dict(FIXTURES)
+    merged.update(scenario.get("fixtures", {}) or {})
+    return merged
+
+
+
 def detect_git_metadata(branch_override: str | None, commit_override: str | None) -> tuple[str | None, str | None]:
     branch = branch_override or git_output("git branch --show-current")
     commit = commit_override or git_output("git rev-parse HEAD")
@@ -1249,7 +1313,7 @@ def build_dry_run_plan(scenarios: list[dict[str, object]]) -> list[dict[str, obj
             "title": scenario.get("title"),
             "capability": scenario.get("capability"),
             "tags": list(scenario.get("tags", [])),
-            "fixtures": scenario.get("fixtures") or {},
+            "fixtures": merge_fixtures(scenario),
             "precondition_count": len(preconditions),
             "step_count": len(steps),
             "cleanup_count": len(cleanup),
@@ -1298,14 +1362,16 @@ def main(argv: list[str] | None = None) -> int:
     if not selected_ids:
         raise RunnerError("At least one scenario ID is required")
 
-    # Validate before any execution
-    scenarios = select_scenarios(selected_ids)
-    validation_errors = validate_scenario_definitions(scenarios)
-    if validation_errors:
+    # Validate ALL scenario definitions, not just selected ones.
+    # This ensures broken scenarios don't sit unnoticed in the repo.
+    all_validation_errors = validate_scenario_definitions(load_scenarios())
+    if all_validation_errors:
         print("Scenario definition validation FAILED:", file=sys.stderr)
-        for error in validation_errors:
+        for error in all_validation_errors:
             print(f"  - {error}", file=sys.stderr)
         return 1
+
+    scenarios = select_scenarios(selected_ids)
 
     if args.dry_run:
         plan = build_dry_run_plan(scenarios)

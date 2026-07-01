@@ -344,7 +344,7 @@ SCENARIOS: list[dict[str, object]] = [
         "tags": ["permissions", "location", "weather"],
         "preconditions": [],
         "cleanup": [
-            {"id": "reset_location_after_test", "action": "set_permission_state", "permission": "android.permission.ACCESS_COARSE_LOCATION", "state": "prompt", "also_apply": ["android.permission.ACCESS_FINE_LOCATION"]},
+            {"id": "reset_location_after_test", "action": "set_permission_state", "permission": "android.permission.ACCESS_COARSE_LOCATION", "state": "prompt", "also_apply": ["android.permission.ACCESS_FINE_LOCATION"], "expected": "Location permissions reset to prompt state after test"},
         ],
         "fixtures": {},
         "steps": [
