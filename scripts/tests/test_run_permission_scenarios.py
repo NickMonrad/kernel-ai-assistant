@@ -896,6 +896,12 @@ DASHBOARD_SCENARIO_IDS = frozenset({
     "permissions_dashboard_repair_cta_opens_settings",
 })
 
+SPECIAL_ACCESS_SCENARIO_IDS = frozenset({
+    "special_access_dashboard_state",
+    "special_access_write_settings_repair_opens_settings",
+    "special_access_dnd_repair_opens_settings",
+})
+
 
 class DashboardScenarioTest(unittest.TestCase):
     """Tests for App Permissions dashboard scenario definitions."""
@@ -983,6 +989,141 @@ class DashboardDryRunTest(unittest.TestCase):
         plan = permission_runner.build_dry_run_plan(scenarios)
         total_cleanup = sum(entry["cleanup_count"] for entry in plan)
         self.assertGreater(total_cleanup, 0, "Dashboard scenarios that change permissions should have cleanup steps")
+
+
+class SpecialAccessScenarioTest(unittest.TestCase):
+    """Tests for special access permission scenario definitions."""
+
+    def test_all_special_access_scenarios_validate(self) -> None:
+        for sid in SPECIAL_ACCESS_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            errors = permission_runner.validate_scenario_definitions([sc])
+            self.assertEqual([], errors, f"{sid} should pass validation:\n" + "\n".join(errors))
+
+    def test_all_special_access_scenarios_have_tags(self) -> None:
+        for sid in SPECIAL_ACCESS_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc.get("tags", []))
+            self.assertIn("permissions", tags, f"{sid} missing 'permissions' tag")
+            self.assertIn("special_access", tags, f"{sid} missing 'special_access' tag")
+            self.assertIn("dashboard", tags, f"{sid} missing 'dashboard' tag")
+
+    def test_state_read_scenario_has_no_cleanup(self) -> None:
+        sc = permission_runner.get_scenario_by_id("special_access_dashboard_state")
+        cleanup = sc.get("cleanup", [])
+        self.assertEqual(0, len(cleanup), "special_access_dashboard_state should have no cleanup (read-only)")
+
+    def test_write_settings_repair_has_cleanup(self) -> None:
+        sc = permission_runner.get_scenario_by_id("special_access_write_settings_repair_opens_settings")
+        cleanup = sc.get("cleanup", [])
+        self.assertTrue(len(cleanup) > 0, "write_settings repair should have cleanup to restore appops state")
+
+    def test_dnd_repair_has_no_cleanup(self) -> None:
+        """DND repair is read-only (no appops toggle available); cleanup not needed."""
+        sc = permission_runner.get_scenario_by_id("special_access_dnd_repair_opens_settings")
+        cleanup = sc.get("cleanup", [])
+        self.assertEqual(0, len(cleanup), "DND repair should have no cleanup (no device state changed)")
+
+    def test_repair_scenarios_use_row_specific_assertions(self) -> None:
+        """Each repair scenario must assert a row-specific 'not granted' contentDescription."""
+        for sid in ("special_access_write_settings_repair_opens_settings", "special_access_dnd_repair_opens_settings"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            steps = sc.get("steps", [])
+            found_row_specific = False
+            for step in steps:
+                ev = step.get("expected_visible", [])
+                if any("not granted" in str(t) for t in ev):
+                    found_row_specific = True
+                    break
+            self.assertTrue(found_row_specific, f"{sid} should use row-specific 'not granted' assertion")
+
+    def test_repair_scenarios_use_blocked_if_visible(self) -> None:
+        """Repair scenarios should use blocked_if_visible for the already-granted case."""
+        for sid in ("special_access_write_settings_repair_opens_settings", "special_access_dnd_repair_opens_settings"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            steps = sc.get("steps", [])
+            found_block = any(
+                step.get("blocked_if_visible") is not None
+                for step in steps
+            )
+            self.assertTrue(found_block, f"{sid} should use blocked_if_visible to handle pre-granted state")
+
+    def test_repair_scenarios_use_wait_for_package(self) -> None:
+        for sid in ("special_access_write_settings_repair_opens_settings", "special_access_dnd_repair_opens_settings"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            steps = sc.get("steps", [])
+            self.assertTrue(
+                any(s.get("action") == "wait_for_package" for s in steps),
+                f"{sid} should use wait_for_package action",
+            )
+
+    def test_repair_scenarios_have_repair_tag(self) -> None:
+        for sid in ("special_access_write_settings_repair_opens_settings", "special_access_dnd_repair_opens_settings"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc.get("tags", []))
+            self.assertIn("repair", tags, f"{sid} missing 'repair' tag")
+
+    def test_write_settings_scenario_has_write_settings_tag(self) -> None:
+        sc = permission_runner.get_scenario_by_id("special_access_write_settings_repair_opens_settings")
+        tags = set(sc.get("tags", []))
+        self.assertIn("write_settings", tags,
+            f"special_access_write_settings_repair_opens_settings missing 'write_settings' tag")
+
+    def test_dnd_scenario_has_dnd_tag(self) -> None:
+        sc = permission_runner.get_scenario_by_id("special_access_dnd_repair_opens_settings")
+        tags = set(sc.get("tags", []))
+        self.assertIn("dnd", tags,
+            f"special_access_dnd_repair_opens_settings missing 'dnd' tag")
+
+    def test_dashboard_state_scenario_has_state_text_assertions(self) -> None:
+        """The state verification scenario should not check for specific grant state (read-only)."""
+        sc = permission_runner.get_scenario_by_id("special_access_dashboard_state")
+        steps = sc.get("steps", [])
+        for step in steps:
+            ev = step.get("expected_visible", [])
+            # State scenario should only check row labels exist, not specific grant state
+            for t in ev:
+                self.assertNotIn(" granted", str(t),
+                    f"special_access_dashboard_state should not assert specific grant state: {t}")
+                self.assertNotIn(" not granted", str(t),
+                    f"special_access_dashboard_state should not assert specific grant state: {t}")
+
+    def test_all_special_access_scenarios_capability_is_empty(self) -> None:
+        for sid in SPECIAL_ACCESS_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            self.assertEqual("", sc.get("capability", "MISSING"),
+                f"{sid} capability should be empty string (not capability-gated)")
+
+
+class SpecialAccessDryRunTest(unittest.TestCase):
+    """Tests for dry-run output covering special access scenarios."""
+
+    def test_all_special_access_scenarios_appear_in_dry_run(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in SPECIAL_ACCESS_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        plan_ids = {entry["id"] for entry in plan}
+        self.assertEqual(SPECIAL_ACCESS_SCENARIO_IDS, plan_ids)
+
+    def test_special_access_dry_run_shows_appops_permissions(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in SPECIAL_ACCESS_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        all_perms = set()
+        for entry in plan:
+            all_perms.update(entry["permissions_touched"])
+        self.assertIn("WRITE_SETTINGS", all_perms,
+            "Write-settings repair uses set_appops; should appear in dry-run permissions")
+        # DND repair is read-only — does not use set_appops, so no permissions touched is expected
+
+    def test_special_access_dry_run_shows_screenshots(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in SPECIAL_ACCESS_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_screenshots = sum(entry["screenshot_count"] for entry in plan)
+        self.assertGreater(total_screenshots, 0, "Special access scenarios should capture screenshots")
+    def test_special_access_dry_run_shows_cleanup_steps(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in {"special_access_write_settings_repair_opens_settings"}]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_cleanup = sum(entry["cleanup_count"] for entry in plan)
+        self.assertGreater(total_cleanup, 0, "Write-settings repair changes appops state; should have cleanup steps")
 
 
 class ClockScenarioTest(unittest.TestCase):

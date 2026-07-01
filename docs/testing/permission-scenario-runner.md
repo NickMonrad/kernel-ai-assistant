@@ -436,6 +436,83 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
   --scenarios permissions_dashboard_opens,permissions_dashboard_location_state_refresh,permissions_dashboard_microphone_state_refresh,permissions_dashboard_notification_state,permissions_dashboard_repair_cta_opens_settings \
   --out-dir scripts/test-reports/permissions
 ```
+
+## Special access permission scenario group
+
+This group validates that the App Permissions dashboard lists the Do Not Disturb and
+Modify system settings special-access rows, correctly reflects their grant state,
+and that repair CTAs open the appropriate system settings panels.
+
+Special-access permissions are NOT standard Android runtime permissions. They are
+managed through system settings panels and checked via platform APIs
+(`NotificationManager.isNotificationPolicyAccessGranted()` for DND,
+`Settings.System.canWrite()` for write settings). State toggling via `set_appops`
+may not be deterministic on all devices — scenarios that require a denied state
+use `blocked_if_visible` to report setup-limited when the permission is already
+granted and cannot be reliably revoked.
+
+No capability gating — the dashboard is always available.
+
+| Scenario ID | Steps | Capabilities tested | Cleanup | Screenshots |
+|------------|-------|-------------------|---------|-------------|
+| `special_access_dashboard_state` | 5 | Both special access rows visible on dashboard, row labels show regardless of grant state | none | 1 |
+| `special_access_write_settings_repair_opens_settings` | 14 | Deny WRITE_SETTINGS via appops → tap row → system Manage Write Settings opens → return → re-navigate | restore WRITE_SETTINGS to allow | 1 |
+| `special_access_dnd_repair_opens_settings` | 14 | Observe DND state (no toggle) → tap row if denied → system Notification Policy Access settings opens → return → re-navigate | none (read-only) | 1 |
+
+### Scenario details
+
+- **`special_access_dashboard_state`** — Opens dashboard via Settings, scrolls, taps
+  "App Permissions", asserts "Do Not Disturb" and "Modify system settings" rows are
+  visible on the dashboard. Does not assert specific grant state — this is a
+  read-only row presence verification. No cleanup needed.
+- **`special_access_write_settings_repair_opens_settings`** — Denies `WRITE_SETTINGS`
+  via `appops`, opens dashboard via Settings, asserts "Modify system settings" row
+  shows "Modify system settings not granted" icon. If the row already shows
+  "Modify system settings granted" (common on Samsung where WRITE_SETTINGS is
+  auto-granted), the scenario reports as blocked (setup-limited). Otherwise, taps
+  the denied row, asserts the system Manage Write Settings panel opens via
+  `wait_for_package`, relaunches the app, re-navigates to dashboard to confirm
+  the round-trip. Cleanup restores WRITE_SETTINGS to allow.
+- **`special_access_dnd_repair_opens_settings`** — Opens dashboard via Settings,
+  asserts "Do Not Disturb" row is visible. If the row already shows
+  "Do Not Disturb granted", the scenario reports as blocked (setup-limited)
+  because `ACCESS_NOTIFICATION_POLICY` is not an appops-managed permission and
+  cannot be toggled deterministically via ADB. Otherwise, taps the denied row,
+  asserts the system Notification Policy Access settings opens via
+  `wait_for_package`, relaunches, re-navigates to dashboard.
+  No cleanup needed — no device state was changed.
+
+### Samsung / Android limitations
+
+- **DND access is a notification policy access setting**, not a standard runtime
+  permission. The `appops` command does not support `ACCESS_NOTIFICATION_POLICY`
+  on Android 14/15. DND state toggling via `settings put secure` is possible
+  but not exposed through the runner's action set.
+- **WRITE_SETTINGS is often auto-granted on Samsung devices** and may not be
+  revocable via `appops` on all Samsung builds. The comment in
+  `AppPermissionsViewModel.kt` explicitly notes this: *"usually auto-granted on
+  Samsung devices, but included for completeness on devices that deny it."*
+  On the S21 test device, `appops set WRITE_SETTINGS deny` DOES work.
+- **Repair CTA navigation is the stable assertion**: Both scenarios assert that
+  tapping a denied special-access row opens `com.android.settings`. Asserting
+  the exact settings panel content is fragile across OEMs.
+- **State toggling may not be deterministic**: The `set_appops` action for
+  `WRITE_SETTINGS` is verified to work on S21. For DND, the scenario reads the
+  current state and only proceeds if already denied, producing a blocked
+  (setup-limited) result when granted.
+- **Return-to-dashboard confirmation**: Both repair scenarios return to the
+  dashboard after the settings round-trip to confirm the app is still navigable.
+
+### Running the special access group on S21
+
+```bash
+python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial R5CR605B71K \
+  --scenarios special_access_dashboard_state,special_access_write_settings_repair_opens_settings,special_access_dnd_repair_opens_settings \
+  --out-dir scripts/test-reports/permissions
+```
+
 ## Publishing evidence explicitly
 
 Publishing is a **separate explicit step**. The runner stays local-only unless you invoke
