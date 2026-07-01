@@ -20,12 +20,23 @@ WAKE_WORD_MODEL_BLOCKER = (
 )
 HEY_JANDAL_LABEL = 'Listen for "Hey Jandal"'
 
+# Fixtures: deterministic values shared across scenarios.
+# Scenarios reference these via their `fixtures` field for overrides.
+FIXTURES: dict[str, object] = {
+    "weather_named_location": "Tokyo",
+    "short_timer_seconds": 10,
+    "short_alarm_minutes": 1,
+}
+
 SCENARIOS: list[dict[str, object]] = [
     {
         "id": "hey_jandal_preflight",
         "title": "Hey Jandal preflight checks default assistant setup",
         "capability": "wake_word",
         "tags": ["permissions", "microphone", "wake_word", "preflight", "voice"],
+        "preconditions": [],
+        "cleanup": [],
+        "fixtures": {},
         "steps": [
             {
                 "id": "launch_app",
@@ -70,6 +81,9 @@ SCENARIOS: list[dict[str, object]] = [
         "title": "Enable Hey Jandal with microphone already granted",
         "capability": "wake_word",
         "tags": ["permissions", "microphone", "wake_word", "voice"],
+        "preconditions": [],
+        "cleanup": [],
+        "fixtures": {},
         "steps": [
             {
                 "id": "grant_microphone",
@@ -132,6 +146,9 @@ SCENARIOS: list[dict[str, object]] = [
         "title": "Enable Hey Jandal with microphone promptable denied",
         "capability": "wake_word",
         "tags": ["permissions", "microphone", "wake_word", "voice"],
+        "preconditions": [],
+        "cleanup": [],
+        "fixtures": {},
         "steps": [
             {
                 "id": "grant_microphone_for_toggle_reset",
@@ -238,6 +255,9 @@ SCENARIOS: list[dict[str, object]] = [
         "title": "Revoke microphone externally and reopen Voice to verify durability repair UX",
         "capability": "wake_word",
         "tags": ["permissions", "microphone", "wake_word", "voice", "durability"],
+        "preconditions": [],
+        "cleanup": [],
+        "fixtures": {},
         "steps": [
             {
                 "id": "grant_microphone",
@@ -322,6 +342,11 @@ SCENARIOS: list[dict[str, object]] = [
         "title": "Weather request with location denied uses fallback UX",
         "capability": "weather_current_location",
         "tags": ["permissions", "location", "weather"],
+        "preconditions": [],
+        "cleanup": [
+            {"id": "reset_location_after_test", "action": "set_permission_state", "permission": "android.permission.ACCESS_COARSE_LOCATION", "state": "prompt", "also_apply": ["android.permission.ACCESS_FINE_LOCATION"]},
+        ],
+        "fixtures": {},
         "steps": [
             {
                 "id": "reset_location_prompt_state",

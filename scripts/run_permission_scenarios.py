@@ -52,6 +52,20 @@ NON_INFERENCE_MODEL = {
     "backend": "adb",
 }
 
+# ── Schema validation constants ──────────────────────────────────────────────
+SUPPORTED_ACTIONS = frozenset({
+    "set_permission_state", "launch_main", "launch_quick_action",
+    "tap_visible", "tap_toggle_for_text", "set_toggle_state",
+    "check_default_assistant_ready", "press_home", "press_back",
+})
+
+SUPPORTED_PERMISSION_STATES = frozenset({"granted", "revoked", "prompt", "blocked"})
+
+REQUIRED_SCENARIO_FIELDS = frozenset({"id", "title", "capability", "tags", "steps"})
+REQUIRED_STEP_FIELDS = frozenset({"id", "action"})
+
+OPTIONAL_SCENARIO_FIELDS = frozenset({"preconditions", "cleanup", "fixtures"})
+
 
 class RunnerError(RuntimeError):
     """Base runner error."""
@@ -778,9 +792,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--branch", default=None, help="Override git branch metadata")
     parser.add_argument("--commit", default=None, help="Override git commit metadata")
     parser.add_argument("--list-scenarios", action="store_true", help="List available scenarios and exit")
+    parser.add_argument("--dry-run", action="store_true", help="Print scenario plan without executing on device")
     return parser.parse_args(argv)
-
-
 def load_devices() -> dict[str, dict[str, Any]]:
     sys.path.insert(0, str(HERE))
     from summarise_test_report import load_devices as load_devices_impl
@@ -817,6 +830,114 @@ def select_scenarios(selected_ids: list[str]) -> list[dict[str, Any]]:
     if missing:
         raise RunnerError(f"Unknown scenario IDs: {', '.join(missing)}")
     return [scenarios[scenario_id] for scenario_id in selected_ids]
+
+
+def validate_scenario_definitions(scenarios: list[dict[str, object]]) -> list[str]:
+    """Validate all scenario definitions. Returns list of error messages."""
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for scenario in scenarios:
+        scenario_errors = _validate_scenario(scenario, seen_ids)
+        errors.extend(scenario_errors)
+        scenario_id = str(scenario.get("id", "<unknown>"))
+        seen_ids.add(scenario_id)
+    return errors
+
+
+def _validate_scenario(scenario: dict[str, object], seen_ids: set[str]) -> list[str]:
+    errors: list[str] = []
+    scenario_id = str(scenario.get("id", "<unknown>"))
+
+    # Check required fields
+    for field in REQUIRED_SCENARIO_FIELDS:
+        if field not in scenario:
+            errors.append(f"Scenario {scenario_id!r}: missing required field {field!r}")
+
+    # Check for duplicate IDs
+    if scenario_id in seen_ids:
+        errors.append(f"Duplicate scenario ID: {scenario_id!r}")
+
+    # Check tags is a list
+    tags = scenario.get("tags")
+    if tags is not None and not isinstance(tags, list):
+        errors.append(f"Scenario {scenario_id!r}: tags must be a list, got {type(tags).__name__}")
+
+    # Validate main steps
+    steps = scenario.get("steps", [])
+    if not isinstance(steps, list):
+        errors.append(f"Scenario {scenario_id!r}: steps must be a list")
+        return errors
+
+    seen_step_ids: set[str] = set()
+    for step_idx, step in enumerate(steps):
+        step_id = str(step.get("id", f"<step {step_idx}>"))
+        step_errors = _validate_step(step, step_idx, scenario_id, seen_step_ids)
+        errors.extend(step_errors)
+        seen_step_ids.add(step_id)
+
+    # Validate optional blocks (preconditions, cleanup) if present
+    for block_name in ("preconditions", "cleanup"):
+        block = scenario.get(block_name, [])
+        if block and not isinstance(block, list):
+            errors.append(f"Scenario {scenario_id!r}: {block_name} must be a list")
+        elif block:
+            seen_block_ids: set[str] = set()
+            for block_idx, block_step in enumerate(block):
+                step_id = str(block_step.get("id", f"<{block_name} {block_idx}>"))
+                step_errors = _validate_step(block_step, block_idx, f"{scenario_id}/{block_name}", seen_block_ids)
+                errors.extend(step_errors)
+                seen_block_ids.add(step_id)
+
+    # Validate fixtures if present
+    fixtures = scenario.get("fixtures")
+    if fixtures is not None and not isinstance(fixtures, dict):
+        errors.append(f"Scenario {scenario_id!r}: fixtures must be a dict")
+
+    return errors
+
+
+def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_step_ids: set[str]) -> list[str]:
+    errors: list[str] = []
+    step_id = str(step.get("id", f"<step {step_idx}>"))
+    label = f"{parent_id}/step {step_id!r}"
+
+    # Check required step fields
+    for field in REQUIRED_STEP_FIELDS:
+        if field not in step:
+            errors.append(f"{label}: missing required field {field!r}")
+
+    # Duplicate step ID within same parent
+    if step_id in seen_step_ids:
+        errors.append(f"{label}: duplicate step ID within same block")
+
+    # Validate action
+    action = step.get("action", "")
+    if action and action not in SUPPORTED_ACTIONS:
+        errors.append(f"{label}: unsupported action {action!r}; supported: {sorted(SUPPORTED_ACTIONS)}")
+
+    # Validate action-specific fields
+    if action == "set_permission_state":
+        perm = step.get("permission", "")
+        state = step.get("state", "")
+        if not perm:
+            errors.append(f"{label}: action {action!r} requires 'permission' field")
+        if not state:
+            errors.append(f"{label}: action {action!r} requires 'state' field")
+        elif state not in SUPPORTED_PERMISSION_STATES:
+            errors.append(f"{label}: unsupported permission state {state!r}; supported: {sorted(SUPPORTED_PERMISSION_STATES)}")
+    elif action == "tap_visible" and "target" not in step:
+        errors.append(f"{label}: action {action!r} requires 'target' field")
+    elif action == "tap_toggle_for_text" and "anchor_text" not in step:
+        errors.append(f"{label}: action {action!r} requires 'anchor_text' field")
+    elif action == "set_toggle_state":
+        if "anchor_text" not in step:
+            errors.append(f"{label}: action {action!r} requires 'anchor_text' field")
+        if "checked" not in step:
+            errors.append(f"{label}: action {action!r} requires 'checked' field")
+    elif action == "launch_quick_action" and "query" not in step:
+        errors.append(f"{label}: action {action!r} requires 'query' field")
+
+    return errors
 
 def detect_git_metadata(branch_override: str | None, commit_override: str | None) -> tuple[str | None, str | None]:
     branch = branch_override or git_output("git branch --show-current")
@@ -1090,9 +1211,83 @@ def count_by(values: Iterable[str]) -> dict[str, int]:
 
 
 def list_scenarios() -> None:
+    """Print available scenarios with tags and cleanup info."""
+    print(f"{'Scenario ID':<42} {'Capability':<28} {'Tags':<40} Cleanup")
+    print("-" * 140)
     for scenario in load_scenarios():
-        print(f"{scenario['id']}: {scenario['title']}")
+        sid = scenario["id"]
+        cap = scenario.get("capability", "")
+        tags = ", ".join(scenario.get("tags", []))
+        cleanup = "yes" if scenario.get("cleanup") else "-"
+        print(f"{sid:<42} {cap:<28} {tags:<40} {cleanup}")
+    print()
+    print("Use --scenarios SCENARIO_ID(S) to select and execute.")
+    print("Use --dry-run to preview without a device.")
 
+
+
+def build_dry_run_plan(scenarios: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Build a dry-run plan summary without touching a device."""
+    plan: list[dict[str, object]] = []
+    for scenario in scenarios:
+        preconditions = list(scenario.get("preconditions", []))
+        steps = list(scenario.get("steps", []))
+        cleanup = list(scenario.get("cleanup", []))
+
+        permissions_touched: set[str] = set()
+        screenshot_count = 0
+        for step in preconditions + steps + cleanup:
+            if step.get("action") == "set_permission_state":
+                permissions_touched.add(str(step.get("permission", "")))
+                for extra in step.get("also_apply", []):
+                    permissions_touched.add(str(extra))
+            if step.get("screenshot"):
+                screenshot_count += 1
+
+        plan.append({
+            "id": scenario.get("id"),
+            "title": scenario.get("title"),
+            "capability": scenario.get("capability"),
+            "tags": list(scenario.get("tags", [])),
+            "fixtures": scenario.get("fixtures") or {},
+            "precondition_count": len(preconditions),
+            "step_count": len(steps),
+            "cleanup_count": len(cleanup),
+            "permissions_touched": sorted(permissions_touched),
+            "screenshot_count": screenshot_count,
+        })
+    return plan
+
+
+def print_dry_run_plan(plan: list[dict[str, object]]) -> None:
+    """Print a human-readable dry-run plan."""
+    print("=" * 60)
+    print("PERMISSION SCENARIO RUNNER — DRY RUN")
+    print("=" * 60)
+    print()
+    total_screenshots = 0
+    total_permissions: set[str] = set()
+    for entry in plan:
+        print(f"--- {entry['id']}: {entry['title']} ---")
+        print(f"  Capability: {entry['capability']}")
+        print(f"  Tags:       {', '.join(entry['tags'])}")
+        print(f"  Fixtures:   {entry['fixtures']}")
+        print(f"  Preconditions: {entry['precondition_count']} step(s)")
+        print(f"  Main steps:    {entry['step_count']} step(s)")
+        print(f"  Cleanup:       {entry['cleanup_count']} step(s)")
+        if entry["permissions_touched"]:
+            print(f"  Permissions touched: {', '.join(entry['permissions_touched'])}")
+        if entry["screenshot_count"]:
+            print(f"  Screenshots captured: {entry['screenshot_count']}")
+        total_screenshots += entry["screenshot_count"]
+        total_permissions.update(entry["permissions_touched"])
+        print()
+    print("-- Summary --")
+    print(f"  Scenarios: {len(plan)}")
+    print(f"  Total screenshots: {total_screenshots}")
+    if total_permissions:
+        print(f"  All permissions touched: {', '.join(sorted(total_permissions))}")
+    print(f"  Device: NOT TOUCHED (dry-run)")
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
@@ -1102,6 +1297,21 @@ def main(argv: list[str] | None = None) -> int:
     selected_ids = [item.strip() for item in args.scenarios.split(",") if item.strip()]
     if not selected_ids:
         raise RunnerError("At least one scenario ID is required")
+
+    # Validate before any execution
+    scenarios = select_scenarios(selected_ids)
+    validation_errors = validate_scenario_definitions(scenarios)
+    if validation_errors:
+        print("Scenario definition validation FAILED:", file=sys.stderr)
+        for error in validation_errors:
+            print(f"  - {error}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        plan = build_dry_run_plan(scenarios)
+        print_dry_run_plan(plan)
+        return 0
+
     adb = AdbClient(args.serial)
     adb.ensure_device_available()
     device = resolve_device(args.device_id, args.serial)
@@ -1119,7 +1329,7 @@ def main(argv: list[str] | None = None) -> int:
         run_dir=run_dir,
         thresholds=dict(DEFAULT_UX_THRESHOLDS),
     )
-    scenarios = [runner.run_scenario(scenario) for scenario in select_scenarios(selected_ids)]
+    scenarios = [runner.run_scenario(scenario) for scenario in scenarios]
     run_id = f"on_device-{timestamp_path}-{args.device_id}"
     run_result = build_run_result(
         timestamp=timestamp,

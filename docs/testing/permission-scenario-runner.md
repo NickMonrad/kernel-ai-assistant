@@ -80,6 +80,80 @@ scripts/test-reports/permissions/<timestamp>/
 - `logcat.txt` — focused app/crash logcat grouped by scenario, filtered to the active app process
 - `screenshots/` — explicit checkpoint screenshots only
 
+## Scenario schema
+
+Each scenario in `scripts/permission_scenario_defs.py` follows a validated schema.
+
+### Required scenario fields
+
+| Field        | Type            | Description |
+|-------------|-----------------|-------------|
+| `id`         | string          | Unique scenario identifier (kebab-case) |
+| `title`      | string          | Human-readable scenario title |
+| `capability` | string          | Feature/capability under test (e.g. `wake_word`, `weather_current_location`) |
+| `tags`       | list of strings | Categorisation tags: `voice`, `weather`, `clock`, `special_access`, `dashboard`, `stale_state`, `permissions`, etc. |
+| `steps`      | list of dicts   | Ordered step definitions (see below) |
+
+### Scenario steps
+
+Each step is a dict with the following contract:
+
+| Field               | Required for          | Description |
+|--------------------|-----------------------|-------------|
+| `id`               | All steps             | Unique step ID within the scenario |
+| `action`           | All steps             | One of: `set_permission_state`, `launch_main`, `launch_quick_action`, `tap_visible`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back` |
+| `expected`         | All steps             | Human-readable description of what should happen |
+| `permission`       | `set_permission_state`| Android permission name (e.g. `android.permission.RECORD_AUDIO`) |
+| `state`            | `set_permission_state`| One of: `granted`, `revoked`, `prompt`, `blocked` |
+| `also_apply`       | `set_permission_state`| Additional permissions to apply the same state to |
+| `target`           | `tap_visible`         | Target descriptor with `text`, `content_desc`, `resource_id`, or `any_text` |
+| `anchor_text`      | `tap_toggle_for_text`, `set_toggle_state` | Text label associated with the toggle |
+| `checked`          | `set_toggle_state`    | Boolean target state for the toggle |
+| `query`            | `launch_quick_action` | Quick action query string |
+| `expected_visible` | Any step              | List of exact texts that must be visible |
+| `expected_any_visible` | Any step           | List of texts where at least one must be visible |
+| `expected_not_visible` | Any step           | List of texts that must NOT be visible |
+| `expected_toggle_state` | Any step         | Dict with `anchor_text` and `checked` to verify a toggle state |
+| `blocked_if_visible` | Any step           | Dict with `texts` and `reason`; if texts are visible, scenario reports as blocked |
+| `screenshot`       | Any step              | Boolean, capture screenshot at this step |
+
+### Preconditions, cleanup, and fixtures
+
+Scenarios may include optional `preconditions` and `cleanup` blocks. These are lists of step dicts, using the same action types as main `steps`:
+
+```python
+{
+    "id": "example_scenario",
+    "title": "Example with preconditions and cleanup",
+    "capability": "wake_word",
+    "tags": ["voice"],
+    "preconditions": [
+        {"id": "ensure_mic_granted", "action": "set_permission_state", "permission": "android.permission.RECORD_AUDIO", "state": "granted", "expected": "Mic granted before scenario"},
+    ],
+    "steps": [ ... ],
+    "cleanup": [
+        {"id": "reset_mic", "action": "set_permission_state", "permission": "android.permission.RECORD_AUDIO", "state": "prompt", "expected": "Mic reset after scenario"},
+    ],
+}
+```
+
+| Section | Type | Purpose |
+|---------|------|---------|
+| `preconditions` | list of step dicts | Run before main steps. If a precondition step fails, the scenario reports as **blocked** (not a product failure). |
+| `cleanup` | list of step dicts | Run after all steps complete (even on failure). Best-effort — cleanup failure does **not** change the scenario's functional result. |
+
+Fixtures are deterministic values shared across scenarios, defined at file level in `permission_scenario_defs.py`:
+
+```python
+FIXTURES: dict[str, object] = {
+    "weather_named_location": "Tokyo",
+    "short_timer_seconds": 10,
+    "short_alarm_minutes": 1,
+}
+```
+
+Scenarios reference fixtures via their `fixtures` field, which merges global fixtures with per-scenario overrides. The runner makes fixture values available to step logic. Use `--dry-run` to preview which fixtures a scenario uses.
+
 ## Running locally
 
 ```bash
@@ -97,6 +171,15 @@ python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
   --scenarios hey_jandal_preflight \
   --list-scenarios
+```
+
+Preview a scenario plan without a device:
+
+```bash
+python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted \
+  --dry-run
 ```
 
 ## Publishing evidence explicitly
