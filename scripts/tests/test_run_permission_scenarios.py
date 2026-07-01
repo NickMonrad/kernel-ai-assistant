@@ -399,12 +399,320 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         self.assertTrue(switch.checked)
 
 
+
+
+class ScenarioValidationTest(unittest.TestCase):
+    """Tests for scenario definition validation."""
+
+    def test_valid_scenarios_all_pass(self) -> None:
+        errors = permission_runner.validate_scenario_definitions(permission_runner.SCENARIOS)
+        self.assertEqual([], errors, f"Existing scenarios should pass validation:\n" + "\n".join(errors))
+
+    def test_missing_id_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([{"title": "no id", "capability": "x", "tags": [], "steps": []}])
+        self.assertTrue(any("missing required field 'id'" in e for e in errors))
+
+    def test_missing_title_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([{"id": "no_title", "capability": "x", "tags": [], "steps": []}])
+        self.assertTrue(any("missing required field 'title'" in e for e in errors))
+
+    def test_duplicate_scenario_id_fails(self) -> None:
+        scenario = {"id": "dup", "title": "t", "capability": "x", "tags": [], "steps": []}
+        errors = permission_runner.validate_scenario_definitions([scenario, scenario])
+        self.assertTrue(any("Duplicate scenario ID: 'dup'" in e for e in errors))
+
+    def test_missing_step_action_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "bad_step", "title": "t", "capability": "x", "tags": [], "steps": [{"id": "s1"}]}
+        ])
+        self.assertTrue(any("missing required field 'action'" in e for e in errors))
+
+    def test_missing_step_expected_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "no_expected", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "press_home"}
+            ]}
+        ])
+        self.assertTrue(any("missing required field 'expected'" in e for e in errors))
+
+    def test_duplicate_step_id_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "dup_steps", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "press_home", "expected": "ok"},
+                {"id": "s1", "action": "press_back", "expected": "ok"},
+            ]}
+        ])
+        self.assertTrue(any("duplicate step ID" in e for e in errors))
+
+    def test_unsupported_action_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "bad_action", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "fly_to_moon", "expected": "fail"}
+            ]}
+        ])
+        self.assertTrue(any("unsupported action" in e for e in errors))
+
+    def test_unsupported_permission_state_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "bad_state", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "set_permission_state", "permission": "android.permission.RECORD_AUDIO", "state": "super_granted", "expected": "bad"}
+            ]}
+        ])
+        self.assertTrue(any("unsupported permission state" in e for e in errors))
+
+    def test_missing_permission_field_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "no_perm", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "set_permission_state", "state": "granted", "expected": "bad"}
+            ]}
+        ])
+        self.assertTrue(any("requires 'permission' field" in e for e in errors))
+
+    def test_set_toggle_state_missing_checked_fails(self) -> None:
+        errors = permission_runner.validate_scenario_definitions([
+            {"id": "no_checked", "title": "t", "capability": "x", "tags": [], "steps": [
+                {"id": "s1", "action": "set_toggle_state", "anchor_text": "hey", "expected": "bad"}
+            ]}
+        ])
+        self.assertTrue(any("requires 'checked' field" in e for e in errors))
+
+    def test_valid_preconditions_and_cleanup_pass(self) -> None:
+        scenario = {
+            "id": "with_blocks", "title": "t", "capability": "x", "tags": [],
+            "preconditions": [
+                {"id": "pc1", "action": "set_permission_state", "permission": "android.permission.RECORD_AUDIO", "state": "granted", "expected": "grant"},
+            ],
+            "cleanup": [
+                {"id": "cl1", "action": "press_home", "expected": "home"},
+            ],
+            "steps": [
+                {"id": "s1", "action": "press_back", "expected": "back"},
+            ],
+        }
+        errors = permission_runner.validate_scenario_definitions([scenario])
+        self.assertEqual([], errors)
+
+    def test_dry_run_plan_includes_scenario_metadata(self) -> None:
+        scenarios = [
+            {"id": "test_s1", "title": "Test One", "capability": "wake_word", "tags": ["voice"], "preconditions": [], "cleanup": [], "fixtures": {}, "steps": [
+                {"id": "s1", "action": "set_permission_state", "permission": "android.permission.RECORD_AUDIO", "state": "granted", "expected": "g"},
+                {"id": "s2", "action": "press_home", "expected": "h", "screenshot": True},
+            ]},
+        ]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        self.assertEqual(1, len(plan))
+        entry = plan[0]
+        self.assertEqual("test_s1", entry["id"])
+        self.assertEqual("Test One", entry["title"])
+        self.assertEqual("wake_word", entry["capability"])
+        self.assertEqual(["voice"], entry["tags"])
+        self.assertEqual(0, entry["precondition_count"])
+        self.assertEqual(2, entry["step_count"])
+        self.assertEqual(0, entry["cleanup_count"])
+        self.assertEqual(1, entry["screenshot_count"])
+        self.assertEqual(["android.permission.RECORD_AUDIO"], entry["permissions_touched"])
+
+
+
+
+class FixtureMergeTest(unittest.TestCase):
+    """Tests for fixture merging semantics."""
+
+    def test_merge_uses_global_fixtures_when_no_overrides(self) -> None:
+        sc = {"fixtures": {}}
+        merged = permission_runner.merge_fixtures(sc)
+        self.assertEqual(permission_runner.FIXTURES, merged)
+
+    def test_merge_overrides_global_with_scenario_specific(self) -> None:
+        sc = {"fixtures": {"weather_named_location": "Oslo"}}
+        merged = permission_runner.merge_fixtures(sc)
+        self.assertEqual("Oslo", merged["weather_named_location"])
+        # Unrelated global key still present
+        self.assertEqual(10, merged["short_timer_seconds"])
+
+    def test_merge_preserves_unrelated_global_fixtures(self) -> None:
+        sc = {"fixtures": {"short_timer_seconds": 42}}
+        merged = permission_runner.merge_fixtures(sc)
+        self.assertEqual(42, merged["short_timer_seconds"])
+        self.assertEqual("Tokyo", merged["weather_named_location"])
+
+    def test_dry_run_includes_merged_fixtures(self) -> None:
+        scenarios = [
+            {"id": "fixture_dry", "title": "T", "capability": "x", "tags": [],
+             "preconditions": [], "cleanup": [], "fixtures": {"weather_named_location": "Berlin"},
+             "steps": [{"id": "s1", "action": "press_home", "expected": "h"}]},
+        ]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        merged = plan[0]["fixtures"]
+        self.assertEqual("Berlin", merged["weather_named_location"])
+        self.assertEqual(10, merged["short_timer_seconds"])  # from global FIXTURES
+
+class ScenarioExecutionOrderTest(unittest.TestCase):
+    """Behavioral tests for precondition/cleanup execution order and semantics."""
+
+    def _make_scenario(
+        self,
+        preconditions: list[dict] | None = None,
+        steps: list[dict] | None = None,
+        cleanup: list[dict] | None = None,
+    ) -> dict:
+        return {
+            "id": "exec_order_test",
+            "title": "Execution order test",
+            "capability": "test",
+            "tags": ["test"],
+            "preconditions": preconditions or [],
+            "cleanup": cleanup or [],
+            "fixtures": {},
+            "steps": steps or [{"id": "s1", "action": "press_home", "expected": "home"}],
+        }
+
+    def _fake_runner(self) -> permission_runner.ScenarioRunner:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return permission_runner.ScenarioRunner(
+            adb=_FakeAdb(),
+            device={"id": "s21-exynos", "execution": "physical"},
+            branch="feature/test",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+        )
+
+    def test_preconditions_run_before_steps(self) -> None:
+        sc = self._make_scenario(
+            preconditions=[{"id": "pc1", "action": "press_back", "expected": "back step"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        # Precondition trace should appear before main step trace
+        self.assertGreater(len(result.steps), 1)
+        self.assertEqual("precondition", result.steps[0].phase)
+        self.assertEqual("pc1", result.steps[0].id)
+        self.assertEqual("main", result.steps[1].phase)
+        self.assertEqual("s1", result.steps[1].id)
+
+    def test_cleanup_runs_after_pass(self) -> None:
+        sc = self._make_scenario(
+            cleanup=[{"id": "cl1", "action": "press_back", "expected": "cleanup step"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        # Cleanup trace should be last
+        self.assertEqual(2, len(result.steps))
+        self.assertEqual("main", result.steps[0].phase)
+        self.assertEqual("s1", result.steps[0].id)
+        self.assertEqual("cleanup", result.steps[1].phase)
+        self.assertEqual("cl1", result.steps[1].id)
+        self.assertEqual("pass", result.functional_result)
+
+    def test_cleanup_runs_after_fail(self) -> None:
+        sc = self._make_scenario(
+            steps=[{"id": "bad_step", "action": "launch_main", "expected": "will fail"}],
+            cleanup=[{"id": "cl1", "action": "press_back", "expected": "cleanup after fail"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        # Main step failed, but cleanup still ran
+        self.assertEqual(2, len(result.steps))
+        self.assertEqual("main", result.steps[0].phase)
+        self.assertEqual("fail", result.steps[0].result)
+        self.assertEqual("fail", result.functional_result)
+        self.assertEqual("cleanup", result.steps[1].phase)
+        self.assertEqual("cl1", result.steps[1].id)
+        self.assertEqual("pass", result.steps[1].result)
+
+    def test_cleanup_runs_after_precondition_blocked(self) -> None:
+        """Precondition failure -> blocked, cleanup still runs."""
+        sc = self._make_scenario(
+            preconditions=[{"id": "bad_pc", "action": "launch_main", "expected": "will block"}],
+            cleanup=[{"id": "cl1", "action": "press_back", "expected": "cleanup after blocked"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        # Precondition blocked, but cleanup still ran
+        self.assertEqual(2, len(result.steps))
+        self.assertEqual("precondition", result.steps[0].phase)
+        self.assertEqual("blocked", result.steps[0].result)
+        self.assertEqual("blocked", result.functional_result)
+        self.assertEqual("cleanup", result.steps[1].phase)
+        self.assertEqual("cl1", result.steps[1].id)
+        self.assertEqual("pass", result.steps[1].result)
+
+    def test_cleanup_failure_does_not_affect_functional_result(self) -> None:
+        sc = self._make_scenario(
+            cleanup=[{"id": "bad_cl", "action": "launch_main", "expected": "cleanup will fail"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        # Main step passed, cleanup failed, but result is still pass
+        self.assertEqual(2, len(result.steps))
+        self.assertEqual("pass", result.steps[0].result)
+        self.assertEqual("pass", result.functional_result)
+        self.assertEqual("cleanup", result.steps[1].phase)
+        self.assertEqual("error", result.steps[1].result)
+        self.assertIn("Cleanup error", result.steps[1].actual)
+
+    def test_precondition_failure_is_blocked_not_fail(self) -> None:
+        """Precondition step failure (StepFailure) -> blocked, not fail."""
+        sc = self._make_scenario(
+            preconditions=[{"id": "bad_pc", "action": "launch_main", "expected": "will block"}],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        self.assertEqual("blocked", result.functional_result)
+        self.assertIsNotNone(result.blocked_reason)
+        # Main steps never ran because precondition blocked
+        self.assertEqual(1, len(result.steps))
+        self.assertEqual("precondition", result.steps[0].phase)
+
+    def test_cleanup_trace_recorded_distinctly(self) -> None:
+        """Cleanup steps appear in the step list with phase='cleanup'."""
+        sc = self._make_scenario(
+            cleanup=[
+                {"id": "cl1", "action": "press_back", "expected": "first cleanup"},
+                {"id": "cl2", "action": "press_home", "expected": "second cleanup"},
+            ],
+        )
+        runner = self._fake_runner()
+        result = runner.run_scenario(sc)
+
+        self.assertEqual(3, len(result.steps))
+        self.assertEqual("main", result.steps[0].phase)
+        self.assertEqual("cleanup", result.steps[1].phase)
+        self.assertEqual("cl1", result.steps[1].id)
+        self.assertEqual("cleanup", result.steps[2].phase)
+        self.assertEqual("cl2", result.steps[2].id)
+
+
 class _FakeAdb:
-    def __init__(self, responses: dict[str, str]) -> None:
-        self.responses = responses
+    """Fake ADB client that tracks commands and returns empty responses."""
+
+    def __init__(self, responses: dict[str, str] | None = None) -> None:
+        self.responses = responses or {}
+        self.commands: list[str] = []
 
     def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+        self.commands.append(command)
         return self.responses.get(command, "")
+
+    def run(self, *args: str, timeout: float = 30.0, check: bool = True, text: bool = True) -> object:
+        # LogcatCapture.stop() may call run(); no error for tests
+        self.commands.append(" ".join(args))
+
+        class _FakeResult:
+            stdout = ""
+            stderr = ""
+            returncode = 0
+
+        return _FakeResult()
 
 
 class AssistantDetectionTest(unittest.TestCase):
