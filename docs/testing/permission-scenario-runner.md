@@ -94,23 +94,19 @@ Each scenario in `scripts/permission_scenario_defs.py` follows a validated schem
 | `tags`       | list of strings | Categorisation tags: `voice`, `weather`, `clock`, `special_access`, `dashboard`, `stale_state`, `permissions`, etc. |
 | `steps`      | list of dicts   | Ordered step definitions (see below) |
 
-### Scenario steps
-
-Each step is a dict with the following contract:
-
 | Field               | Required for          | Description |
 |--------------------|-----------------------|-------------|
 | `id`               | All steps             | Unique step ID within the scenario |
-| `action`           | All steps             | One of: `set_permission_state`, `launch_main`, `launch_quick_action`, `tap_visible`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back` |
+| `action`           | All steps             | One of: `set_permission_state`, `launch_main`, `launch_quick_action`, `tap_visible`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back`, `wait_for_package` |
 | `expected`         | All steps             | Human-readable description of what should happen |
 | `permission`       | `set_permission_state`| Android permission name (e.g. `android.permission.RECORD_AUDIO`) |
-| `state`            | `set_permission_state`| One of: `granted`, `revoked`, `prompt`, `blocked` |
-| `also_apply`       | `set_permission_state`| Additional permissions to apply the same state to |
-| `target`           | `tap_visible`         | Target descriptor with `text`, `content_desc`, `resource_id`, or `any_text` |
+| `screenshot`       | Any step              | Boolean, capture screenshot at this step |
+| `start_x`, `start_y`, `end_x`, `end_y` | `swipe` | Pixel coordinates (required) |
+| `duration_ms`     | `swipe`               | Swipe duration in ms (default 300) |
+| `package`         | `wait_for_package`    | Android package name (e.g. `com.android.settings`) |
 | `anchor_text`      | `tap_toggle_for_text`, `set_toggle_state` | Text label associated with the toggle |
 | `checked`          | `set_toggle_state`    | Boolean target state for the toggle |
-| `query`            | `launch_quick_action` | Quick action query string |
-| `expected_visible` | Any step              | List of exact texts that must be visible |
+| `package`         | `wait_for_package`    | Android package name to wait for (e.g. `com.android.settings`) |
 | `expected_any_visible` | Any step           | List of texts where at least one must be an exact match |
 | `expected_visible_contains` | Any step      | List of texts where each must appear as a substring |
 | `expected_any_visible_contains` | Any step   | List of texts where at least one must appear as a substring |
@@ -328,10 +324,117 @@ The `set_appops` action controls appops-managed permissions (like
 (`allow`, `deny`, or `default`) and runs `adb shell appops set $PACKAGE $permission $mode`.
 Useful for testing permissions that are not standard Android runtime permissions.
 
-## Publishing evidence explicitly
+## App Permissions dashboard scenario group
 
-Publishing is a **separate explicit step**. The runner stays local-only unless you invoke
-[`scripts/publish_permission_scenario_report.py`](../../scripts/publish_permission_scenario_report.py).
+This group validates that the App Permissions dashboard opens, displays expected
+launch-critical permission rows, correctly reflects grant state from ADB-managed
+permission changes, and that repair CTAs open the system App Info settings page.
+The dashboard auto-refreshes on `ON_RESUME` and has a manual "Refresh" button.
+
+No capability gating — the dashboard is always available.
+
+| Scenario ID | Steps | Capabilities tested | Cleanup | Screenshots |
+|------------|-------|-------------------|---------|-------------|
+| `permissions_dashboard_opens` | 3 | Dashboard opens via Settings → App Permissions, title and rows visible | none | 1 |
+| `permissions_dashboard_location_state_refresh` | 7 | Location revoked→"Not granted" visible, granted→"Granted" visible after Refresh | restore ACCESS_COARSE_LOCATION to prompt | 1 |
+| `permissions_dashboard_microphone_state_refresh` | 7 | Microphone revoked→"Not granted" visible, granted→"Granted" visible after Refresh | restore RECORD_AUDIO to prompt | 1 |
+| `permissions_dashboard_notification_state` | 5 | POST_NOTIFICATIONS revoked→"Not granted" visible on dashboard, state surfaced | restore POST_NOTIFICATIONS to prompt | 1 |
+| `permissions_dashboard_repair_cta_opens_settings` | 13 | Tap denied row→system settings opens→launch_main→re-navigate to dashboard | restore ACCESS_COARSE_LOCATION to prompt | 2 |
+
+### Scenario details
+
+- **`permissions_dashboard_opens`** — Taps the "Settings" icon in the Chat screen
+  top bar, scrolls, taps "App Permissions" row, asserts "App Permissions" title
+  and key rows (e.g. Microphone, Location, Notifications) are visible.
+- **`permissions_dashboard_location_state_refresh`** — Revokes `ACCESS_COARSE_LOCATION`,
+  opens dashboard via Settings, asserts "Location" row shows "Not granted" icon,
+  grants via ADB, taps "Refresh" button, asserts "Granted" icon appears.
+- **`permissions_dashboard_microphone_state_refresh`** — Same pattern as location
+  refresh but for `RECORD_AUDIO` / Microphone row.
+- **`permissions_dashboard_notification_state`** — Revokes `POST_NOTIFICATIONS`,
+  opens dashboard, asserts "Notifications" row shows "Not granted" icon.
+  Notification state IS surfaced on the dashboard (not a product gap). Cleanup
+  restores the permission.
+- **`permissions_dashboard_repair_cta_opens_settings`** — Revokes
+  `ACCESS_COARSE_LOCATION`, opens dashboard, taps denied Location row, asserts
+  system App Info settings opens via `wait_for_package`, relaunches the app
+  (`launch_main`), re-navigates to dashboard via Settings to confirm the
+  dashboard survives the round-trip.
+
+### New runner actions
+
+#### `wait_for_package`
+
+The `wait_for_package` action waits for a specific Android package to be in the
+foreground. Useful for detecting navigation to system settings surfaces and
+waiting for the app to return. It takes a `package` field (the package name,
+e.g. `com.android.settings`) and optional `timeout_seconds`.
+
+```python
+{
+    "action": "wait_for_package",
+    "package": "com.android.settings",
+    "timeout_seconds": 10,
+}
+```
+
+#### `swipe`
+
+The `swipe` action performs a touch swipe gesture at specified pixel coordinates.
+Takes `start_x`, `start_y`, `end_x`, `end_y` (required) and `duration_ms` (optional,
+default 300). Useful for scrolling scrollable lists when navigating deep UI paths.
+
+```python
+{
+    "action": "swipe",
+    "start_x": 540,
+    "start_y": 1200,
+    "end_x": 540,
+    "end_y": 400,
+    "duration_ms": 200,
+}
+```
+
+### Known limitations
+
+- **Settings repair navigation depends on OEM behavior**: Tapping a denied
+  permission row opens `com.android.settings` App Info page. On Samsung One UI,
+  the exact settings surface layout may differ from AOSP. The scenario only
+  asserts the package changes to `com.android.settings`, not specific UI elements
+  within settings.
+- **Refresh via button, not auto-ON_RESUME**: The dashboard has an automatic
+  `ON_RESUME` refresh observer, but permission changes made via ADB while the
+  dashboard is already open do not trigger `ON_RESUME`. Scenarios use the manual
+  "Refresh" button instead. If the activity is re-created (e.g. via `am start`),
+  `init {}` calls `refresh()` automatically.
+- **"Not granted" / "Granted" assertions are per-row trailing icons**: Each
+  permission row's trailing icon has `contentDescription = "Granted"` or
+  `"Not granted"`. Assertions use these content descriptions, which are unique
+  per row on the dashboard.
+- **Samsung settings package**: On Samsung One UI, the settings package is
+  `com.android.settings` (same as AOSP). No known divergence for the App Info
+  entry point.
+- **Dashboard navigation requires Settings screen scroll**: The "App Permissions"
+  row is below the visible area on the Settings screen. The scenarios use the
+  `swipe` action to scroll down before tapping it. These swipe coordinates are
+  calibrated for S21 (1080×2340). Non-S21 devices may need different coordinates.
+- **State refresh timing**: After granting a permission via ADB and tapping
+  "Refresh", the view model refresh coroutine may take up to a few seconds.
+  The Refresh step uses `timeout_seconds: 15` to accommodate this.
+- **No special access or stale-state coverage**: The current scenarios only cover
+  runtime permission state on the dashboard. Special access (DND, write settings)
+  and stale/external-state scenarios are not included in this slice. Documented
+  as follow-up under #1353.
+
+### Running the dashboard group on S21
+
+```bash
+ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial "$ANDROID_SERIAL" \
+  --scenarios permissions_dashboard_opens,permissions_dashboard_location_state_refresh,permissions_dashboard_microphone_state_refresh,permissions_dashboard_notification_state,permissions_dashboard_repair_cta_opens_settings \
+  --out-dir scripts/test-reports/permissions
+```
 
 ```bash
 python3 scripts/publish_permission_scenario_report.py \
