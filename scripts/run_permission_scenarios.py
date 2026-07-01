@@ -577,8 +577,14 @@ class ScenarioRunner:
             if not self._wait_for_text(text, timeout_seconds=timeout_seconds):
                 raise StepFailure(f"Expected text not visible: {text}")
         any_visible = step.get("expected_any_visible", [])
-        if any_visible and not self._wait_for_any_text(any_visible, timeout_seconds=timeout_seconds, exact=False):
+        if any_visible and not self._wait_for_any_text(any_visible, timeout_seconds=timeout_seconds, exact=True):
             raise StepFailure(f"Expected one of {any_visible!r} to be visible")
+        for text in step.get("expected_visible_contains", []):
+            if not self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=False):
+                raise StepFailure(f"Expected text (substring) not visible: {text}")
+        any_visible_contains = step.get("expected_any_visible_contains", [])
+        if any_visible_contains and not self._wait_for_any_text(any_visible_contains, timeout_seconds=timeout_seconds, exact=False):
+            raise StepFailure(f"Expected one of {any_visible_contains!r} to be visible (substring)")
         toggle_expectation = step.get("expected_toggle_state")
         if toggle_expectation:
             anchor = self._find_target({"text": toggle_expectation["anchor_text"]}, timeout_seconds=timeout_seconds)
@@ -724,7 +730,7 @@ class ScenarioRunner:
         )
 
     def _wait_for_text(self, text: str, timeout_seconds: float) -> bool:
-        return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=False)
+        return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=True)
 
     def _wait_for_any_text(self, texts: Iterable[str], timeout_seconds: float, exact: bool = True) -> bool:
         wanted = list(texts)
@@ -743,8 +749,7 @@ class ScenarioRunner:
         return False
 
     def _is_text_visible(self, text: str, timeout_seconds: float) -> bool:
-        return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=False)
-
+        return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=True)
     def _wait_for_package(self, package_name: str, timeout_seconds: float) -> None:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:

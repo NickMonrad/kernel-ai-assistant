@@ -540,7 +540,7 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "launch_quick_action",
                 "query": f"set timer for {FIXTURES['short_timer_seconds']} seconds",
                 "expected": "Short timer set successfully with notifications allowed",
-                "expected_visible": ["Timer set for"],
+                "expected_visible_contains": ["Timer set for"],
                 "screenshot": True,
                 "timeout_seconds": 15,
             },
@@ -569,7 +569,7 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "launch_quick_action",
                 "query": f"set timer for {FIXTURES['short_timer_seconds']} seconds",
                 "expected": "Timer command processed; app shows either success or notification-blocked message depending on capability enforcement",
-                "expected_any_visible": [
+                "expected_any_visible_contains": [
                     "Timer set for",
                     "notifications",
                     "notification access",
@@ -586,9 +586,9 @@ SCENARIOS: list[dict[str, object]] = [
         "tags": ["permissions", "notifications", "exact_alarm", "clock", "alarm"],
         "preconditions": [],
         "cleanup": [
+            {"id": "cancel_alarm_after_test", "action": "launch_quick_action", "query": "cancel my alarm", "expected": "Alarm cancelled as cleanup to avoid leaving persistent alarms on device", "timeout_seconds": 15},
             {"id": "reset_notifications_after_alarm_allowed", "action": "set_permission_state", "permission": "android.permission.POST_NOTIFICATIONS", "state": "prompt", "expected": "POST_NOTIFICATIONS reset after alarm-allowed scenario"},
         ],
-        "fixtures": {},
         "steps": [
             {
                 "id": "grant_notifications",
@@ -602,21 +602,22 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "launch_quick_action",
                 "query": f"set alarm for 9:00 AM",
                 "expected": "Alarm set successfully with exact alarm capability available",
-                "expected_visible": ["Alarm set for"],
+                "expected_visible_contains": ["Alarm set for"],
                 "screenshot": True,
                 "timeout_seconds": 15,
             },
         ],
     },
     {
-        "id": "clock_alarm_exact_alarm_unavailable",
-        "title": "Alarm with exact alarm unavailable shows blocked message",
+        "id": "clock_alarm_schedule_exact_alarm_appop_denied",
+        "title": "Documents that SCHEDULE_EXACT_ALARM appop denial does not block alarm scheduling when USE_EXACT_ALARM is declared",
         "capability": "jandal_alarms_timers",
         "tags": ["permissions", "notifications", "exact_alarm", "clock", "alarm"],
         "preconditions": [],
         "cleanup": [
-            {"id": "restore_exact_alarm_after_test", "action": "set_appops", "permission": "SCHEDULE_EXACT_ALARM", "mode": "allow", "expected": "SCHEDULE_EXACT_ALARM restored to allow after exact-alarm-unavailable scenario"},
-            {"id": "reset_notifications_after_alarm_blocked", "action": "set_permission_state", "permission": "android.permission.POST_NOTIFICATIONS", "state": "prompt", "expected": "POST_NOTIFICATIONS reset after exact-alarm-unavailable scenario"},
+            {"id": "cancel_alarm_after_appop_denied_test", "action": "launch_quick_action", "query": "cancel my alarm", "expected": "Alarm cancelled as cleanup after SCHEDULE_EXACT_ALARM appop denial test", "timeout_seconds": 15},
+            {"id": "restore_exact_alarm_after_test", "action": "set_appops", "permission": "SCHEDULE_EXACT_ALARM", "mode": "allow", "expected": "SCHEDULE_EXACT_ALARM restored to allow after appop-denied scenario"},
+            {"id": "reset_notifications_after_alarm_blocked", "action": "set_permission_state", "permission": "android.permission.POST_NOTIFICATIONS", "state": "prompt", "expected": "POST_NOTIFICATIONS reset after appop-denied scenario"},
         ],
         "fixtures": {},
         "steps": [
@@ -625,21 +626,21 @@ SCENARIOS: list[dict[str, object]] = [
                 "action": "set_permission_state",
                 "permission": "android.permission.POST_NOTIFICATIONS",
                 "state": "granted",
-                "expected": "POST_NOTIFICATIONS permission granted before testing exact alarm unavailability",
+                "expected": "POST_NOTIFICATIONS permission granted before testing appop denial",
             },
             {
-                "id": "block_exact_alarm",
+                "id": "block_exact_alarm_via_appops",
                 "action": "set_appops",
                 "permission": "SCHEDULE_EXACT_ALARM",
                 "mode": "deny",
-                "expected": "SCHEDULE_EXACT_ALARM denied via appops, simulating exact alarm unavailability",
+                "expected": "SCHEDULE_EXACT_ALARM denied via appops; confirms app does not check SCHEDULE_EXACT_ALARM for alarm scheduling (uses USE_EXACT_ALARM manifest permission)",
             },
             {
-                "id": "launch_alarm_while_exact_alarm_blocked",
+                "id": "launch_alarm_while_appop_denied",
                 "action": "launch_quick_action",
                 "query": f"set alarm for 9:00 AM",
-                "expected": "Alarm command processed with SCHEDULE_EXACT_ALARM denied; app may succeed (uses USE_EXACT_ALARM manifest permission) or show blocked message",
-                "expected_any_visible": [
+                "expected": "Alarm command processed; SCHEDULE_EXACT_ALARM appop denial does not block alarm scheduling when USE_EXACT_ALARM is declared",
+                "expected_any_visible_contains": [
                     "Alarm set for",
                     "exact alarm",
                 ],

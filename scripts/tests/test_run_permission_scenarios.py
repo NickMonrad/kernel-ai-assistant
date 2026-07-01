@@ -884,7 +884,7 @@ CLOCK_SCENARIO_IDS = frozenset({
     "clock_timer_notifications_allowed",
     "clock_timer_notifications_denied",
     "clock_alarm_exact_alarm_allowed",
-    "clock_alarm_exact_alarm_unavailable",
+    "clock_alarm_schedule_exact_alarm_appop_denied",
 })
 
 
@@ -926,29 +926,29 @@ class ClockScenarioTest(unittest.TestCase):
         self.assertIn("10", query,
             f"Rendered query should contain fixture value '10' (short_timer_seconds), got: {query}")
 
-    def test_clock_timer_denied_does_not_assert_success_copy_only(self) -> None:
+    def test_clock_timer_denied_accepts_notification_blocked_messages(self) -> None:
         """denied scenario must accept notification-blocked message, not just success."""
         sc = permission_runner.get_scenario_by_id("clock_timer_notifications_denied")
         self.assertIsNotNone(sc)
         for step in sc["steps"]:
             if step["action"] == "launch_quick_action":
-                any_vis = step.get("expected_any_visible", [])
+                any_vis = step.get("expected_any_visible_contains", [])
                 combined = " ".join(any_vis).lower()
                 self.assertIn("notification", combined,
                     f"denied scenario should accept notification-blocked messages, got: {any_vis}")
 
-    def test_clock_exact_alarm_unavailable_accepts_either_outcome(self) -> None:
-        """Blocked scenario must not assert hard failure copy (app may succeed via USE_EXACT_ALARM)."""
-        sc = permission_runner.get_scenario_by_id("clock_alarm_exact_alarm_unavailable")
+    def test_appop_denied_accepts_either_outcome(self) -> None:
+        """Appop denied scenario must accept either success or blocked copy (app may succeed via USE_EXACT_ALARM)."""
+        sc = permission_runner.get_scenario_by_id("clock_alarm_schedule_exact_alarm_appop_denied")
         self.assertIsNotNone(sc)
         for step in sc["steps"]:
             if step["action"] == "launch_quick_action":
-                any_vis = step.get("expected_any_visible", [])
+                any_vis = step.get("expected_any_visible_contains", [])
                 combined = " ".join(any_vis).lower()
                 # Must accept either success ("Alarm set for") or blocked/error copy
                 self.assertTrue(
                     "alarm set for" in combined or "exact alarm" in combined or "error" in combined,
-                    f"exact alarm unavailable scenario should accept success or blocked copy, got: {any_vis}",
+                    f"appop denied scenario should accept success or blocked copy, got: {any_vis}",
                 )
 
     def test_clock_timer_scenarios_have_notifications_tag(self) -> None:
@@ -959,7 +959,7 @@ class ClockScenarioTest(unittest.TestCase):
             self.assertIn("timer", tags, f"{sid} missing 'timer' tag")
 
     def test_clock_alarm_scenarios_have_exact_alarm_tag(self) -> None:
-        for sid in ("clock_alarm_exact_alarm_allowed", "clock_alarm_exact_alarm_unavailable"):
+        for sid in ("clock_alarm_exact_alarm_allowed", "clock_alarm_schedule_exact_alarm_appop_denied"):
             sc = permission_runner.get_scenario_by_id(sid)
             tags = set(sc["tags"])
             self.assertIn("notifications", tags, f"{sid} missing 'notifications' tag")
@@ -975,13 +975,12 @@ class ClockScenarioTest(unittest.TestCase):
                 any("POST_NOTIFICATIONS" in str(cs) for cs in cleanup),
                 f"{sid} cleanup should reference POST_NOTIFICATIONS",
             )
-
-    def test_exact_alarm_unavailable_cleanup_restores_appops(self) -> None:
-        sc = permission_runner.get_scenario_by_id("clock_alarm_exact_alarm_unavailable")
+    def test_appop_denied_cleanup_restores_appops(self) -> None:
+        sc = permission_runner.get_scenario_by_id("clock_alarm_schedule_exact_alarm_appop_denied")
         cleanup = sc.get("cleanup", [])
         self.assertTrue(
             any("SCHEDULE_EXACT_ALARM" in str(cs) for cs in cleanup),
-            "exact alarm unavailable scenario cleanup should restore SCHEDULE_EXACT_ALARM",
+            "appop denied scenario cleanup should restore SCHEDULE_EXACT_ALARM",
         )
 
 
