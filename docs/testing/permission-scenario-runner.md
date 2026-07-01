@@ -38,11 +38,12 @@ Implemented now:
 - rich local `result.json`
 - PR/issue-comment-ready `summary.md`
 - schema-compatible derived `evidence.json` for downstream tooling experiments, marked with explicit non-inference model metadata (`not_applicable` / `permission_scenario_runner` / `adb`)
-    - `hey_jandal_preflight`
-    - `hey_jandal_enable_mic_granted`
-    - `hey_jandal_enable_mic_denied`
-    - `hey_jandal_mic_revoked_reopen_voice` — deterministic re-entry, not exact task resume
-    - `weather_location_denied`
+- deterministic scenarios:
+  - `hey_jandal_preflight`
+  - `hey_jandal_enable_mic_granted`
+  - `hey_jandal_enable_mic_denied`
+  - `hey_jandal_mic_revoked_reopen_voice` — deterministic re-entry, not exact task resume
+  - `weather_location_denied`
 
 Intentionally **not** implemented yet:
 
@@ -85,7 +86,7 @@ scripts/test-reports/permissions/<timestamp>/
 ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
   --device-id s21-exynos \
   --serial "$ANDROID_SERIAL" \
-  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied \
+  --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied,hey_jandal_mic_revoked_reopen_voice \
   --out-dir scripts/test-reports/permissions
 ```
 
@@ -197,6 +198,7 @@ ANDROID_SERIAL=<S21_SERIAL> python3 scripts/run_permission_scenarios.py \
   --serial "$ANDROID_SERIAL" \
   --scenarios hey_jandal_preflight,hey_jandal_enable_mic_granted,hey_jandal_enable_mic_denied,hey_jandal_mic_revoked_reopen_voice \
   --out-dir scripts/test-reports/permissions
+# optionally publish an existing local report later (explicit step only)
 python3 scripts/publish_permission_scenario_report.py \
   --report-dir scripts/test-reports/permissions/<timestamp> \
   --pr <PR_NUMBER> \
