@@ -878,5 +878,141 @@ class WeatherDryRunTest(unittest.TestCase):
         self.assertEqual(1, len(plan))
         self.assertGreater(plan[0]["screenshot_count"], 0)
 
+
+
+CLOCK_SCENARIO_IDS = frozenset({
+    "clock_timer_notifications_allowed",
+    "clock_timer_notifications_denied",
+    "clock_alarm_exact_alarm_allowed",
+    "clock_alarm_exact_alarm_unavailable",
+})
+
+
+class ClockScenarioTest(unittest.TestCase):
+    """Tests for clock/timer/alarm permission scenario definitions."""
+
+    def test_all_clock_scenarios_validate(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in CLOCK_SCENARIO_IDS:
+                errors = permission_runner.validate_scenario_definitions([scenario])
+                self.assertEqual([], errors, f"{scenario['id']} should pass validation:\n" + "\n".join(errors))
+
+    def test_all_clock_scenarios_have_required_tags(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in CLOCK_SCENARIO_IDS:
+                tags = set(scenario.get("tags", []))
+                self.assertIn("permissions", tags, f"{scenario['id']} missing 'permissions' tag")
+                self.assertIn("clock", tags, f"{scenario['id']} missing 'clock' tag")
+
+    def test_clock_scenarios_have_jandal_alarms_timers_capability(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in CLOCK_SCENARIO_IDS:
+                self.assertEqual(
+                    "jandal_alarms_timers",
+                    scenario.get("capability"),
+                    f"{scenario['id']} should have capability 'jandal_alarms_timers'",
+                )
+
+    def test_clock_scenarios_reference_short_timer_fixture(self) -> None:
+        sc = permission_runner.get_scenario_by_id("clock_timer_notifications_allowed")
+        self.assertIsNotNone(sc)
+        # The scenario definition should reference FIXTURES dict at definition time, not hard-code a value
+        with open(permission_runner.HERE / "permission_scenario_defs.py") as f:
+            defs_source = f.read()
+        self.assertIn('short_timer_seconds', defs_source,
+            "clock_timer_notifications_allowed query should reference FIXTURES['short_timer_seconds']")
+        # Verify the rendered query at import time resolves correctly
+        query = str(sc["steps"][1].get("query", ""))
+        self.assertIn("10", query,
+            f"Rendered query should contain fixture value '10' (short_timer_seconds), got: {query}")
+
+    def test_clock_timer_denied_does_not_assert_success_copy_only(self) -> None:
+        """denied scenario must accept notification-blocked message, not just success."""
+        sc = permission_runner.get_scenario_by_id("clock_timer_notifications_denied")
+        self.assertIsNotNone(sc)
+        for step in sc["steps"]:
+            if step["action"] == "launch_quick_action":
+                any_vis = step.get("expected_any_visible", [])
+                combined = " ".join(any_vis).lower()
+                self.assertIn("notification", combined,
+                    f"denied scenario should accept notification-blocked messages, got: {any_vis}")
+
+    def test_clock_exact_alarm_unavailable_accepts_either_outcome(self) -> None:
+        """Blocked scenario must not assert hard failure copy (app may succeed via USE_EXACT_ALARM)."""
+        sc = permission_runner.get_scenario_by_id("clock_alarm_exact_alarm_unavailable")
+        self.assertIsNotNone(sc)
+        for step in sc["steps"]:
+            if step["action"] == "launch_quick_action":
+                any_vis = step.get("expected_any_visible", [])
+                combined = " ".join(any_vis).lower()
+                # Must accept either success ("Alarm set for") or blocked/error copy
+                self.assertTrue(
+                    "alarm set for" in combined or "exact alarm" in combined or "error" in combined,
+                    f"exact alarm unavailable scenario should accept success or blocked copy, got: {any_vis}",
+                )
+
+    def test_clock_timer_scenarios_have_notifications_tag(self) -> None:
+        for sid in ("clock_timer_notifications_allowed", "clock_timer_notifications_denied"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc["tags"])
+            self.assertIn("notifications", tags, f"{sid} missing 'notifications' tag")
+            self.assertIn("timer", tags, f"{sid} missing 'timer' tag")
+
+    def test_clock_alarm_scenarios_have_exact_alarm_tag(self) -> None:
+        for sid in ("clock_alarm_exact_alarm_allowed", "clock_alarm_exact_alarm_unavailable"):
+            sc = permission_runner.get_scenario_by_id(sid)
+            tags = set(sc["tags"])
+            self.assertIn("notifications", tags, f"{sid} missing 'notifications' tag")
+            self.assertIn("exact_alarm", tags, f"{sid} missing 'exact_alarm' tag")
+            self.assertIn("alarm", tags, f"{sid} missing 'alarm' tag")
+
+    def test_clock_scenarios_have_notifications_in_cleanup(self) -> None:
+        """Clock scenarios that change POST_NOTIFICATIONS must restore it."""
+        for sid in CLOCK_SCENARIO_IDS:
+            sc = permission_runner.get_scenario_by_id(sid)
+            cleanup = sc.get("cleanup", [])
+            self.assertTrue(
+                any("POST_NOTIFICATIONS" in str(cs) for cs in cleanup),
+                f"{sid} cleanup should reference POST_NOTIFICATIONS",
+            )
+
+    def test_exact_alarm_unavailable_cleanup_restores_appops(self) -> None:
+        sc = permission_runner.get_scenario_by_id("clock_alarm_exact_alarm_unavailable")
+        cleanup = sc.get("cleanup", [])
+        self.assertTrue(
+            any("SCHEDULE_EXACT_ALARM" in str(cs) for cs in cleanup),
+            "exact alarm unavailable scenario cleanup should restore SCHEDULE_EXACT_ALARM",
+        )
+
+
+class ClockDryRunTest(unittest.TestCase):
+    """Tests for dry-run output covering new clock scenarios."""
+
+    def test_all_clock_scenarios_appear_in_dry_run(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in CLOCK_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        plan_ids = {entry["id"] for entry in plan}
+        self.assertEqual(CLOCK_SCENARIO_IDS, plan_ids)
+
+    def test_clock_dry_run_shows_notifications_permission(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in CLOCK_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        all_perms = set()
+        for entry in plan:
+            all_perms.update(entry["permissions_touched"])
+        self.assertIn("android.permission.POST_NOTIFICATIONS", all_perms)
+
+    def test_clock_dry_run_includes_cleanup_count(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] == "clock_timer_notifications_allowed"]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        self.assertEqual(1, len(plan))
+        self.assertGreater(plan[0]["cleanup_count"], 0)
+
+    def test_clock_dry_run_shows_screenshots(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] == "clock_timer_notifications_denied"]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        self.assertEqual(1, len(plan))
+        self.assertGreater(plan[0]["screenshot_count"], 0)
+
 if __name__ == "__main__":
     unittest.main()

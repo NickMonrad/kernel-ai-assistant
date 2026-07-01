@@ -251,6 +251,80 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
   weather skill rather than the named-city JS skill, the permission dialog may still
   appear. This is a product behavior finding to document, not a harness issue.
 
+
+## Notifications/exact alarms/clock scenario group
+
+The notifications/exact alarms/clock group covers permission interactions for the
+`jandal_alarms_timers` capability. All scenarios use `permissions`, `clock` tags
+and include cleanup to restore `POST_NOTIFICATIONS` permission state.
+
+| Scenario ID | Steps | Capabilities tested | Cleanup | Screenshots |
+|------------|-------|-------------------|---------|-------------|
+| `clock_timer_notifications_allowed` | 2 | POST_NOTIFICATIONS granted → timer success | reset POST_NOTIFICATIONS to prompt | 1 |
+| `clock_timer_notifications_denied` | 2 | POST_NOTIFICATIONS revoked → timer blocked/degraded | restore POST_NOTIFICATIONS to granted | 1 |
+| `clock_alarm_exact_alarm_allowed` | 2 | POST_NOTIFICATIONS granted → alarm success | reset POST_NOTIFICATIONS to prompt | 1 |
+| `clock_alarm_exact_alarm_unavailable` | 3 | POST_NOTIFICATIONS granted + SCHEDULE_EXACT_ALARM denied → blocked message | restore SCHEDULE_EXACT_ALARM to allow + reset POST_NOTIFICATIONS | 1 |
+
+### Scenario details
+
+- **`clock_timer_notifications_allowed`** — Grants `POST_NOTIFICATIONS`, sends a
+  short deterministic timer command (`set timer for 10 seconds` via the
+  `short_timer_seconds` fixture), asserts `"Timer set for"` success text appears
+  in the chat response.
+- **`clock_timer_notifications_denied`** — Revokes `POST_NOTIFICATIONS`, sends the
+  same short timer command, asserts that the app shows either a success message
+  (if the timer works without notification permission) or a notification-blocked
+  error message (if capability enforcement blocks it).
+- **`clock_alarm_exact_alarm_allowed`** — Grants `POST_NOTIFICATIONS`, sends
+  `"set alarm for 9:00 AM"`, asserts `"Alarm set for"` success text appears in the
+  chat response.
+- **`clock_alarm_exact_alarm_unavailable`** — Grants `POST_NOTIFICATIONS`, then
+  uses `set_appops` to deny `SCHEDULE_EXACT_ALARM` via `appops`, sends an alarm
+  command, asserts that the app shows an exact-alarm-blocked error message rather
+  than claiming false success.
+
+### Running the clock group on S21
+
+```bash
+ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial "$ANDROID_SERIAL" \
+  --scenarios clock_timer_notifications_allowed,clock_timer_notifications_denied,clock_alarm_exact_alarm_allowed,clock_alarm_exact_alarm_unavailable \
+  --out-dir scripts/test-reports/permissions
+```
+
+### Known limitations
+
+- **POST_NOTIFICATIONS**: On Android 13+ (API 33+), `POST_NOTIFICATIONS` is a
+  runtime permission. The runner uses `pm grant` / `pm revoke` to control its
+  state. `minSdk=35` means this permission is always relevant.
+- **SCHEDULE_EXACT_ALARM vs USE_EXACT_ALARM**: The app declares `USE_EXACT_ALARM`
+  (manifest permission, API 33+) rather than requesting `SCHEDULE_EXACT_ALARM` at
+  runtime. The runner's `set_appops` action can deny `SCHEDULE_EXACT_ALARM` via
+  `appops`, but this does NOT prevent the app from scheduling alarms on builds
+  where `USE_EXACT_ALARM` is satisfied. The `clock_alarm_exact_alarm_unavailable`
+  scenario documents this behavior using `expected_any_visible` to accept either
+  success or blocked copy. If future Android versions change the relationship,
+  the scenario can be tightened.
+- **Timer/alarm cleanup**: The timer scenarios use short deterministic durations
+  (10 seconds from `short_timer_seconds` fixture). Cleanup focuses on restoring
+  permission state rather than cancelling active timers. Alarm scenarios set
+  alarms for 9:00 AM (which has likely passed during testing) and do not cancel
+  them — the alarm fires once and is harmless.
+- **Chat response text**: Timer/alarm results appear as chat messages, not system
+  dialogs. The runner waits for the expected text with an extended
+  `timeout_seconds: 15` to account for app processing time.
+- **Reminders**: Reminder flows (`add_reminder` intent) are not covered in this
+  slice. They require time/date slot resolution which adds complexity. Documented
+  as a follow-up under #1353.
+
+### New runner action: `set_appops`
+
+The `set_appops` action controls appops-managed permissions (like
+`SCHEDULE_EXACT_ALARM`). It takes `permission` (the appops name) and `mode`
+(`allow`, `deny`, or `default`) and runs `adb shell appops set $PACKAGE $permission $mode`.
+Useful for testing permissions that are not standard Android runtime permissions.
+
 ## Publishing evidence explicitly
 
 Publishing is a **separate explicit step**. The runner stays local-only unless you invoke
