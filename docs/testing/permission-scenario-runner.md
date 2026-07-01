@@ -97,22 +97,27 @@ Each scenario in `scripts/permission_scenario_defs.py` follows a validated schem
 | Field               | Required for          | Description |
 |--------------------|-----------------------|-------------|
 | `id`               | All steps             | Unique step ID within the scenario |
-| `action`           | All steps             | One of: `set_permission_state`, `launch_main`, `launch_quick_action`, `tap_visible`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back`, `wait_for_package` |
+| `action`           | All steps             | One of: `set_permission_state`, `set_appops`, `launch_main`, `launch_quick_action`, `tap_visible`, `swipe`, `wait_for_package`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back` |
 | `expected`         | All steps             | Human-readable description of what should happen |
-| `permission`       | `set_permission_state`| Android permission name (e.g. `android.permission.RECORD_AUDIO`) |
-| `screenshot`       | Any step              | Boolean, capture screenshot at this step |
+| `permission`       | `set_permission_state`, `set_appops` | Android permission name (e.g. `android.permission.RECORD_AUDIO`) |
+| `state`            | `set_permission_state`| Permission state: `granted`, `revoked`, `prompt`, `blocked` |
+| `mode`             | `set_appops`          | Appops mode: `allow`, `deny`, `default` |
+| `target`           | `tap_visible`         | Target descriptor with `text`, `content_desc`, `resource_id`, or `any_text` |
+| `query`            | `launch_quick_action` | Quick action query string |
 | `start_x`, `start_y`, `end_x`, `end_y` | `swipe` | Pixel coordinates (required) |
-| `duration_ms`     | `swipe`               | Swipe duration in ms (default 300) |
-| `package`         | `wait_for_package`    | Android package name (e.g. `com.android.settings`) |
+| `duration_ms`      | `swipe`               | Swipe duration in ms (default 300) |
+| `package`          | `wait_for_package`    | Android package name (e.g. `com.android.settings`) |
 | `anchor_text`      | `tap_toggle_for_text`, `set_toggle_state` | Text label associated with the toggle |
 | `checked`          | `set_toggle_state`    | Boolean target state for the toggle |
-| `package`         | `wait_for_package`    | Android package name to wait for (e.g. `com.android.settings`) |
+| `also_apply`       | `set_permission_state`| List of additional permission names to apply the same state to (e.g. `["android.permission.ACCESS_FINE_LOCATION"]`) |
+| `screenshot`       | Any step              | Boolean, capture screenshot at this step |
+| `expected_visible` | Any step              | List of texts where each must be visible via exact match (checks `text` and `contentDescription`) |
+| `expected_not_visible` | Any step           | List of texts where none must be visible via exact match (polls for 1s) |
 | `expected_any_visible` | Any step           | List of texts where at least one must be an exact match |
 | `expected_visible_contains` | Any step      | List of texts where each must appear as a substring |
 | `expected_any_visible_contains` | Any step   | List of texts where at least one must appear as a substring |
 | `expected_toggle_state` | Any step         | Dict with `anchor_text` and `checked` to verify a toggle state |
 | `blocked_if_visible` | Any step           | Dict with `texts` and `reason`; if texts are visible, scenario reports as blocked |
-| `screenshot`       | Any step              | Boolean, capture screenshot at this step |
 
 ### Preconditions, cleanup, and fixtures
 
@@ -396,21 +401,17 @@ default 300). Useful for scrolling scrollable lists when navigating deep UI path
 ```
 
 ### Known limitations
-
-- **Settings repair navigation depends on OEM behavior**: Tapping a denied
-  permission row opens `com.android.settings` App Info page. On Samsung One UI,
-  the exact settings surface layout may differ from AOSP. The scenario only
-  asserts the package changes to `com.android.settings`, not specific UI elements
-  within settings.
+- **"Not granted" / "Granted" assertions are row-specific content descriptions**: Each
+  permission row's trailing icon has `contentDescription = "<RowLabel> granted"` or
+  `"<RowLabel> not granted"` (e.g. `"Location granted"`, `"Microphone not granted"`).
+  Assertions use these row-qualified content descriptions, which uniquely identify
+  the state of a specific row. This prevents false-pass when another row has the same
+  state. Update the product `PermissionRow` composable if new rows are added.
 - **Refresh via button, not auto-ON_RESUME**: The dashboard has an automatic
   `ON_RESUME` refresh observer, but permission changes made via ADB while the
   dashboard is already open do not trigger `ON_RESUME`. Scenarios use the manual
   "Refresh" button instead. If the activity is re-created (e.g. via `am start`),
   `init {}` calls `refresh()` automatically.
-- **"Not granted" / "Granted" assertions are per-row trailing icons**: Each
-  permission row's trailing icon has `contentDescription = "Granted"` or
-  `"Not granted"`. Assertions use these content descriptions, which are unique
-  per row on the dashboard.
 - **Samsung settings package**: On Samsung One UI, the settings package is
   `com.android.settings` (same as AOSP). No known divergence for the App Info
   entry point.
@@ -435,6 +436,10 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
   --scenarios permissions_dashboard_opens,permissions_dashboard_location_state_refresh,permissions_dashboard_microphone_state_refresh,permissions_dashboard_notification_state,permissions_dashboard_repair_cta_opens_settings \
   --out-dir scripts/test-reports/permissions
 ```
+## Publishing evidence explicitly
+
+Publishing is a **separate explicit step**. The runner stays local-only unless you invoke
+[`scripts/publish_permission_scenario_report.py`](../../scripts/publish_permission_scenario_report.py).
 
 ```bash
 python3 scripts/publish_permission_scenario_report.py \
