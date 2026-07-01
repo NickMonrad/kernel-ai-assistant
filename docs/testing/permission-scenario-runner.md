@@ -290,8 +290,10 @@ and include cleanup to restore `POST_NOTIFICATIONS` permission state.
 ### Running the clock group on S21
 
 ```bash
-  --scenarios clock_timer_notifications_allowed,clock_timer_notifications_denied,clock_alarm_exact_alarm_allowed,clock_alarm_schedule_exact_alarm_appop_denied \
+ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
   --serial "$ANDROID_SERIAL" \
+  --scenarios clock_timer_notifications_allowed,clock_timer_notifications_denied,clock_alarm_exact_alarm_allowed,clock_alarm_schedule_exact_alarm_appop_denied \
   --out-dir scripts/test-reports/permissions
 ```
 
