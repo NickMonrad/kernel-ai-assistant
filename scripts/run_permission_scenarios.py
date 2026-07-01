@@ -54,12 +54,14 @@ NON_INFERENCE_MODEL = {
 
 # ── Schema validation constants ──────────────────────────────────────────────
 SUPPORTED_ACTIONS = frozenset({
-    "set_permission_state", "launch_main", "launch_quick_action",
+    "set_permission_state", "set_appops", "launch_main", "launch_quick_action",
     "tap_visible", "tap_toggle_for_text", "set_toggle_state",
     "check_default_assistant_ready", "press_home", "press_back",
 })
 
 SUPPORTED_PERMISSION_STATES = frozenset({"granted", "revoked", "prompt", "blocked"})
+
+SUPPORTED_APPOPS_MODES = frozenset({"allow", "deny", "default"})
 
 REQUIRED_SCENARIO_FIELDS = frozenset({"id", "title", "capability", "tags", "steps"})
 
@@ -547,6 +549,13 @@ class ScenarioRunner:
         if action == "check_default_assistant_ready":
             return self._check_default_assistant_ready(), {}
 
+        if action == "set_appops":
+            appop = step["permission"]
+            mode = step["mode"]
+            self.adb.shell(f"appops set {APP_PACKAGE} {appop} {mode}", timeout=10)
+            time.sleep(0.5)
+            return f"AppOps {appop} set to {mode}", {}
+
         if action == "press_home":
             self.adb.shell("input keyevent KEYCODE_HOME", timeout=10)
             time.sleep(0.5)
@@ -568,8 +577,14 @@ class ScenarioRunner:
             if not self._wait_for_text(text, timeout_seconds=timeout_seconds):
                 raise StepFailure(f"Expected text not visible: {text}")
         any_visible = step.get("expected_any_visible", [])
-        if any_visible and not self._wait_for_any_text(any_visible, timeout_seconds=timeout_seconds):
+        if any_visible and not self._wait_for_any_text(any_visible, timeout_seconds=timeout_seconds, exact=True):
             raise StepFailure(f"Expected one of {any_visible!r} to be visible")
+        for text in step.get("expected_visible_contains", []):
+            if not self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=False):
+                raise StepFailure(f"Expected text (substring) not visible: {text}")
+        any_visible_contains = step.get("expected_any_visible_contains", [])
+        if any_visible_contains and not self._wait_for_any_text(any_visible_contains, timeout_seconds=timeout_seconds, exact=False):
+            raise StepFailure(f"Expected one of {any_visible_contains!r} to be visible (substring)")
         toggle_expectation = step.get("expected_toggle_state")
         if toggle_expectation:
             anchor = self._find_target({"text": toggle_expectation["anchor_text"]}, timeout_seconds=timeout_seconds)
@@ -735,7 +750,6 @@ class ScenarioRunner:
 
     def _is_text_visible(self, text: str, timeout_seconds: float) -> bool:
         return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=True)
-
     def _wait_for_package(self, package_name: str, timeout_seconds: float) -> None:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -836,7 +850,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"), help="ADB serial to target")
     parser.add_argument(
         "--scenarios",
-        required=True,
         help="Comma-separated scenario IDs, e.g. mic_denied_enable_hey_jandal,weather_location_denied",
     )
     parser.add_argument(
@@ -1000,6 +1013,14 @@ def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_
             errors.append(f"{label}: action {action!r} requires 'checked' field")
     elif action == "launch_quick_action" and "query" not in step:
         errors.append(f"{label}: action {action!r} requires 'query' field")
+    elif action == "set_appops":
+        if "permission" not in step:
+            errors.append(f"{label}: action {action!r} requires 'permission' field")
+        mode = step.get("mode", "")
+        if not mode:
+            errors.append(f"{label}: action {action!r} requires 'mode' field")
+        elif mode not in SUPPORTED_APPOPS_MODES:
+            errors.append(f"{label}: unsupported appops mode {mode!r}; supported: {sorted(SUPPORTED_APPOPS_MODES)}")
 
     return errors
 
@@ -1366,6 +1387,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_scenarios:
         list_scenarios()
         return 0
+    if not args.scenarios:
+        raise RunnerError("--scenarios is required when not using --list-scenarios")
     selected_ids = [item.strip() for item in args.scenarios.split(",") if item.strip()]
     if not selected_ids:
         raise RunnerError("At least one scenario ID is required")
