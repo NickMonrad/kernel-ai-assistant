@@ -749,5 +749,120 @@ class AssistantDetectionTest(unittest.TestCase):
             runner._check_default_assistant_ready()
 
 
+
+WEATHER_SCENARIO_IDS = frozenset({
+    "weather_location_denied",
+    "weather_location_granted",
+    "weather_location_prompt_denied",
+    "weather_location_blocked_or_permanently_denied",
+    "weather_typed_city_without_location",
+})
+
+
+class WeatherScenarioTest(unittest.TestCase):
+    """Tests for weather/location permission scenario definitions."""
+
+    def test_all_weather_scenarios_have_required_tags(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in WEATHER_SCENARIO_IDS:
+                tags = set(scenario.get("tags", []))
+                self.assertIn("permissions", tags, f"{scenario['id']} missing 'permissions' tag")
+                self.assertIn("location", tags, f"{scenario['id']} missing 'location' tag")
+                self.assertIn("weather", tags, f"{scenario['id']} missing 'weather' tag")
+
+    def test_weather_scenarios_have_weather_capability(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in WEATHER_SCENARIO_IDS:
+                self.assertEqual(
+                    "weather_current_location",
+                    scenario.get("capability"),
+                    f"{scenario['id']} should have capability weather_current_location",
+                )
+
+    def test_weather_scenarios_have_cleanup_for_location_permissions(self) -> None:
+        """Weather scenarios that change location permission must restore it."""
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in WEATHER_SCENARIO_IDS:
+                cleanup = scenario.get("cleanup", [])
+                self.assertTrue(
+                    any("ACCESS_COARSE_LOCATION" in str(step) for step in cleanup),
+                    f"{scenario['id']} cleanup should reference ACCESS_COARSE_LOCATION",
+                )
+
+    def test_weather_location_granted_has_all_expected_fields(self) -> None:
+        sc = permission_runner.get_scenario_by_id("weather_location_granted")
+        self.assertIsNotNone(sc)
+        self.assertIn("preconditions", sc)
+        self.assertIn("cleanup", sc)
+        self.assertIn("fixtures", sc)
+        self.assertEqual(2, len(sc["steps"]))
+        # First step should grant location
+        self.assertEqual("set_permission_state", sc["steps"][0]["action"])
+        self.assertEqual("granted", sc["steps"][0]["state"])
+        # Second step should launch weather
+        self.assertEqual("launch_quick_action", sc["steps"][1]["action"])
+        self.assertIn("expected_not_visible", sc["steps"][1])
+
+    def test_weather_location_blocked_asserts_blocked_copy(self) -> None:
+        sc = permission_runner.get_scenario_by_id("weather_location_blocked_or_permanently_denied")
+        self.assertIsNotNone(sc)
+        for step in sc["steps"]:
+            if step["action"] == "launch_quick_action":
+                vis = step.get("expected_visible", [])
+                self.assertIn("Location permission is blocked", vis)
+                self.assertNotIn("weather forecast data", " ".join(vis).lower(),
+                    "Blocked scenario should assert repair copy, not success copy")
+
+    def test_weather_typed_city_uses_fixture_value(self) -> None:
+        sc = permission_runner.get_scenario_by_id("weather_typed_city_without_location")
+        self.assertIsNotNone(sc)
+        query = sc["steps"][1]["query"]
+        self.assertIn("Tokyo", query,
+            f"Expected scenario query to reference fixture Tokyo, got: {query}")
+
+    def test_weather_blocked_cleanup_restores_prompt_state(self) -> None:
+        """blocked scenario cleanup should set location back to prompt."""
+        sc = permission_runner.get_scenario_by_id("weather_location_blocked_or_permanently_denied")
+        cleanup = sc.get("cleanup", [])
+        self.assertTrue(
+            any("prompt" in str(step) for step in cleanup),
+            "blocked scenario cleanup should restore to prompt state",
+        )
+
+
+class WeatherDryRunTest(unittest.TestCase):
+    """Tests for dry-run output covering new weather scenarios."""
+
+    def test_all_weather_scenarios_appear_in_dry_run(self) -> None:
+        weather_ids = {"weather_location_denied", "weather_location_granted",
+                       "weather_location_prompt_denied", "weather_location_blocked_or_permanently_denied",
+                       "weather_typed_city_without_location"}
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in weather_ids]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        plan_ids = {entry["id"] for entry in plan}
+        self.assertEqual(weather_ids, plan_ids)
+
+    def test_weather_dry_run_shows_location_permissions_touched(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in {
+            "weather_location_granted", "weather_location_blocked_or_permanently_denied"}]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        all_perms = set()
+        for entry in plan:
+            all_perms.update(entry["permissions_touched"])
+        self.assertIn("android.permission.ACCESS_COARSE_LOCATION", all_perms)
+        self.assertIn("android.permission.ACCESS_FINE_LOCATION", all_perms)
+
+    def test_weather_dry_run_includes_cleanup_count(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] == "weather_location_granted"]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        self.assertEqual(1, len(plan))
+        self.assertGreater(plan[0]["cleanup_count"], 0)
+
+    def test_weather_dry_run_shows_screenshots(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] == "weather_location_prompt_denied"]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        self.assertEqual(1, len(plan))
+        self.assertGreater(plan[0]["screenshot_count"], 0)
+
 if __name__ == "__main__":
     unittest.main()
