@@ -1251,5 +1251,124 @@ class ClockDryRunTest(unittest.TestCase):
         self.assertEqual(1, len(plan))
         self.assertGreater(plan[0]["screenshot_count"], 0)
 
+STALE_SCENARIO_IDS = frozenset({
+    "stale_state_dashboard_reflects_external_mic_revoke",
+    "stale_state_dashboard_reflects_external_location_revoke",
+    "stale_state_weather_location_revoked_after_prior_grant",
+})
+
+
+class StaleStateScenarioDefinitionTest(unittest.TestCase):
+    """Tests for stale-state/external-state permission scenario definitions."""
+
+    def test_all_stale_state_scenarios_have_required_tags(self) -> None:
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in STALE_SCENARIO_IDS:
+                tags = set(scenario.get("tags", []))
+                self.assertIn("permissions", tags, f"{scenario['id']} missing 'permissions' tag")
+                self.assertIn("stale_state", tags, f"{scenario['id']} missing 'stale_state' tag")
+                self.assertIn("external_state", tags, f"{scenario['id']} missing 'external_state' tag")
+
+    def test_stale_state_scenarios_have_cleanup(self) -> None:
+        """Stale-state scenarios that change permissions must have cleanup."""
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in STALE_SCENARIO_IDS:
+                cleanup = scenario.get("cleanup", [])
+                self.assertTrue(cleanup, f"{scenario['id']} should have cleanup steps")
+                self.assertTrue(
+                    any("prompt" in str(step) for step in cleanup),
+                    f"{scenario['id']} cleanup should restore to prompt state",
+                )
+
+    def test_stale_state_scenarios_have_stale_state_tags(self) -> None:
+        """All stale-state scenarios must have stale_state and external_state tags."""
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] in STALE_SCENARIO_IDS:
+                tags = set(scenario.get("tags", []))
+                self.assertIn("stale_state", tags)
+                self.assertIn("external_state", tags)
+
+    def test_stale_state_mic_scenario_has_correct_steps(self) -> None:
+        sc = permission_runner.get_scenario_by_id("stale_state_dashboard_reflects_external_mic_revoke")
+        self.assertIsNotNone(sc)
+        self.assertEqual(10, len(sc["steps"]))
+        # Step 1: grant mic
+        self.assertEqual("set_permission_state", sc["steps"][0]["action"])
+        self.assertEqual("granted", sc["steps"][0]["state"])
+        # Step 8: relaunch after revoke (step 8)
+        self.assertEqual("launch_main", sc["steps"][8]["action"])
+        # Step 10: assert mic not granted (step 9)
+        self.assertEqual("wait_for_package", sc["steps"][9]["action"])
+        self.assertIn("Microphone not granted", sc["steps"][9].get("expected_visible", []))
+
+    def test_stale_state_location_scenario_has_correct_steps(self) -> None:
+        sc = permission_runner.get_scenario_by_id("stale_state_dashboard_reflects_external_location_revoke")
+        self.assertIsNotNone(sc)
+        self.assertEqual(10, len(sc["steps"]))
+        self.assertEqual("set_permission_state", sc["steps"][0]["action"])
+        self.assertIn("Location granted", sc["steps"][5].get("expected_visible", []))
+        self.assertEqual("launch_main", sc["steps"][8]["action"])
+        self.assertIn("Location not granted", sc["steps"][9].get("expected_visible", []))
+
+    def test_stale_state_weather_scenario_has_correct_steps(self) -> None:
+        sc = permission_runner.get_scenario_by_id("stale_state_weather_location_revoked_after_prior_grant")
+        self.assertIsNotNone(sc)
+        self.assertEqual(7, len(sc["steps"]))
+        # Step 1: grant location
+        self.assertEqual("set_permission_state", sc["steps"][0]["action"])
+        self.assertEqual("granted", sc["steps"][0]["state"])
+        self.assertIn("ACCESS_COARSE_LOCATION", str(sc["steps"][0].get("permission", "")))
+        # Step 3: weather success - no permission prompt visible
+        self.assertEqual("launch_quick_action", sc["steps"][2]["action"])
+        self.assertIn("expected_not_visible", sc["steps"][2])
+        not_visible = sc["steps"][2].get("expected_not_visible", [])
+        self.assertTrue(
+            any("Use your location" in text for text in not_visible),
+            f"weather success step should expect no permission prompt, got: {not_visible}",
+        )
+        # Step 4: background before revoke
+        self.assertEqual("press_home", sc["steps"][3]["action"])
+        # Step 6: relaunch after revoke
+        self.assertEqual("launch_main", sc["steps"][5]["action"])
+        # Step 7: weather fallback - permission prompt visible
+        self.assertEqual("launch_quick_action", sc["steps"][6]["action"])
+        visible = sc["steps"][6].get("expected_visible", [])
+        self.assertTrue(
+            any("Use your location" in text for text in visible),
+            f"weather fallback step should expect permission prompt, got: {visible}",
+        )
+
+class StaleStateDryRunTest(unittest.TestCase):
+    """Tests for dry-run output covering stale-state scenarios."""
+
+    def test_all_stale_state_scenarios_appear_in_dry_run(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in STALE_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        plan_ids = {entry["id"] for entry in plan}
+        self.assertEqual(STALE_SCENARIO_IDS, plan_ids)
+
+    def test_stale_state_dry_run_shows_permissions_touched(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in STALE_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        all_perms = set()
+        for entry in plan:
+            all_perms.update(entry["permissions_touched"])
+        self.assertIn("android.permission.RECORD_AUDIO", all_perms,
+            "Mic stale-state scenario should track RECORD_AUDIO")
+        self.assertIn("android.permission.ACCESS_COARSE_LOCATION", all_perms,
+            "Location/weather stale-state scenarios should track ACCESS_COARSE_LOCATION")
+
+    def test_stale_state_dry_run_includes_cleanup_count(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in STALE_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_cleanup = sum(entry["cleanup_count"] for entry in plan)
+        self.assertGreater(total_cleanup, 0, "Stale-state scenarios should have cleanup steps")
+
+    def test_stale_state_dry_run_shows_screenshots(self) -> None:
+        scenarios = [s for s in permission_runner.SCENARIOS if s["id"] in STALE_SCENARIO_IDS]
+        plan = permission_runner.build_dry_run_plan(scenarios)
+        total_screenshots = sum(entry["screenshot_count"] for entry in plan)
+        self.assertGreater(total_screenshots, 0, "Stale-state scenarios should have screenshots")
+
 if __name__ == "__main__":
     unittest.main()

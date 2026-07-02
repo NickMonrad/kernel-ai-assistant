@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "permission_scenarios",
+  "timestamp": "2026-07-02T02:28:33Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "feature/1353-stale-external-state-scenarios",
+  "commit": "b311bf8c37e532209f12eca75973205d3733a1e8",
+  "pr": null,
+  "release": null,
+  "run_id": "on_device-2026-07-02T02-28-33Z-s21-exynos",
+  "device": {
+    "id": "s21-exynos",
+    "serial": null,
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "R5CR605B71K",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "not_applicable",
+    "runtime": "permission_scenario_runner",
+    "backend": "adb"
+  },
+  "summary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 2,
+    "pass_rate": 0.333
+  },
+  "cases": [
+    {
+      "name": "stale_state_dashboard_reflects_external_mic_revoke",
+      "passed": false,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "harness_error",
+      "failures": [
+        "Target not visible within 8s: content_desc='Settings'; visible sample=['Page 1 of 5.', 'Time & weather 2', '12', '29', 'pm', 'Thu', 'Jul 02', 'Brisbane']"
+      ]
+    },
+    {
+      "name": "stale_state_dashboard_reflects_external_location_revoke",
+      "passed": false,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": "harness_error",
+      "failures": [
+        "Target not visible within 8s: content_desc='Settings'; visible sample=['Page 1 of 5.', 'Time & weather 2', '12', '29', 'pm', 'Thu', 'Jul 02', 'Brisbane']"
+      ]
+    },
+    {
+      "name": "stale_state_weather_location_revoked_after_prior_grant",
+      "passed": true,
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,549 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "permission_scenarios",
+  "timestamp": "2026-07-02T02:28:33Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "feature/1353-stale-external-state-scenarios",
+  "commit": "b311bf8c37e532209f12eca75973205d3733a1e8",
+  "pr": null,
+  "run_id": "on_device-2026-07-02T02-28-33Z-s21-exynos",
+  "device": {
+    "id": "s21-exynos",
+    "serial": "R5CR605B71K",
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "R5CR605B71K",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "thresholds": {
+    "max_steps": 8,
+    "max_user_taps": 5,
+    "max_settings_hops": 1,
+    "max_duration_seconds": 30,
+    "max_back_presses": 2,
+    "fail_on_manual_intervention": true
+  },
+  "summary": {
+    "total": 3,
+    "functional": {
+      "fail": 2,
+      "pass": 1
+    },
+    "ux": {
+      "fail": 2,
+      "warning": 1
+    },
+    "example_report": "summary.md"
+  },
+  "scenarios": [
+    {
+      "schema_version": "1.0",
+      "source": "on_device",
+      "suite": "permission_scenarios",
+      "scenario_id": "stale_state_dashboard_reflects_external_mic_revoke",
+      "scenario_title": "Dashboard reflects microphone permission revoked externally via ADB",
+      "timestamp": "2026-07-02T02:28:37Z",
+      "repo": "NickMonrad/kernel-ai-assistant",
+      "branch": "feature/1353-stale-external-state-scenarios",
+      "commit": "b311bf8c37e532209f12eca75973205d3733a1e8",
+      "pr": null,
+      "device": {
+        "id": "s21-exynos",
+        "serial": "R5CR605B71K",
+        "label": "S21",
+        "manufacturer": "Samsung",
+        "model": "R5CR605B71K",
+        "soc": "Exynos 2100",
+        "tier": "tracked",
+        "android_api": 35,
+        "execution": "physical"
+      },
+      "functional_result": "fail",
+      "ux_result": "fail",
+      "step_count": 9,
+      "tap_count": 2,
+      "settings_hops": 0,
+      "back_presses": 0,
+      "duration_seconds": 30.6,
+      "manual_intervention_required": false,
+      "steps": [
+        {
+          "index": 1,
+          "id": "grant_mic",
+          "action": "set_permission_state",
+          "expected": "Microphone permission granted before stale-state test",
+          "actual": "Permissions set to granted: android.permission.RECORD_AUDIO",
+          "result": "pass",
+          "duration_ms": 74,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 2,
+          "id": "launch_app",
+          "action": "launch_main",
+          "expected": "App launched before stale-state scenario",
+          "actual": "MainActivity launched",
+          "result": "pass",
+          "duration_ms": 3960,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 3,
+          "id": "open_settings",
+          "action": "tap_visible",
+          "expected": "Settings screen opened via top bar icon",
+          "actual": "Tapped target content_desc='Settings'",
+          "result": "pass",
+          "duration_ms": 3563,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 4,
+          "id": "scroll_settings",
+          "action": "swipe",
+          "expected": "Scrolled Settings screen to reveal App Permissions row",
+          "actual": "Swiped (540,1200)\u2192(540,400)",
+          "result": "pass",
+          "duration_ms": 775,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 5,
+          "id": "tap_app_permissions",
+          "action": "tap_visible",
+          "expected": "Tapped App Permissions row, navigating to dashboard",
+          "actual": "Tapped target text='App Permissions'",
+          "result": "pass",
+          "duration_ms": 5430,
+          "phase": "main",
+          "screenshot": "screenshots/05-stale-state-dashboard-reflects-external-mic-revoke-tap-app-permissions.png",
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 6,
+          "id": "assert_mic_granted",
+          "action": "wait_for_package",
+          "expected": "Dashboard visible, Microphone row shows granted state",
+          "actual": "Waited for package com.kernel.ai.debug in foreground",
+          "result": "pass",
+          "duration_ms": 2214,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 7,
+          "id": "revoke_mic_externally",
+          "action": "set_permission_state",
+          "expected": "Microphone permission revoked externally via ADB",
+          "actual": "Permissions set to revoked: android.permission.RECORD_AUDIO",
+          "result": "pass",
+          "duration_ms": 117,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 8,
+          "id": "open_settings_post_revoke",
+          "action": "tap_visible",
+          "expected": "Settings screen opened after external revoke to re-navigate to dashboard",
+          "actual": "Target not visible within 8s: content_desc='Settings'; visible sample=['Page 1 of 5.', 'Time & weather 2', '12', '29', 'pm', 'Thu', 'Jul 02', 'Brisbane']",
+          "result": "fail",
+          "duration_ms": 9195,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {
+            "current_package": "com.sec.android.app.launcher",
+            "focused_window": "<not found>",
+            "resumed_activity": "topResumedActivity=ActivityRecord{60f87e4 u0 com.sec.android.app.launcher/.activities.LauncherActivity t96169}"
+          }
+        },
+        {
+          "index": 12,
+          "id": "reset_mic_after_stale_test",
+          "action": "set_permission_state",
+          "expected": "Microphone permission restored to prompt state after stale-state test",
+          "actual": "Permissions set to prompt: android.permission.RECORD_AUDIO",
+          "result": "pass",
+          "duration_ms": 77,
+          "phase": "cleanup",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        }
+      ],
+      "artifacts": {
+        "screenshots": [
+          "screenshots/05-stale-state-dashboard-reflects-external-mic-revoke-tap-app-permissions.png"
+        ],
+        "logcat": "logcat.txt",
+        "raw_json": "result.json",
+        "summary": "summary.md",
+        "evidence": "evidence.json"
+      },
+      "ux_warnings": [
+        "duration 30.6s > 30s"
+      ],
+      "blocked_reason": null,
+      "fixtures_used": {
+        "weather_named_location": "Tokyo",
+        "short_timer_seconds": 10,
+        "short_alarm_minutes": 1
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "source": "on_device",
+      "suite": "permission_scenarios",
+      "scenario_id": "stale_state_dashboard_reflects_external_location_revoke",
+      "scenario_title": "Dashboard reflects location permission revoked externally via ADB",
+      "timestamp": "2026-07-02T02:29:08Z",
+      "repo": "NickMonrad/kernel-ai-assistant",
+      "branch": "feature/1353-stale-external-state-scenarios",
+      "commit": "b311bf8c37e532209f12eca75973205d3733a1e8",
+      "pr": null,
+      "device": {
+        "id": "s21-exynos",
+        "serial": "R5CR605B71K",
+        "label": "S21",
+        "manufacturer": "Samsung",
+        "model": "R5CR605B71K",
+        "soc": "Exynos 2100",
+        "tier": "tracked",
+        "android_api": 35,
+        "execution": "physical"
+      },
+      "functional_result": "fail",
+      "ux_result": "fail",
+      "step_count": 9,
+      "tap_count": 2,
+      "settings_hops": 0,
+      "back_presses": 0,
+      "duration_seconds": 29.94,
+      "manual_intervention_required": false,
+      "steps": [
+        {
+          "index": 1,
+          "id": "grant_location",
+          "action": "set_permission_state",
+          "expected": "Both coarse and fine location permissions granted before stale-state test",
+          "actual": "Permissions set to granted: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 198,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 2,
+          "id": "launch_app",
+          "action": "launch_main",
+          "expected": "App launched before stale-state scenario",
+          "actual": "MainActivity launched",
+          "result": "pass",
+          "duration_ms": 4016,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 3,
+          "id": "open_settings",
+          "action": "tap_visible",
+          "expected": "Settings screen opened via top bar icon",
+          "actual": "Tapped target content_desc='Settings'",
+          "result": "pass",
+          "duration_ms": 3502,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 4,
+          "id": "scroll_settings",
+          "action": "swipe",
+          "expected": "Scrolled Settings screen to reveal App Permissions row",
+          "actual": "Swiped (540,1200)\u2192(540,400)",
+          "result": "pass",
+          "duration_ms": 767,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 5,
+          "id": "tap_app_permissions",
+          "action": "tap_visible",
+          "expected": "Tapped App Permissions row, navigating to dashboard",
+          "actual": "Tapped target text='App Permissions'",
+          "result": "pass",
+          "duration_ms": 5384,
+          "phase": "main",
+          "screenshot": "screenshots/05-stale-state-dashboard-reflects-external-location-revoke-tap-app-permissions.png",
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 6,
+          "id": "assert_location_granted",
+          "action": "wait_for_package",
+          "expected": "Dashboard visible, Location row shows granted state",
+          "actual": "Waited for package com.kernel.ai.debug in foreground",
+          "result": "pass",
+          "duration_ms": 2262,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 7,
+          "id": "revoke_location_externally",
+          "action": "set_permission_state",
+          "expected": "Location permissions revoked externally via ADB",
+          "actual": "Permissions set to revoked: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 243,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 8,
+          "id": "open_settings_post_revoke",
+          "action": "tap_visible",
+          "expected": "Settings screen opened after external revoke to re-navigate to dashboard",
+          "actual": "Target not visible within 8s: content_desc='Settings'; visible sample=['Page 1 of 5.', 'Time & weather 2', '12', '29', 'pm', 'Thu', 'Jul 02', 'Brisbane']",
+          "result": "fail",
+          "duration_ms": 8128,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {
+            "current_package": "com.sec.android.app.launcher",
+            "focused_window": "<not found>",
+            "resumed_activity": "topResumedActivity=ActivityRecord{60f87e4 u0 com.sec.android.app.launcher/.activities.LauncherActivity t96169}"
+          }
+        },
+        {
+          "index": 12,
+          "id": "reset_location_after_stale_test",
+          "action": "set_permission_state",
+          "expected": "Location permissions restored to prompt state after stale-state test",
+          "actual": "Permissions set to prompt: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 220,
+          "phase": "cleanup",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        }
+      ],
+      "artifacts": {
+        "screenshots": [
+          "screenshots/05-stale-state-dashboard-reflects-external-location-revoke-tap-app-permissions.png"
+        ],
+        "logcat": "logcat.txt",
+        "raw_json": "result.json",
+        "summary": "summary.md",
+        "evidence": "evidence.json"
+      },
+      "ux_warnings": [],
+      "blocked_reason": null,
+      "fixtures_used": {
+        "weather_named_location": "Tokyo",
+        "short_timer_seconds": 10,
+        "short_alarm_minutes": 1
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "source": "on_device",
+      "suite": "permission_scenarios",
+      "scenario_id": "stale_state_weather_location_revoked_after_prior_grant",
+      "scenario_title": "Weather location permission revoked externally after prior grant \u2014 fallback UX shown on re-query",
+      "timestamp": "2026-07-02T02:29:38Z",
+      "repo": "NickMonrad/kernel-ai-assistant",
+      "branch": "feature/1353-stale-external-state-scenarios",
+      "commit": "b311bf8c37e532209f12eca75973205d3733a1e8",
+      "pr": null,
+      "device": {
+        "id": "s21-exynos",
+        "serial": "R5CR605B71K",
+        "label": "S21",
+        "manufacturer": "Samsung",
+        "model": "R5CR605B71K",
+        "soc": "Exynos 2100",
+        "tier": "tracked",
+        "android_api": 35,
+        "execution": "physical"
+      },
+      "functional_result": "pass",
+      "ux_result": "warning",
+      "step_count": 8,
+      "tap_count": 0,
+      "settings_hops": 0,
+      "back_presses": 0,
+      "duration_seconds": 37.89,
+      "manual_intervention_required": false,
+      "steps": [
+        {
+          "index": 1,
+          "id": "grant_location",
+          "action": "set_permission_state",
+          "expected": "Both coarse and fine location permissions granted before stale-state weather test",
+          "actual": "Permissions set to granted: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 199,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 2,
+          "id": "launch_app",
+          "action": "launch_main",
+          "expected": "App launched before stale-state weather scenario",
+          "actual": "MainActivity launched",
+          "result": "pass",
+          "duration_ms": 4088,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 3,
+          "id": "weather_success_with_grant",
+          "action": "launch_quick_action",
+          "expected": "Weather query succeeds without permission prompt because location is granted",
+          "actual": "Quick action launched: what's the weather",
+          "result": "pass",
+          "duration_ms": 10603,
+          "phase": "main",
+          "screenshot": "screenshots/03-stale-state-weather-location-revoked-after-prior-grant-weather-success-with-grant.png",
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 4,
+          "id": "background_app_before_revoke",
+          "action": "press_home",
+          "expected": "App backgrounded before external location revoke",
+          "actual": "Pressed HOME",
+          "result": "pass",
+          "duration_ms": 556,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 5,
+          "id": "revoke_location_externally",
+          "action": "set_permission_state",
+          "expected": "Location permissions revoked externally via ADB while app was backgrounded",
+          "actual": "Permissions set to revoked: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 153,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 6,
+          "id": "relaunch_and_weather_fallback",
+          "action": "launch_main",
+          "expected": "App relaunched; weather query now shows permission dialog because location was revoked externally",
+          "actual": "MainActivity launched",
+          "result": "pass",
+          "duration_ms": 4222,
+          "phase": "main",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 7,
+          "id": "weather_fallback_with_revoked_location",
+          "action": "launch_quick_action",
+          "expected": "Weather query shows permission dialog after external location revoke (no stale grant state)",
+          "actual": "Quick action launched: what's the weather",
+          "result": "pass",
+          "duration_ms": 12110,
+          "phase": "main",
+          "screenshot": "screenshots/07-stale-state-weather-location-revoked-after-prior-grant-weather-fallback-with-revoked-location.png",
+          "screenshot_error": null,
+          "debug": {}
+        },
+        {
+          "index": 8,
+          "id": "reset_location_after_stale_weather",
+          "action": "set_permission_state",
+          "expected": "Location permissions restored to prompt state after stale-state weather scenario",
+          "actual": "Permissions set to prompt: android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION",
+          "result": "pass",
+          "duration_ms": 257,
+          "phase": "cleanup",
+          "screenshot": null,
+          "screenshot_error": null,
+          "debug": {}
+        }
+      ],
+      "artifacts": {
+        "screenshots": [
+          "screenshots/03-stale-state-weather-location-revoked-after-prior-grant-weather-success-with-grant.png",
+          "screenshots/07-stale-state-weather-location-revoked-after-prior-grant-weather-fallback-with-revoked-location.png"
+        ],
+        "logcat": "logcat.txt",
+        "raw_json": "result.json",
+        "summary": "summary.md",
+        "evidence": "evidence.json"
+      },
+      "ux_warnings": [
+        "duration 37.9s > 30s"
+      ],
+      "blocked_reason": null,
+      "fixtures_used": {
+        "weather_named_location": "Tokyo",
+        "short_timer_seconds": 10,
+        "short_alarm_minutes": 1
+      }
+    }
+  ],
+  "artifacts": {
+    "raw_json": "result.json",
+    "summary": "summary.md",
+    "logcat": "logcat.txt",
+    "evidence": "evidence.json",
+    "screenshots_dir": "screenshots"
+  }
+}

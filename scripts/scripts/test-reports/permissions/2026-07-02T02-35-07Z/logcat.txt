@@ -1,0 +1,18 @@
+===== stale_state_dashboard_reflects_external_mic_revoke =====
+--------- beginning of main
+07-02 12:35:30.962 10474 10474 D KernelAI: JandalVoiceInteractionService: ready
+07-02 12:35:32.852 10474 10497 D KernelAI: HuggingFaceAuthManager: restored auth=true, user=<redacted>
+
+===== stale_state_dashboard_reflects_external_location_revoke =====
+--------- beginning of main
+07-02 12:36:00.377 11131 11131 D KernelAI: JandalVoiceInteractionService: ready
+07-02 12:36:02.335 11131 11151 D KernelAI: HuggingFaceAuthManager: restored auth=true, user=<redacted>
+
+===== stale_state_weather_location_revoked_after_prior_grant =====
+--------- beginning of main
+07-02 12:36:35.111 12014 12036 D KernelAI: HuggingFaceAuthManager: restored auth=true, user=<redacted>
+07-02 12:36:36.183 12014 12014 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+07-02 12:36:36.198 12014 12014 I KernelAI: Current-location weather blocked: ACCESS_COARSE_LOCATION denied
+07-02 12:36:36.198 12014 12014 I KernelAI: GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)
+07-02 12:36:36.678 12014 12014 D KernelAI: JandalVoiceInteractionService: ready
+

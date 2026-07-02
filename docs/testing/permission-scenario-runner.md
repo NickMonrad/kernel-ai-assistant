@@ -298,6 +298,70 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
   --out-dir scripts/test-reports/permissions
 ```
 
+## Stale/external-state scenario group
+
+These scenarios validate that the app correctly reflects permission state changes
+applied externally (via ADB) rather than through the app's own UI. Two dashboard
+refresh scenarios follow a grant → dashboard → assert granted → background →
+revoke → re-navigate → assert not-granted pattern. The weather scenario validates
+that the weather skill re-checks permission at query time (not cached).
+
+All stale-state scenarios use `permissions`, `stale_state`, and `external_state` tags
+plus the capability-specific tag (e.g. `microphone`, `location`, `weather`). Each
+scenario includes cleanup to restore changed permissions to `prompt` state.
+
+| Scenario ID | Steps | Permission | Cleanup | Screenshots |
+|------------|-------|------------|---------|-------------|
+| `stale_state_dashboard_reflects_external_mic_revoke` | 10 | RECORD_AUDIO | restore to prompt | 2 |
+| `stale_state_dashboard_reflects_external_location_revoke` | 10 | ACCESS_COARSE_LOCATION + ACCESS_FINE_LOCATION | restore to prompt | 2 |
+| `stale_state_weather_location_revoked_after_prior_grant` | 7 | ACCESS_COARSE_LOCATION + ACCESS_FINE_LOCATION | restore to prompt | 2 |
+
+### Scenario details
+
+- **`stale_state_dashboard_reflects_external_mic_revoke`** — Grants `RECORD_AUDIO`,
+  opens the dashboard via Settings, asserts "Microphone granted" is visible. Then
+  revokes `RECORD_AUDIO` via ADB, re-navigates to the dashboard, and asserts
+  "Microphone not granted" is visible. Validates that the dashboard refreshes
+  permission state from the external permission source.
+
+- **`stale_state_dashboard_reflects_external_location_revoke`** — Same pattern as
+  the mic scenario but for `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION`.
+  Asserts "Location granted" / "Location not granted" row texts.
+
+- **`stale_state_weather_location_revoked_after_prior_grant`** — Tests weather's
+  runtime permission re-check (not cached). Grants both coarse and fine location
+  permissions, sends a current-location weather query, asserts it succeeds
+  without a permission prompt. Then backgrounds the app, revokes both location
+  permissions via ADB, relaunches, sends the same weather query again, and
+  asserts the permission dialog (\"Use your location for local weather?\") is now
+  shown. Validates that the weather skill re-checks permission at query time
+  rather than caching the prior grant state. Coverage distinct from #1360's
+  basic location-denied cases.
+
+### Running the stale-state group on S21
+
+```bash
+ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
+  --device-id s21-exynos \
+  --serial "$ANDROID_SERIAL" \
+  --scenarios stale_state_dashboard_reflects_external_mic_revoke,stale_state_dashboard_reflects_external_location_revoke,stale_state_weather_location_revoked_after_prior_grant \
+  --out-dir scripts/test-reports/permissions
+```
+
+### Limitations
+
+- **Dashboard refresh timing**: The dashboard auto-refreshes on `ON_RESUME`, but
+  the scenarios explicitly re-navigate via `tap_visible "App Permissions"` to
+  ensure the refresh is triggered and the assertion is stable. Without the
+  explicit re-navigation, the assertion could race against a pending refresh.
+- **Permission state persistence**: Android `pm` commands (`grant`/`revoke`)
+  persist across app restarts but may be affected by device reboots. Scenarios
+  assume the device is in a known permission state before the run.
+- **One permission per scenario**: Each scenario tests a single permission.
+  Composite scenarios (e.g., revoking multiple permissions simultaneously)
+  are not covered in this slice.
+
+
 ### Known limitations
 
 - **POST_NOTIFICATIONS**: On Android 13+ (API 33+), `POST_NOTIFICATIONS` is a
