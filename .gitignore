@@ -64,3 +64,5 @@ __pycache__/
 scripts/test-reports/
 # Runner run from scripts/ dir may create nested reports path
 scripts/scripts/test-reports/
+_site/
+testdata/
