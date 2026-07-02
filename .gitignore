@@ -62,5 +62,5 @@ core/voice/src/main/assets/sherpa-tts/
 __pycache__/
 *.py[cod]
 scripts/test-reports/
-_site/
-testdata/
+# Runner run from scripts/ dir may create nested reports path
+scripts/scripts/test-reports/
