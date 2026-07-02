@@ -983,7 +983,7 @@ SCENARIOS: list[dict[str, object]] = [
     },
     {
         "id": "special_access_dashboard_state",
-        "title": "Special access rows visible on dashboard with correct state — read-only verification of Do Not Disturb and Modify system settings rows",
+        "title": "Special access rows visible on dashboard — read-only verification of Do Not Disturb and Modify system settings rows",
         "capability": "",
         "tags": ["permissions", "special_access", "dashboard"],
         "preconditions": [
