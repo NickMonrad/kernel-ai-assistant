@@ -62,7 +62,7 @@ class ScheduledAlarmsDialogTest {
             }
 
             if (showDialog) {
-                AlarmDialogTestWrapper(
+                AlarmDialogFixture(
                     label = label,
                     onLabelChange = { label = it },
                     onConfirm = { confirmed ->

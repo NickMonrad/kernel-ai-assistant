@@ -21,7 +21,7 @@ class ChatScreenToolChipTest {
 
     private fun setContent(message: ChatMessage) {
         composeTestRule.setContent {
-            MessageBubbleTestWrapper(message = message)
+            MessageBubbleFixture(message = message)
         }
     }
 

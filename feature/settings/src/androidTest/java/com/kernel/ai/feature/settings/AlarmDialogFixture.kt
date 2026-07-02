@@ -20,11 +20,13 @@ import androidx.compose.ui.unit.dp
 /**
  * Renders the label-step of the alarm create/edit dialog in isolation for testing.
  * The production dialog is a multi-step flow (date → time → label) which cannot
- * easily be driven through Espresso without a device calendar. This wrapper skips
+ * easily be driven through Espresso without a device calendar. This fixture skips
  * directly to the label step so we can verify tag presence, input, and callbacks.
+ *
+ * This is a reusable composable fixture, not an AndroidTest entry point.
  */
 @Composable
-fun AlarmDialogTestWrapper(
+fun AlarmDialogFixture(
     label: String,
     onLabelChange: (String) -> Unit,
     onConfirm: (label: String?) -> Unit,

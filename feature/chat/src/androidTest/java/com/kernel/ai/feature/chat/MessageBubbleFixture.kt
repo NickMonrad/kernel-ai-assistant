@@ -37,12 +37,14 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 
 /**
- * A standalone composable that mirrors the think-bubble and tool-chip portions of
- * [ChatScreen]'s private `MessageBubble` so that instrumented tests can exercise
+ * A standalone fixture that mirrors the think-bubble and tool-chip portions of
+ * [ChatScreen]'s private `MessageBubble` so instrumented tests can exercise
  * them without depending on the full chat screen (which requires a ViewModel + Hilt).
+ *
+ * This is a reusable composable fixture, not an AndroidTest entry point.
  */
 @Composable
-fun MessageBubbleTestWrapper(
+fun MessageBubbleFixture(
     message: ChatMessage,
     showThinkingProcess: Boolean = true,
 ) {

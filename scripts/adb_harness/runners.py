@@ -52,6 +52,7 @@ from adb_harness.device import (
     clear_logcat,
     dismiss_notifications,
     extract_intent,
+    extract_profile_result,
     extract_reply,
     check_params,
     logcat_start,
@@ -156,6 +157,25 @@ def _poll_for_all_markers(
     return results, accumulated
 def _clear_conversation() -> None:
     """Force-stop the app to clear conversation state and model caches."""
+    run_adb("shell", "am", "force-stop", PACKAGE)
+    time.sleep(1)
+
+def _reset_app_process(reason: str) -> None:
+    """Return to launcher, dismiss overlays, and force-stop the app.
+
+    Safe isolation for suite and phase boundaries: preserves app data and
+    downloaded models while clearing foreground UI and in-process routing state.
+    """
+    print(f"  [reset] {reason} — returning HOME, dismissing overlays, force-stopping app")
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    time.sleep(0.2)
+    run_adb("shell", "input", "keyevent", "KEYCODE_HOME")
+    time.sleep(0.5)
+    dismiss_notifications()
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.2)
+    run_adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(0.2)
     run_adb("shell", "am", "force-stop", PACKAGE)
     time.sleep(1)
 
@@ -648,7 +668,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         if cumulative_reset_interval is not None:
             print(f"  Cumulative reset interval: {cumulative_reset_interval} tests (opt-in)")
         else:
-            print("  Cumulative mode: true cumulative (no periodic force-stop)")
+            print("  Cumulative mode: no periodic force-stop; safe phase-boundary reset between phases")
         print(f"  Selected: {len(selected_tests)} / {total_tests}")
         print(f"  Not selected: {not_selected}")
         print(f"  Total: {len(selected_tests)} test cases"
@@ -715,10 +735,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
     start_keepalive()
 
-    # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire.
+    # Warm up: start from a clean launcher/app state, then send a dummy query to
+    # trigger model load and wait for NativeIntentHandler to fire.
     # Cold starts (or post-OOM reloads) can take 90-120s; poll for 120s before giving up.
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    _reset_app_process("suite preflight warmup")
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
@@ -893,6 +914,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         phase_group = list(phase_group_iter)
         phase_start = time.time()
         phase_results: list[TestResult] = []
+        if results:
+            print(f"  [phase-reset] Preparing clean boundary before phase '{phase_name}' ...")
+            _reset_app_process(f"between phases → {phase_name}")
+            clear_logcat()
+            time.sleep(1)
 
         for _phase_idx, _case_idx, tc in phase_group:
             global_index = len(results) + 1  # 1-based, runs only over selected tests
@@ -1309,9 +1335,13 @@ def run_profile_tests(dry_run: bool = False) -> int:
     print("=" * 70)
     print()
 
-    # Warm up: send a chat message and wait for the inference engine to load
-    print("  Warming up engine ...", end=" ", flush=True)
+    # Warm up: reset to a clean launcher/app state, then send a chat message and
+    # wait for the inference engine to load.
+    print("  Resetting app state ...", end=" ", flush=True)
+    _reset_app_process("profile preflight")
     clear_logcat()
+    print("done")
+    print("  Warming up engine ...", end=" ", flush=True)
     send_text("hello")
     warm_start = time.time()
     warmed = False
@@ -1332,9 +1362,19 @@ def run_profile_tests(dry_run: bool = False) -> int:
         send_profile(tc.profile_text)
         time.sleep(PROFILE_WAIT_SECONDS)
         logcat = read_logcat_all()
-        extracted = extract_profile_result(logcat)
+        harness_error: str | None = None
+        try:
+            extracted = extract_profile_result(logcat)
+        except Exception as exc:
+            harness_error = f"profile extraction parse error: {exc}"
+            extracted = {
+                "method": "HARNESS_ERROR",
+                "name": None,
+                "role": None,
+                "location": None,
+            }
 
-        passed = True
+        passed = harness_error is None
         if tc.expect_name and extracted["name"] != tc.expect_name:
             passed = False
         if tc.expect_role_contains and (
@@ -1347,7 +1387,7 @@ def run_profile_tests(dry_run: bool = False) -> int:
         ):
             passed = False
 
-        results.append(TestResult(
+        result = TestResult(
             index=i,
             message=tc.name,
             expect_intent=tc.name,
@@ -1359,10 +1399,16 @@ def run_profile_tests(dry_run: bool = False) -> int:
             param_failures=[],
             xfail=False,
             reply_warn=None,
-            log_check_warn=None,
-        ))
+            log_check_warn=harness_error,
+        )
+        result.status = derive_status(result)
+        result.failure_bucket = derive_failure_bucket(result)
+        results.append(result)
         method_tag = f"[{extracted['method'] or 'NO_LOG'}]"
-        print("✓" if passed else "✗", method_tag)
+        if harness_error is not None:
+            print("✗", method_tag, f"[{harness_error}]")
+        else:
+            print("✓" if passed else "✗", method_tag)
 
     # Summary
     print()
@@ -1443,9 +1489,9 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
     start_keepalive()
 
-    # Warm up model
+    # Warm up model from a clean launcher/app state.
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
-    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    _reset_app_process("isolated phase warmup")
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
