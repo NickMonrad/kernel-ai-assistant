@@ -1349,10 +1349,11 @@ def build_dry_run_plan(scenarios: list[dict[str, object]]) -> list[dict[str, obj
         permissions_touched: set[str] = set()
         screenshot_count = 0
         for step in preconditions + steps + cleanup:
-            if step.get("action") == "set_permission_state":
+            if step.get("action") in ("set_permission_state", "set_appops"):
                 permissions_touched.add(str(step.get("permission", "")))
-                for extra in step.get("also_apply", []):
-                    permissions_touched.add(str(extra))
+                if step.get("action") == "set_permission_state":
+                    for extra in step.get("also_apply", []):
+                        permissions_touched.add(str(extra))
             if step.get("screenshot"):
                 screenshot_count += 1
 
