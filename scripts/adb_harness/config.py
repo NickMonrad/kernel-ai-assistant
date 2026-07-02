@@ -39,11 +39,8 @@ DIRECT_REPLY_PATTERN = re.compile(r"DirectReply:\s*(.*)")
 LLM_TOOLS_ASSISTANT_REPLY_PATTERN = re.compile(r"llm_tools_assistant_reply:\s*(.*)")
 MARKER_TIMEOUT_PATTERN = re.compile(r"llm_tools_response_ready|llm_tools_native_handler_started")
 SLOT_FILL_MARKERS = re.compile(r"NeedsSlot|ConfirmationFastPath:")
-PROFILE_LLM_PATTERN = re.compile(r"ProfileExtraction\s+method=llm")
-PROFILE_FALLBACK_PATTERN = re.compile(
-    r"ProfileExtraction\s+method=regex|"
-    r"ProfileExtraction\s+method=fallback"
-)
+PROFILE_LLM_PATTERN = re.compile(r"Profile LLM extraction succeeded")
+PROFILE_FALLBACK_PATTERN = re.compile(r"Profile regex fallback")
 PROFILE_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*({.*})")
 
 # ── Timeouts (overridable via env vars) ──

@@ -25,12 +25,13 @@ import adb_harness.runners as runners  # noqa: E402
 
 
 class ProfileParserTest(unittest.TestCase):
-    def test_extract_profile_result_parses_method_and_fields(self) -> None:
+    def test_extract_profile_result_parses_simple_lines(self) -> None:
+        """Simplified lines containing just the log message (no logcat prefix)."""
         logcat = (
-            "KernelAI: ProfileExtraction method=llm\n"
-            "KernelAI: name: Nick\n"
-            "KernelAI: role: Developer\n"
-            "KernelAI: location: Wellington\n"
+            "Profile LLM extraction succeeded\n"
+            "name: Nick\n"
+            "role: Developer\n"
+            "location: Wellington\n"
         )
 
         parsed = device.extract_profile_result(logcat)
@@ -44,6 +45,59 @@ class ProfileParserTest(unittest.TestCase):
             },
             parsed,
         )
+
+    def test_extract_profile_result_parses_logcat_brief_lines(self) -> None:
+        """Real logcat -v brief format as produced by adb logcat -v brief."""
+        logcat = (
+            "D/KernelAI(12345): Profile LLM extraction succeeded\n"
+            "D/KernelAI(12345): name: Nick\n"
+            "D/KernelAI(12345): role: Developer\n"
+            "D/KernelAI(12345): location: Wellington\n"
+        )
+
+        parsed = device.extract_profile_result(logcat)
+
+        self.assertEqual(
+            {
+                "method": "llm",
+                "name": "Nick",
+                "role": "Developer",
+                "location": "Wellington",
+            },
+            parsed,
+        )
+
+    def test_extract_profile_result_parses_logcat_brief_fallback(self) -> None:
+        """Regex fallback path with logcat -v brief lines."""
+        logcat = (
+            "D/KernelAI(12345): Profile LLM extraction skipped — engine not ready\n"
+            "D/KernelAI(12345): Profile regex fallback\n"
+            "D/KernelAI(12345): name: Alex\n"
+            "D/KernelAI(12345): role: software engineer\n"
+            "D/KernelAI(12345): location: Sydney, Australia\n"
+        )
+
+        parsed = device.extract_profile_result(logcat)
+
+        self.assertEqual(
+            {
+                "method": "regex",
+                "name": "Alex",
+                "role": "software engineer",
+                "location": "Sydney, Australia",
+            },
+            parsed,
+        )
+
+    def test_extract_profile_result_handles_missing_fields(self) -> None:
+        """Partial output returns None for missing fields, not crash."""
+        logcat = "Profile regex fallback\nname: Sam\n"
+        parsed = device.extract_profile_result(logcat)
+        self.assertEqual("regex", parsed["method"])
+        self.assertEqual("Sam", parsed["name"])
+        self.assertIsNone(parsed["role"])
+        self.assertIsNone(parsed["location"])
+
 
 
 class ProfileHarnessTest(unittest.TestCase):

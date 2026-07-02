@@ -767,9 +767,14 @@ def extract_profile_result(logcat_output: str) -> dict[str, str | None]:
     """Parse profile extraction method and structured fields from logcat."""
     used_llm = bool(PROFILE_LLM_PATTERN.search(logcat_output))
     used_fallback = bool(PROFILE_FALLBACK_PATTERN.search(logcat_output))
-    name_match = re.search(r"^KernelAI: name:\s*(.+)$", logcat_output, flags=re.MULTILINE)
-    role_match = re.search(r"^KernelAI: role:\s*(.+)$", logcat_output, flags=re.MULTILINE)
-    location_match = re.search(r"^KernelAI: location:\s*(.+)$", logcat_output, flags=re.MULTILINE)
+    # The app logs YAML field names (name:, role:, location:) as the log message
+    # content via Log.d("KernelAI", ...), so we match the field name after any
+    # logcat prefix content.  The prefix comes from logcat -v brief
+    # ("D/KernelAI(PID): ") and is not part of the message.
+    # Using $ with MULTILINE anchors to end-of-line; . doesn't cross \n.
+    name_match = re.search(r"name:\s*(.+)$", logcat_output, flags=re.MULTILINE)
+    role_match = re.search(r"role:\s*(.+)$", logcat_output, flags=re.MULTILINE)
+    location_match = re.search(r"location:\s*(.+)$", logcat_output, flags=re.MULTILINE)
     return {
         "method": "llm" if used_llm else ("regex" if used_fallback else None),
         "name": name_match.group(1).strip() if name_match else None,
