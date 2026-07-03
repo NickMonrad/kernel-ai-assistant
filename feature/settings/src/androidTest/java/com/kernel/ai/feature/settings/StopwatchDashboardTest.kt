@@ -53,12 +53,14 @@ class StopwatchDashboardTest {
                 onLap = {},
             )
         }
+        composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("active_stopwatch_card").assertIsDisplayed()
         composeTestRule.onNodeWithTag("stopwatch_lap_summary").assertIsDisplayed()
-        composeTestRule.onNodeWithText("2 laps recorded · latest split 00:03").assertIsDisplayed()
+        // formatStopwatchElapsed includes tenths: 3000ms → "00:03.0", 5000ms → "00:05.0"
+        composeTestRule.onNodeWithText("2 laps recorded · latest split 00:03.0").assertIsDisplayed()
         composeTestRule.onNodeWithText("Lap 2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Split 00:03").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Split 00:03.0").assertIsDisplayed()
         composeTestRule.onNodeWithText("Lap 1").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Record lap").assertCountEquals(0)
 }

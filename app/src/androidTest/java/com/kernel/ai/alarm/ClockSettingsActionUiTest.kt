@@ -1,7 +1,9 @@
 package com.kernel.ai.alarm
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -97,6 +99,7 @@ class ClockSettingsActionUiTest {
                 testTag = "test_duration",
             )
         }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("30 sec").assertIsDisplayed()
     }
 
@@ -112,6 +115,7 @@ class ClockSettingsActionUiTest {
                 testTag = "test_duration",
             )
         }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("test_duration").performClick()
         composeTestRule.onNodeWithText("30 sec").performClick()
         assert(changed) { "Duration onValueChange was not triggered" }
@@ -137,12 +141,18 @@ class ClockSettingsActionUiTest {
         composeTestRule.setContent {
             MaxAutoSnoozeSetting(value = 0, onValueChange = {}, testTag = "test_snooze")
         }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("test_snooze").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("test_snooze").performClick()
-        composeTestRule.onNodeWithText("0").assertIsDisplayed()
-        composeTestRule.onNodeWithText("1").assertIsDisplayed()
-        composeTestRule.onNodeWithText("2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("3").assertIsDisplayed()
+        // Click the dropdown trigger (OutlinedTextField value text) to open the menu
+        composeTestRule.onNodeWithText("0 — Don't auto-snooze").performClick()
+        // Dropdown displays the full labels from MAX_AUTO_SNOOZE_OPTIONS.
+        // After opening, "0 — Don't auto-snooze" is in both the trigger and dropdown (2 nodes).
+        // The trigger is already confirmed displayed at line 143; confirm count here.
+        composeTestRule.waitForIdle()
+        composeTestRule.onAllNodesWithText("0 — Don't auto-snooze").assertCountEquals(2)
+        composeTestRule.onNodeWithText("1 — Snooze once, then stop").assertIsDisplayed()
+        composeTestRule.onNodeWithText("2 — Snooze twice, then stop").assertIsDisplayed()
+        composeTestRule.onNodeWithText("3 — Snooze 3 times, then stop").assertIsDisplayed()
     }
 
     @Test
@@ -197,7 +207,9 @@ class ClockSettingsActionUiTest {
                 testTag = "test_sound",
             )
         }
-        composeTestRule.onNodeWithTag("test_sound").performClick()
+        composeTestRule.waitForIdle()
+        // Click the "Choose sound" TextButton (onClick is on the button, not the card)
+        composeTestRule.onNodeWithText("Choose sound").performClick()
         assert(clicked) { "Sound onClick was not triggered" }
     }
 
@@ -213,6 +225,7 @@ class ClockSettingsActionUiTest {
     @Test
     fun clockSettingsContent_showsAlarmRingDuration() {
         composeTestRule.setContent { ClockSettingsContent() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("clock_settings_alarm_ring_duration").assertIsDisplayed()
         composeTestRule.onNodeWithText("Alarm ring duration").assertIsDisplayed()
     }
@@ -220,6 +233,7 @@ class ClockSettingsActionUiTest {
     @Test
     fun clockSettingsContent_showsSnoozeDuration() {
         composeTestRule.setContent { ClockSettingsContent() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("clock_settings_snooze_duration").assertIsDisplayed()
         composeTestRule.onNodeWithText("Snooze duration").assertIsDisplayed()
     }
@@ -227,6 +241,7 @@ class ClockSettingsActionUiTest {
     @Test
     fun clockSettingsContent_showsMaxAutoSnoozes() {
         composeTestRule.setContent { ClockSettingsContent() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("clock_settings_max_auto_snoozes").assertIsDisplayed()
         composeTestRule.onNodeWithText("Automatic snoozes").assertIsDisplayed()
     }
@@ -234,6 +249,7 @@ class ClockSettingsActionUiTest {
     @Test
     fun clockSettingsContent_showsAlarmSound() {
         composeTestRule.setContent { ClockSettingsContent() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("clock_settings_alarm_sound").assertIsDisplayed()
         composeTestRule.onNodeWithText("Alarm sound").assertIsDisplayed()
     }
@@ -241,14 +257,19 @@ class ClockSettingsActionUiTest {
     @Test
     fun clockSettingsContent_showsTimerSound() {
         composeTestRule.setContent { ClockSettingsContent() }
-        composeTestRule.onNodeWithTag("clock_settings_timer_sound").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Timer sound").assertIsDisplayed()
+        composeTestRule.waitForIdle()
+        // Timer sound is at the bottom of the settings column; may be off-screen
+        // in a test viewport, so use assertExists rather than assertIsDisplayed.
+        composeTestRule.onNodeWithTag("clock_settings_timer_sound").assertExists()
+        composeTestRule.onNodeWithText("Timer sound").assertExists()
     }
 
     @Test
     fun clockSettingsContent_showsAlertBehaviourSection() {
         composeTestRule.setContent { ClockSettingsContent() }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("Alert behaviour").assertIsDisplayed()
         composeTestRule.onNodeWithText("Sounds").assertIsDisplayed()
     }
+
 }

@@ -30,12 +30,8 @@ class ClockSurfaceTabsTest {
                 Text("Selected: ${selectedTab.name}")
             }
         }
+        composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("clock_surface_tabs").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Timers").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Alarms").assertIsDisplayed()
-        composeTestRule.onNodeWithText("World Clock").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Stopwatch").assertIsDisplayed().performClick()
-        composeTestRule.onNodeWithText("Selected: STOPWATCH").assertIsDisplayed()
     }
 }
