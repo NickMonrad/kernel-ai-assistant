@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 private val RAW_URL_REGEX = Regex("""https?://[^\s<>"()]+[^\s<>"().,!?;:]""")
@@ -32,7 +33,9 @@ internal fun ToolLinkList(
     if (urls.isEmpty()) return
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("tool_link_list"),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         urls.forEach { url ->

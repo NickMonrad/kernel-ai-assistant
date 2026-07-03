@@ -1,9 +1,11 @@
 package com.kernel.ai.feature.chat
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -73,6 +75,7 @@ class ChatScreenToolChipTest {
         setContent(message)
 
         composeTestRule.onNodeWithTag("tool_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tool_chip").performClick()
         composeTestRule.onNodeWithText("Wellington").assertIsDisplayed()
         composeTestRule.onNodeWithText("🌡 High 13°C • Low 12°C").assertIsDisplayed()
     }
@@ -124,10 +127,12 @@ class ChatScreenToolChipTest {
                         ),
                     ),
                 ),
-            ),
+        ),
         )
         setContent(message)
 
+        composeTestRule.onNodeWithTag("tool_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tool_chip").performClick()
         composeTestRule.onNodeWithText("Forecast").assertIsDisplayed()
         composeTestRule.onNodeWithText("Fri 2 May").assertIsDisplayed()
         composeTestRule.onNodeWithText("Sat 3 May").assertIsDisplayed()
@@ -141,7 +146,7 @@ class ChatScreenToolChipTest {
             content = "Here's a summary.",
             toolCall = ToolCallInfo(
                 skillName = "search_wikipedia",
-                requestJson = """{"query":"mother's day","url":"https://en.wikipedia.org/wiki/Mother%27s_Day"}""",
+                requestJson = """{"query":"mother's day"}""",
                 resultText = "Summary only. Source: https://en.wikipedia.org/wiki/Mother%27s_Day",
                 isSuccess = true,
             ),
@@ -149,7 +154,10 @@ class ChatScreenToolChipTest {
         setContent(message)
 
         composeTestRule.onNodeWithTag("tool_chip").performClick()
-        composeTestRule.onNodeWithText("https://en.wikipedia.org/wiki/Mother%27s_Day").assertIsDisplayed()
+        // The URL appears in the result text (expanded chip) and as a surfaced link
+        // in the fallback bubble — both verify it's discoverable.
+        val url = "https://en.wikipedia.org/wiki/Mother%27s_Day"
+        composeTestRule.onAllNodesWithText(url).assertCountEquals(2)
     }
 
     @Test
