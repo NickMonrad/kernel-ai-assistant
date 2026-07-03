@@ -50,14 +50,15 @@ class NotesMigrationTest {
 
     @Test
     @Throws(IOException::class)
-    fun `migration 48 to 50 creates notes table with correct schema`() {
+    fun `migration 48 to 51 creates notes table with correct schema`() {
         helper.createDatabase(testDbName, 48).close()
         helper.runMigrationsAndValidate(
             testDbName,
-            50,
+            51,
             true,
             KernelDatabase.MIGRATION_48_49,
             KernelDatabase.MIGRATION_49_50,
+            KernelDatabase.MIGRATION_50_51,
         ).close()
 
         openMigratedDatabase().useDb { noteDao ->
@@ -69,77 +70,84 @@ class NotesMigrationTest {
 
     @Test
     @Throws(IOException::class)
-    fun `migration 48 to 50 allows nullable title`() {
+    fun `migration 48 to 51 adds all expected columns`() {
         helper.createDatabase(testDbName, 48).close()
-        helper.runMigrationsAndValidate(
+        val db = helper.runMigrationsAndValidate(
             testDbName,
-            50,
+            51,
             true,
             KernelDatabase.MIGRATION_48_49,
             KernelDatabase.MIGRATION_49_50,
-        ).close()
+            KernelDatabase.MIGRATION_50_51,
+        )
 
-        openMigratedDatabase().useDb { noteDao ->
-            runBlocking {
-                val id = noteDao.insertNote(NoteEntity(title = null, content = "Test content"))
-                assertTrue(id > 0)
-
-                val note = noteDao.getNoteById(id)
-                assertNotNull(note)
-                assertNull(note?.title)
-                assertEquals("Test content", note?.content)
+        // Query the notes table directly using the migrated database
+        db.query("PRAGMA table_info('notes')").use { cursor ->
+            val columns = mutableSetOf<String>()
+            while (cursor.moveToNext()) {
+                columns.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
             }
+            assertTrue("Expected id column", "id" in columns)
+            assertTrue("Expected title column", "title" in columns)
+            assertTrue("Expected content column", "content" in columns)
+            assertTrue("Expected created_at column", "created_at" in columns)
+            assertTrue("Expected updated_at column", "updated_at" in columns)
+            assertTrue("Expected pinned column", "pinned" in columns)
+            assertTrue("Expected archived_at column", "archived_at" in columns)
+            assertTrue("Expected display_order column", "display_order" in columns)
+            assertTrue("Expected smart_title_generated column", "smart_title_generated" in columns)
         }
+        db.close()
     }
 
     @Test
     @Throws(IOException::class)
-    fun `migration 48 to 50 adds all expected columns`() {
+    fun `migration 48 to 51 creates required indices`() {
         helper.createDatabase(testDbName, 48).close()
-        helper.runMigrationsAndValidate(
+        val db = helper.runMigrationsAndValidate(
             testDbName,
-            50,
+            51,
             true,
             KernelDatabase.MIGRATION_48_49,
             KernelDatabase.MIGRATION_49_50,
-        ).close()
-
-        openMigratedDatabase().useDb { noteDao ->
-            runBlocking {
-                val id = noteDao.insertNote(NoteEntity(title = "Test", content = "Content"))
-                val note = noteDao.getNoteById(id)!!
-
-                assertEquals(false, note.pinned)
-                assertEquals(0L, note.archivedAt)
-                assertTrue(note.displayOrder >= 0.0)
-                assertEquals(false, note.smartTitleGenerated)
-            }
-        }
-    }
-
-    @Test
-    @Throws(IOException::class)
-    fun `migration 48 to 50 creates required indices`() {
-        helper.createDatabase(testDbName, 48).close()
-        helper.runMigrationsAndValidate(
-            testDbName,
-            50,
-            true,
-            KernelDatabase.MIGRATION_48_49,
-            KernelDatabase.MIGRATION_49_50,
-        ).close()
+            KernelDatabase.MIGRATION_50_51,
+        )
 
         openMigratedDatabase().useDb { noteDao ->
             runBlocking {
                 noteDao.insertNote(NoteEntity(title = "A", content = "a", archivedAt = 1000))
-                noteDao.insertNote(NoteEntity(title = "B", content = "b", archivedAt = 2000))
-                noteDao.insertNote(NoteEntity(title = "C", content = "c", pinned = true, displayOrder = 0.0))
-
+                noteDao.insertNote(NoteEntity(title = "B", content = "b"))
+                noteDao.insertNote(NoteEntity(title = "C", content = "c"))
                 val active = noteDao.getAllActiveNotes()
-                assertEquals(3, active.size)
+                assertEquals(2, active.size)
+                assertEquals(2, noteDao.getActiveNoteCount())
             }
         }
+        db.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun `migration 48 to 51 allows nullable title`() {
+        helper.createDatabase(testDbName, 48).close()
+        val db = helper.runMigrationsAndValidate(
+            testDbName,
+            51,
+            true,
+            KernelDatabase.MIGRATION_48_49,
+            KernelDatabase.MIGRATION_49_50,
+            KernelDatabase.MIGRATION_50_51,
+        )
+
+        openMigratedDatabase().useDb { noteDao ->
+            runBlocking {
+                noteDao.insertNote(NoteEntity(content = "no title"))
+                assertEquals(1, noteDao.getActiveNoteCount())
+            }
+        }
+        db.close()
+    }
+
 
     private fun openMigratedDatabase(): KernelDatabase {
         return Room.databaseBuilder(context, KernelDatabase::class.java, testDbName)

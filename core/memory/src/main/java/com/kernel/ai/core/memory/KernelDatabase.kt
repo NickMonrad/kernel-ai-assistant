@@ -652,7 +652,7 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL(
                     """
                     INSERT INTO list_items_new (id, listId, text, createdAt, updatedAt, checked)
-                    SELECT li.id, l.id, li.item, li.addedAt, li.addedAt, li.checked
+                    SELECT li.id, l.id, li.item, li.addedAt, li.addedAt, COALESCE(li.checked, 0)
                     FROM list_items li
                     LEFT JOIN lists l ON li.listName = l.name
                     WHERE l.id IS NOT NULL
