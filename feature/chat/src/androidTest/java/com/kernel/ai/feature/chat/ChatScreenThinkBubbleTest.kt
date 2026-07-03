@@ -23,8 +23,8 @@ class ChatScreenThinkBubbleTest {
         composeTestRule.setContent {
             // MessageBubble is private; replicate the relevant composable tree
             // by invoking the same composables from ChatScreen.kt.
-            // We use the internal helper below to render the bubble standalone.
-            MessageBubbleTestWrapper(message = message, showThinkingProcess = showThinkingProcess)
+            // Use the shared fixture below to render the bubble standalone.
+            MessageBubbleFixture(message = message, showThinkingProcess = showThinkingProcess)
         }
     }
 

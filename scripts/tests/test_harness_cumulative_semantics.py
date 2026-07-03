@@ -3,7 +3,7 @@
 
 Verifies:
 - Default cumulative mode (--cumulative-reset-interval not set) does NOT
-  force-stop between test cases — suitable for reproducing #1293.
+  force-stop between test cases, but does advertise a safe reset between phases.
 - --cumulative-reset-interval N triggers force-stop every N tests.
 - --iso (phase-isolated) mode force-stops between phases (unchanged).
 
@@ -57,12 +57,12 @@ class HarnessCumulativeSemanticsTest(unittest.TestCase):
     # ── Default cumulative mode (no --cumulative-reset-interval) ──
 
     def test_default_cumulative_no_periodic_reset(self) -> None:
-        """Default cumulative mode must state true cumulative in dry-run output."""
+        """Default cumulative mode must advertise no periodic resets."""
         output = self._run_dry()
         self.assertIn(
-            "Cumulative mode: true cumulative (no periodic force-stop)",
+            "Cumulative mode: no periodic force-stop; safe phase-boundary reset between phases",
             output,
-            "Default cumulative mode should advertise no force-stop",
+            "Default cumulative mode should advertise the new safe boundary reset",
         )
         # Also verify no reset interval is mentioned
         self.assertNotIn(
