@@ -54,6 +54,7 @@ from adb_harness.device import (
     extract_intent,
     extract_profile_result,
     extract_reply,
+    logcat_restart,
     check_params,
     logcat_start,
     read_logcat,
@@ -1544,25 +1545,45 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
             warmed_ml = True
             break
 
-    # Oracle preflight
+    # Streaming logcat health check — run BEFORE oracle to detect
+    # dead-logcat conditions that would produce false ORACLE_UNHEALTHY.
+    print("  [stream] Verifying host-side logcat stream ...", end=" ", flush=True)
+    healthy = check_logcat_stream(timeout=5.0)
+    if healthy:
+        print("healthy")
+    else:
+        print("FAILED")
+        print("  [stream] Attempting logcat restart ...", end=" ", flush=True)
+        recovered = logcat_restart()
+        if recovered:
+            print("recovered")
+            print("  [stream] Re-verifying after restart ...", end=" ", flush=True)
+            healthy = check_logcat_stream(timeout=5.0)
+            if healthy:
+                print("healthy")
+            else:
+                print("FAILED — aborting")
+                stop_keepalive()
+                run_adb("shell", "svc", "power", "stayon", "false")
+                run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+                return _STREAM_UNHEALTHY
+        else:
+            print("FAILED — aborting")
+            stop_keepalive()
+            run_adb("shell", "svc", "power", "stayon", "false")
+            run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
+            return _STREAM_UNHEALTHY
+
+    # Oracle preflight — logcat stream is confirmed healthy, so a failure here
+    # is a real app/inference issue, not a logcat-stream contamination.
     if not check_oracle(timeout=30.0):
         print()
-        print("  [oracle] ORACLE_UNHEALTHY — aborting")
+        print("  [oracle] ORACLE_UNHEALTHY — aborting (logcat stream was healthy)")
         stop_keepalive()
         run_adb("shell", "svc", "power", "stayon", "false")
         run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
         return _ORACLE_UNHEALTHY
 
-    # Streaming logcat health check
-    print("  [stream] Verifying host-side logcat stream ...", end=" ", flush=True)
-    healthy = check_logcat_stream(timeout=5.0)
-    print("healthy" if healthy else "STREAM_UNHEALTHY")
-    if not healthy:
-        print("  [stream] Logcat stream unhealthy — aborting.")
-        stop_keepalive()
-        run_adb("shell", "svc", "power", "stayon", "false")
-        run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")
-        return _STREAM_UNHEALTHY
     print("ready" if warmed_ml else "timeout (proceeding anyway)")
 
     # Flush logcat residue before tests

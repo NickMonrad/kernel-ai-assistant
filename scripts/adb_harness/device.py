@@ -318,6 +318,17 @@ def check_logcat_stream(timeout: float = 5.0) -> bool:
             return True
         time.sleep(0.5)
     return False
+def logcat_restart() -> bool:
+    """Restart the host-side logcat stream.
+
+    Stops the existing stream, starts a fresh one, and verifies it is
+    receiving new lines. Returns True if the restarted stream is healthy.
+    """
+    logcat_stop()
+    time.sleep(0.5)
+    logcat_start()
+    time.sleep(1)
+    return check_logcat_stream(timeout=5.0)
 
 
 
