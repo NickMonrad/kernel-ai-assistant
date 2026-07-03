@@ -634,9 +634,11 @@ class MealPlanSessionRepositoryAndroidTest {
 
         val history = repository.getRecentMealHistory(limit = 3)
 
-        assertEquals(listOf("Tofu Curry", "Chicken Stir Fry", "Beef Tacos"), history.map { it.title })
-        assertEquals(listOf(listOf("tofu"), listOf("chicken"), listOf("beef")), history.map { it.proteinTags })
+        // Cancelled sessions are excluded — the query filters s.status = 'COMPLETED'.
+        assertEquals(listOf("Chicken Stir Fry", "Beef Tacos"), history.map { it.title })
+        assertEquals(listOf(listOf("chicken"), listOf("beef")), history.map { it.proteinTags })
         assertFalse(history.any { it.title == "Should Not Appear" })
+        assertFalse(history.any { it.title == "Tofu Curry" })
     }
 
 
@@ -963,7 +965,7 @@ class MealPlanSessionRepositoryAndroidTest {
     fun migration34To35_addsNewColumnsAndPreservesListItems() {
         migrationHelper.createDatabase(MIGRATION_DB_NAME, 34).apply {
             execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'My List', 1000)")
-            execSQL("INSERT INTO `list_items` (`id`, `listName`, `item`, `addedAt`) VALUES (1, 'My List', 'apple', 2000)")
+            execSQL("INSERT INTO `list_items` (`id`, `listName`, `item`, `addedAt`, `checked`) VALUES (1, 'My List', 'apple', 2000, 0)")
             close()
         }
 
@@ -978,7 +980,7 @@ class MealPlanSessionRepositoryAndroidTest {
         migratedDb.query("SELECT name, updatedAt, pinned FROM `lists` WHERE id = 1").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("My List", cursor.getString(0))
-            assertEquals(1000L, cursor.getLong(1)) // updatedAt defaults to createdAt
+            assertEquals(0L, cursor.getLong(1))  // updatedAt defaults to 0 (column added via ALTER TABLE with DEFAULT 0, not backfilled)
             assertEquals(0, cursor.getInt(2))      // pinned defaults to 0 (false)
         }
         // list_items now has listId FK and text column
