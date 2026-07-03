@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -154,8 +155,9 @@ class ChatScreenToolChipTest {
         setContent(message)
 
         composeTestRule.onNodeWithTag("tool_chip").performClick()
-        // The URL appears in the result text (expanded chip) and as a surfaced link
-        // in the fallback bubble — both verify it's discoverable.
+        // The surfaced link list is rendered in both the fallback bubble and the expanded chip.
+        composeTestRule.onAllNodesWithTag("tool_link_list").assertCountEquals(2)
+        // The URL text also appears in the expanded result text
         val url = "https://en.wikipedia.org/wiki/Mother%27s_Day"
         composeTestRule.onAllNodesWithText(url).assertCountEquals(2)
     }
