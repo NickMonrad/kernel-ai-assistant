@@ -224,6 +224,9 @@ class ActionsWriteSettingsDialogTest {
             MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, 50f, 200f, 0)
         )
         composeTestRule.waitForIdle()
+        assertTrue("Backdrop dismiss should trigger dismiss callback", dismissCalled)
+        composeTestRule.onNodeWithText("Allow Jandal to modify system settings?")
+            .assertIsNotDisplayed()
     }
 
     // ── Test wrapper composable ────────────────────────────────────────────────
