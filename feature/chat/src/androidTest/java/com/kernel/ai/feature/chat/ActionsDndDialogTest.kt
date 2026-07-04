@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.view.KeyEvent
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -11,10 +12,7 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -198,11 +196,11 @@ class ActionsDndDialogTest {
             .assertIsDisplayed()
         assertFalse("Dismiss should not have been called before interaction", dismissCalled)
 
-        // Click outside the dialog (top-left corner of the screen on the scrim)
-        // to trigger AlertDialog's onDismissRequest.
-        composeTestRule.onRoot().performTouchInput {
-            click(position = Offset(0f, 0f))
-        }
+        // Dismiss the dialog via back button — triggers the AlertDialog's
+        // onDismissRequest on all Android devices.
+        InstrumentationRegistry.getInstrumentation()
+            .sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        composeTestRule.waitForIdle()
 
         assertTrue("Backdrop dismiss should trigger dismiss callback", dismissCalled)
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
