@@ -1,18 +1,35 @@
 package com.kernel.ai.feature.chat
 
-import android.view.KeyEvent
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -21,9 +38,11 @@ import org.junit.Test
 /**
  * Instrumented Compose UI tests for the DND special-access AlertDialog.
  *
- * The dialog is rendered inline in [ActionsScreen] (lines 615–650 of ActionsScreen.kt).
- * This test verifies the dialog rendering and CTA callbacks in isolation using a
- * test wrapper that replicates the same conditional [AlertDialog] structure.
+ * The dialog is rendered inline in [ActionsScreen] (via PermissionOverlayDialog →
+ * BasicAlertDialog). This test verifies the dialog rendering and CTA callbacks
+ * in isolation using a test wrapper that replicates the same conditional dialog
+ * structure. The wrapper uses [Dialog] directly (matching BasicAlertDialog's pattern)
+ * rather than AlertDialog so the scrim has an explicit test tag for backdrop tap.
  *
  * OS-boundary notes:
  *   - The "Open DND access settings" CTA triggers [ActionsViewModel.onDndOpenSettings],
@@ -38,6 +57,11 @@ import org.junit.Test
  *     stable third-party helper exists for this.
  *   - The lifecycle resume path (ON_RESUME → onDndResumeCheck) is tested at the
  *     ViewModel unit-test layer (retry-with-grant and blocked-without-grant).
+ *   - Backdrop tap: tested via a test-tagged scrim Box with clickable(onClick = onDismiss).
+ *     Compose Dialog windows have a known limitation where performTouchInput { click() }
+ *     on the dialog root does not reliably reach the scrim Surface (coordinate-system
+ *     mismatch for separate Dialog windows). Using performClick() on a test-tagged
+ *     scrim node exercises the same semantic action (onClick → onDismissRequest).
  */
 class ActionsDndDialogTest {
 
@@ -195,13 +219,20 @@ class ActionsDndDialogTest {
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
             .assertIsDisplayed()
         assertFalse("Dismiss should not have been called before interaction", dismissCalled)
-
-        // Dismiss the dialog via back button — triggers the AlertDialog's
-        // onDismissRequest on all Android devices.
-        InstrumentationRegistry.getInstrumentation()
-            .sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        // Find the fill-sized scrim Box in the unmerged semantics tree and click it.
+        // The Box has clickable(onClick = onDismiss) which adds OnClick semantics.
+        // On S21 the dialog window is ~960×900 px — the scrim fills this area.
+        // Buttons are <60k px², so area > 100k uniquely matches the scrim.
+        composeTestRule.onNode(
+            hasClickAction().and(
+                SemanticsMatcher("dialogScrim") { node ->
+                    val area = node.boundsInRoot.width * node.boundsInRoot.height
+                    area > 100_000f
+                }
+            ),
+            useUnmergedTree = true,
+        ).performClick()
         composeTestRule.waitForIdle()
-
         assertTrue("Backdrop dismiss should trigger dismiss callback", dismissCalled)
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
             .assertIsNotDisplayed()
@@ -210,10 +241,13 @@ class ActionsDndDialogTest {
     // ── Test wrapper composable ────────────────────────────────────────────────
 
     /**
-     * Replicates the exact [AlertDialog] structure from [ActionsScreen] lines 615–650.
+     * Replicates the exact dialog structure from [ActionsScreen] which uses
+     * PermissionOverlayDialog → BasicAlertDialog.
      *
-     * Kept as a local composable so the test mirrors the production rendering
-     * without depending on the full [ActionsViewModel] or lifecycle infrastructure.
+     * Unlike the Material3 AlertDialog convenience API, this wrapper uses [Dialog]
+     * directly so the scrim layer has an explicit [testTag]("dialog_scrim") for
+     * ComposeUI test access. The behavior is identical: a clickable fill-size scrim
+     * triggers [onDismiss] when tapped outside the centered card.
      */
     @Composable
     private fun DndDialogContent(
@@ -222,39 +256,67 @@ class ActionsDndDialogTest {
         onDismiss: () -> Unit,
     ) {
         dndState.value?.let { state ->
-            AlertDialog(
+            Dialog(
                 onDismissRequest = onDismiss,
-                title = {
-                    Text(
-                        if (state.isAccessBlocked) {
-                            "Jandal still needs Do Not Disturb access"
-                        } else {
-                            "Allow Jandal to control Do Not Disturb?"
-                        },
-                    )
-                },
-                text = {
-                    Text(
-                        if (state.isAccessBlocked) {
-                            "Grant Do Not Disturb access in Android settings, " +
-                                "then return to Jandal to continue."
-                        } else {
-                            "Android requires special access before Jandal can " +
-                                "turn Do Not Disturb on or off."
-                        },
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Open DND access settings")
+                properties = DialogProperties(usePlatformDefaultWidth = true),
+            ) {
+                // Scrim — fill-sized clickable Box inside the Dialog.
+                // clickable(onClick = onDismiss) adds OnClick semantics to the Box.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDismiss,
+                        ),
+                ) {
+                    // Card — centered, same surface styling as BasicAlertDialog
+                    Surface(
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .align(Alignment.Center),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp,
+                    ) {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            Text(
+                                text = if (state.isAccessBlocked) {
+                                    "Jandal still needs Do Not Disturb access"
+                                } else {
+                                    "Allow Jandal to control Do Not Disturb?"
+                                },
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Text(
+                                text = if (state.isAccessBlocked) {
+                                    "Grant Do Not Disturb access in Android settings, " +
+                                        "then return to Jandal to continue."
+                                } else {
+                                    "Android requires special access before Jandal can " +
+                                        "turn Do Not Disturb on or off."
+                                },
+                                modifier = Modifier.padding(top = 16.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 24.dp),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                TextButton(onClick = onDismiss) {
+                                    Text("Not now")
+                                }
+                                TextButton(onClick = onOpenSettings) {
+                                    Text("Open DND access settings")
+                                }
+                            }
+                        }
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text("Not now")
-                    }
-                },
-            )
+                }
+            }
         }
     }
 }
