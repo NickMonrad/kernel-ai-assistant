@@ -1,8 +1,8 @@
 package com.kernel.ai.feature.chat
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import android.os.SystemClock
+import android.view.MotionEvent
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
@@ -11,21 +11,19 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
+import androidx.test.platform.app.InstrumentationRegistry
+import com.kernel.ai.core.ui.permissions.PermissionDialogAction
+import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
-
 /**
- * Instrumented Compose UI tests for the DND special-access AlertDialog.
+ * Instrumented Compose UI tests for the DND special-access dialog.
  *
- * The dialog is rendered inline in [ActionsScreen] (lines 615–650 of ActionsScreen.kt).
- * This test verifies the dialog rendering and CTA callbacks in isolation using a
- * test wrapper that replicates the same conditional [AlertDialog] structure.
+ * The dialog is rendered in production via [PermissionOverlayDialog] →
+ * BasicAlertDialog. This test uses [PermissionOverlayDialog] exactly as
+ * [ActionsScreen] does.
  *
  * OS-boundary notes:
  *   - The "Open DND access settings" CTA triggers [ActionsViewModel.onDndOpenSettings],
@@ -40,6 +38,10 @@ import org.junit.Test
  *     stable third-party helper exists for this.
  *   - The lifecycle resume path (ON_RESUME → onDndResumeCheck) is tested at the
  *     ViewModel unit-test layer (retry-with-grant and blocked-without-grant).
+ *   - Backdrop tap: uses [Instrumentation.sendPointerSync] with real MotionEvent
+ *     injection rather than Compose [performTouchInput], because Compose touch
+ *     injection does not reliably reach the scrim Surface inside Compose Dialog
+ *     windows (coordinate-system mismatch between activity and dialog views).
  */
 class ActionsDndDialogTest {
 
@@ -197,26 +199,35 @@ class ActionsDndDialogTest {
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
             .assertIsDisplayed()
         assertFalse("Dismiss should not have been called before interaction", dismissCalled)
-
-        // Click outside the dialog (top-left corner of the screen on the scrim)
-        // to trigger AlertDialog's onDismissRequest.
-        composeTestRule.onRoot().performTouchInput {
-            click(position = Offset(0f, 0f))
-        }
-
+        // Tap the dialog scrim via real MotionEvent injection through the
+        // Android input pipeline (not Compose performTouchInput, which has
+        // coordinate-system issues with Compose Dialog windows).
+        // BasicAlertDialog's scrim Surface fills the dialog window; tapping
+        // the left-edge area (50px from left, 200px from top) lands on the
+        // scrim (outside the centered card) and triggers onDismissRequest.
+        val downTime = SystemClock.uptimeMillis()
+        InstrumentationRegistry.getInstrumentation().sendPointerSync(
+            MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 50f, 200f, 0)
+        )
+        InstrumentationRegistry.getInstrumentation().sendPointerSync(
+            MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, 50f, 200f, 0)
+        )
+        composeTestRule.waitForIdle()
         assertTrue("Backdrop dismiss should trigger dismiss callback", dismissCalled)
         composeTestRule.onNodeWithText("Allow Jandal to control Do Not Disturb?")
             .assertIsNotDisplayed()
     }
 
     // ── Test wrapper composable ────────────────────────────────────────────────
-
     /**
-     * Replicates the exact [AlertDialog] structure from [ActionsScreen] lines 615–650.
+     * Wraps [PermissionOverlayDialog] with the same DND-specific title, body,
+     * and actions that [ActionsScreen] uses, driven by test-controllable state.
      *
-     * Kept as a local composable so the test mirrors the production rendering
-     * without depending on the full [ActionsViewModel] or lifecycle infrastructure.
+     * @param dndState The DND permission state. Dialog shown when non-null.
+     * @param onOpenSettings Called when "Open DND access settings" is tapped.
+     * @param onDismiss Called when dismiss is triggered (scrim, back, "Not now").
      */
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun DndDialogContent(
         dndState: MutableState<ActionsViewModel.DndState?>,
@@ -224,38 +235,33 @@ class ActionsDndDialogTest {
         onDismiss: () -> Unit,
     ) {
         dndState.value?.let { state ->
-            AlertDialog(
+            PermissionOverlayDialog(
+                title = if (state.isAccessBlocked) {
+                    "Jandal still needs Do Not Disturb access"
+                } else {
+                    "Allow Jandal to control Do Not Disturb?"
+                },
+                body = if (state.isAccessBlocked) {
+                    "Grant Do Not Disturb access in Android settings, " +
+                        "then return to Jandal to continue."
+                } else {
+                    "Android requires special access before Jandal can " +
+                        "turn Do Not Disturb on or off."
+                },
+                actions = listOf(
+                    PermissionDialogAction(
+                        label = "Open DND access settings",
+                        testTag = "permission_dialog_dnd_open_settings",
+                        onClick = onOpenSettings,
+                    ),
+                    PermissionDialogAction(
+                        label = "Not now",
+                        testTag = "permission_dialog_dnd_not_now",
+                        onClick = onDismiss,
+                    ),
+                ),
+                dialogTestTag = "permission_dialog_dnd",
                 onDismissRequest = onDismiss,
-                title = {
-                    Text(
-                        if (state.isAccessBlocked) {
-                            "Jandal still needs Do Not Disturb access"
-                        } else {
-                            "Allow Jandal to control Do Not Disturb?"
-                        },
-                    )
-                },
-                text = {
-                    Text(
-                        if (state.isAccessBlocked) {
-                            "Grant Do Not Disturb access in Android settings, " +
-                                "then return to Jandal to continue."
-                        } else {
-                            "Android requires special access before Jandal can " +
-                                "turn Do Not Disturb on or off."
-                        },
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Open DND access settings")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text("Not now")
-                    }
-                },
             )
         }
     }
