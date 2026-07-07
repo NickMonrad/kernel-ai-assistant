@@ -360,7 +360,7 @@ def logcat_restart() -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 _ORACLE_PROBES: list[tuple[str, str, str, str]] = [
-    ("get_time", "what time is it", "get_time", "NativeIntentHandler.handle: intent=get_time"),
+    ("get_time", "what's the current time", "get_time", "NativeIntentHandler.handle: intent=get_time"),
 ]
 
 
