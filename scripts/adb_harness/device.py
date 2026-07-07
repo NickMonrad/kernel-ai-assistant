@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import uuid
 import time
 
 from adb_harness.config import (
@@ -230,6 +231,21 @@ def read_logcat_all() -> str:
     return logcat_snapshot()
 
 
+def _filter_lines_after_boundary(text: str, boundary: str) -> str:
+    """Return only lines after the last occurrence of *boundary* in *text*.
+
+    If *boundary* is not found (should not happen under normal operation),
+    returns ``__BOUNDARY_NOT_FOUND__`` so the ``expected`` check in the polling
+    loop cannot match against stale ring-buffer content.
+    """
+    idx = text.rfind(boundary)
+    if idx < 0:
+        return "__BOUNDARY_NOT_FOUND__"
+    after = text[idx + len(boundary):]
+    nl = after.find("\n")
+    return after[nl + 1:] if nl >= 0 else ""
+
+
 def capture_fresh_logcat(
     action: Callable[[], None],
     timeout: float = WAIT_SECONDS,
@@ -239,10 +255,16 @@ def capture_fresh_logcat(
 ) -> str:
     """Capture only log lines produced after *action* starts.
 
-    Starts a fresh bounded logcat subprocess, runs *action*, then accumulates
-    only lines emitted during the current observation window. This avoids stale
-    ring-buffer matches and avoids dependence on the long-running stream.
+    Emits a unique boundary marker to logcat before the action, then filters
+    the captured output to only include lines after that marker. This prevents
+    stale ring-buffer matches (e.g. a warmup oracle probe) from contaminating
+    the result for tests whose action does not emit a NATIVE_INTENT marker.
     """
+    # Emit a unique boundary marker so we can discard stale ring-buffer lines.
+    boundary = f"__ADB_HARNESS_BOUNDARY_{uuid.uuid4().hex[:16]}__"
+    run_adb("shell", "log", "-t", "KernelAI", "-p", "i", boundary)
+    time.sleep(0.1)
+
     proc = subprocess.Popen(
         build_adb_cmd(*_LOGCAT_STREAM_ARGS),
         stdout=subprocess.PIPE,
@@ -268,7 +290,7 @@ def capture_fresh_logcat(
     time.sleep(0.2)
 
     accumulated: list[str] = []
-    seen: set[str] = set()
+
 
     def drain() -> None:
         with lock:
@@ -276,8 +298,7 @@ def capture_fresh_logcat(
             buffer.clear()
         for line in snapshot:
             line = line.strip()
-            if line and line not in seen:
-                seen.add(line)
+            if line:
                 accumulated.append(line)
 
     try:
@@ -286,13 +307,15 @@ def capture_fresh_logcat(
         while time.time() < deadline:
             time.sleep(poll_interval)
             drain()
-            combined = "\n".join(accumulated)
-            if expected and expected in combined:
+            text = "\n".join(accumulated)
+            filtered = _filter_lines_after_boundary(text, boundary)
+            if expected and expected in filtered:
                 break
             if keep_foreground:
                 _tap_keepalive()
         drain()
-        return "\n".join(accumulated)
+        text = "\n".join(accumulated)
+        return _filter_lines_after_boundary(text, boundary)
     finally:
         try:
             proc.terminate()
