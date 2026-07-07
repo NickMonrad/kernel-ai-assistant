@@ -131,6 +131,69 @@ class DuplicateLinesAcrossBoundaryTest(unittest.TestCase):
         self.assertIn(FRESH_LINE, result)
 
 
+class MultiDrainPollingTest(unittest.TestCase):
+    """Simulates multiple ``adb logcat -d`` polls across the boundary.
+
+    Repeated ``capture_fresh_logcat`` drain() calls accumulate logcat
+    snapshots. Lines before the last boundary must be discarded by
+    ``_filter_lines_after_boundary`` even when multiple snapshots overlap.
+    """
+
+    def test_multi_drain_keeps_only_post_boundary(self) -> None:
+        """Lines from the first drain (pre-boundary) are dropped; second drain
+        (post-boundary) content is kept."""
+        boundary = "__ADB_HARNESS_BOUNDARY_abc123__"
+        stale_line = "D/KernelAI(123): get_time stale"
+        fresh_line = "D/KernelAI(123): NativeIntentHandler.handle: intent=set_timer"
+        # Simulate first drain: only stale lines before boundary was emitted
+        drain_1 = stale_line
+        # Simulate second drain: boundary + fresh action output
+        drain_2 = (
+            f"I/KernelAI(123): {boundary}\n"
+            f"{fresh_line}\n"
+        )
+        accumulated = "\n".join([drain_1, drain_2])
+        result = _filter_lines_after_boundary(accumulated, boundary)
+        self.assertIn(fresh_line, result)
+        self.assertNotIn(stale_line, result)
+
+    def test_multi_drain_overlap_no_duplicates(self) -> None:
+        """The same post-boundary line appearing in multiple drains appears
+        only once in the filtered output (``rfind`` ensures only the last
+        boundary matters, but content between boundaries is also dropped)."""
+        boundary = "__ADB_HARNESS_BOUNDARY_def456__"
+        fresh_line = "D/KernelAI(123): New log event"
+        # Drain 1 and drain 2 both contain the same fresh line after the boundary
+        drain_1 = f"I/KernelAI(123): {boundary}\n{fresh_line}\nD/KernelAI(123): extra_1\n"
+        drain_2 = f"I/KernelAI(123): {boundary}\n{fresh_line}\n"
+        accumulated = "\n".join([drain_1, drain_2])
+        result = _filter_lines_after_boundary(accumulated, boundary)
+        self.assertIn(fresh_line, result)
+        # The first boundary splits the text — content before it in drain_1
+        # (which is empty here) is dropped, but fresh_line from drain_1 is
+        # between the two boundaries, so it's also dropped. Only the last
+        # boundary's content survives.
+        self.assertNotIn("extra_1", result)
+
+    def test_multi_drain_boundary_in_first_drain(self) -> None:
+        """When the boundary appears in the first drain, later drains extend
+        the post-boundary window."""
+        boundary = "__ADB_HARNESS_BOUNDARY_ghi789__"
+        stale_1 = "D/KernelAI(123): old log"
+        fresh_1 = "D/KernelAI(123): Started processing"
+        fresh_2 = "D/KernelAI(123): Completed"
+        drain_1 = f"{stale_1}\nI/KernelAI(123): {boundary}\n{fresh_1}"
+        drain_2 = fresh_2
+        unchanged_us = "D/KernelAI(123): somewhere else"
+        drain_3 = unchanged_us
+        accumulated = "\n".join([drain_1, drain_2, drain_3])
+        result = _filter_lines_after_boundary(accumulated, boundary)
+        self.assertIn(fresh_1, result)
+        self.assertIn(fresh_2, result)
+        self.assertIn(unchanged_us, result)
+        self.assertNotIn(stale_1, result)
+
+
 class OracleProbeNotIdenticalToWarmupTest(unittest.TestCase):
     """Oracle probe text must differ from the common warmup query to avoid dedup."""
 
