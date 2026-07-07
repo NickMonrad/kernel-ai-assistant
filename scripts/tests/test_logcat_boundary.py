@@ -21,8 +21,7 @@ HERE = Path(__file__).resolve().parent
 SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from adb_harness.device import _filter_lines_after_boundary
-
+from adb_harness.device import _filter_lines_after_boundary, _ORACLE_PROBES
 BOUNDARY = "__ADB_HARNESS_BOUNDARY_test__"
 
 STALE_LINE = "D/KernelAI(12345): NativeIntentHandler.handle: intent=get_time"
@@ -130,6 +129,43 @@ class DuplicateLinesAcrossBoundaryTest(unittest.TestCase):
         result = _filter_lines_after_boundary(text, BOUNDARY)
         self.assertIn(self.DUP_LINE, result)
         self.assertIn(FRESH_LINE, result)
+
+
+class OracleProbeNotIdenticalToWarmupTest(unittest.TestCase):
+    """Oracle probe text must differ from the common warmup query to avoid dedup."""
+
+    WARMUP_TEXT = "what time is it"
+    MAX_PROBES = 10
+
+    def test_probe_list_not_empty(self) -> None:
+        self.assertGreater(len(_ORACLE_PROBES), 0)
+
+    def test_each_probe_has_four_elements(self) -> None:
+        for i, probe in enumerate(_ORACLE_PROBES):
+            with self.subTest(probe_index=i):
+                self.assertEqual(len(probe), 4)
+
+    def test_probe_differs_from_warmup_text(self) -> None:
+        for i, (label, prompt, intent, marker) in enumerate(_ORACLE_PROBES):
+            with self.subTest(probe_index=i, label=label):
+                self.assertNotEqual(
+                    prompt, self.WARMUP_TEXT,
+                    f"Oracle probe {i} ({label!r}) uses warmup text {self.WARMUP_TEXT!r} "
+                    f"— app may deduplicate the second identical query. "
+                    f"Use different phrasing so the oracle can detect a fresh intent dispatch.",
+                )
+
+    def test_probe_expects_native_intent_handler(self) -> None:
+        for i, (label, prompt, intent, marker) in enumerate(_ORACLE_PROBES):
+            with self.subTest(probe_index=i, label=label):
+                self.assertIn(
+                    "NativeIntentHandler.handle", marker,
+                    f"Oracle probe {i} ({label!r}) expected marker should reference "
+                    f"NativeIntentHandler.handle",
+                )
+
+    def test_probe_list_not_excessive(self) -> None:
+        self.assertLessEqual(len(_ORACLE_PROBES), self.MAX_PROBES)
 
 if __name__ == "__main__":
     unittest.main()
