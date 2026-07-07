@@ -87,18 +87,49 @@ class BoundaryAtEndReturnsEmptyTest(unittest.TestCase):
 
 
 class BoundaryAbsentReturnsDiagnosticTest(unittest.TestCase):
-    """Missing boundary prepends ``__BOUNDARY_NOT_FOUND__``."""
+    """Missing boundary returns ``__BOUNDARY_NOT_FOUND__`` without stale text."""
 
-    def test_no_boundary_diagnostic_prefixed(self) -> None:
+    def test_no_boundary_diagnostic_only(self) -> None:
+        """Result is exactly ``__BOUNDARY_NOT_FOUND__``, no stale text appended."""
         text = f"{STALE_LINE}\n"
         result = _filter_lines_after_boundary(text, BOUNDARY)
-        self.assertTrue(result.startswith("__BOUNDARY_NOT_FOUND__"))
-        self.assertIn(STALE_LINE, result)
+        self.assertEqual(result, "__BOUNDARY_NOT_FOUND__")
 
     def test_no_boundary_on_empty_text(self) -> None:
         result = _filter_lines_after_boundary("", BOUNDARY)
         self.assertEqual(result, "__BOUNDARY_NOT_FOUND__")
 
+
+class BoundaryAbsentExpectedNotMatchedTest(unittest.TestCase):
+    """When boundary is absent, ``expected`` marker must not match stale text."""
+
+    def test_expected_not_found_in_stale_when_boundary_absent(self) -> None:
+        stale_text = (
+            f"some unrelated line\n"
+            f"{STALE_LINE}\n"
+            f"more noise\n"
+        )
+        result = _filter_lines_after_boundary(stale_text, BOUNDARY)
+        self.assertEqual(result, "__BOUNDARY_NOT_FOUND__")
+        # The stale marker must NOT appear in the filtered output
+        self.assertNotIn("get_time", result)
+
+
+class DuplicateLinesAcrossBoundaryTest(unittest.TestCase):
+    """Identical lines before and after boundary both preserved after filter."""
+
+    DUP_LINE = "D/KernelAI(12345): SomeRepeatingMarker: intent=xyzzy"
+
+    def test_fresh_copy_preserved_after_filter(self) -> None:
+        text = (
+            f"{self.DUP_LINE}\n"
+            f"{BOUNDARY}\n"
+            f"{self.DUP_LINE}\n"
+            f"{FRESH_LINE}\n"
+        )
+        result = _filter_lines_after_boundary(text, BOUNDARY)
+        self.assertIn(self.DUP_LINE, result)
+        self.assertIn(FRESH_LINE, result)
 
 if __name__ == "__main__":
     unittest.main()

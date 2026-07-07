@@ -235,12 +235,12 @@ def _filter_lines_after_boundary(text: str, boundary: str) -> str:
     """Return only lines after the last occurrence of *boundary* in *text*.
 
     If *boundary* is not found (should not happen under normal operation),
-    returns the full text prefixed with ``__BOUNDARY_NOT_FOUND__`` as a
-    structured diagnostic so callers can detect the condition.
+    returns ``__BOUNDARY_NOT_FOUND__`` so the ``expected`` check in the polling
+    loop cannot match against stale ring-buffer content.
     """
     idx = text.rfind(boundary)
     if idx < 0:
-        return f"__BOUNDARY_NOT_FOUND__{text}"
+        return "__BOUNDARY_NOT_FOUND__"
     after = text[idx + len(boundary):]
     nl = after.find("\n")
     return after[nl + 1:] if nl >= 0 else ""
@@ -290,7 +290,7 @@ def capture_fresh_logcat(
     time.sleep(0.2)
 
     accumulated: list[str] = []
-    seen: set[str] = set()
+
 
     def drain() -> None:
         with lock:
@@ -298,8 +298,7 @@ def capture_fresh_logcat(
             buffer.clear()
         for line in snapshot:
             line = line.strip()
-            if line and line not in seen:
-                seen.add(line)
+            if line:
                 accumulated.append(line)
 
     try:
