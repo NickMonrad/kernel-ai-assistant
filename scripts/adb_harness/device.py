@@ -259,47 +259,38 @@ def capture_fresh_logcat(
     the captured output to only include lines after that marker. This prevents
     stale ring-buffer matches (e.g. a warmup oracle probe) from contaminating
     the result for tests whose action does not emit a NATIVE_INTENT marker.
+
+    Uses ``adb logcat -d`` (dump-and-exit) polling instead of a continuous
+    subprocess to avoid ADB transport contention on S21 — multiple concurrent
+    ``adb logcat`` subprocesses (from both this function and the persistent
+    streaming logcat) cause the device-side logd to stop delivering lines
+    to the fresh subprocess.
     """
-    # Emit a unique boundary marker so we can discard stale ring-buffer lines.
+    accumulated: list[str] = []
+
+    def drain() -> None:
+        """Read and drain the device logcat ring buffer via ``adb logcat -d``."""
+        raw = run_adb(
+            "logcat", "-d", "-v", "brief",
+            "-s", f"{LOGCAT_TAG}:D",
+            "LiteRtInferenceEngine:I",
+            "MiniLMIntentClassifier:I",
+        )
+        if raw:
+            for line in raw.split("\n"):
+                stripped = line.strip()
+                if stripped:
+                    accumulated.append(stripped)
+
+    # Clear the device ring buffer before boundary + action so we only see
+    # fresh log output. This is safe on USB ADB.
+    run_adb("logcat", "-c")
+    time.sleep(0.2)
+
+    # Emit a unique boundary marker AFTER clearing so it appears fresh.
     boundary = f"__ADB_HARNESS_BOUNDARY_{uuid.uuid4().hex[:16]}__"
     run_adb("shell", "log", "-t", "KernelAI", "-p", "i", boundary)
     time.sleep(0.1)
-
-    proc = subprocess.Popen(
-        build_adb_cmd(*_LOGCAT_STREAM_ARGS),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-    )
-    assert proc.stdout is not None
-
-    lock = threading.Lock()
-    buffer: list[str] = []
-
-    def reader() -> None:
-        try:
-            for line in proc.stdout:
-                with lock:
-                    buffer.append(line.rstrip("\n"))
-        except ValueError:
-            pass
-
-    reader_thread = threading.Thread(target=reader, daemon=True)
-    reader_thread.start()
-    time.sleep(0.2)
-
-    accumulated: list[str] = []
-
-
-    def drain() -> None:
-        with lock:
-            snapshot = list(buffer)
-            buffer.clear()
-        for line in snapshot:
-            line = line.strip()
-            if line:
-                accumulated.append(line)
 
     try:
         action()
@@ -313,16 +304,12 @@ def capture_fresh_logcat(
                 break
             if keep_foreground:
                 _tap_keepalive()
+        # Final drain to catch anything produced since the last poll
         drain()
         text = "\n".join(accumulated)
         return _filter_lines_after_boundary(text, boundary)
     finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except Exception:
-            proc.kill()
-            proc.wait(timeout=5)
+        pass
 
 def check_logcat_stream(timeout: float = 5.0) -> bool:
     """Verify the host-side streaming logcat buffer is receiving new lines.
