@@ -231,6 +231,21 @@ def read_logcat_all() -> str:
     return logcat_snapshot()
 
 
+def _filter_lines_after_boundary(text: str, boundary: str) -> str:
+    """Return only lines after the last occurrence of *boundary* in *text*.
+
+    If *boundary* is not found (should not happen under normal operation),
+    returns the full text prefixed with ``__BOUNDARY_NOT_FOUND__`` as a
+    structured diagnostic so callers can detect the condition.
+    """
+    idx = text.rfind(boundary)
+    if idx < 0:
+        return f"__BOUNDARY_NOT_FOUND__{text}"
+    after = text[idx + len(boundary):]
+    nl = after.find("\n")
+    return after[nl + 1:] if nl >= 0 else ""
+
+
 def capture_fresh_logcat(
     action: Callable[[], None],
     timeout: float = WAIT_SECONDS,
@@ -294,25 +309,14 @@ def capture_fresh_logcat(
             time.sleep(poll_interval)
             drain()
             text = "\n".join(accumulated)
-            idx = text.rfind(boundary)
-            if idx >= 0:
-                after = text[idx + len(boundary):]
-                nl = after.find("\n")
-                filtered = after[nl + 1:] if nl >= 0 else after
-            else:
-                filtered = text
+            filtered = _filter_lines_after_boundary(text, boundary)
             if expected and expected in filtered:
                 break
             if keep_foreground:
                 _tap_keepalive()
         drain()
         text = "\n".join(accumulated)
-        idx = text.rfind(boundary)
-        if idx >= 0:
-            after = text[idx + len(boundary):]
-            nl = after.find("\n")
-            return after[nl + 1:] if nl >= 0 else after
-        return text
+        return _filter_lines_after_boundary(text, boundary)
     finally:
         try:
             proc.terminate()
