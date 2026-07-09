@@ -1549,6 +1549,7 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
     family_ok = setup_contact_family_fixture()
     print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    global _isolated_known_missing
     _isolated_known_missing = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
 
     # Warm up MiniLM classifier

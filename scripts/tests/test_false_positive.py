@@ -425,10 +425,29 @@ class FixtureFailureBucketTest(unittest.TestCase):
             fallthrough_observed=True,
         )
 
-    def test_fixture_missing_when_known(self) -> None:
-        """known_missing_fixtures + matching tag → fixture_missing."""
-        r = self._make_result(tags=["slot_fill", "fixture_required", "contact_fixture_required"])
-        self.assertEqual(derive_failure_bucket(r, frozenset(["contacts:family_seed"])), "fixture_missing")
+    def test_field_mismatch_when_specific_fixture_not_known(self) -> None:
+        """field_mismatch when result's fixture not in known_missing, even if other fixtures are."""
+        r = self._make_result(
+            fixture="contacts:email_contact_seed",
+            param_failures=["Missing param contact"],
+            actual_intent=None,
+        )
+        self.assertEqual(
+            derive_failure_bucket(r, frozenset(["contacts:family_seed"])),
+            "field_mismatch",
+        )
+ 
+    def test_field_mismatch_when_tags_only_no_fixture_field(self) -> None:
+        """field_mismatch when tags present but no fixture field, even with known_missing."""
+        r = self._make_result(
+            tags=["fixture_required", "contact_fixture_required"],
+            param_failures=["Missing param contact"],
+            actual_intent=None,
+        )
+        self.assertEqual(
+            derive_failure_bucket(r, frozenset(["contacts:family_seed"])),
+            "field_mismatch",
+        )
 
     def test_fixture_missing_when_known_via_field(self) -> None:
         """known_missing_fixtures + matching fixture field → fixture_missing."""
