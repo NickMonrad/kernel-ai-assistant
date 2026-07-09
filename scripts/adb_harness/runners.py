@@ -47,6 +47,7 @@ from adb_harness.device import (
     capture_fresh_logcat,
     check_oracle,
     check_logcat_stream,
+    check_email_fixture,
     cleanup_clock_alerts,
     cleanup_side_effects,
     clear_logcat,
@@ -88,6 +89,31 @@ from adb_harness.reporting import (
 
 # Module-level fixture state — set during isolated warmup, read during test execution
 _isolated_known_missing: frozenset[str] = frozenset()
+
+
+def _known_missing_fixtures(
+    family_contacts_available: bool,
+    email_account_available: bool,
+) -> frozenset[str]:
+    """Build explicit fixture state from independent preflight checks."""
+    missing: set[str] = set()
+    if not family_contacts_available:
+        missing.add("contacts:family_seed")
+    if not email_account_available:
+        missing.add("contacts:email_contact_seed")
+    return frozenset(missing)
+
+
+def _mark_missing_fixture_xfail(
+    result: TestResult,
+    known_missing_fixtures: frozenset[str],
+) -> None:
+    """Mark a failed case as expected only when its exact fixture is unavailable."""
+    if result.fixture in known_missing_fixtures and not is_clean_pass(result):
+        result.xfail = True
+        result.xfail_reason = (
+            f"fixture_missing: required fixture '{result.fixture}' is unavailable"
+        )
 
 def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     """Parse a key=value-style marker string into a dict.
@@ -795,7 +821,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
     family_ok = setup_contact_family_fixture()
     print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
-    known_missing_fixtures: frozenset[str] = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
+    print("  [init] Checking email account/contact fixture ...", end=" ", flush=True)
+    email_account_ok = check_email_fixture()
+    print(
+        "present (heuristic only)"
+        if email_account_ok
+        else "WARNING — no account/contact evidence; email fixture_missing may apply"
+    )
+    known_missing_fixtures = _known_missing_fixtures(family_ok, email_account_ok)
 
     # ── Orchestrator warmup: wait for MiniLM phrase vectors to be fully built ──
     # Clear logcat first so we don't match a stale "Ready:" from a previous app run.
@@ -1103,6 +1136,8 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 allowed_intent_observed=allowed_intent_observed,
                 expect_llm_fallthrough=tc.expect_llm_fallthrough,
             )
+            _mark_missing_fixture_xfail(result, known_missing_fixtures)
+            result.status = derive_status(result)
             result.failure_bucket = derive_failure_bucket(result, known_missing_fixtures)
             phase_results.append(result)
             results.append(result)
@@ -1549,8 +1584,15 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
     family_ok = setup_contact_family_fixture()
     print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    print("  [init] Checking email account/contact fixture ...", end=" ", flush=True)
+    email_account_ok = check_email_fixture()
+    print(
+        "present (heuristic only)"
+        if email_account_ok
+        else "WARNING — no account/contact evidence; email fixture_missing may apply"
+    )
     global _isolated_known_missing
-    _isolated_known_missing = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
+    _isolated_known_missing = _known_missing_fixtures(family_ok, email_account_ok)
 
     # Warm up MiniLM classifier
     clear_logcat()
@@ -1777,6 +1819,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
         allowed_intent_observed=allowed_intent_observed,
         expect_llm_fallthrough=tc.expect_llm_fallthrough,
     )
+    _mark_missing_fixture_xfail(result, _isolated_known_missing)
     result.status = derive_status(result)
     result.failure_bucket = derive_failure_bucket(result, _isolated_known_missing)
 
