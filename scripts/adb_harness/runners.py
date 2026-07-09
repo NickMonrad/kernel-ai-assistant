@@ -950,7 +950,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_quick_action(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=tc.expect_initial_log_contains,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
                 if tc.expect_initial_log_contains is not None:
                     first_turn_ok = tc.expect_initial_log_contains in logcat1
@@ -973,7 +973,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_slot_reply(slot_replies[-1]),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             elif tc.confirm_reply is not None:
                 # Confirmation test: AskConfirmation on turn 1, skill execution on turn 2.
@@ -981,7 +981,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=tc.expect_log_contains,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
                 if tc.expect_log_contains is not None:
                     log1_found = tc.expect_log_contains in logcat1
@@ -993,7 +993,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.confirm_reply),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             elif tc.forbidden_intents:
                 # False-positive test: send prompt, capture logcat with longer timeout
@@ -1002,14 +1002,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.message),
                     timeout=max(WAIT_SECONDS * 2, 30),
                     expected=None,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             else:
                 logcat = capture_fresh_logcat(
                     lambda: send_text(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             # ── Intent extraction & assertion ──
             # False-positive analysis state (populated only when forbidden_intents is set)
@@ -1638,7 +1638,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_quick_action(tc.message),
             timeout=WAIT_SECONDS,
             expected=tc.expect_initial_log_contains,
-            keep_foreground=True,
+            keep_foreground=False,
         )
         if tc.expect_initial_log_contains is not None:
             first_turn_ok = tc.expect_initial_log_contains in logcat1
@@ -1656,7 +1656,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_slot_reply(slot_replies[-1]),
             timeout=WAIT_SECONDS,
             expected=final_signal,
-            keep_foreground=True,
+            keep_foreground=False,
         )
     elif tc.confirm_reply is not None:
         # Confirmation test
@@ -1664,7 +1664,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_text(tc.message),
             timeout=WAIT_SECONDS,
             expected=tc.expect_log_contains,
-            keep_foreground=True,
+            keep_foreground=False,
         )
         if tc.expect_log_contains is not None:
             log1_found = tc.expect_log_contains in logcat1
@@ -1674,18 +1674,18 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
                 )
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.confirm_reply),
-            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=False,
         )
     elif tc.forbidden_intents:
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.message),
             timeout=max(WAIT_SECONDS * 2, 30),
-            expected=None, keep_foreground=True,
+            expected=None, keep_foreground=False,
         )
     else:
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.message),
-            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=False,
         )
 
     # Intent extraction and assertion
