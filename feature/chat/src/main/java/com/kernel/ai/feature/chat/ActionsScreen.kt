@@ -305,8 +305,16 @@ fun ActionsScreen(
 
     // ADB harness: deliver slot reply when slot_reply_input extra is provided.
     // onSlotReply guards internally — no-op if no slot is pending.
+    // Small delay (50ms) mitigates a race: when slot_reply_input arrives in the same
+    // composition frame as quick_action_input, executeAction's viewModelScope.launch
+    // coroutine (which primes _pendingSlot) hasn't run yet. Yielding the Main thread
+    // via delay lets the queued coroutine set _pendingSlot before onSlotReply checks it.
+    // Without this, onSlotReply sees _pendingSlot == null and silently drops the reply.
     LaunchedEffect(adbSlotReply) {
-        if (!adbSlotReply.isNullOrBlank()) viewModel.onSlotReply(adbSlotReply)
+        if (!adbSlotReply.isNullOrBlank()) {
+            delay(50L)
+            viewModel.onSlotReply(adbSlotReply)
+        }
     }
 
     // Collect one-shot navigation events from the ViewModel.
