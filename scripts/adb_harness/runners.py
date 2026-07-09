@@ -71,6 +71,8 @@ from adb_harness.device import (
     teardown_contact_alias_fixture,
     teardown_contact_family_fixture,
 )
+
+
 from adb_harness.models import (
     LLMToolsResult, LLMToolsTestCase, ProfileTestCase, TestCase, TestResult,
     derive_failure_bucket, derive_status, is_clean_pass,
@@ -83,6 +85,9 @@ from adb_harness.reporting import (
     save_report,
     save_llm_tools_report,
 )
+
+# Module-level fixture state — set during isolated warmup, read during test execution
+_isolated_known_missing: frozenset[str] = frozenset()
 
 def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     """Parse a key=value-style marker string into a dict.
@@ -788,8 +793,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("done")
     # Insert family contacts for SMS/contact fixture tests
     print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
-    setup_contact_family_fixture()
-    print("done")
+    family_ok = setup_contact_family_fixture()
+    print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    known_missing_fixtures: frozenset[str] = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
 
     # ── Orchestrator warmup: wait for MiniLM phrase vectors to be fully built ──
     # Clear logcat first so we don't match a stale "Ready:" from a previous app run.
@@ -1097,8 +1103,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 allowed_intent_observed=allowed_intent_observed,
                 expect_llm_fallthrough=tc.expect_llm_fallthrough,
             )
-            result.status = derive_status(result)
-            result.failure_bucket = derive_failure_bucket(result)
+            result.failure_bucket = derive_failure_bucket(result, known_missing_fixtures)
             phase_results.append(result)
             results.append(result)
             global_index += 1
@@ -1289,6 +1294,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     teardown_contact_family_fixture()
     print("done")
     print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
+    stop_keepalive()
     run_adb("shell", "svc", "power", "stayon", "false")
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")  # restore 60s
     print("done")
@@ -1541,8 +1547,9 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     setup_contact_alias_fixture()
     print("done")
     print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
-    setup_contact_family_fixture()
-    print("done")
+    family_ok = setup_contact_family_fixture()
+    print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    _isolated_known_missing = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
 
     # Warm up MiniLM classifier
     clear_logcat()
@@ -1770,7 +1777,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
         expect_llm_fallthrough=tc.expect_llm_fallthrough,
     )
     result.status = derive_status(result)
-    result.failure_bucket = derive_failure_bucket(result)
+    result.failure_bucket = derive_failure_bucket(result, _isolated_known_missing)
 
     # Display result
     warnings = []

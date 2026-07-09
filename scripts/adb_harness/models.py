@@ -226,7 +226,7 @@ def derive_status(r: TestResult) -> str:
     return "fail"
 
 
-def derive_failure_bucket(r: TestResult) -> str | None:
+def derive_failure_bucket(r: TestResult, known_missing_fixtures: frozenset[str] = frozenset()) -> str | None:
     """Derive a lightweight failure bucket for a TestResult.
 
     Precedence (first match wins):
@@ -236,7 +236,7 @@ def derive_failure_bucket(r: TestResult) -> str | None:
     4. xfail_reason has a leading <bucket>: prefix → that bucket
     5. first_turn_warn or log_check_warn mentioning missing slot prompt / NeedsSlot → slot_fill_missing
     6. tag slot_fill_invalid_answer → slot_fill_invalid_reply
-    7. tag fixture_required / contact_fixture_required or fixture starts with 'contacts:' / 'apps:' → fixture_missing
+    7. known_missing_fixtures is non-empty AND test has matching fixture_required / contact_fixture_required tag or fixture starts with 'contacts:' / 'apps:' → fixture_missing
     8. param_failures → field_mismatch
     9. category is 'ambiguous' or tag 'ambiguous' → stale_or_ambiguous_expectation
     10. tag media_context → media_context_missing
@@ -267,7 +267,8 @@ def derive_failure_bucket(r: TestResult) -> str | None:
     if "slot_fill_invalid_answer" in r.tags:
         return "slot_fill_invalid_reply"
     # fixture_missing
-    if ("fixture_required" in r.tags or "contact_fixture_required" in r.tags
+    if known_missing_fixtures and (
+            "fixture_required" in r.tags or "contact_fixture_required" in r.tags
             or (r.fixture and r.fixture.startswith("contacts:"))
             or (r.fixture and r.fixture.startswith("apps:"))):
         return "fixture_missing"
