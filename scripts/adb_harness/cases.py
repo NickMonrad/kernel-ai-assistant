@@ -417,22 +417,21 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase(
             "send a message",
             "send_sms",
-            slot_reply="Mum",
-            expect_params={"contact": "Mum"},
+            slot_replies=["Mum", "on my way"],
+            expect_params={"contact": "Mum", "message": "on my way"},
             expect_initial_log_contains="NeedsSlot",
-            tags=["slot_fill", "fixture_required", "contact_fixture_required", "ambiguous"],
+            tags=["slot_fill", "fixture_required", "contact_fixture_required"],
             fixture="contacts:family_seed",
         ),
         TestCase(
             "send an email",
             "send_email",
-            slot_reply="Nick",
-            expect_params={"contact": "Nick"},
+            slot_replies=["Nick", "meeting", "see you at 2"],
+            expect_params={"contact": "Nick", "subject": "meeting", "body": "see you at 2"},
             expect_initial_log_contains="NeedsSlot",
-            tags=["slot_fill", "fixture_required", "contact_fixture_required", "ambiguous"],
+            tags=["slot_fill", "fixture_required", "contact_fixture_required"],
             fixture="contacts:email_contact_seed",
         ),
-        # ── Single-slot positive: bare query → NeedsSlot → item reply → NeedsSlot → list_name reply → dispatch ──
         # add_to_list requires TWO slots (item + list_name); the first reply ("eggs") fills item,
         # the second reply ("groceries") fills list_name (canonicalized to "shopping list") and triggers dispatch.
         TestCase(

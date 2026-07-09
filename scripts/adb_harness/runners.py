@@ -65,10 +65,14 @@ from adb_harness.device import (
     send_text,
     send_profile,
     setup_contact_alias_fixture,
+    setup_contact_family_fixture,
     start_keepalive,
     stop_keepalive,
     teardown_contact_alias_fixture,
+    teardown_contact_family_fixture,
 )
+
+
 from adb_harness.models import (
     LLMToolsResult, LLMToolsTestCase, ProfileTestCase, TestCase, TestResult,
     derive_failure_bucket, derive_status, is_clean_pass,
@@ -81,6 +85,9 @@ from adb_harness.reporting import (
     save_report,
     save_llm_tools_report,
 )
+
+# Module-level fixture state — set during isolated warmup, read during test execution
+_isolated_known_missing: frozenset[str] = frozenset()
 
 def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     """Parse a key=value-style marker string into a dict.
@@ -784,6 +791,11 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
     setup_contact_alias_fixture()
     print("done")
+    # Insert family contacts for SMS/contact fixture tests
+    print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
+    family_ok = setup_contact_family_fixture()
+    print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    known_missing_fixtures: frozenset[str] = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
 
     # ── Orchestrator warmup: wait for MiniLM phrase vectors to be fully built ──
     # Clear logcat first so we don't match a stale "Ready:" from a previous app run.
@@ -944,7 +956,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_quick_action(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=tc.expect_initial_log_contains,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
                 if tc.expect_initial_log_contains is not None:
                     first_turn_ok = tc.expect_initial_log_contains in logcat1
@@ -967,7 +979,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_slot_reply(slot_replies[-1]),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             elif tc.confirm_reply is not None:
                 # Confirmation test: AskConfirmation on turn 1, skill execution on turn 2.
@@ -975,7 +987,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=tc.expect_log_contains,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
                 if tc.expect_log_contains is not None:
                     log1_found = tc.expect_log_contains in logcat1
@@ -987,7 +999,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.confirm_reply),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             elif tc.forbidden_intents:
                 # False-positive test: send prompt, capture logcat with longer timeout
@@ -996,14 +1008,14 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                     lambda: send_text(tc.message),
                     timeout=max(WAIT_SECONDS * 2, 30),
                     expected=None,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             else:
                 logcat = capture_fresh_logcat(
                     lambda: send_text(tc.message),
                     timeout=WAIT_SECONDS,
                     expected=final_signal,
-                    keep_foreground=True,
+                    keep_foreground=False,
                 )
             # ── Intent extraction & assertion ──
             # False-positive analysis state (populated only when forbidden_intents is set)
@@ -1091,8 +1103,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                 allowed_intent_observed=allowed_intent_observed,
                 expect_llm_fallthrough=tc.expect_llm_fallthrough,
             )
-            result.status = derive_status(result)
-            result.failure_bucket = derive_failure_bucket(result)
+            result.failure_bucket = derive_failure_bucket(result, known_missing_fixtures)
             phase_results.append(result)
             results.append(result)
             global_index += 1
@@ -1278,6 +1289,9 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("done" if cleanup_ok else "FAILED — device may still be buzzing!")
     print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
     teardown_contact_alias_fixture()
+    print("done")
+    print("  [cleanup] Removing family contact fixture ...", end=" ", flush=True)
+    teardown_contact_family_fixture()
     print("done")
     print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
     stop_keepalive()
@@ -1532,6 +1546,11 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
     setup_contact_alias_fixture()
     print("done")
+    print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
+    family_ok = setup_contact_family_fixture()
+    print("done" if family_ok else "WARNING — contact seeding failed, fixture_missing may apply")
+    global _isolated_known_missing
+    _isolated_known_missing = frozenset() if family_ok else frozenset(["contacts:family_seed", "contacts:email_contact_seed"])
 
     # Warm up MiniLM classifier
     clear_logcat()
@@ -1627,7 +1646,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_quick_action(tc.message),
             timeout=WAIT_SECONDS,
             expected=tc.expect_initial_log_contains,
-            keep_foreground=True,
+            keep_foreground=False,
         )
         if tc.expect_initial_log_contains is not None:
             first_turn_ok = tc.expect_initial_log_contains in logcat1
@@ -1645,7 +1664,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_slot_reply(slot_replies[-1]),
             timeout=WAIT_SECONDS,
             expected=final_signal,
-            keep_foreground=True,
+            keep_foreground=False,
         )
     elif tc.confirm_reply is not None:
         # Confirmation test
@@ -1653,7 +1672,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
             lambda: send_text(tc.message),
             timeout=WAIT_SECONDS,
             expected=tc.expect_log_contains,
-            keep_foreground=True,
+            keep_foreground=False,
         )
         if tc.expect_log_contains is not None:
             log1_found = tc.expect_log_contains in logcat1
@@ -1663,18 +1682,18 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
                 )
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.confirm_reply),
-            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=False,
         )
     elif tc.forbidden_intents:
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.message),
             timeout=max(WAIT_SECONDS * 2, 30),
-            expected=None, keep_foreground=True,
+            expected=None, keep_foreground=False,
         )
     else:
         logcat = capture_fresh_logcat(
             lambda: send_text(tc.message),
-            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=True,
+            timeout=WAIT_SECONDS, expected=final_signal, keep_foreground=False,
         )
 
     # Intent extraction and assertion
@@ -1759,7 +1778,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
         expect_llm_fallthrough=tc.expect_llm_fallthrough,
     )
     result.status = derive_status(result)
-    result.failure_bucket = derive_failure_bucket(result)
+    result.failure_bucket = derive_failure_bucket(result, _isolated_known_missing)
 
     # Display result
     warnings = []
@@ -1979,8 +1998,9 @@ def run_isolated_phases(dry_run: bool = False,
         print(f"  [isolated] Clock alerts: {'ok' if cleanup_ok else 'FAILED'}")
         teardown_contact_alias_fixture()
         print(f"  [isolated] Contact fixture: removed")
+        teardown_contact_family_fixture()
+        print(f"  [isolated] Family contact fixture: removed")
         _isolated_teardown()
-        print(f"  [isolated] Phase '{phase_name}' complete")
         print()
 
         # If cleanup failed, keep going but mark overall
