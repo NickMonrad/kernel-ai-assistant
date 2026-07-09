@@ -308,6 +308,8 @@ class RunnerCleanupFailureTest(unittest.TestCase):
              patch("adb_harness.runners.start_keepalive"), \
              patch("adb_harness.runners.stop_keepalive"), \
              patch("adb_harness.runners.setup_contact_alias_fixture"), \
+             patch("adb_harness.runners.setup_contact_family_fixture", return_value=True), \
+             patch("adb_harness.runners.check_email_fixture", return_value=False), \
              patch("adb_harness.runners.teardown_contact_alias_fixture"), \
              patch("adb_harness.runners.check_oracle", return_value=True), \
              patch("adb_harness.runners.check_logcat_stream", return_value=True), \
@@ -353,6 +355,8 @@ class RunnerCleanupFailureTest(unittest.TestCase):
              patch("adb_harness.runners.start_keepalive"), \
              patch("adb_harness.runners.stop_keepalive"), \
              patch("adb_harness.runners.setup_contact_alias_fixture"), \
+             patch("adb_harness.runners.setup_contact_family_fixture", return_value=True), \
+             patch("adb_harness.runners.check_email_fixture", return_value=False), \
              patch("adb_harness.runners.teardown_contact_alias_fixture"), \
              patch("adb_harness.runners.check_oracle", return_value=True), \
              patch("adb_harness.runners.check_logcat_stream", return_value=True), \

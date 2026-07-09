@@ -562,6 +562,14 @@ FAMILY_CONTACTS: dict[str, str] = {
 }
 
 
+_EMAIL_ACCOUNT_PATTERN = re.compile(
+    r"Account \{name=[^,}@]+@[^,}]+, type=[^,}]+\}"
+)
+
+# Deterministic contacts referenced by contacts:email_contact_seed test cases.
+EMAIL_FIXTURE_CONTACTS = ("John", "Sarah", "Nick")
+
+
 def _extract_raw_contact_id(adb_output: str) -> str | None:
     """Extract the raw contact _id from a content insert result.
 
@@ -636,6 +644,31 @@ def check_contact_family_fixture() -> bool:
         "--projection", "display_name",
     )
     return any(n in output for n in FAMILY_CONTACTS)
+
+
+def check_email_fixture() -> bool:
+    """Return whether the email fixture has account and contact evidence.
+
+    This is only a preflight heuristic: it requires an email-shaped account
+    plus each deterministic fixture contact, but does not prove that an email
+    client or sender is available to the assistant.
+    """
+    account_dump = run_adb("shell", "dumpsys", "account")
+    if not _EMAIL_ACCOUNT_PATTERN.search(account_dump):
+        return False
+
+    for name in EMAIL_FIXTURE_CONTACTS:
+        contact_dump = run_adb(
+            "shell", "content", "query",
+            "--uri", f"content://com.android.contacts/contacts/filter/{name}",
+            "--projection", "display_name",
+        )
+        if not re.search(
+            rf"\bdisplay_name={re.escape(name)}(?:,|$)",
+            contact_dump,
+        ):
+            return False
+    return True
 
 
 def dismiss_notifications() -> None:

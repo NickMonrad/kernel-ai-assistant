@@ -65,6 +65,8 @@ def _warmup_with(
         patch("adb_harness.runners.start_keepalive"), \
         patch("adb_harness.runners.stop_keepalive"), \
         patch("adb_harness.runners.setup_contact_alias_fixture"), \
+        patch("adb_harness.runners.setup_contact_family_fixture", return_value=True), \
+        patch("adb_harness.runners.check_email_fixture", return_value=False), \
         patch("adb_harness.runners.cleanup_clock_alerts", return_value=True), \
         patch("adb_harness.runners.check_logcat_stream", stream_mock), \
         patch("adb_harness.runners.logcat_restart", return_value=restart_succeeds), \
@@ -83,6 +85,17 @@ class WarmupHealthyTest(unittest.TestCase):
         """Stream healthy + oracle healthy → warmup succeeds (0)."""
         rc = _warmup_with(stream_healthy=True, oracle_healthy=True)
         self.assertEqual(rc, 0)
+
+    def test_missing_email_account_is_persisted_for_isolated_cases(self) -> None:
+        """Isolated warmup records email fixture absence for later classification."""
+        self.assertEqual(_warmup_with(), 0)
+
+        from adb_harness.runners import _isolated_known_missing
+
+        self.assertEqual(
+            _isolated_known_missing,
+            frozenset(["contacts:email_contact_seed"]),
+        )
 
 
 class WarmupStreamRecoveryTest(unittest.TestCase):
@@ -108,10 +121,11 @@ class WarmupStreamRecoveryTest(unittest.TestCase):
             patch("adb_harness.runners.logcat_start"), \
             patch("adb_harness.runners.clear_logcat"), \
             patch("adb_harness.runners.read_logcat", return_value=_WARMED_LOGCAT), \
-            patch("adb_harness.runners.run_adb", return_value=""), \
             patch("adb_harness.runners.start_keepalive"), \
             patch("adb_harness.runners.stop_keepalive"), \
             patch("adb_harness.runners.setup_contact_alias_fixture"), \
+            patch("adb_harness.runners.setup_contact_family_fixture", return_value=True), \
+            patch("adb_harness.runners.check_email_fixture", return_value=False), \
             patch("adb_harness.runners.cleanup_clock_alerts", return_value=True), \
             patch("adb_harness.runners.check_logcat_stream", stream_mock), \
             patch("adb_harness.runners.logcat_restart", return_value=True), \
@@ -153,10 +167,11 @@ class WarmupOracleFailTest(unittest.TestCase):
             patch("adb_harness.runners.logcat_start"), \
             patch("adb_harness.runners.clear_logcat"), \
             patch("adb_harness.runners.read_logcat", return_value=_WARMED_LOGCAT), \
-            patch("adb_harness.runners.run_adb", return_value=""), \
             patch("adb_harness.runners.start_keepalive"), \
             patch("adb_harness.runners.stop_keepalive"), \
             patch("adb_harness.runners.setup_contact_alias_fixture"), \
+            patch("adb_harness.runners.setup_contact_family_fixture", return_value=True), \
+            patch("adb_harness.runners.check_email_fixture", return_value=False), \
             patch("adb_harness.runners.cleanup_clock_alerts", return_value=True), \
             patch("adb_harness.runners.check_logcat_stream", stream_mock), \
             patch("adb_harness.runners.logcat_restart", return_value=True), \
