@@ -960,7 +960,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
                         lambda r=reply: send_slot_reply(r),
                         timeout=5.0,
                         expected=None,
-                        keep_foreground=True,
+                        keep_foreground=False,
                     )
                 # Send the final slot reply — this triggers the actual dispatch
                 logcat = capture_fresh_logcat(
@@ -1639,7 +1639,7 @@ def _execute_isolated_test(tc: TestCase, phase_name: str, index: int,
         for reply in slot_replies[:-1]:
             capture_fresh_logcat(
                 lambda r=reply: send_slot_reply(r),
-                timeout=5.0, expected=None, keep_foreground=True,
+                timeout=5.0, expected=None, keep_foreground=False,
             )
         logcat = capture_fresh_logcat(
             lambda: send_slot_reply(slot_replies[-1]),

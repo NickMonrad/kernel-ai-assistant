@@ -92,6 +92,7 @@ class QuickIntentRouterSmokeTest {
             // add_to_list
             Arguments.of("add milk to my shopping list", "add_to_list"),
             Arguments.of("add eggs to my grocery list", "add_to_list"),
+            Arguments.of("add to my list", "add_to_list"),
         )
     }
 }
