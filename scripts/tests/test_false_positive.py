@@ -396,6 +396,63 @@ class FalsePositiveFailureBucketTest(unittest.TestCase):
         self.assertIsNone(derive_failure_bucket(r))
 
 
+
+class FixtureFailureBucketTest(unittest.TestCase):
+    """derive_failure_bucket for fixture-related results."""
+
+    def _make_result(self, *, tags: list[str] | None = None,
+                     fixture: str | None = None,
+                     param_failures: list[str] | None = None,
+                     actual_intent: str | None = None) -> TestResult:
+        return TestResult(
+            index=1, message="send a message",
+            category="slot_fill",
+            expect_intent="send_sms",
+            actual_intent=actual_intent,
+            expect_params={"contact": "Mum"},
+            actual_params={},
+            intent_passed=False,
+            params_passed=False,
+            param_failures=param_failures or [],
+            tags=tags or [],
+            fixture=fixture,
+            xfail=False,
+            first_turn_warn=None,
+            log_check_warn=None,
+            reply_warn=None,
+            forbidden_intents=[],
+            forbidden_intent_triggered=False,
+            fallthrough_observed=True,
+        )
+
+    def test_fixture_missing_via_tag(self) -> None:
+        """contact_fixture_required tag → fixture_missing."""
+        r = self._make_result(tags=["slot_fill", "fixture_required", "contact_fixture_required"])
+        self.assertEqual(derive_failure_bucket(r), "fixture_missing")
+
+    def test_fixture_missing_via_fixture_field(self) -> None:
+        """fixture starts with 'contacts:' → fixture_missing."""
+        r = self._make_result(fixture="contacts:family_seed")
+        self.assertEqual(derive_failure_bucket(r), "fixture_missing")
+
+    def test_fixture_missing_before_field_mismatch(self) -> None:
+        """fixture_missing takes priority over field_mismatch when both tags and param_failures set."""
+        r = self._make_result(
+            tags=["fixture_required", "contact_fixture_required"],
+            fixture="contacts:family_seed",
+            param_failures=["Missing param contact"],
+            actual_intent=None,
+        )
+        self.assertEqual(derive_failure_bucket(r), "fixture_missing")
+
+    def test_field_mismatch_when_no_fixture_tags(self) -> None:
+        """field_mismatch still applies when no fixture tags present."""
+        r = self._make_result(
+            param_failures=["Missing param contact"],
+            actual_intent="send_sms",
+        )
+        self.assertEqual(derive_failure_bucket(r), "field_mismatch")
+
 class FalsePositiveSelectorTest(unittest.TestCase):
     """Selection of false-positive cases via the existing selector model."""
 

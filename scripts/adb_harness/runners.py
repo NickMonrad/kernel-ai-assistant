@@ -65,9 +65,11 @@ from adb_harness.device import (
     send_text,
     send_profile,
     setup_contact_alias_fixture,
+    setup_contact_family_fixture,
     start_keepalive,
     stop_keepalive,
     teardown_contact_alias_fixture,
+    teardown_contact_family_fixture,
 )
 from adb_harness.models import (
     LLMToolsResult, LLMToolsTestCase, ProfileTestCase, TestCase, TestResult,
@@ -784,6 +786,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
     setup_contact_alias_fixture()
     print("done")
+    # Insert family contacts for SMS/contact fixture tests
+    print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
+    setup_contact_family_fixture()
+    print("done")
 
     # ── Orchestrator warmup: wait for MiniLM phrase vectors to be fully built ──
     # Clear logcat first so we don't match a stale "Ready:" from a previous app run.
@@ -1279,8 +1285,10 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
     teardown_contact_alias_fixture()
     print("done")
+    print("  [cleanup] Removing family contact fixture ...", end=" ", flush=True)
+    teardown_contact_family_fixture()
+    print("done")
     print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
-    stop_keepalive()
     run_adb("shell", "svc", "power", "stayon", "false")
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")  # restore 60s
     print("done")
@@ -1531,6 +1539,9 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     # Contact alias fixture
     print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
     setup_contact_alias_fixture()
+    print("done")
+    print("  [init] Setting up family contact fixture ...", end=" ", flush=True)
+    setup_contact_family_fixture()
     print("done")
 
     # Warm up MiniLM classifier
@@ -1979,8 +1990,9 @@ def run_isolated_phases(dry_run: bool = False,
         print(f"  [isolated] Clock alerts: {'ok' if cleanup_ok else 'FAILED'}")
         teardown_contact_alias_fixture()
         print(f"  [isolated] Contact fixture: removed")
+        teardown_contact_family_fixture()
+        print(f"  [isolated] Family contact fixture: removed")
         _isolated_teardown()
-        print(f"  [isolated] Phase '{phase_name}' complete")
         print()
 
         # If cleanup failed, keep going but mark overall

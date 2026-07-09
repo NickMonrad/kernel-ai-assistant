@@ -554,6 +554,89 @@ def teardown_contact_alias_fixture() -> None:
         "display_name:STRIP:zippy",
     )
 
+# Family contacts for SMS fixture (contacts:family_seed)
+FAMILY_CONTACTS: dict[str, str] = {
+    "Mum": "+15551234567",
+    "John": "+15559876543",
+    "Sarah": "+15555556677",
+}
+
+
+def _extract_raw_contact_id(adb_output: str) -> str | None:
+    """Extract the raw contact _id from a content insert result.
+
+    ADB returns one of:
+      Added N
+      Uri: content://com.android.contacts/raw_contacts/N
+    """
+    import re
+    m = re.search(r"raw_contacts/(\d+)", adb_output)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _seed_single_contact(name: str, phone: str) -> bool:
+    """Insert one contact with phone number. Returns True on success."""
+    # Step 1: insert raw contact
+    raw_result = run_adb(
+        "shell", "content", "insert",
+        "--uri", "content://com.android.contacts/raw_contacts",
+        "--bind", f"display_name:STRIP:{name}",
+    )
+    raw_id = _extract_raw_contact_id(raw_result)
+    if not raw_id:
+        return False
+    # Step 2: attach phone number
+    phone_result = run_adb(
+        "shell", "content", "insert",
+        "--uri", "content://com.android.contacts/data",
+        "--bind", f"raw_contact_id:LONG:{raw_id}",
+        "--bind", "mimetype:STRIP:vnd.android.cursor.item/phone_v2",
+        "--bind", f"data1:STRIP:{phone}",
+        "--bind", "data2:LONG:2",  # 2 = TYPE_MOBILE
+    )
+    return "Uri" in phone_result or "Added" in phone_result or phone_result != ""
+
+
+def _remove_single_contact(name: str) -> None:
+    """Remove a contact by display_name from raw_contacts."""
+    run_adb(
+        "shell", "content", "delete",
+        "--uri", "content://com.android.contacts/raw_contacts",
+        "--bind", f"display_name:STRIP:{name}",
+    )
+
+
+def setup_contact_family_fixture() -> bool:
+    """Seed family contacts (Mum, John, Sarah) with test phone numbers.
+
+    Uses the same ADB content:// mechanism as setup_contact_alias_fixture().
+    Returns True if all contacts were seeded successfully.
+    """
+    ok = True
+    for name, phone in FAMILY_CONTACTS.items():
+        if not _seed_single_contact(name, phone):
+            print(f"  [fixture] WARNING: failed to seed contact '{name}'", file=sys.stderr)
+            ok = False
+    return ok
+
+
+def teardown_contact_family_fixture() -> None:
+    """Remove family fixture contacts."""
+    for name in FAMILY_CONTACTS:
+        _remove_single_contact(name)
+
+
+def check_contact_family_fixture() -> bool:
+    """Check that at least one family contact exists on device."""
+    output = run_adb(
+        "shell", "content", "query",
+        "--uri", "content://com.android.contacts/raw_contacts",
+        "--projection", "display_name",
+    )
+    return any(n in output for n in FAMILY_CONTACTS)
+
 
 def dismiss_notifications() -> None:
     """Dismiss all system notifications via ADB."""

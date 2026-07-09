@@ -236,11 +236,11 @@ def derive_failure_bucket(r: TestResult) -> str | None:
     4. xfail_reason has a leading <bucket>: prefix → that bucket
     5. first_turn_warn or log_check_warn mentioning missing slot prompt / NeedsSlot → slot_fill_missing
     6. tag slot_fill_invalid_answer → slot_fill_invalid_reply
-    7. param_failures → field_mismatch
-    8. category is 'ambiguous' or tag 'ambiguous' → stale_or_ambiguous_expectation
-    9. tag media_context → media_context_missing
-    10. tag location_context or fixture starts with 'location:' → location_or_permission_missing
-    11. tag fixture_required / contact_fixture_required or fixture starts with 'contacts:' / 'apps:' → fixture_missing
+    7. tag fixture_required / contact_fixture_required or fixture starts with 'contacts:' / 'apps:' → fixture_missing
+    8. param_failures → field_mismatch
+    9. category is 'ambiguous' or tag 'ambiguous' → stale_or_ambiguous_expectation
+    10. tag media_context → media_context_missing
+    11. tag location_context or fixture starts with 'location:' → location_or_permission_missing
     12. tag device_state → device_state_side_effect
     13. actual_intent present and differs from expect_intent → wrong_tool
     14. log_check_warn present → harness_or_logcat_issue
@@ -266,6 +266,11 @@ def derive_failure_bucket(r: TestResult) -> str | None:
         return "slot_fill_missing"
     if "slot_fill_invalid_answer" in r.tags:
         return "slot_fill_invalid_reply"
+    # fixture_missing
+    if ("fixture_required" in r.tags or "contact_fixture_required" in r.tags
+            or (r.fixture and r.fixture.startswith("contacts:"))
+            or (r.fixture and r.fixture.startswith("apps:"))):
+        return "fixture_missing"
     # field_mismatch
     if r.param_failures:
         return "field_mismatch"
@@ -278,11 +283,6 @@ def derive_failure_bucket(r: TestResult) -> str | None:
     # location_or_permission_missing
     if "location_context" in r.tags or (r.fixture and r.fixture.startswith("location:")):
         return "location_or_permission_missing"
-    # fixture_missing
-    if ("fixture_required" in r.tags or "contact_fixture_required" in r.tags
-            or (r.fixture and r.fixture.startswith("contacts:"))
-            or (r.fixture and r.fixture.startswith("apps:"))):
-        return "fixture_missing"
     # device_state_side_effect
     if "device_state" in r.tags:
         return "device_state_side_effect"
