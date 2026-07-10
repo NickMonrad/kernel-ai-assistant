@@ -366,7 +366,10 @@ class NativeIntentHandler @Inject constructor(
                 SkillResult.Success("Email composer opened. Couldn't prefill recipient for $contact.")
             }
         } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("send_email", "No email app available")
+            SkillResult.Failure(
+                "send_email",
+                "I can't send email from this device yet. Set up an email app and account, then try again.",
+            )
         }
     }
 

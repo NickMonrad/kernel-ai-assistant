@@ -3248,9 +3248,9 @@ class QuickIntentRouter(
             intentName = "send_email",
             regex = Regex(
                 """^(?:send\s+(?:an?\s+)?email|email)\s+(?:to\s+)?(.+?)""" +
-                    """(?:\s+(?:about|regarding|re|subject:?)\s+(.+?))?""" +
+                    """(?:\s+(?:about|regarding|re|subject:?|with\s+subject:?)\s+(.+?))?""" +
                     """(?:\s+(?:that)\s+(.+?))?""" +
-                    """(?:\s+(?:body|message|saying|containing)\s+(.+))?$""",
+                    """(?:\s+(?:and\s+)?(?:body|message|saying|containing)\s+(.+))?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
