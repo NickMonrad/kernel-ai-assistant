@@ -1833,6 +1833,19 @@ class QuickIntentRouterTest {
             assertEquals(expectedSubject, needsSlot.intent.params["subject"], "subject for '$input'")
             assertEquals("body", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @Test
+        fun `should exclude body delimiter from explicit email subject`() {
+            val result = regexOnlyRouter.route(
+                "send an email to Nick with subject Test and body Hello",
+            )
+
+            assertRegexMatch(result, "send_email", "explicit subject and body")
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("Nick", intent.params["contact"])
+            assertEquals("Test", intent.params["subject"])
+            assertEquals("Hello", intent.params["body"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

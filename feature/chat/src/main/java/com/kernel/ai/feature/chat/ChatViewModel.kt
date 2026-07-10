@@ -1805,7 +1805,7 @@ class ChatViewModel @Inject constructor(
                                 }
                             }
                             is SkillResult.Failure -> {
-                                if (!inferenceEngine.isReady.value) {
+                                if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2144,10 +2144,10 @@ class ChatViewModel @Inject constructor(
                         }
                         is com.kernel.ai.core.skills.SkillResult.Failure -> {
                             // #1313: deterministic regex-matched native routes are terminal even on
-                            // failure — show the error directly and skip E4B to prevent the model
-                            // from overwriting with a stale tool call (e.g. play_netflix after a
-                            // play_plex app-not-installed failure).
-                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch) {
+                            // failure. Email failures are also terminal because retrying through E4B
+                            // can invoke an unrelated tool instead of showing the email limitation.
+                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
+                                skillResult.skillName == "send_email") {
                                 appendAssistantMessage(
                                     convId,
                                     skillResult.error,
@@ -2248,7 +2248,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is SkillResult.Failure -> {
-                            if (!inferenceEngine.isReady.value) {
+                            if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
                                 return@launch
                             }
@@ -3093,7 +3093,12 @@ class ChatViewModel @Inject constructor(
                     resultText = result.error,
                     isSuccess = false,
                 )
-                Pair(toolCall, "I tried to do that but something went wrong: ${result.error}")
+                val response = if (result.skillName == "send_email") {
+                    result.error
+                } else {
+                    "I tried to do that but something went wrong: ${result.error}"
+                }
+                Pair(toolCall, response)
             }
             is SkillResult.CapabilityRequired -> null
             is SkillResult.ParseError, is SkillResult.UnknownSkill -> null

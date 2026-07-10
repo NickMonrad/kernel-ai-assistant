@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills.natives
 
+import android.content.ActivityNotFoundException
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -587,6 +588,24 @@ class NativeIntentHandlerTest {
 
         assertEquals(SkillResult.Success("Email composer opened to susan@example.com."), result)
         verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
+    fun `send_email explains unavailable email app`() {
+        every { context.startActivity(any()) } throws ActivityNotFoundException()
+
+        val result = handleIntent(
+            "send_email",
+            mapOf("contact" to "susan@example.com", "subject" to "Hello", "body" to "World"),
+        )
+
+        assertEquals(
+            SkillResult.Failure(
+                "send_email",
+                "I can't send email from this device yet. Set up an email app and account, then try again.",
+            ),
+            result,
+        )
     }
 
     @Test
