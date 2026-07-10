@@ -60,7 +60,7 @@ adb shell dumpsys deviceidle
 adb shell dumpsys activity services com.kernel.ai.debug
 adb shell dumpsys batterystats --reset
 adb shell dumpsys batterystats com.kernel.ai.debug
-adb logcat -d -v threadtime -s KernelAI:D '*:S'
+adb logcat -d -v threadtime -s KernelAI:D '*:S' | grep -F "WakeWordDetector: diagnostics"
 ```
 
 Record locally:
@@ -101,8 +101,10 @@ adb shell dumpsys power
 adb shell dumpsys deviceidle
 adb shell dumpsys activity services com.kernel.ai.debug
 adb shell dumpsys meminfo com.kernel.ai.debug
-adb logcat -d -v threadtime -s KernelAI:D '*:S'
+adb logcat -d -v threadtime -s KernelAI:D '*:S' | grep -F "WakeWordDetector: diagnostics"
 ```
+
+The `KernelAI` tag can include routed transcripts during spoken smoke checks. Never redirect, retain, attach, or share its unfiltered output. Extract only `WakeWordDetector: diagnostics` lines, then record their aggregate fields in the report; redact any accidental non-diagnostic line before it leaves the local terminal.
 
 The relevant low-frequency `WakeWordDetector: diagnostics` lines contain:
 

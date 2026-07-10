@@ -574,8 +574,8 @@ class OnnxWakeWordDetector @Inject constructor(
                     // High-confidence fast path — activate immediately.
                     confidence >= highThreshold -> {
                         Log.i(TAG, "WakeWordDetector: detected (high confidence=$confidence)")
-                        diagnostics?.recordHighConfidenceActivation()
                         if (running.compareAndSet(true, false)) {
+                            diagnostics?.recordHighConfidenceActivation()
                             onDetected()
                         }
                     }
@@ -588,8 +588,8 @@ class OnnxWakeWordDetector @Inject constructor(
                         diagnostics?.recordVerifierResult(verified)
                         if (verified) {
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
-                            diagnostics?.recordVerifiedActivation()
                             if (running.compareAndSet(true, false)) {
+                                diagnostics?.recordVerifiedActivation()
                                 onDetected()
                             }
                         } else {
