@@ -1,7 +1,7 @@
 # Wake-word battery retest — S21 — 2026-07-10
 
-**Issue:** #1142  
-**Result:** **Clearly excessive observed whole-device drain; comparative follow-up required.**  
+**Issue:** #1142<br>
+**Result:** **Clearly excessive observed whole-device drain; comparative follow-up required.**<br>
 **Test source:** physical device, controlled idle window; no raw device logs are committed.
 
 ## Scope and build
