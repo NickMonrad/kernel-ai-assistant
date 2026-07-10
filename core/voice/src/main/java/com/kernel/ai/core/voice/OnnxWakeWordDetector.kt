@@ -8,6 +8,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.annotation.SuppressLint
+import android.os.SystemClock
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
@@ -20,6 +21,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
+private const val DIAGNOSTIC_TAG = "WakeWordDiag"
+
+internal fun isWakeWordDiagnosticLoggingEnabled(): Boolean =
+    Log.isLoggable(DIAGNOSTIC_TAG, Log.DEBUG)
+
+/**
+ * Diagnostic summaries are only emitted when the dedicated tag's DEBUG level is enabled.
+ * Checking at this cadence keeps the production detector hot loop allocation-free.
+ */
+private const val DIAGNOSTIC_REPORT_INTERVAL_MILLIS = 15 * 60 * 1_000L
+private const val DIAGNOSTIC_REPORT_CHECK_FRAMES = 128L
 
 // ── Audio parameters ─────────────────────────────────────────────────────────
 /** openWakeWord requires 16 kHz, mono, 16-bit PCM — non-negotiable. */
@@ -307,10 +319,11 @@ class OnnxWakeWordDetector @Inject constructor(
         var melsSession: OrtSession? = null
         var embedSession: OrtSession? = null
         var classSession: OrtSession? = null
-        // Diagnostics counters for final log
-        var inferenceCount = 0L
-        var gatedFramesSkipped = 0L
-        var minRms = 0.0
+        val diagnosticsEnabled = isWakeWordDiagnosticLoggingEnabled()
+        val diagnostics = if (diagnosticsEnabled) WakeWordDiagnosticCounters() else null
+        val diagnosticsStartedAt = if (diagnosticsEnabled) SystemClock.elapsedRealtime() else 0L
+        var lastDiagnosticReportElapsedMillis = 0L
+        var nnapiStatus = "not_requested"
 
         try {
             val env = OrtEnvironment.getEnvironment()
@@ -319,8 +332,16 @@ class OnnxWakeWordDetector @Inject constructor(
             }
             embedOptions = OrtSession.SessionOptions().apply {
                 setIntraOpNumThreads(1)
-                runCatching { addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED)) }
-                    .onFailure { Log.w(TAG, "WakeWordDetector: NNAPI EP unavailable, using CPU", it) }
+            }
+            val nnapiConfigured = runCatching {
+                embedOptions!!.addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED))
+            }.onFailure {
+                Log.w(TAG, "WakeWordDetector: NNAPI EP configuration failed; embedding session will use CPU", it)
+            }.isSuccess
+            nnapiStatus = if (nnapiConfigured) {
+                "requested_cpu_disabled"
+            } else {
+                "configuration_failed_cpu_session"
             }
 
             melsSession = runCatching { env.createSession(bytes.melspectrogram, cpuOptions!!) }
@@ -329,13 +350,19 @@ class OnnxWakeWordDetector @Inject constructor(
                 .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null }
             classSession = runCatching { env.createSession(bytes.classifier, cpuOptions!!) }
                 .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
+            nnapiStatus = when {
+                embedSession == null && nnapiConfigured -> "session_create_failed_after_nnapi_request"
+                embedSession == null -> "cpu_session_create_failed"
+                nnapiConfigured -> "session_created_nnapi_requested_assignment_unverified"
+                else -> "cpu_session_created"
+            }
 
             if (melsSession == null || embedSession == null || classSession == null) {
                 Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
                 return
 
             }
-            Log.i(TAG, "WakeWordDetector: models loaded (embedding: NNAPI CPU_DISABLED, mel+classifier: CPU)")
+            Log.i(TAG, "WakeWordDetector: models loaded (embedding provider=$nnapiStatus; mel+classifier: CPU)")
 
 
             // Resolve ONNX node names once at startup.
@@ -389,6 +416,7 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
                 if (totalRead < FRAME_SAMPLES) continue
+                diagnostics?.recordAudioFrame()
                 chunkCount++
                 val rms = calculateRms(chunk)
 
@@ -408,9 +436,6 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
                 }
 
-                // ── Silence baseline ───────────────────────────────────────────────
-                // Track the minimum observed RMS for diagnostic logging.
-                if (minRms <= 0.0 || rms < minRms) minRms = rms
 
                 // ── Fast-open / slow-close voice detection ───────────────────────
                 // Fast-open: a single frame above threshold immediately resets the
@@ -452,6 +477,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 // Input:  [1, 1280] float32 PCM
                 // Output: [1, 1, 5, 32] mel spectrogram patch (5 rows × 32 bins per chunk)
+                diagnostics?.recordStage1Execution()
                 val melRows: FloatArray = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(framePcm),
@@ -483,23 +509,20 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 if (melRowsFilled < MEL_RING_SIZE) continue
 
+                if (diagnostics != null && chunkCount % DIAGNOSTIC_REPORT_CHECK_FRAMES == 0L) {
+                    val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
+                    if (elapsedMillis - lastDiagnosticReportElapsedMillis >= DIAGNOSTIC_REPORT_INTERVAL_MILLIS) {
+                        Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(diagnostics.snapshot(elapsedMillis), nnapiStatus))
+                        lastDiagnosticReportElapsedMillis = elapsedMillis
+                    }
+                }
+
                 // ── Gating: skip embedding + classifier when confirmed-silent ─────
                 if (silenceFrames > silenceHangoverFrames &&
                     chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
-                    gatedFramesSkipped++
+                    diagnostics?.recordSilenceGateSkip()
                     wasGated = true
                     continue  // wake word not expected — skip expensive Stage 2/3
-                }
-                // Log mic activity every ~8s (only when Stage 2/3 runs).
-                if (chunkCount % 100 == 0) {
-                    Log.d(
-                        TAG,
-                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
-                            "base=${"%.1f".format(minRms)} " +
-                            "thresh=$silenceRmsThreshold isVoiced=$isFrameVoiced " +
-                            "silenceFrames=$silenceFrames melFilled=$melRowsFilled " +
-                            "embAcc=$embFramesAccumulated ongoingSkips=$gatedFramesSkipped",
-                    )
                 }
 
                 // ── Stage 2: embedding backbone ───────────────────────────────────────
@@ -510,6 +533,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 // passing the same flat array with shape [1, 76, 32, 1] — the channel is implicit
                 // (every element maps to exactly one channel-1 position).
                 melRing.copyInto(embedInput4D)
+                diagnostics?.recordStage2Execution()
                 val embedding: FloatArray = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(embedInput4D),
@@ -536,6 +560,7 @@ class OnnxWakeWordDetector @Inject constructor(
                     embeddingRing[frameIdx].copyInto(windowFlat, f * EMBEDDING_DIM)
                 }
 
+                diagnostics?.recordStage3Execution()
                 val confidence: Float = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(windowFlat),
@@ -546,11 +571,7 @@ class OnnxWakeWordDetector @Inject constructor(
                         ((t.value as Array<*>)[0] as FloatArray)[0]
                     }
                 }
-                inferenceCount++
-                // Log every inference during first 5s, then every ~1s (every 12 inferences).
-                if (inferenceCount <= 20 || inferenceCount % 12 == 0L) {
-                    Log.d(TAG, "WakeWordDetector: inference #$inferenceCount confidence=${"%.4f".format(confidence)}")
-                }
+                // Stage 3 count is retained in low-frequency diagnostics; avoid per-second logs.
 
 
                 when {
@@ -558,6 +579,7 @@ class OnnxWakeWordDetector @Inject constructor(
                     confidence >= highThreshold -> {
                         Log.i(TAG, "WakeWordDetector: detected (high confidence=$confidence)")
                         if (running.compareAndSet(true, false)) {
+                            diagnostics?.recordHighConfidenceActivation()
                             onDetected()
                         }
                     }
@@ -566,9 +588,12 @@ class OnnxWakeWordDetector @Inject constructor(
                     verifyWindow != null && confidence >= lowThreshold -> {
                         Log.d(TAG, "WakeWordDetector: low-threshold crossing (confidence=$confidence) — verifying")
                         val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
-                        if (verifyWindow(snapshot)) {
+                        val verified = verifyWindow(snapshot)
+                        diagnostics?.recordVerifierResult(verified)
+                        if (verified) {
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
                             if (running.compareAndSet(true, false)) {
+                                diagnostics?.recordVerifiedActivation()
                                 onDetected()
                             }
                         } else {
@@ -593,10 +618,35 @@ class OnnxWakeWordDetector @Inject constructor(
             cpuOptions?.close()
             embedOptions?.close()
             running.set(false)
-            Log.d(TAG, "WakeWordDetector: detection loop exited — " +
-                "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
-                "finalMinRms=${"%.1f".format(minRms)}")
+            diagnostics?.let {
+                val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
+                Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
+            }
         }
+    }
+
+    private fun formatDiagnosticSummary(
+        snapshot: WakeWordDiagnosticSnapshot,
+        nnapiStatus: String,
+        final: Boolean = false,
+    ): String = buildString {
+        append("WakeWordDetector: diagnostics")
+        if (final) append(" final")
+        append(" elapsedMs=").append(snapshot.elapsedMillis)
+        append(" audioFrames=").append(snapshot.audioFrames)
+        append(" stage1=").append(snapshot.stage1Executions)
+        append(" stage2=").append(snapshot.stage2Executions)
+        append(" stage3=").append(snapshot.stage3Executions)
+        append(" stage2PerHour=").append(snapshot.stage2ExecutionsPerHour())
+        append(" stage3PerHour=").append(snapshot.stage3ExecutionsPerHour())
+        append(" silenceSkips=").append(snapshot.silenceGateSkips)
+        append(" silenceSkipRatio=").append(snapshot.silenceGateSkipRatio)
+        append(" verifier=").append(snapshot.verifierInvocations)
+        append(" verifierPasses=").append(snapshot.verifierPasses)
+        append(" verifierRejects=").append(snapshot.verifierRejects)
+        append(" highActivations=").append(snapshot.highConfidenceActivations)
+        append(" verifiedActivations=").append(snapshot.verifiedActivations)
+        append(" embeddingProvider=").append(nnapiStatus)
     }
 
     /**
