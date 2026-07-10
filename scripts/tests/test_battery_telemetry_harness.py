@@ -116,9 +116,9 @@ class PairedWorkflowTest(unittest.TestCase):
 
 class SanitizationAndReportingTest(unittest.TestCase):
     def test_sanitizes_serial_endpoints_accounts_and_private_paths(self) -> None:
-        text = "serial R5CR605B71K at 192.168.1.7:5555 owner@example.com /home/alice/raw"
-        sanitized = sanitise_text(text, ("R5CR605B71K",))
-        self.assertNotIn("R5CR605B71K", sanitized)
+        text = "serial FAKE-SERIAL-001 at 192.168.1.7:5555 owner@example.com /home/alice/raw"
+        sanitized = sanitise_text(text, ("FAKE-SERIAL-001",))
+        self.assertNotIn("FAKE-SERIAL-001", sanitized)
         self.assertNotIn("192.168.1.7", sanitized)
         self.assertNotIn("owner@example.com", sanitized)
         self.assertNotIn("/home/alice", sanitized)
