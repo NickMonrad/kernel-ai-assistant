@@ -4,6 +4,100 @@ This procedure captures a controlled, **unplugged** real-device idle measurement
 
 > **Privacy:** Never put an ADB serial number, Wi-Fi address, pairing code, account name, or raw unfiltered logcat into a committed report, issue, or PR. Identify the device by sanitized model, chipset, and Android version only.
 
+## Paired S21/S23U harness
+
+Issue #1393 adds `scripts/battery_telemetry_harness.py` for the paired evidence required by #1391. It collects two later four-hour comparisons:
+
+1. **Disabled baseline** — Listen for Hey Jandal disabled on both devices.
+2. **Enabled treatment** — the unchanged current implementation enabled on both devices.
+
+The primary analysis is within each device: **S21 enabled − S21 disabled** and **S23U enabled − S23U disabled**. Do not treat equal percentage-point drops across the S21 and S23U as equal energy use: battery age, capacity, chipset, firmware, and percentage granularity differ.
+
+The harness uses sanitized aliases (`s21`, `s23u`) in public summaries. ADB selectors are accepted only as local arguments or through `JANDAL_S21_ADB` and `JANDAL_S23U_ADB`; they are redacted before any commit-safe output is generated.
+
+### Commands
+
+Fixture dry run — no ADB command or device state change:
+
+```bash
+python3 scripts/battery_telemetry_harness.py smoke \
+  --fixture scripts/testdata/fixtures/battery_telemetry_paired_smoke.json \
+  --duration 2m
+```
+
+Future physical disabled baseline, run only with the operator present:
+
+```bash
+python3 scripts/battery_telemetry_harness.py baseline-disabled \
+  --s21 "$JANDAL_S21_ADB" --s23u "$JANDAL_S23U_ADB" \
+  --duration 4h --interactive
+```
+
+Future physical enabled treatment, after the disabled baseline has been reviewed:
+
+```bash
+python3 scripts/battery_telemetry_harness.py enabled \
+  --s21 "$JANDAL_S21_ADB" --s23u "$JANDAL_S23U_ADB" \
+  --duration 4h --interactive
+```
+
+`smoke` is always labelled `NON_EVIDENTIARY_SMOKE`; fixture output is labelled `NON_EVIDENTIARY_FIXTURE_DRY_RUN`. Neither supports a battery, causal, or release recommendation.
+
+### Private artifact flow
+
+Physical runs write only to the gitignored `scripts/private-battery-runs/<run-id>/` tree:
+
+```text
+<run-id>/
+  s21/start/  s21/end/  s21/bugreport/
+  s23u/start/ s23u/end/ s23u/bugreport/
+  sanitized/run-summary.json
+  sanitized/run-summary.md
+```
+
+The private tree contains complete Batterystats (`--charged` and `--checkin`), power, package, procstats, meminfo, service, aggregate WakeWordDiag, and end-only bugreport artifacts. Inspect it locally, never with `git add`:
+
+```bash
+git check-ignore -v scripts/private-battery-runs/example/s21/end/batterystats-charged.txt
+```
+
+The public JSON/Markdown summary is sanitised and validates that it contains no ADB selector, IP address, pairing code, account/email identifier, home path, raw artifact name, or unfiltered log.
+
+### Manual operator gates
+
+The physical harness stops at each gate; typing `START` is required to proceed.
+
+**Disabled baseline**
+
+1. The harness validates both Samsung identities, Android metadata, package/UID/version, and wireless ADB.
+2. The operator manually disables Listen for Hey Jandal on both devices and confirms.
+3. The harness requires both wake-word services to be inactive and `WakeWordDiag` not DEBUG.
+4. The operator manually unplugs charger and USB, turns both displays off, and locks both devices; then confirms.
+5. The harness rejects the pair unless both devices report AC/USB/wireless false, discharging, screen off, and service inactive. It resets Batterystats only after this accepted boundary.
+
+**Enabled treatment**
+
+1. The operator manually enables Listen for Hey Jandal, verifies the intended build/model assets, completes one pre-test spoken wake smoke per device, and confirms.
+2. The harness requires both services to be active, then sets only `WakeWordDiag` DEBUG.
+3. The operator restarts/re-arms each detector and confirms a summary can be observed before proceeding. The harness never changes the toggle, clears data, removes models, or uninstalls.
+4. The same manual unplug/screen-lock gate and both-device validation applies before Batterystats reset.
+
+If either device fails any gate, the attempt is aborted for **both** devices. It is not a valid single-device result. The harness uses boundary snapshots rather than continuous polling; end-state loss, charging, service state, or missing evidence invalidates the pair.
+
+### Boundary evidence and parsing
+
+Accepted starts are timestamped with wall clock and monotonic time; start skew is reported. End capture records `dumpsys battery`, `batteryproperties`, complete `batterystats --charged`, complete `batterystats --checkin`, power, device idle, package/service, procstats, and meminfo. The harness resolves package UID from complete package output, then parses available app CPU user/kernel time, partial wakelocks, foreground-service duration, estimated app power, and check-in CPU evidence.
+
+Every parsed value carries an explicit state: `available`, `not_reported`, `unsupported`, `parse_failed`, or `not_applicable`. Missing OEM fields never become zero. Battery charge counter, voltage, temperature, health, full-charge capacity, and cycle count are reported only when exposed. Enabled runs parse only aggregate `WakeWordDiag` summaries; disabled runs mark wake metrics not applicable. NNAPI assignment remains inconclusive unless native provider evidence proves assignment.
+
+After enabled end collection, the harness restores:
+
+```bash
+adb shell setprop log.tag.WakeWordDiag INFO
+```
+
+The operator restarts/re-arms the detector if it will continue running. The harness never enables shared `KernelAI` DEBUG logging.
+
 ## Preconditions
 
 - Use the approved physical device and an in-place debug install: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.

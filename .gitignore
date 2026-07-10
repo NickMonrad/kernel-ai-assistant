@@ -66,3 +66,9 @@ scripts/test-reports/
 scripts/scripts/test-reports/
 _site/
 testdata/
+
+# Paired battery telemetry harness: all physical-device artifacts are private.
+scripts/private-battery-runs/
+!scripts/testdata/
+!scripts/testdata/fixtures/
+!scripts/testdata/fixtures/battery_telemetry_paired_smoke.json

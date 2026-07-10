@@ -1,0 +1,26 @@
+{
+  "devices": {
+    "s21": {
+      "manufacturer": "Samsung",
+      "model": "SM-G991B",
+      "android_api": "35",
+      "start_monotonic_ms": 1000000,
+      "start_level": 80,
+      "end_level": 79,
+      "uid": 10123,
+      "batterystats": "uid=10123 cpu_user=120 cpu_kernel=7 foreground_service=600 partial_wakelock=WakeWordLock,300 estimated_power=1.5",
+      "wakeword_diag": "WakeWordDetector: diagnostics elapsedMs=120000 audioFrames=1500 stage1=1500 stage2=12 stage3=10 stage2PerHour=360 stage3PerHour=300 silenceSkips=1488 silenceSkipRatio=0.992 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=0 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified"
+    },
+    "s23u": {
+      "manufacturer": "Samsung",
+      "model": "SM-S918B",
+      "android_api": "35",
+      "start_monotonic_ms": 1000038,
+      "start_level": 80,
+      "end_level": 80,
+      "uid": 10124,
+      "batterystats": "uid=10124 cpu_user=60 cpu_kernel=3 foreground_service=600 partial_wakelock=WakeWordLock,200 estimated_power=0.8",
+      "wakeword_diag": "WakeWordDetector: diagnostics elapsedMs=120000 audioFrames=1500 stage1=1500 stage2=8 stage3=7 stage2PerHour=240 stage3PerHour=210 silenceSkips=1492 silenceSkipRatio=0.994 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=0 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified"
+    }
+  }
+}
