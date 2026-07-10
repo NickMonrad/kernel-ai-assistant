@@ -11,11 +11,13 @@ This procedure captures a controlled, **unplugged** real-device idle measurement
 - Confirm the wake-word ONNX assets and the selected STT model are still present after installation.
 - Confirm **Listen for Hey Jandal** is visibly enabled in Jandal's Voice settings, then capture a local screenshot. Do not commit the screenshot unless it has been reviewed for private content.
 - Confirm the wake-word foreground service is running with `adb shell dumpsys activity services com.kernel.ai.debug`.
-- Set the diagnostic log tag before starting the detector. The detector emits a low-frequency summary every 15 minutes and when it stops only while this tag is DEBUG:
+- Set the dedicated diagnostic log tag before starting the detector. The detector emits a low-frequency summary every 15 minutes and when it stops only while this tag is DEBUG:
 
 ```bash
-adb shell setprop log.tag.KernelAI DEBUG
+adb shell setprop log.tag.WakeWordDiag DEBUG
 ```
+
+  `Log.isLoggable` is evaluated when a detector run begins. Stop and re-arm or otherwise restart the detector after changing this property; changing it does not enable diagnostics for an already-running detector.
 
 - Perform one locked-screen spoken `Hey Jandal` activation before the measured window. Confirm activation and no crash. Record it as a **pre-test smoke activation**, not as idle-window activity.
 
@@ -60,7 +62,7 @@ adb shell dumpsys deviceidle
 adb shell dumpsys activity services com.kernel.ai.debug
 adb shell dumpsys batterystats --reset
 adb shell dumpsys batterystats com.kernel.ai.debug
-adb logcat -d -v threadtime -s KernelAI:D '*:S' | grep -F "WakeWordDetector: diagnostics"
+adb logcat -d -v threadtime -s WakeWordDiag:D '*:S'
 ```
 
 Record locally:
@@ -101,10 +103,10 @@ adb shell dumpsys power
 adb shell dumpsys deviceidle
 adb shell dumpsys activity services com.kernel.ai.debug
 adb shell dumpsys meminfo com.kernel.ai.debug
-adb logcat -d -v threadtime -s KernelAI:D '*:S' | grep -F "WakeWordDetector: diagnostics"
+adb logcat -d -v threadtime -s WakeWordDiag:D '*:S'
 ```
 
-The `KernelAI` tag can include routed transcripts during spoken smoke checks. Never redirect, retain, attach, or share its unfiltered output. Extract only `WakeWordDetector: diagnostics` lines, then record their aggregate fields in the report; redact any accidental non-diagnostic line before it leaves the local terminal.
+`WakeWordDiag` is reserved for aggregate `WakeWordDetector: diagnostics` summaries. Retain only the summary fields needed by the report; do not attach raw device logs.
 
 The relevant low-frequency `WakeWordDetector: diagnostics` lines contain:
 
@@ -120,3 +122,13 @@ Interpret provider status carefully: `session_created_nnapi_requested_assignment
 Calculate and report exact elapsed time, percentage points consumed, percentage points per hour, Stage 2/3 executions per hour, silence-gate skip ratio, verifier statistics, activation counts, service continuity, batterystats attribution, wakelock observations, and NNAPI classification. Note battery-level granularity, radio/network activity, battery age/calibration, temperature, and other system services as measurement limits.
 
 After collecting end evidence, perform one final spoken locked-screen `Hey Jandal` activation. Record it as a **post-test smoke activation**, separately from idle-window activity.
+
+## Cleanup
+
+After the final capture, restore the dedicated diagnostic tag:
+
+```bash
+adb shell setprop log.tag.WakeWordDiag INFO
+```
+
+Stop and re-arm or restart the detector after restoring the property if it will continue running. Its current run retains the DEBUG decision made when it started.

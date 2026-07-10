@@ -21,9 +21,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
+private const val DIAGNOSTIC_TAG = "WakeWordDiag"
+
+internal fun isWakeWordDiagnosticLoggingEnabled(): Boolean =
+    Log.isLoggable(DIAGNOSTIC_TAG, Log.DEBUG)
 
 /**
- * Diagnostic summaries are only emitted when the tag's DEBUG level is enabled.
+ * Diagnostic summaries are only emitted when the dedicated tag's DEBUG level is enabled.
  * Checking at this cadence keeps the production detector hot loop allocation-free.
  */
 private const val DIAGNOSTIC_REPORT_INTERVAL_MILLIS = 15 * 60 * 1_000L
@@ -315,7 +319,7 @@ class OnnxWakeWordDetector @Inject constructor(
         var melsSession: OrtSession? = null
         var embedSession: OrtSession? = null
         var classSession: OrtSession? = null
-        val diagnosticsEnabled = Log.isLoggable(TAG, Log.DEBUG)
+        val diagnosticsEnabled = isWakeWordDiagnosticLoggingEnabled()
         val diagnostics = if (diagnosticsEnabled) WakeWordDiagnosticCounters() else null
         val diagnosticsStartedAt = if (diagnosticsEnabled) SystemClock.elapsedRealtime() else 0L
         var lastDiagnosticReportElapsedMillis = 0L
@@ -508,7 +512,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (diagnostics != null && chunkCount % DIAGNOSTIC_REPORT_CHECK_FRAMES == 0L) {
                     val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
                     if (elapsedMillis - lastDiagnosticReportElapsedMillis >= DIAGNOSTIC_REPORT_INTERVAL_MILLIS) {
-                        Log.d(TAG, formatDiagnosticSummary(diagnostics.snapshot(elapsedMillis), nnapiStatus))
+                        Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(diagnostics.snapshot(elapsedMillis), nnapiStatus))
                         lastDiagnosticReportElapsedMillis = elapsedMillis
                     }
                 }
@@ -616,7 +620,7 @@ class OnnxWakeWordDetector @Inject constructor(
             running.set(false)
             diagnostics?.let {
                 val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
-                Log.d(TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
+                Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
             }
         }
     }

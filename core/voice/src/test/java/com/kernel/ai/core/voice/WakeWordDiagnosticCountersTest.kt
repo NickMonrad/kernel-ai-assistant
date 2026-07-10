@@ -1,9 +1,32 @@
 package com.kernel.ai.core.voice
 
+import android.util.Log
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class WakeWordDiagnosticCountersTest {
+
+    @Test
+    fun `diagnostics only enable from dedicated debug tag`() {
+        mockkStatic(Log::class)
+        try {
+            every { Log.isLoggable(any<String>(), any<Int>()) } returns false
+            every { Log.isLoggable("WakeWordDiag", Log.DEBUG) } returns true
+
+            assertTrue(isWakeWordDiagnosticLoggingEnabled())
+
+            verify(exactly = 1) { Log.isLoggable("WakeWordDiag", Log.DEBUG) }
+            verify(exactly = 0) { Log.isLoggable("KernelAI", Log.DEBUG) }
+        } finally {
+            unmockkStatic(Log::class)
+        }
+    }
+
     @Test
     fun `snapshot reports stage counters and silence gate ratio`() {
         val counters = WakeWordDiagnosticCounters()

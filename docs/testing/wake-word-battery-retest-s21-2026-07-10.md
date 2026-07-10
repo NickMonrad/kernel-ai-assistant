@@ -1,7 +1,7 @@
 # Wake-word battery retest — S21 — 2026-07-10
 
 **Issue:** #1142  
-**Result:** **Clearly excessive battery drain; follow-up required.**  
+**Result:** **Clearly excessive observed whole-device drain; comparative follow-up required.**  
 **Test source:** physical device, controlled idle window; no raw device logs are committed.
 
 ## Scope and build
@@ -23,7 +23,7 @@ The test followed [the repeatable battery procedure](wake-word-battery-test.md).
 - The operator visibly enabled **Listen for Hey Jandal** and a local-only screenshot confirmed the control state before the run.
 - `WakeWordService` was present before the official start.
 - A pre-test locked-screen spoken wake plus command passed.
-- Debug-gated, 15-minute `WakeWordDetector: diagnostics` logging was enabled before the detector started.
+- Debug-gated, 15-minute `WakeWordDetector: diagnostics` logging was enabled before the detector started. This completed run used the pre-fix diagnostic-tag configuration; #1392 changes future runs to the dedicated `WakeWordDiag` tag and no raw log output is retained here.
 - Wireless ADB was tested while USB was attached, then the charger and USB cable were physically removed.
 - The official start was rejected once while the screen was still on. The accepted run began only after the display reported off.
 
@@ -81,7 +81,7 @@ The first summary was emitted after detector startup but after the official test
 - The diagnostic provider status was `session_created_nnapi_requested_assignment_unverified`.
 - **NNAPI classification: inconclusive.** This proves only that NNAPI with `CPU_DISABLED` was requested and a session was created. It does not establish node assignment or accelerator execution. No native ONNX Runtime provider-assignment evidence was captured.
 - Mel and classifier execution are CPU by design. No CPU-utilisation sample was collected; detector cadence is the available workload proxy.
-- `batterystats --checkin` provided no package-attributed record for the debug app in this run. Per-app battery attribution and app-specific wakelock attribution are therefore **unavailable**, not zero.
+- `batterystats --checkin` provided no package-attributed record for the debug app in this run. Per-app battery attribution and app-specific wakelock attribution are therefore **unavailable**, not zero. No same-device wake-word-disabled control was performed.
 - `dumpsys power` showed the device dozing at both boundaries. `dumpsys meminfo` did not return a parsed package-PSS row, so no memory comparison is claimed.
 - No raw logcat, ADB serial, wireless endpoint, pairing code, account name, or screenshot is included in this repository evidence.
 
@@ -93,6 +93,6 @@ No audible cue was heard on the retry, so the operator had to guess when to spea
 
 ## Outcome and next step
 
-A 24-point loss in 4.013 hours while discharging, screen-off, dozing/idle, without intentional interactions is **clearly excessive** for an always-on default-assistant wake path. The current app-managed `AudioRecord` plus ONNX implementation is not supported by this evidence as a reasonable default-on v0.1 launch path.
+A 24-point loss in 4.013 hours while the tested configuration was discharging, screen-off, dozing/idle, and without intentional interactions is **clearly unacceptable for retaining that configuration as a default-on launch experience without further comparative evidence**. The enabled wake path, continuous detector workload, and excessive whole-device drain are strongly correlated in this run. The run does **not** isolate Jandal's exact battery share or prove that `AudioRecord` plus ONNX caused all observed drain: package attribution, app-specific wakelock attribution, and a same-device wake-word-disabled baseline are absent.
 
-No speculative performance tuning was added in this retest. [Issue #1391](https://github.com/NickMonrad/kernel-ai-assistant/issues/1391) will investigate the measured idle Stage 2/3 cadence, reproducible CPU-only versus NNAPI-requested behavior, and the post-idle cue/reliability observation before any release-default decision. Android Sound Trigger/DSP integration remains unproven for a normal third-party application; this result does not establish a usable OEM or privileged DSP path.
+No speculative performance tuning was added in this retest. [Issue #1391](https://github.com/NickMonrad/kernel-ai-assistant/issues/1391) requires a matched wake-word-disabled control before a firm causal or release-default conclusion, then investigates the measured idle Stage 2/3 cadence, reproducible CPU-only versus NNAPI-requested behavior, provider-assignment evidence, and the post-idle cue/reliability observation. Android Sound Trigger/DSP integration remains unproven for a normal third-party application; this result does not establish a usable OEM or privileged DSP path.
