@@ -19,7 +19,7 @@ import argparse
 import csv
 import dataclasses
 import io
-import os
+import json
 import re
 import subprocess
 import sys
@@ -171,6 +171,32 @@ def parse_android_uid(text_uid: str) -> tuple[int, int]:
 
 
 
+def _parse_duration_ms(duration_str: str) -> int:
+    """Convert a Batterystats duration string like ``+4s200ms`` to milliseconds.
+
+    Supports combinations of hours (``h``), minutes (``m``), seconds (``s``),
+    and milliseconds (``ms``).  The leading ``+`` is optional.
+    Raises ``ValueError`` on empty or malformed input.
+    """
+    value = duration_str.strip().lstrip("+")
+    if not value:
+        raise ValueError("empty duration string")
+    h = m = s = ms = 0
+    parts = re.findall(r"(\d+)(ms|h|m|s)", value, re.IGNORECASE)
+    if not parts:
+        raise ValueError(f"malformed duration: {duration_str!r}")
+    for amount, unit in parts:
+        n = int(amount)
+        if unit == "h":
+            h += n
+        elif unit == "m":
+            m += n
+        elif unit == "s":
+            s += n
+        elif unit == "ms":
+            ms += n
+    return h * 3600000 + m * 60000 + s * 1000 + ms
+
 def parse_duration(value: str) -> int:
     match = re.fullmatch(r"(\d+)([smhd])", value.strip().lower())
     if not match:
@@ -208,9 +234,42 @@ def metric_from_match(text: str, pattern: str, label: str) -> Metric:
     if not match:
         return not_reported(f"{label} not reported")
     try:
-        return available(int(match.group(1)))
+        raw = match.group(1)
+        return available(float(raw) if "." in raw else int(raw))
     except ValueError:
         return parse_failed(f"{label} was present but non-numeric")
+
+def parse_battery_dump(text: str) -> dict[str, Metric]:
+    """Parse OEM battery output without converting absent values to zero."""
+    values: dict[str, Metric] = {}
+    aliases = {
+        "level_percent": (r"^\s*level:\s*(-?\d+)", "battery level"),
+        "charge_counter_uah": (r"^\s*Charge counter:\s*(-?\d+)", "charge counter"),
+        "voltage_mv": (r"^\s*voltage:\s*(-?\d+)", "voltage"),
+        "temperature_tenths_c": (r"^\s*temperature:\s*(-?\d+)", "temperature"),
+        "health": (r"^\s*health:\s*(-?\d+)", "health"),
+        "status": (r"^\s*status:\s*(-?\d+)", "status"),
+        "cycle_count": (r"^\s*cycle count:\s*(-?\d+)", "cycle count"),
+        "full_charge_uah": (r"^\s*(?:Full charge|full charge capacity):\s*(-?\d+)", "full charge capacity"),
+    }
+    for key, (pattern, label) in aliases.items():
+        values[key] = metric_from_match(text, pattern, label)
+    for key, label in (("ac_powered", "AC powered"), ("usb_powered", "USB powered"), ("wireless_powered", "Wireless powered")):
+        match = re.search(rf"^\s*{re.escape(label)}:\s*(true|false)", text, re.IGNORECASE | re.MULTILINE)
+        values[key] = available(match.group(1).lower() == "true") if match else not_reported(f"{label} not reported")
+    return values
+
+
+def parse_package_metadata(text: str, package: str) -> dict[str, Metric]:
+    uid_match = re.search(r"\buserId=(\d+)", text)
+    version_name = re.search(r"\bversionName=([^\s]+)", text)
+    version_code = re.search(r"\bversionCode=(\d+)", text)
+    return {
+        "package": available(package) if package in text else not_reported("package absent from dumpsys package"),
+        "uid": available(int(uid_match.group(1))) if uid_match else not_reported("Android package UID not reported"),
+        "version_name": available(version_name.group(1)) if version_name else not_reported("version name not reported"),
+        "version_code": available(int(version_code.group(1))) if version_code else not_reported("version code not reported"),
+    }
 
 def extract_uid_block(text: str, decimal_uid: int) -> str:
     """Extract the Batterystats UID detail section for the given decimal UID.
