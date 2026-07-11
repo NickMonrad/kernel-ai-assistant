@@ -1032,7 +1032,7 @@ class PairedHarness:
                 "end_wakefulness": ends[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
                 "start_screen_on": starts[alias]["power"].get("screen_on", not_reported("not reported")).public(),
                 "end_screen_on": ends[alias]["power"].get("screen_on", not_reported("not reported")).public(),
-                "reboot_detected": available(reboot_detected) if start_uptime > 0 and end_uptime > 0 else not_reported("device uptime unavailable"),
+                "reboot_detected": (available(reboot_detected) if start_uptime > 0 and end_uptime > 0 else not_reported("device uptime unavailable")).public(),
             }
 
             # Actual elapsed time and end skew
