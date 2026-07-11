@@ -335,12 +335,13 @@ class BatteryDumpParsingTest(unittest.TestCase):
 
     def test_mah_no_delta(self) -> None:
         mah, _ = compute_mah_from_uah(not_reported("no charge counter"), 1.0)
+        self.assertEqual(mah.state, Availability.NOT_REPORTED)
 
     def test_charge_delta_absent(self) -> None:
         s = parse_battery_dump("level: 80\nAC powered: false\nUSB powered: false\nWireless powered: false\nstatus: 3")
         e = parse_battery_dump("level: 79\nAC powered: false\nUSB powered: false\nWireless powered: false\nstatus: 3")
         self.assertEqual(compute_charge_delta_uah(s, e).state, Availability.NOT_REPORTED)
-        self.assertEqual(mah.state, Availability.NOT_REPORTED)
+
 
 
 class BatteryPropertiesTest(unittest.TestCase):

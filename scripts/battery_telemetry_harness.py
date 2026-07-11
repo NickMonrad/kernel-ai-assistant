@@ -919,20 +919,29 @@ class PairedHarness:
             return f"{alias}: cleanup failed — {exc}"
 
     def top_consumers(self, raw_batterystats: str, known_uid: int | None) -> dict[str, Metric]:
-        """Extract top other power-consuming UIDs with sequential anonymous aliases."""
+        """Extract top other power-consuming UIDs with sequential anonymous aliases.
+
+        Extracts estimated power from the ``UID u0aXXX: <power>`` power estimation
+        section (not the detail block). UIDs with no power estimate are excluded.
+        """
         if not raw_batterystats:
             return {"top_consumers": not_reported("Batterystats not available")}
         all_uids = extract_all_uids(raw_batterystats)
         if not all_uids:
             return {"top_consumers": not_reported("no UIDs found in Batterystats")}
         consumers: list[dict[str, Any]] = []
-        seen: set[int] = set()
-        for decimal_uid, android_uid, block in all_uids:
-            power_match = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
+        seen: dict[int, int] = {}
+        for decimal_uid, android_uid, _block in all_uids:
+            # Extract power from power estimation section: "UID u0aXXX: <power>"
+            uid_text = android_uid
+            power_match = re.search(
+                r"UID\s+" + re.escape(uid_text) + r":\s*([\d.]+)",
+                raw_batterystats, re.MULTILINE
+            )
             power = float(power_match.group(1)) if power_match else 0.0
             label = sanitise_uid_label(decimal_uid, known_uid, seen)
             if label != "target_app" and power > 0:
-                consumers.append({"label": label, "estimated_power_mah": power})
+                consumers.append({"label": label, "estimated_power_mah": round(power, 4)})
         consumers.sort(key=lambda c: c["estimated_power_mah"], reverse=True)
         return {"top_consumers": available(consumers[:5])} if consumers else {"top_consumers": not_reported("no non-target consumers above zero power")}
 
