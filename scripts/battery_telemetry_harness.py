@@ -31,6 +31,9 @@ from typing import Any, Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PACKAGE = "com.kernel.ai.debug"
+
+PER_USER_RANGE = 100000
+FIRST_APPLICATION_UID = 10000
 DEFAULT_PRIVATE_ROOT = REPO_ROOT / "scripts" / "private-battery-runs"
 DIAGNOSTIC_TAG = "WakeWordDiag"
 EXPECTED_DEVICES = {
@@ -41,7 +44,8 @@ EXPECTED_DEVICES = {
 PRIVATE_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b"),
     re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]*\b"),
-    re.compile(r"\b[A-Z0-9]{8,}\b"),
+    # Serial-like identifiers: 8+ alphanumeric containing at least one digit
+    re.compile(r"\b[A-Za-z0-9]{8,}\b(?=\S*\d)"),
     re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b"),
     re.compile(r"(?:/home/[^\s]+|~/(?:[^\s]+)?)"),
     re.compile(r"(?i)(?:pair(?:ing)?\s*(?:code|pin)\s*[:=]\s*)\d+"),
@@ -97,28 +101,67 @@ def not_applicable(detail: str) -> Metric:
 
 
 def uid_to_android_uid(decimal_uid: int) -> str:
-    """Convert a decimal Android UID to the u0aNNN textual form.
+    """Convert a decimal Android UID to the Android textual form.
 
-    Android encodes <user_id> * 100000 + <app_id> into the decimal UID.
-    The textual form is u<user_id>a<app_id>.
-    Secondary users (work profile etc.) produce u10aNNN, u11aNNN, etc.
+    Android UID formatting:
+      - System UIDs (UID < FIRST_APPLICATION_UID): formatted as decimal, e.g. ``1000``
+      - Application UIDs: ``u<user_id>a<app_id>`` where
+        ``user_id = UID // PER_USER_RANGE`` and
+        ``app_id = (UID %% PER_USER_RANGE) - FIRST_APPLICATION_UID``
+
+    Examples:
+        ``1000`` (system) → ``"1000"``
+        ``10123`` → ``"u0a123"``
+        ``1010123`` → ``"u10a123"``
+
+    Supports isolated (``u<user>i<app>``) and shared (``u<user>s<app>``) forms
+    when explicitly requested via ``form`` parameter.
     """
-    user_id = decimal_uid // 100000
-    app_id = decimal_uid % 100000
+    if decimal_uid < FIRST_APPLICATION_UID:
+        return str(decimal_uid)
+    user_id = decimal_uid // PER_USER_RANGE
+    app_part = decimal_uid % PER_USER_RANGE
+    app_id = app_part - FIRST_APPLICATION_UID
+    if app_id < 0:
+        # Should not happen for valid UIDs, but be safe
+        return str(decimal_uid)
     return f"u{user_id}a{app_id}"
+
 
 
 def parse_android_uid(text_uid: str) -> tuple[int, int]:
     """Parse a u<user_id>a<app_id> string into (decimal_uid, user_id).
 
-    Returns (decimal_uid, user_id) or raises ValueError on malformed input.
+    Supports:
+      - Numeric system UIDs: ``"1000"`` → ``(1000, 0)``
+      - Application UIDs: ``"u0a123"`` → ``(10123, 0)``
+      - Secondary-user UIDs: ``"u10a123"`` → ``(1010123, 10)``
+
+    Raises ``ValueError`` on malformed or unsupported forms.
     """
-    match = re.fullmatch(r"u(\d+)a(\d+)", text_uid.strip())
-    if not match:
-        raise ValueError(f"malformed Android UID: {text_uid!r}")
-    user_id = int(match.group(1))
-    app_id = int(match.group(2))
-    return user_id * 100000 + app_id, user_id
+    text = text_uid.strip()
+    # Numeric system UID
+    if text.isdigit():
+        uid = int(text)
+        if uid < FIRST_APPLICATION_UID:
+            return uid, 0
+        # Numeric UID in the app range should use u<user>a<app> form
+        raise ValueError(f"numeric UID {uid} is in application range; expected u<user>a<app> form")
+    # Application / isolated / shared UID
+    match = re.fullmatch(r"u(\d+)([ais])(\d+)", text)
+    if match:
+        user_id = int(match.group(1))
+        form = match.group(2)  # 'a' = app, 'i' = isolated, 's' = shared
+        app_id = int(match.group(3))
+        if form == "a":
+            return user_id * PER_USER_RANGE + FIRST_APPLICATION_UID + app_id, user_id
+        elif form == "i":
+            # Isolated processes use UIDs in a separate range
+            raise ValueError(f"isolated UID parsing not yet implemented: {text_uid!r}")
+        elif form == "s":
+            # Shared/system UID form
+            raise ValueError(f"shared UID parsing not yet implemented: {text_uid!r}")
+    raise ValueError(f"malformed Android UID: {text_uid!r}")
 
 
 def extract_uid_block(text: str, decimal_uid: int) -> str:
@@ -151,16 +194,23 @@ def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
 
     Returns list of (decimal_uid, android_uid_string, block_text) for all
     Uids found. Used for top-consumer reporting.
+    Supports both ``Uid u0a123:`` (app) and ``Uid 1000:`` (system) header forms.
     """
     uids: list[tuple[int, str, str]] = []
     lines = text.splitlines()
     i = 0
     while i < len(lines):
         stripped = lines[i].strip()
-        match = re.match(r"Uid\s+(u\d+a\d+):\s*$", stripped)
+        # Match Uid u<user>a<app>: (app UIDs) or Uid <N>: (system UIDs)
+        match = re.match(r"Uid\s+(u\d+[ais]\d+|\d+):\s*$", stripped)
         if match:
-            android_uid = match.group(1)
-            decimal_uid, _ = parse_android_uid(android_uid)
+            uid_text = match.group(1)
+            if uid_text.isdigit():
+                decimal_uid = int(uid_text)
+                android_uid = uid_text
+            else:
+                decimal_uid, _ = parse_android_uid(uid_text)
+                android_uid = uid_text
             block_lines: list[str] = []
             i += 1
             while i < len(lines):
@@ -253,12 +303,25 @@ def parse_package_metadata(text: str, package: str) -> dict[str, Metric]:
 
 
 def _parse_duration_ms(duration_str: str) -> int:
-    """Convert a Batterystats duration string like +4s200ms to milliseconds."""
-    total = 0
-    for match in re.finditer(r"(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?\s*(?:(\d+)ms)?", duration_str.replace("+", "").replace(" ", "")):
-        h, m, s, ms = (int(g) if g else 0 for g in match.groups())
-        total += h * 3600000 + m * 60000 + s * 1000 + ms
-    return total
+    """Convert a Batterystats duration string like ``+4s200ms`` to milliseconds.
+
+    Supports: ``+4s200ms``, ``59m59s999ms``, ``1h2m3s4ms``, ``0ms``, ``123ms``.
+    Raises ``ValueError`` on malformed input.
+    """
+    cleaned = duration_str.replace("+", "").replace(" ", "").strip()
+    if not cleaned:
+        raise ValueError(f"empty duration string: {duration_str!r}")
+    match = re.fullmatch(
+        r"(\d+h)?(\d+m)?(\d+s)?(\d+ms)?",
+        cleaned,
+    )
+    if not match or not match.group(0):
+        raise ValueError(f"malformed duration string: {duration_str!r}")
+    h = int(match.group(1)[:-1]) if match.group(1) else 0
+    m = int(match.group(2)[:-1]) if match.group(2) else 0
+    s = int(match.group(3)[:-1]) if match.group(3) else 0
+    ms = int(match.group(4)[:-2]) if match.group(4) else 0
+    return h * 3600000 + m * 60000 + s * 1000 + ms
 
 
 def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
@@ -332,15 +395,23 @@ def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
 def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
     """Parse real Android Batterystats check-in records.
 
-    Check-in format uses comma-separated records with tag-based positioning.
-    Relevant record types:
+    Android check-in format uses comma-separated records structured as:
+      ``version,uid,which,tag,...`` where the tag identifying the record type
+      is at column index 3 (0-indexed), the uid identifying the target app is
+      at column index 1, and ``which`` (aggregation mode) is at index 2.
 
-    - uid,<decimal_uid>,cpu,<user_ms>,<system_ms>
-    - wl,<decimal_uid>,<name>,<duration_ms>,<count>
-    - sf,<decimal_uid>,<duration_ms>,<count>
-    - pr,<decimal_uid>,<proc>,<user_ms>,<system_ms>,<iowait>,<fault>,<fault>,<count>
-    - au,<decimal_uid>,<duration_ms>,<count>
-    - apk,<decimal_uid>,<package>,<version>,<version_code>
+    Supported record tags:
+      - ``cpu`` — per-UID CPU: ``version,uid,which,cpu,user_ms,system_ms``
+      - ``wl`` — wakelock: ``version,uid,which,wl,name,type,duration_ms,count``
+      - ``fgs`` — foreground service: ``version,uid,which,fgs,duration_ms,count``
+      - ``pr`` — process CPU: ``version,uid,which,pr,process,user_ms,system_ms,...
+      - ``au`` — audio: ``version,uid,which,au,duration_ms,count``
+      - ``apk`` — package info: ``version,uid,which,apk,package,versioncode,versionname``
+      - ``awl`` — aggregate wakelock: ``version,uid,which,awl,partial_dur,partial_count,...``
+
+    Wakelock type markers: 1=partial, 2=window, 4=full, 8=background partial.
+    Cumulative partial wakelock duration is extracted from ``wl`` type=1 or
+    from the ``awl`` partial fields when present.
     """
     if uid is None:
         return {key: unsupported("package UID unavailable") for key in (
@@ -348,6 +419,7 @@ def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
             "checkin_foreground_service_ms", "checkin_audio_ms",
             "checkin_proc_cpu_user_ms", "checkin_proc_cpu_kernel_ms")}
 
+    uid_str = str(uid)
     result: dict[str, Metric] = {
         "cpu_user_ms": not_reported("UID not found in check-in"),
         "cpu_kernel_ms": not_reported("UID not found in check-in"),
@@ -357,49 +429,72 @@ def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
         "checkin_proc_cpu_user_ms": not_reported("no check-in proc record"),
         "checkin_proc_cpu_kernel_ms": not_reported("no check-in proc record"),
     }
-    uid_str = str(uid)
+    wakelocks: list[dict[str, int | str]] = []
+    wl_uid_set = False
 
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         parts = stripped.split(",")
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
-        # Skip header/metadata rows: i (version), l (battery), f (feature), etc.
-        if parts[2] == "uid" and len(parts) >= 7 and parts[3] == uid_str and parts[4] == "cpu":
-            try:
-                result["cpu_user_ms"] = available(int(parts[5]))
-                result["cpu_kernel_ms"] = available(int(parts[6]))
-            except ValueError:
-                result["cpu_user_ms"] = parse_failed("check-in uid CPU user value malformed")
-                result["cpu_kernel_ms"] = parse_failed("check-in uid CPU kernel value malformed")
-        elif parts[2] == "wl" and parts[3] == uid_str and len(parts) >= 5:
-            try:
-                wakelocks = [{"name": parts[4], "duration_ms": int(parts[5])}]
-                # Optional count at parts[6]
-                result["checkin_wakelocks"] = available(wakelocks)
-            except ValueError:
-                result["checkin_wakelocks"] = parse_failed("check-in wakelock duration malformed")
-        elif parts[2] == "sf" and parts[3] == uid_str and len(parts) >= 5:
-            try:
+
+        # Column layout: [0]=version, [1]=uid, [2]=which, [3]=tag, [4+]=data
+        record_uid = parts[1]
+        if record_uid != uid_str:
+            continue
+        tag = parts[3]
+
+        try:
+            if tag == "cpu" and len(parts) >= 6:
+                result["cpu_user_ms"] = available(int(parts[4]))
+                result["cpu_kernel_ms"] = available(int(parts[5]))
+
+            elif tag == "wl" and len(parts) >= 8:
+                # 9,uid,which,wl,name,type,duration_ms,count
+                wl_type = int(parts[5])
+                type_name = {1: "partial", 2: "window", 4: "full", 8: "background_partial"}.get(wl_type, f"type_{wl_type}")
+                wakelocks.append({
+                    "name": parts[4],
+                    "type": type_name,
+                    "duration_ms": int(parts[6]),
+                    "count": int(parts[7]),
+                })
+                if not wl_uid_set:
+                    result["checkin_wakelocks"] = available(wakelocks)
+                    wl_uid_set = True
+
+            elif tag == "fgs" and len(parts) >= 6:
+                # 9,uid,which,fgs,duration_ms,count
                 result["checkin_foreground_service_ms"] = available(int(parts[4]))
-            except ValueError:
-                result["checkin_foreground_service_ms"] = parse_failed("check-in foreground service duration malformed")
-        elif parts[2] == "au" and parts[3] == uid_str and len(parts) >= 5:
-            try:
+
+            elif tag == "au" and len(parts) >= 6:
+                # 9,uid,which,au,duration_ms,count
                 result["checkin_audio_ms"] = available(int(parts[4]))
-            except ValueError:
-                result["checkin_audio_ms"] = parse_failed("check-in audio duration malformed")
-        elif parts[2] == "pr" and parts[3] == uid_str and len(parts) >= 7:
-            try:
+
+            elif tag == "pr" and len(parts) >= 7:
+                # 9,uid,which,pr,process,user_ms,system_ms,...
                 result["checkin_proc_cpu_user_ms"] = available(int(parts[5]))
                 result["checkin_proc_cpu_kernel_ms"] = available(int(parts[6]))
-            except ValueError:
-                result["checkin_proc_cpu_user_ms"] = parse_failed("check-in proc CPU user value malformed")
-                result["checkin_proc_cpu_kernel_ms"] = parse_failed("check-in proc CPU kernel value malformed")
+
+            elif tag == "awl" and len(parts) >= 6:
+                # 9,uid,which,awl,partial_dur,partial_count,...
+                wakelocks.append({
+                    "name": "aggregate_partial",
+                    "type": "aggregate_partial",
+                    "duration_ms": int(parts[4]),
+                    "count": int(parts[5]),
+                })
+                if not wl_uid_set:
+                    result["checkin_wakelocks"] = available(wakelocks)
+                    wl_uid_set = True
+
+        except (ValueError, IndexError):
+            pass  # Skip malformed records for this tag
 
     return result
+
 def parse_wake_word_diagnostics(text: str, enabled: bool) -> dict[str, Metric]:
     """Parse aggregate WakeWordDetector diagnostic summaries from logcat output."""
     keys = ("audioFrames", "stage1", "stage2", "stage3", "stage2PerHour", "stage3PerHour",
@@ -421,17 +516,32 @@ def start_skew_ms(start_times: dict[str, int]) -> Metric:
 
 
 def parse_batteryproperties(text: str) -> dict[str, Metric]:
-    """Parse dumpsys batteryproperties output for capacity/health evidence."""
+    """Parse dumpsys batteryproperties output for capacity/health evidence.
+
+    Battery property field semantics:
+      - ``capacity_percent``: Android ``BATTERY_PROPERTY_CAPACITY`` — remaining
+        capacity as an integer percentage (0–100), NOT µAh.
+      - ``charge_counter_uah``: ``BATTERY_PROPERTY_CHARGE_COUNTER`` in µAh.
+      - ``current_now_ua``: ``BATTERY_PROPERTY_CURRENT_NOW`` in µA.
+      - ``voltage_mv``: Voltage in millivolts (value ~3800 = 3.8 V).
+      - ``temperature_tenths_c``: Tenths of Celsius (value 250 = 25.0°C).
+      - ``health``: Battery health enum (2 = good).
+
+    Samsung/OEM fields (``remaining_capacity``, ``design_capacity``,
+    ``full_charge_capacity``) are exposed with units marked as
+    ``unit_unknown`` unless the device output or vendor documentation
+    establishes the unit.
+    """
     result: dict[str, Metric] = {}
     extracts = {
-        "capacity_uah": (r"capacity:\s*(\d+)", "batteryproperties capacity"),
+        "capacity_percent": (r"capacity:\s*(\d+)", "batteryproperties capacity"),
         "charge_counter_uah": (r"charge_counter:\s*(\d+)", "batteryproperties charge counter"),
-        "remaining_capacity_uah": (r"remaining_capacity:\s*(\d+)", "remaining capacity"),
+        "remaining_capacity": (r"remaining_capacity:\s*(\d+)", "remaining capacity (Samsung, unit unknown)"),
         "current_now_ua": (r"current_now:\s*(-?\d+)", "current now"),
-        "design_capacity_uah": (r"(?i)design_capacity:\s*(\d+)", "design capacity"),
+        "design_capacity": (r"(?i)design_capacity:\s*(\d+)", "design capacity (Samsung, unit unknown)"),
         "health": (r"health:\s*(\d+)", "batteryproperties health"),
         "temperature_tenths_c": (r"temperature:\s*(\d+)", "batteryproperties temperature"),
-        "voltage_uv": (r"voltage:\s*(\d+)", "batteryproperties voltage"),
+        "voltage_mv": (r"^[\s]*voltage:\s*(\d+)", "batteryproperties voltage"),
     }
     for key, (pattern, label) in extracts.items():
         result[key] = metric_from_match(text, pattern, label)
@@ -517,24 +627,41 @@ def compute_charge_delta_uah(start: dict[str, Metric], end: dict[str, Metric]) -
 def compute_mah_from_uah(delta_uah: Metric, duration_hours: float) -> tuple[Metric, Metric]:
     """Derive mAh consumed and mAh/hour from a charge-counter delta in µAh."""
     if delta_uah.state is not Availability.AVAILABLE:
-        return (delta_uah, not_reported("mAh/hour unavailable; no charge counter delta"))
-    mAh = delta_uah.value / 1000.0
-    rate = mAh / duration_hours if duration_hours > 0 else not_reported("zero duration")
-    return (available(round(mAh, 3)), available(round(rate, 3)))
-
-
-def sanitise_uid_label(uid: int, known_app_uid: int | None) -> str:
+        return (not_reported("charge delta unavailable for mAh conversion"),
+                not_reported("charge delta unavailable for rate conversion"))
+    mah = delta_uah.value / 1000.0
+    rate = mah / duration_hours if duration_hours > 0 else 0.0
+    return (available(round(mah, 3)), available(round(rate, 3)))
+def sanitise_uid_label(uid: int, known_app_uid: int | None, seen_uids: dict[int, int] | None = None) -> str:
     """Map a decimal UID to a sanitised label for top-consumer reporting.
 
-    Known app UID gets labelled 'target_app'; other UIDs get generic labels.
-    System UIDs (< 10000) are grouped as 'system'; others as 'other_uid_N'.
-    This avoids publishing the user's private installed-app inventory.
+    Known app UID gets labelled ``target_app``; system UIDs (<10000) get
+    ``system``; other UIDs get sequential anonymous aliases
+    (``other_uid_1``, ``other_uid_2``, …).
+
+    When ``seen_uids`` is provided, the caller controls the numbering order.
+    When omitted, a module-level counter is used (not suitable for parallel
+    or isolated calls).
     """
     if known_app_uid is not None and uid == known_app_uid:
         return "target_app"
-    if uid < 10000:
+    if uid < FIRST_APPLICATION_UID:
         return "system"
-    return f"other_uid_{uid}"
+
+    if seen_uids is not None:
+        if uid not in seen_uids:
+            seen_uids[uid] = len(seen_uids) + 1
+        return f"other_uid_{seen_uids[uid]}"
+
+    # Module-level static tracking for callers that don't provide seen_uids
+    _counter = getattr(sanitise_uid_label, "_counter", 0)
+    _seen: dict[int, int] = getattr(sanitise_uid_label, "_seen", {})
+    if uid not in _seen:
+        _counter += 1
+        _seen[uid] = _counter
+        sanitise_uid_label._counter = _counter
+        sanitise_uid_label._seen = _seen
+    return f"other_uid_{_seen[uid]}"
 
 
 def screen_off(power_text: str, device_idle_text: str) -> bool:
@@ -662,7 +789,10 @@ def prompt_for_confirmation(message: str, interactive: bool) -> None:
 
 class PairedHarness:
     def __init__(self, mode: str, package: str, duration_seconds: int, private_root: Path, clients: dict[str, AdbClient] | None = None):
+        if mode == "smoke":
+            mode = "smoke-disabled"
         self.mode = mode
+        self.enabled = mode in ("enabled", "smoke-enabled")
         self.run_id = f"{mode}-{datetime.now(timezone.utc):%Y-%m-%dT%H-%M-%SZ}-{uuid.uuid4().hex[:8]}"
         self.package = package
         self.duration_seconds = duration_seconds
@@ -712,17 +842,21 @@ class PairedHarness:
         (self.run_dir / "manifest-private.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     def boundary_snapshot(self, alias: str, phase: str) -> dict[str, Any]:
-        """Capture a boundary snapshot including parsed metrics and raw texts."""
+        """Capture a boundary snapshot including parsed metrics, raw texts, and device uptime."""
         client = self.clients[alias]
         battery_text = client.shell("dumpsys", "battery")
         power_text = client.shell("dumpsys", "power")
         idle_text = client.shell("dumpsys", "deviceidle")
         services_text = client.shell("dumpsys", "activity", "services", self.package)
         batteryproperties_text = client.shell("dumpsys", "batteryproperties")
+        # Capture device uptime for reboot detection
+        uptime_text = client.shell("cat", "/proc/uptime")
+        uptime_seconds = float(uptime_text.split()[0]) if uptime_text.strip() else 0.0
         return {
             "phase": phase,
             "wall_clock_utc": utc_now(),
             "monotonic_ms": time.monotonic_ns() // 1_000_000,
+            "uptime_seconds": uptime_seconds,
             "raw_battery": battery_text,
             "raw_power": power_text,
             "raw_deviceidle": idle_text,
@@ -794,22 +928,6 @@ class PairedHarness:
         uid_text = self.clients[alias].shell("dumpsys", "package", self.package)
         (phase_dir / "package.txt").write_text(uid_text)
 
-    def top_consumers(self, raw_batterystats: str, known_uid: int | None) -> dict[str, Metric]:
-        """Extract top other power-consuming UIDs for device-idle context."""
-        if not raw_batterystats:
-            return {"top_consumers": not_reported("Batterystats not available")}
-        all_uids = extract_all_uids(raw_batterystats)
-        if not all_uids:
-            return {"top_consumers": not_reported("no UIDs found in Batterystats")}
-        consumers: list[dict[str, Any]] = []
-        for decimal_uid, android_uid, block in all_uids:
-            power_match = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
-            power = float(power_match.group(1)) if power_match else 0.0
-            label = sanitise_uid_label(decimal_uid, known_uid)
-            if label != "target_app" and power > 0:
-                consumers.append({"label": label, "estimated_power_mah": power, "android_uid": android_uid})
-        consumers.sort(key=lambda c: c["estimated_power_mah"], reverse=True)
-        return {"top_consumers": available(consumers[:5])} if consumers else {"top_consumers": not_reported("no non-target consumers above zero power")}
 
     def try_cleanup_diagnostics(self, alias: str) -> str | None:
         """Attempt to restore WakeWordDiag log level. Returns error message or None."""
@@ -824,6 +942,24 @@ class PairedHarness:
             return None
         except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
             return f"{alias}: cleanup failed — {exc}"
+
+    def top_consumers(self, raw_batterystats: str, known_uid: int | None) -> dict[str, Metric]:
+        """Extract top other power-consuming UIDs with sequential anonymous aliases."""
+        if not raw_batterystats:
+            return {"top_consumers": not_reported("Batterystats not available")}
+        all_uids = extract_all_uids(raw_batterystats)
+        if not all_uids:
+            return {"top_consumers": not_reported("no UIDs found in Batterystats")}
+        consumers: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for decimal_uid, android_uid, block in all_uids:
+            power_match = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
+            power = float(power_match.group(1)) if power_match else 0.0
+            label = sanitise_uid_label(decimal_uid, known_uid, seen)
+            if label != "target_app" and power > 0:
+                consumers.append({"label": label, "estimated_power_mah": power})
+        consumers.sort(key=lambda c: c["estimated_power_mah"], reverse=True)
+        return {"top_consumers": available(consumers[:5])} if consumers else {"top_consumers": not_reported("no non-target consumers above zero power")}
 
     def public_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw_end: dict[str, dict[str, str]], classification: str) -> dict[str, Any]:
         """Build the sanitised public summary with all derived metrics."""
@@ -852,12 +988,15 @@ class PairedHarness:
             if battery_start["level_percent"].state is Availability.AVAILABLE and battery_end["level_percent"].state is Availability.AVAILABLE:
                 loss = battery_start["level_percent"].value - battery_end["level_percent"].value
                 delta = available(loss)
+                actual_elapsed = (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0
+                elapsed_hours = actual_elapsed / 3600.0 if actual_elapsed > 0 else self.duration_seconds / 3600.0
                 rate = available(round(loss * 3600 / self.duration_seconds, 3))
 
-            # Charge-counter delta
+            # Charge-counter delta (using actual elapsed time)
             charge_delta = compute_charge_delta_uah(battery_start, battery_end)
-            duration_hours = self.duration_seconds / 3600.0
-            mah_consumed, mah_per_hour = compute_mah_from_uah(charge_delta, duration_hours)
+            actual_elapsed_s = max(1, (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0)
+            actual_duration_hours = actual_elapsed_s / 3600.0
+            mah_consumed, mah_per_hour = compute_mah_from_uah(charge_delta, actual_duration_hours)
 
             # Doze / device-idle continuity
             idle_start = starts[alias].get("deviceidle", {})
@@ -871,36 +1010,40 @@ class PairedHarness:
                 "end_charging": idle_end.get("charging", not_reported("end charging flag unavailable")).public(),
             }
 
-            # Top consumers (sanitised)
+            # Top consumers (sanitised with sequential aliases)
             top = self.top_consumers(raw_end[alias].get("batterystats-charged.txt", ""), uid)
             top_consumers_public = {key: value.public() for key, value in top.items()}
 
             # Battery health from batteryproperties (start)
             health_props = {
                 key: props_start[key].public() if key in props_start else not_reported(f"{key} not in batteryproperties").public()
-                for key in ("capacity_uah", "charge_counter_uah", "remaining_capacity_uah",
-                            "current_now_ua", "health", "temperature_tenths_c", "voltage_uv")
+                for key in ("capacity_percent", "charge_counter_uah", "remaining_capacity",
+                            "current_now_ua", "health", "temperature_tenths_c", "voltage_mv")
             }
-            # design capacity if exposed
-            if "design_capacity_uah" in props_start:
-                health_props["design_capacity_uah"] = props_start["design_capacity_uah"].public()
+            if "design_capacity" in props_start:
+                health_props["design_capacity"] = props_start["design_capacity"].public()
 
-            # Screen-on / wakefulness continuity
+            # Screen-on / wakefulness continuity with uptime-based reboot detection
+            start_uptime = starts[alias].get("uptime_seconds", 0)
+            end_uptime = ends[alias].get("uptime_seconds", 0)
+            reboot_detected = start_uptime > end_uptime and start_uptime > 0
             screen_info = {
                 "start_wakefulness": starts[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
                 "end_wakefulness": ends[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
                 "start_screen_on": starts[alias]["power"].get("screen_on", not_reported("not reported")).public(),
                 "end_screen_on": ends[alias]["power"].get("screen_on", not_reported("not reported")).public(),
-                "reboot_detected": available(starts[alias]["monotonic_ms"] > ends[alias]["monotonic_ms"])
-                    if (starts[alias]["monotonic_ms"] is not None and ends[alias]["monotonic_ms"] is not None)
-                    else not_reported("monotonic clock unavailable"),
+                "reboot_detected": available(reboot_detected) if start_uptime > 0 and end_uptime > 0 else not_reported("device uptime unavailable"),
             }
+
+            # Actual elapsed time and end skew
+            end_skew = abs(ends["s21"]["monotonic_ms"] - ends["s23u"]["monotonic_ms"])
 
             # Build device section
             devices[alias] = {
                 "identity": identity.public(),
                 "start": self._public_snapshot(starts[alias], "start"),
                 "end": self._public_snapshot(ends[alias], "end"),
+                "actual_elapsed_seconds": round(actual_elapsed_s, 1),
                 "whole_device": {
                     "battery_delta_percentage_points": delta.public(),
                     "battery_percentage_points_per_hour": rate.public(),
@@ -909,7 +1052,7 @@ class PairedHarness:
                     "mah_per_hour": mah_per_hour.public(),
                 },
                 "battery_health": health_props,
-                "battery_end": {key: battery_end[key].public() for key in ("charge_counter_uah", "voltage_mv", "temperature_tenths_c", "health", "cycle_count", "full_charge_uah")},
+                "battery_end": {key: battery_end[key].public() for key in ("charge_counter_uah", "voltage_mv", "temperature_tenths_c", "health", "cycle_count", "full_charge_uah") if key in battery_end},
                 "app_attribution": {key: value.public() for key, value in {**stats, **{f"checkin_{key}": value for key, value in checkin.items()}, **{f"procstats_{key}": value for key, value in procstats.items()}}.items()},
                 "wake_word": {key: value.public() for key, value in wake.items()},
                 "doze": doze_info,
@@ -922,10 +1065,11 @@ class PairedHarness:
             "classification": classification,
             "run_id": self.run_id,
             "mode": self.mode,
-            "duration_seconds": self.duration_seconds,
+            "requested_duration_seconds": self.duration_seconds,
             "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
             "cross_device_warning": "Percentage-point differences are not equal energy differences across batteries; use only as secondary context.",
             "start_skew_ms": start_skew_ms({alias: starts[alias]["monotonic_ms"] for alias in starts}).public(),
+            "end_skew_ms": available(end_skew).public(),
             "validity": {"state": "valid" if classification == "EVIDENTIARY" else "non_evidentiary", "abort_reason": self.abort_reason},
             "raw_artifacts": "private, gitignored run directory; not named in commit-safe output",
             "devices": devices,
@@ -934,6 +1078,7 @@ class PairedHarness:
                 "No accelerator assignment is claimed without native provider evidence.",
                 "Smoke and fixture runs never support battery or causal conclusions.",
                 "mAh consumption derived from charge-counter delta; sign convention: positive = consumption.",
+                "Samsung-specific fields (remaining_capacity, design_capacity) use unit_unknown unless verified from vendor documentation.",
             ],
         }
         assert_commit_safe(summary)
@@ -950,17 +1095,21 @@ class PairedHarness:
             "power": {key: metric.public() for key, metric in snapshot["power"].items()},
         }
 
-    def run_physical(self, interactive: bool) -> dict[str, Any]:
+    def run_physical(self, interactive: bool) -> RunResult:
         """Execute a paired physical run with abort-safe cleanup.
 
         The enabled lifecycle (WakeWordDiag DEBUG) is wrapped in try/finally
         so diagnostics are restored even after precondition failure, ADB loss,
         KeyboardInterrupt, or parser error.
+
+        Returns a ``RunResult`` with structured summary and exit code.
         """
         self.write_private_manifest()
         self.validate_devices()
         cleanup_errors: list[str] = []
-        diagnostics_was_enabled = False
+        # Per-device diagnostic tracking: maps alias to original property value
+        diag_originals: dict[str, str | None] = {}
+        diag_changed: dict[str, bool] = {"s21": False, "s23u": False}
         starts: dict[str, dict[str, Any]] = {}
         ends: dict[str, dict[str, Any]] = {}
         raw: dict[str, dict[str, str]] = {}
@@ -970,20 +1119,35 @@ class PairedHarness:
             # --- Operator gates ---
             if self.mode == "baseline-disabled":
                 prompt_for_confirmation("Manually disable Listen for Hey Jandal on both S21 and S23 Ultra. Return only after both toggles are off.", interactive)
-            elif self.mode == "enabled":
+            elif self.mode in ("enabled", "smoke-enabled"):
                 prompt_for_confirmation("Manually enable Listen for Hey Jandal on both devices, verify the intended build/assets, and complete one pre-test wake smoke on each device.", interactive)
             else:
-                prompt_for_confirmation("This is a NON_EVIDENTIARY_SMOKE. Prepare the requested mode manually and confirm both device states.", interactive)
+                prompt_for_confirmation("This is a NON_EVIDENTIARY_SMOKE. Ensure wake word is disabled on both devices. Confirm both device states.", interactive)
 
             self.verify_mode_service_state()
-            self.set_enabled_diagnostics()
-            diagnostics_was_enabled = self.enabled
 
+            # --- Diagnostics setup (per-device, transactional) ---
             if self.enabled:
+                for alias, client in self.clients.items():
+                    # Read original property
+                    try:
+                        orig = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip()
+                        diag_originals[alias] = orig if orig else None
+                    except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
+                        raise HarnessError(f"{alias}: cannot read initial WakeWordDiag property: {exc}") from exc
+                    # Set DEBUG
+                    client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "DEBUG")
+                    # Verify
+                    level = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip().upper()
+                    if level != "DEBUG":
+                        raise HarnessError(f"{alias}: WakeWordDiag property did not take effect (got {level})")
+                    diag_changed[alias] = True
+
                 prompt_for_confirmation("Restart or re-arm both detectors after setting WakeWordDiag DEBUG, then wait for and confirm a WakeWordDiag summary can be observed locally.", interactive)
                 self.verify_enabled_diagnostics()
                 self.verify_mode_service_state()
 
+            # --- Pre-reset check ---
             prompt_for_confirmation("Physically unplug charger and USB from both devices. Turn both screens off and lock them. Confirm only when both are ready.", interactive)
             pre_reset = {alias: self.boundary_snapshot(alias, "pre_reset") for alias in self.clients}
             self.verify_unplugged_pair(pre_reset)
@@ -991,9 +1155,10 @@ class PairedHarness:
             for client in self.clients.values():
                 client.shell("dumpsys", "batterystats", "--reset")
 
+            start_wall = utc_now()
+            start_mono = time.monotonic_ns() // 1_000_000
             starts = {alias: self.boundary_snapshot(alias, "start") for alias in self.clients}
             self.verify_unplugged_pair(starts)
-            # Persist start raw evidence
             for alias in self.clients:
                 self.capture_start_raw(alias, starts)
 
@@ -1001,10 +1166,17 @@ class PairedHarness:
             if self.mode == "smoke":
                 wait_seconds = min(self.duration_seconds, 120)
                 classification = "NON_EVIDENTIARY_SMOKE"
+            elif self.mode in ("smoke-disabled", "smoke-enabled"):
+                wait_seconds = min(self.duration_seconds, 300)
+                classification = "NON_EVIDENTIARY_SMOKE"
             else:
                 wait_seconds = self.duration_seconds
                 classification = "EVIDENTIARY"
+
             time.sleep(wait_seconds)
+
+            end_wall = utc_now()
+            end_mono = time.monotonic_ns() // 1_000_000
 
             # --- End boundary (before bugreport) ---
             ends = {alias: self.boundary_snapshot(alias, "end") for alias in self.clients}
@@ -1015,9 +1187,12 @@ class PairedHarness:
             for alias in self.clients:
                 raw[alias] = self.capture_end_raw(alias)
 
-            # --- Bugreport (separate, after official end) ---
+            # --- Bugreport (after official end, failure invalidates) ---
             for alias in self.clients:
-                self.collect_bugreport(alias)
+                try:
+                    self.collect_bugreport(alias)
+                except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
+                    raise HarnessError(f"{alias}: bugreport failed — {exc}. Run invalidated.") from exc
 
         except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
             if isinstance(exc, KeyboardInterrupt):
@@ -1027,17 +1202,30 @@ class PairedHarness:
             classification = "ABORTED_NON_EVIDENTIARY"
 
         finally:
-            # --- Cleanup: restore diagnostics on both devices independently ---
-            if diagnostics_was_enabled:
-                for alias in self.clients:
-                    err = self.try_cleanup_diagnostics(alias)
-                    if err:
-                        cleanup_errors.append(err)
-                        print(f"WARNING: {err}", file=sys.stderr)
+            # --- Cleanup: restore diagnostics per device ---
+            for alias in ("s21", "s23u"):
+                if not diag_changed.get(alias):
+                    continue
+                client = self.clients.get(alias)
+                if not client:
+                    continue
+                try:
+                    orig = diag_originals.get(alias)
+                    if orig is None or orig == "":
+                        # Property was unset — clear it
+                        client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "")
+                    else:
+                        # Restore original value
+                        client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", orig)
+                    # Verify it's no longer DEBUG
+                    level = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip().upper()
+                    if level == "DEBUG":
+                        cleanup_errors.append(f"{alias}: property still DEBUG after restore attempt")
+                except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
+                    cleanup_errors.append(f"{alias}: cleanup failed — {exc}")
 
         # --- Outcome ---
         if self.abort_reason:
-            # Preserve partial evidence
             for alias in self.clients:
                 if starts.get(alias):
                     self.capture_start_raw(alias, starts)
@@ -1047,13 +1235,17 @@ class PairedHarness:
                     for filename, content in raw_data.items():
                         if content:
                             self.private_write(alias, "partial", filename, content)
-            return self.abort_summary(starts, ends, raw)
+            summary = self.abort_summary(starts, ends, raw)
+            return RunResult(summary, False, 1)
 
-        # Successful completion
+        # Cleanup failure invalidates the run
         if cleanup_errors:
-            # Diagnostics was restored with warnings but run completed
-            print(f"WARNING: cleanup issues on: {'; '.join(cleanup_errors)}", file=sys.stderr)
-        return self.public_summary(starts, ends, raw, classification)
+            self.abort_reason = f"diagnostic cleanup failure: {'; '.join(cleanup_errors)}"
+            summary = self.abort_summary(starts, ends, raw)
+            return RunResult(summary, False, 3)
+
+        summary = self.public_summary(starts, ends, raw, classification)
+        return RunResult(summary, True, 0)
 
     def abort_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]]) -> dict[str, Any]:
         """Generate a non-evidentiary abort summary preserving partial evidence."""
@@ -1152,7 +1344,8 @@ def write_sanitized_summary(output_dir: Path, summary: dict[str, Any]) -> tuple[
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("smoke", "baseline-disabled", "enabled"))
+    parser.add_argument("mode", choices=("smoke", "smoke-disabled", "smoke-enabled", "baseline-disabled", "enabled"),
+                        help="``smoke`` is an alias for ``smoke-disabled``")
     parser.add_argument("--s21", default=os.environ.get("JANDAL_S21_ADB"), help="private S21 ADB identifier; never emitted")
     parser.add_argument("--s23u", default=os.environ.get("JANDAL_S23U_ADB"), help="private S23U ADB identifier; never emitted")
     parser.add_argument("--duration", default="4h", type=parse_duration)
@@ -1161,6 +1354,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", type=Path, help="synthetic non-interactive fixture; no ADB commands run")
     parser.add_argument("--interactive", action="store_true", help="allow physical run after explicit operator confirmations")
     return parser
+
+@dataclasses.dataclass
+class RunResult:
+    """Structured outcome for CLI exit code determination."""
+    summary: dict[str, Any]
+    success: bool
+    exit_code: int
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1172,18 +1372,17 @@ def main(argv: list[str] | None = None) -> int:
             output = args.private_root / "fixture-sanitized"
             json_path, markdown_path = write_sanitized_summary(output, summary)
             print(f"NON_EVIDENTIARY_FIXTURE_DRY_RUN summary written: {json_path.name}, {markdown_path.name}")
-            return 0
+            return RunResult(summary, True, 0).exit_code
         if not args.s21 or not args.s23u:
             raise HarnessError("--s21 and --s23u (or private environment variables) are required for physical execution")
         harness = PairedHarness(args.mode, args.package, args.duration, args.private_root, {"s21": AdbClient(args.s21), "s23u": AdbClient(args.s23u)})
-        summary = harness.run_physical(args.interactive)
-        json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", summary)
-        print(f"{summary['classification']} summary written: {json_path.name}, {markdown_path.name}")
-        return 0
+        result = harness.run_physical(args.interactive)
+        json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", result.summary)
+        print(f"{result.summary['classification']} summary written: {json_path.name}, {markdown_path.name}")
+        return result.exit_code
     except (HarnessError, json.JSONDecodeError, OSError) as error:
-        print(f"ABORTED: {sanitise_text(str(error), (args.s21 or '', args.s23u or ''))}", file=sys.stderr)
+        adb_selectors = (getattr(args, 's21', '') or '', getattr(args, 's23u', '') or '')
+        print(f"ABORTED: {sanitise_text(str(error), adb_selectors)}", file=sys.stderr)
         return 2
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

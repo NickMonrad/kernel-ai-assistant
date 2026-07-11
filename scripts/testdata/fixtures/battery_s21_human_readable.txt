@@ -1,11 +1,11 @@
 # sanitised structural fixture derived from S21 Android 15 output
 # dumpsys batterystats --charged (human-readable hierarchical format)
-# UID: com.kernel.ai.debug -> u0a10123
+# UID: com.kernel.ai.debug -> u0a123
 # Package userId=10123
 
 Battery History (2 hours 3 minutes ago)   1000000ms
 
-  Uid u0a10123:
+  Uid u0a123:
     proc:
       com.kernel.ai.debug:
         user: 120ms
@@ -28,27 +28,21 @@ Battery History (2 hours 3 minutes ago)   1000000ms
       client: com.kernel.ai.debug (pid 12345) request 1234
     power: 1.50 mAh
 
-  Uid u0a1000:
+  Uid 1000:
     Wake lock: *alarm* +1s500ms (partial) count 5
     cpu:
       user: 50ms
       system: 3ms
     power: 0.02 mAh
 
-  Uid u0a1001:
+  Uid 1001:
     Wake lock: RILJ +500ms (partial) count 3
     cpu:
       user: 30ms
       system: 2ms
     power: 0.01 mAh
 
-  Uid u0a10123:
-    Wake lock: WakeWordLock +4s200ms (partial) count 14
-    cpu:
-      user: 120ms
-      system: 7ms
-
-  Uid u0a1002:
+  Uid 1002:
     power: 0.00 mAh
 
 Device idle: IDLE (null)

@@ -4,7 +4,7 @@ BatteryProperties:
   ac_charge_current: 1000000
   available_charge_current: 500000
   battery_status: 5
-  capacity: 4000000
+  capacity: 80
   charge_counter: 4200000
   current_now: -500
   health: 2

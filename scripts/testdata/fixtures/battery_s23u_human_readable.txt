@@ -1,11 +1,11 @@
 # sanitised structural fixture derived from S23 Ultra Android 15 output
 # dumpsys batterystats --charged (human-readable hierarchical format)
-# UID: com.kernel.ai.debug -> u0a10124
+# UID: com.kernel.ai.debug -> u0a124
 # Package userId=10124
 
 Battery History (1 hour 20 minutes ago)   500000ms
 
-  Uid u0a10124:
+  Uid u0a124:
     proc:
       com.kernel.ai.debug:
         user: 60ms
@@ -28,23 +28,17 @@ Battery History (1 hour 20 minutes ago)   500000ms
       client: com.kernel.ai.debug (pid 23456) request 5678
     power: 0.80 mAh
 
-  Uid u0a1000:
+  Uid 1000:
     Wake lock: *alarm* +2s100ms (partial) count 7
     cpu:
       user: 72ms
       system: 5ms
     power: 0.03 mAh
 
-  Uid u0a1001:
+  Uid 1001:
     cpu:
       user: 12ms
       system: 2ms
     power: 0.01 mAh
-
-  Uid u0a10124:
-    Wake lock: WakeWordLock +2s100ms (partial) count 8
-    cpu:
-      user: 60ms
-      system: 3ms
 
 Device idle: IDLE (null)
