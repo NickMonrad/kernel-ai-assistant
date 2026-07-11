@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import argparse
+from unittest.mock import patch
 
 from pathlib import Path
 
@@ -731,6 +732,99 @@ class ExitCodeTest(unittest.TestCase):
     def test_error_return_two(self) -> None:
         self.assertEqual(RunResult({"c": "ERROR"}, False, 2).exit_code, 2)
 
+
+class FakePhysicalAdb:
+    """Minimal stateful ADB double that exercises PairedHarness.run_physical."""
+
+    def __init__(self, alias: str, active: bool = False, diagnostic: str = "INFO"):
+        self.alias = alias
+        self.serial = f"FAKE-{alias.upper()}"
+        self.active = active
+        self.diagnostic = diagnostic
+        self.commands: list[tuple[str, ...]] = []
+        self.fail_getprop_after_debug = False
+
+    def reachable(self) -> bool:
+        return True
+
+    def run(self, *args: str, timeout: float = 30.0) -> str:
+        self.commands.append(args)
+        if args[0] == "get-state":
+            return "device\n"
+        if args[0] == "bugreport":
+            return ""
+        if args[0] == "logcat":
+            return "WakeWordDetector: diagnostics elapsedMs=1"
+        raise AssertionError(args)
+
+    def shell(self, *args: str, timeout: float = 30.0) -> str:
+        self.commands.append(args)
+        if args[0] == "getprop":
+            key = args[1]
+            props = {
+                "ro.product.manufacturer": "samsung",
+                "ro.product.model": "SM-G991B" if self.alias == "s21" else "SM-S918B",
+                "ro.build.version.release": "15",
+                "ro.build.version.sdk": "35",
+                "ro.build.fingerprint": "sanitised/fingerprint",
+                "log.tag.WakeWordDiag": self.diagnostic,
+            }
+            if key == "log.tag.WakeWordDiag" and self.fail_getprop_after_debug and self.diagnostic == "DEBUG":
+                raise HarnessError("injected verification failure")
+            return props[key]
+        if args[0] == "setprop":
+            self.diagnostic = args[2]
+            return ""
+        if args[:3] == ("dumpsys", "package", "com.kernel.ai.debug"):
+            uid = 10123 if self.alias == "s21" else 10124
+            return f"com.kernel.ai.debug\nversionCode=1 versionName=1\nuserId={uid}\n"
+        if args[:3] == ("dumpsys", "activity", "services"):
+            return "WakeWordService" if self.active else ""
+        if args[:2] == ("dumpsys", "battery"):
+            return "AC powered: false\nUSB powered: false\nWireless powered: false\nlevel: 80\nstatus: 3\nCharge counter: 4000000\n"
+        if args[:2] == ("dumpsys", "power"):
+            return "mScreenOn=false\nWakefulness=Asleep\n"
+        if args[:2] == ("dumpsys", "deviceidle"):
+            return "mScreenOn=false\nmState=IDLE\n"
+        if args == ("cat", "/proc/uptime"):
+            return "100.0 50.0\n"
+        if args[:2] == ("dumpsys", "batteryproperties"):
+            return "capacity: 80\n"
+        if args[:3] == ("dumpsys", "batterystats", "--charged"):
+            uid = "u0a123" if self.alias == "s21" else "u0a124"
+            return f"  UID {uid}: 0.1\n\n  {uid}:\n    Total cpu time: u=1ms s=1ms\n"
+        if args[:3] == ("dumpsys", "batterystats", "--checkin"):
+            uid = 10123 if self.alias == "s21" else 10124
+            return f"9,{uid},l,cpu,1,1,0\n"
+        if args[:2] == ("dumpsys", "batterystats"):
+            return ""
+        if args[:2] in {("dumpsys", "procstats"), ("dumpsys", "meminfo")}:
+            return ""
+        raise AssertionError(args)
+
+
+class PhysicalWorkflowTest(unittest.TestCase):
+    def _run(self, mode: str, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            return PairedHarness(mode, "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
+
+    def test_disabled_smoke_executes_full_paired_workflow(self) -> None:
+        result = self._run("smoke-disabled", FakePhysicalAdb("s21"), FakePhysicalAdb("s23u"))
+        self.assertTrue(result.success)
+        self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
+
+    def test_diagnostic_verification_failure_restores_mutated_device(self) -> None:
+        s21 = FakePhysicalAdb("s21", active=True)
+        s21.fail_getprop_after_debug = True
+        result = self._run("smoke-enabled", s21, FakePhysicalAdb("s23u", active=True))
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        self.assertEqual(s21.diagnostic, "INFO")
+
+    def test_duration_parser_rejects_junk_duplicates_and_ordering(self) -> None:
+        for value in ("1hBAD2m", "1h 2m", "1h2mXYZ", "ms", "+", "1.5h", "2m1h", "1s2s", "01h-2m"):
+            with self.assertRaises(ValueError, msg=value):
+                _parse_duration_ms(value)
 
 if __name__ == "__main__":
     unittest.main()
