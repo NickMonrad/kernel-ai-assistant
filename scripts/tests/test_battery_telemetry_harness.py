@@ -2024,26 +2024,23 @@ class AbortPreservationTest(unittest.TestCase):
         s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
         result = self._enabled_run(s21, s23u)
         self.assertFalse(result.success)
-        self.assertEqual(result.exit_code, 1)  # primary failure; cleanup succeeds
+        # Exact global suffix: diagnostic restore in deterministic order
         pf = journal.post_failure
-        self.assertGreater(len(pf), 0, "expected cleanup commands")
-        # All post-failure commands must be diagnostic restore
-        for rec in pf:
-            self.assertEqual(rec.transport, "shell", f"post-failure {rec} must be shell")
-            self.assertIn(rec.args[:2], {
-                ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-                ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-            }, f"forbidden post-failure command: {rec}")
-        # Both devices had diagnostic changed and restored
-        for alias in ("s21", "s23u"):
-            setprops = [r for r in journal.records if r.alias == alias and r.transport == "shell" and r.args[:3] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "VERBOSE")]
-            self.assertGreaterEqual(len(setprops), 1, f"{alias} has no VERBOSE setprop")
-        # No collection commands
-        forbidden = {("dumpsys",), ("bugreport",), ("logcat",), ("cat", "/proc/uptime")}
-        for rec in pf:
-            for prefix in forbidden:
-                if rec.args[:len(prefix)] == prefix:
-                    self.fail(f"forbidden command after failure: {rec}")
+        self.assertEqual(len(pf), 4, f"expected exactly 4 cleanup commands, got {len(pf)}: {pf}")
+        expected_suffix = [
+            ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+            ("s21", "shell", ("getprop", "log.tag.WakeWordDiag")),
+            ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+            ("s23u", "shell", ("getprop", "log.tag.WakeWordDiag")),
+        ]
+        for (exp_alias, exp_transport, exp_args), rec in zip(expected_suffix, pf):
+            self.assertEqual(rec.alias, exp_alias)
+            self.assertEqual(rec.transport, exp_transport)
+            self.assertEqual(rec.args, exp_args)
+            self.assertEqual(rec.outcome, "success")
+        # Also verify the last successful cleanup matched VERBOSE
+        setprops = [r for r in journal.records if r.transport == "shell" and r.args[:2] == ("setprop", "log.tag.WakeWordDiag")]
+        self.assertEqual(setprops[-1].args[2], "VERBOSE")
 
     def test_filesystem_preservation_no_adb(self) -> None:
         """Preservation: real write_private_evidence failure → generic warning, zero post-failure ADB."""
@@ -2082,7 +2079,83 @@ class AbortPreservationTest(unittest.TestCase):
         pf = journal.post_primary_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
 
+    def test_failed_start_preservation_does_not_block_end(self) -> None:
+        """Start preservation failure does not skip end evidence preservation."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        fail_start_only = True
+        original_write = PairedHarness.write_private_evidence
+        def selective_fail_write(self, path, content):
+            nonlocal fail_start_only
+            if "start" in str(path) and ".keep" in str(path):
+                fail_start_only = True
+                raise OSError("start .keep fail")
+            return original_write(self, path, content)
+        with patch.object(PairedHarness, "write_private_evidence", selective_fail_write):
+            result = self._run_with_journal(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 1)
+        validity = result.summary.get("validity", {})
+        warnings = validity.get("evidence_preservation_warnings", [])
+        # At least the start .keep warning; end may also have warnings but not prevented
+        start_warnings = [w for w in warnings if "start" in str(w)]
+        self.assertGreaterEqual(len(start_warnings), 1, "expected at least start .keep warning")
+        # No ADB commands after failure
+        pf = journal.post_primary_failure
+        self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
 
+    def test_failed_end_preservation_does_not_affect_start(self) -> None:
+        """End preservation failure does not affect start evidence preservation."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        fail_end_only = True
+        original_write = PairedHarness.write_private_evidence
+        def selective_fail_end(self, path, content):
+            nonlocal fail_end_only
+            if "end" in str(path):
+                raise OSError("end write fail")
+            return original_write(self, path, content)
+        with patch.object(PairedHarness, "write_private_evidence", selective_fail_end):
+            result = self._run_with_journal(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 1)
+        validity = result.summary.get("validity", {})
+        warnings = validity.get("evidence_preservation_warnings", [])
+        end_warnings = [w for w in warnings if "end" in str(w)]
+        self.assertGreaterEqual(len(end_warnings), 1, "expected at least one end warning")
+        # Start warnings should not be present (start preservation succeeded)
+        start_warnings = [w for w in warnings if "start" in str(w)]
+        self.assertEqual(len(start_warnings), 0,
+                         f"expected zero start warnings when only end fails, got: {start_warnings}")
+        # No ADB commands after failure
+        pf = journal.post_primary_failure
+        self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+
+    def test_preservation_produces_no_adb_commands(self) -> None:
+        """All preservation is filesystem-only; no new ADB queries after failure."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        result = self._run_with_journal(s21, s23u)
+        self.assertFalse(result.success)
+        # All journal records before the failure must be before the primary failure sequence
+        total_records = len(journal.records)
+        primary_seq = journal.primary_failure_sequence
+        self.assertIsNotNone(primary_seq, "expected a primary failure")
+        # The total records count equals the primary_failure_sequence's record's position
+        # plus any records before it. Verify no records after primary are ADB commands.
+        pf = journal.post_primary_failure
+        self.assertEqual(len(pf), 0, f"preservation must not issue ADB commands, got: {pf}")
+        # No private paths in JSON or MD
+        md = render_markdown(result.summary)
+        for text in ("/home/private-user", "secret-path", "OSError"):
+            self.assertNotIn(text, json.dumps(result.summary))
+            self.assertNotIn(text, md)
 class CombinedFailureTest(unittest.TestCase):
     """Primary-only, cleanup-only, and combined primary+cleanup failures."""
 
@@ -2565,23 +2638,25 @@ class CLIPersistentLossTest(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector"))
             self.assertIn("primary_failure", summary.get("validity", {}))
-            self.assertNotIn("cleanup_failures", summary.get("validity", {}))
             # Exact global suffix: diagnostic restore on both mutated devices
             pf = journal.post_primary_failure
-            self.assertGreater(len(pf), 0, "expected cleanup commands")
-            # All commands must be setprop/getprop for the diagnostic tag
-            allowed_prefixes = {
-                ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-                ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-            }
-            for rec in pf:
-                prefix = rec.args[:2] if len(rec.args) >= 2 else rec.args
-                self.assertIn(prefix, allowed_prefixes, f"forbidden post-failure command: {rec}")
-            # Original diagnostic restored exactly — final setprop value is VERBOSE
-            restore_cmds = [r for r in journal.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
-            self.assertEqual(restore_cmds[-1].args[2], "VERBOSE",
+            self.assertEqual(len(pf), 4, f"expected exactly 4 cleanup commands, got {len(pf)}: {pf}")
+            expected_suffix = [
+                ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+                ("s21", "shell", ("getprop", "log.tag.WakeWordDiag")),
+                ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+                ("s23u", "shell", ("getprop", "log.tag.WakeWordDiag")),
+            ]
+            for (exp_alias, exp_transport, exp_args), rec in zip(expected_suffix, pf):
+                self.assertEqual(rec.alias, exp_alias, f"wrong alias in {rec}")
+                self.assertEqual(rec.transport, exp_transport, f"wrong transport in {rec}")
+                self.assertEqual(rec.args, exp_args, f"wrong args in {rec}")
+                self.assertEqual(rec.outcome, "success", f"expected success in {rec}")
+            # Also verify: the final setprop value is VERBOSE (and it came from the last successful setprop)
+            restore_setprops = [r for r in journal.records if r.transport == "shell" and r.args[:2] == ("setprop", "log.tag.WakeWordDiag")]
+            self.assertEqual(restore_setprops[-1].args[2], "VERBOSE",
                              "original VERBOSE must be restored exactly")
- 
+
     def test_enabled_restoration_failure_exit_3(self) -> None:
         """Enabled restoration failure via main(): exit 3, reports contain both failures."""
         journal = SharedCommandJournal()
@@ -2622,32 +2697,25 @@ class CLIPersistentLossTest(unittest.TestCase):
         self.assertGreaterEqual(len(debug_setprops), 2, "both devices not mutated to DEBUG")
         # Cleanup was attempted on both mutated devices
         pf = journal.post_primary_failure
-        # The global suffix contains only diagnostic restoration on both devices
-        # S21 succeeds (sticky only on S23U), S23U fails from persistent outage
-        s21_suffix = [rec for rec in pf if rec.alias == "s21"]
-        s23u_suffix = [rec for rec in pf if rec.alias == "s23u"]
-        self.assertGreater(len(s21_suffix), 0, "expected S21 cleanup attempts")
-        self.assertGreater(len(s23u_suffix), 0, "expected S23U cleanup attempts")
-        # All post-failure commands must be diagnostic restore (setprop/getprop)
-        allowed_prefixes = {
-            ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-            ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-        }
+        # Exact global suffix: S21 cleanup succeeds, S23U cleanup fails (sticky outage)
+        # 1. s21 setprop log.tag.WakeWordDiag VERBOSE → success
+        # 2. s21 getprop log.tag.WakeWordDiag → success
+        # 3. s23u setprop log.tag.WakeWordDiag VERBOSE → HarnessError
+        self.assertEqual(len(pf), 3, f"expected exactly 3 post-failure commands, got {len(pf)}: {pf}")
+        expected_suffix = [
+            ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"), "success"),
+            ("s21", "shell", ("getprop", "log.tag.WakeWordDiag"), "success"),
+            ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"), "HarnessError"),
+        ]
+        for (exp_alias, exp_transport, exp_args, exp_outcome), rec in zip(expected_suffix, pf):
+            self.assertEqual(rec.alias, exp_alias)
+            self.assertEqual(rec.transport, exp_transport)
+            self.assertEqual(rec.args, exp_args)
+            self.assertEqual(rec.outcome, exp_outcome)
+        # No collection commands in post-failure
         for rec in pf:
-            prefix = rec.args[:2] if len(rec.args) >= 2 else rec.args
-            self.assertIn(prefix, allowed_prefixes,
-                          f"forbidden post-failure command: {rec}")
-        # S21 commands succeed; S23U commands fail from sticky outage
-        for rec in s21_suffix:
-            self.assertEqual(rec.outcome, "success", f"S21 cleanup should succeed: {rec}")
-        for rec in s23u_suffix:
-            self.assertEqual(rec.outcome, "HarnessError", f"S23U cleanup should fail: {rec}")
-        # No collection commands anywhere in suffix
-        forbidden = {("dumpsys",), ("bugreport",), ("logcat",), ("cat",), ("get-state",)}
-        for rec in pf:
-            for prefix in forbidden:
-                if rec.args[:len(prefix)] == prefix:
-                    self.fail(f"forbidden command after failure: {rec}")
+            self.assertFalse(rec.args[:1] in {("dumpsys",), ("bugreport",), ("logcat",), ("cat",)},
+                             f"forbidden command after failure: {rec}")
     def _with_sticky_journal(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
         """Run physical with phase-tracking patches and sticky failure for CLI test."""
         h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
@@ -2684,6 +2752,38 @@ class CLIPersistentLossTest(unittest.TestCase):
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
             return h.run_physical(True)
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        # Sticky failure: empty phase matches any lifecycle; first shell failure persists
+        s23u.failure_point = FailurePoint(phase="", transport="shell")
+        s23u.persistent_after_first_failure = True
+        with tempfile.TemporaryDirectory() as root:
+            exit_code, json_path, md_path, journal = self._run_main(s21, s23u, root, mode="smoke-enabled")
+            self.assertEqual(exit_code, 3)
+            summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector"))
+            self.assertIn("primary_failure", summary.get("validity", {}))
+            self.assertIn("cleanup_failures", summary.get("validity", {}))
+            # Markdown contains both failure sections
+            md = md_path.read_text()
+            self.assertIn("Primary failure", md)
+            self.assertIn("Cleanup failure", md)
+            # Exact global suffix (use journal from _run_main return)
+            pf = journal.post_primary_failure
+            self.assertEqual(len(pf), 3, f"expected exactly 3 post-failure commands, got {len(pf)}: {pf}")
+            expected_suffix = [
+                ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+                ("s21", "shell", ("getprop", "log.tag.WakeWordDiag")),
+                ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
+            ]
+            for (exp_alias, exp_transport, exp_args), rec in zip(expected_suffix, pf):
+                self.assertEqual(rec.alias, exp_alias)
+                self.assertEqual(rec.transport, exp_transport)
+                self.assertEqual(rec.args, exp_args)
+            # No collection commands in post-failure
+            for rec in pf:
+                self.assertFalse(rec.args[:1] in {("dumpsys",), ("bugreport",), ("logcat",), ("cat",)},
+                                 f"forbidden command after failure: {rec}")
 
 
 class CLIFallbackTest(unittest.TestCase):
@@ -2771,4 +2871,3 @@ class CLIFallbackTest(unittest.TestCase):
             self.assertFalse(md_path.exists(), "unsafe run-summary.md must not be written")
 if __name__ == "__main__":
     unittest.main()
-

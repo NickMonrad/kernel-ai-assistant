@@ -1039,33 +1039,34 @@ class PairedHarness:
             snapshot = starts.get(alias)
             if snapshot:
                 phase_dir = self.run_dir / alias / "start"
-                try:
-                    self.write_private_evidence(phase_dir / ".keep", "")
-                except OSError:
-                    warnings.append(f"{alias}: start evidence could not be persisted")
-                    continue
+                # Each start file is independent; a .keep failure does not skip end evidence
                 for raw_key, filename in (
+                    (None, ".keep"),
                     ("raw_battery", "battery.txt"),
                     ("raw_batteryproperties", "batteryproperties.txt"),
                     ("raw_power", "power.txt"),
                     ("raw_deviceidle", "deviceidle.txt"),
                     ("services_text", "services.txt"),
                 ):
-                    content = snapshot.get(raw_key)
-                    if not content:
-                        continue
+                    if raw_key is None:
+                        content = ""
+                    else:
+                        content = snapshot.get(raw_key)
+                        if not content:
+                            continue
                     try:
                         self.write_private_evidence(phase_dir / filename, content)
                     except OSError:
                         warnings.append(f"{alias}: start evidence could not be persisted")
-            # End evidence from in-memory raw dict
+            # End evidence from in-memory raw dict — also via write_private_evidence
             raw_data = raw.get(alias)
             if raw_data:
                 for filename, content in raw_data.items():
                     if not content:
                         continue
                     try:
-                        self.private_write(alias, "end", filename, content)
+                        end_path = self.run_dir / alias / "end" / filename
+                        self.write_private_evidence(end_path, content)
                     except OSError:
                         warnings.append(f"{alias}: partial end evidence could not be persisted")
         return warnings
@@ -1088,9 +1089,9 @@ class PairedHarness:
 
         Extracts estimated power from the ``UID u0aXXX: <power>`` power estimation
         section (not the detail block). UIDs with no power estimate are excluded.
-        Malformed optional unrelated rows are skipped with a private diagnostic;
-        they never invalidate the run. Target-critical malformed attribution
-        raises ``HarnessError``.
+        Malformed optional unrelated rows are skipped -- they never invalidate the run.
+        Malformed optional target attribution metrics become ``parse_failed``.
+        Malformed optional attribution does not automatically abort the run.
         """
         if not raw_batterystats:
             return {"top_consumers": not_reported("Batterystats not available")}
