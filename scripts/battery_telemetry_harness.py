@@ -1118,7 +1118,7 @@ class PairedHarness:
             "cross_device_warning": "Percentage-point differences are not equal energy differences across batteries; use only as secondary context.",
             "start_skew_ms": start_skew_ms({alias: starts[alias]["monotonic_ms"] for alias in starts}).public(),
             "end_skew_ms": available(end_skew).public(),
-            "validity": {"state": "valid" if classification == "EVIDENTIARY" else "non_evidentiary", "abort_reason": self.abort_reason},
+            "validity": {"state": "valid" if classification == "EVIDENTIARY" else "non_evidentiary", "abort_reason": None},
             "raw_artifacts": "private, gitignored run directory; not named in commit-safe output",
             "devices": devices,
             "limitations": [
@@ -1151,6 +1151,11 @@ class PairedHarness:
         so diagnostics are restored even after precondition failure, ADB loss,
         KeyboardInterrupt, or parser error.
 
+        Summary derivation and validation (nonpositive elapsed, uptime rollback,
+        parser errors, commit-safety) are inside the abort-producing lifecycle
+        so every execution failure after device validation produces a structured
+        ABORTED_NON_EVIDENTIARY result with JSON and Markdown.
+
         Returns a ``RunResult`` with structured summary and exit code.
         """
         self.write_private_manifest()
@@ -1162,6 +1167,9 @@ class PairedHarness:
         ends: dict[str, dict[str, Any]] = {}
         raw: dict[str, dict[str, str]] = {}
         classification = "ABORTED_NON_EVIDENTIARY"
+        aborted = False
+        primary_abort_reason: str | None = None
+        completed_summary: dict[str, Any] | None = None
 
         try:
             self.validate_devices()
@@ -1243,16 +1251,23 @@ class PairedHarness:
                     self.collect_bugreport(alias)
                 except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
                     raise HarnessError(f"{alias}: device report collection failed. Run invalidated.") from exc
+            # --- Summary derivation (inside abort lifecycle) ---
+            completed_summary = self.public_summary(starts, ends, raw, classification)
 
         except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt, EOFError) as exc:
-            if isinstance(exc, KeyboardInterrupt):
-                self.abort_reason = "operator keyboard interrupt"
+            aborted = True
+            if isinstance(exc, EOFError):
+                primary_abort_reason = "operator input closed"
+            elif isinstance(exc, KeyboardInterrupt):
+                primary_abort_reason = "operator keyboard interrupt"
             else:
-                self.abort_reason = str(exc)
+                primary_abort_reason = sanitise_text(str(exc))
+            if not primary_abort_reason:
+                primary_abort_reason = "unknown collection failure"
             classification = "ABORTED_NON_EVIDENTIARY"
 
         finally:
-            # --- Cleanup: restore diagnostics per device ---
+            # --- Cleanup: restore diagnostics per device with exact verification ---
             for alias in ("s21", "s23u"):
                 if not diag_changed.get(alias):
                     continue
@@ -1261,23 +1276,23 @@ class PairedHarness:
                     continue
                 try:
                     orig = diag_originals.get(alias)
+                    # Expected restored value: empty string for unset/empty, exact original otherwise
                     if orig is None or orig == "":
-                        # Property was unset — clear it
+                        expected = ""
                         client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "")
                     else:
-                        # Restore original value
-                        client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", orig)
-                    # Verify it's no longer DEBUG
-                    level = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip().upper()
-                    if level == "DEBUG":
-                        cleanup_errors.append(f"{alias}: property still DEBUG after restore attempt")
+                        expected = orig.strip()
+                        client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", expected)
+                    # Verify exact restoration
+                    actual = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip()
+                    if actual != expected:
+                        cleanup_errors.append(f"{alias}: diagnostic property restore verification failed")
                 except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
-                    cleanup_errors.append(f"{alias}: cleanup failed — {exc}")
+                    cleanup_errors.append(f"{alias}: cleanup failed — {sanitise_text(str(exc))}")
 
-        # --- Outcome ---
+        # --- Outcome with structured failures ---
         # Cleanup failures take precedence: they invalidate even an already-aborted run.
         if cleanup_errors:
-            self.abort_reason = f"diagnostic cleanup failure: {'; '.join(cleanup_errors)}"
             for alias in self.clients:
                 if starts.get(alias):
                     self.capture_start_raw(alias, starts)
@@ -1287,10 +1302,10 @@ class PairedHarness:
                     for filename, content in raw_data.items():
                         if content:
                             self.private_write(alias, "partial", filename, content)
-            summary = self.abort_summary(starts, ends, raw)
+            summary = self.abort_summary_with_failures(starts, ends, raw, primary_abort_reason, cleanup_errors)
             return RunResult(summary, False, 3)
 
-        if self.abort_reason:
+        if aborted:
             for alias in self.clients:
                 if starts.get(alias):
                     self.capture_start_raw(alias, starts)
@@ -1300,14 +1315,22 @@ class PairedHarness:
                     for filename, content in raw_data.items():
                         if content:
                             self.private_write(alias, "partial", filename, content)
-            summary = self.abort_summary(starts, ends, raw)
+            summary = self.abort_summary_with_failures(starts, ends, raw, primary_abort_reason, [])
             return RunResult(summary, False, 1)
 
-        summary = self.public_summary(starts, ends, raw, classification)
-        return RunResult(summary, True, 0)
+        assert completed_summary is not None  # guaranteed by logic above
+        return RunResult(completed_summary, True, 0)
 
     def abort_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]]) -> dict[str, Any]:
-        """Generate a non-evidentiary abort summary preserving partial evidence."""
+        """Generate a non-evidentiary abort summary (legacy single-reason signature)."""
+        return self.abort_summary_with_failures(starts, ends, raw, self.abort_reason, [])
+
+    def abort_summary_with_failures(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]], primary_reason: str | None, cleanup_failures: list[str]) -> dict[str, Any]:
+        """Generate a non-evidentiary abort summary with structured failure information.
+
+        Preserves both the primary run failure (if any) and any independent cleanup
+        failures. The public summary contains only sanitised versions.
+        """
         devices: dict[str, Any] = {}
         for alias in ("s21", "s23u"):
             device_info: dict[str, Any] = {"alias": alias}
@@ -1318,6 +1341,12 @@ class PairedHarness:
             if ends.get(alias):
                 device_info["end"] = {"wall_clock_utc": ends[alias]["wall_clock_utc"], "battery": {key: metric.public() for key, metric in ends[alias]["battery"].items()}}
             devices[alias] = device_info
+        validity: dict[str, Any] = {"state": "aborted"}
+        if primary_reason:
+            validity["primary_failure"] = sanitise_text(primary_reason)
+            validity["abort_reason"] = sanitise_text(primary_reason)
+        if cleanup_failures:
+            validity["cleanup_failures"] = [sanitise_text(f) for f in cleanup_failures]
         summary = {
             "schema_version": "2.0",
             "classification": "ABORTED_NON_EVIDENTIARY",
@@ -1325,7 +1354,7 @@ class PairedHarness:
             "mode": self.mode,
             "requested_duration_seconds": self.duration_seconds,
             "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
-            "validity": {"state": "aborted", "abort_reason": sanitise_text(self.abort_reason) if self.abort_reason else None},
+            "validity": validity,
             "raw_artifacts": "private, gitignored run directory; partial evidence preserved",
             "devices": devices,
             "limitations": ["Run did not complete; abort summary only. Not evidentiary."],
@@ -1345,10 +1374,6 @@ def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, r
     for alias, device in devices.items():
         output_devices[alias] = {
             "identity": {"alias": alias, "manufacturer": device["manufacturer"], "model": device["model"], "android_api": device["android_api"]},
-            "whole_device": {
-                "battery_delta_percentage_points": available(device["start_level"] - device["end_level"]).public(),
-                "battery_percentage_points_per_hour": available(round((device["start_level"] - device["end_level"]) * 3600 / duration_seconds, 3)).public(),
-            },
             "app_attribution": {key: value.public() for key, value in parse_batterystats(device.get("batterystats", ""), device.get("uid")).items()},
             "wake_word": {key: value.public() for key, value in parse_wake_word_diagnostics(device.get("wakeword_diag", ""), mode == "enabled").items()},
         }
@@ -1421,9 +1446,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "- No causal or release recommendation may be made from smoke or fixture output.",
     ])
 
-    if abort_reason:
+    primary_failure = validity.get("primary_failure") if isinstance(validity, dict) else None
+    if primary_failure:
+        lines.append(f"- Primary failure: {primary_failure}")
+    elif abort_reason:
         lines.append(f"- Abort reason: {abort_reason}")
 
+    cleanup_failures = validity.get("cleanup_failures") if isinstance(validity, dict) else None
+    if cleanup_failures:
+        for cf in cleanup_failures:
+            lines.append(f"- Cleanup failure: {cf}")
     return "\n".join(lines) + "\n"
 
 

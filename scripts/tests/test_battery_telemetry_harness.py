@@ -1407,5 +1407,248 @@ class AbortReportTest(unittest.TestCase):
             self.assertNotIn("FAKE-S21", text)
             self.assertNotIn("FAKE-S23U", text)
 
+class ExactRestorationTest(unittest.TestCase):
+    """Test exact diagnostic property restoration with equality verification."""
+
+    def _run_enabled(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            return PairedHarness("smoke-enabled", "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
+
+    def test_unset_restores_empty(self) -> None:
+        """Original unset — restore must issue setprop with empty string."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="")
+        result = self._run_enabled(s21, s23u)
+        self.assertTrue(result.success)
+        s21_restores = s21.list_restore_commands()
+        self.assertTrue(any(c[2] == "" for c in s21_restores), "unset prop must restore with empty string")
+
+    def test_info_restores_info(self) -> None:
+        """Original INFO — restore must issue setprop with INFO."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="INFO")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="INFO")
+        result = self._run_enabled(s21, s23u)
+        self.assertTrue(result.success)
+        s21_restores = s21.list_restore_commands()
+        self.assertTrue(any(c[2] == "INFO" for c in s21_restores), "INFO prop must restore with INFO")
+
+    def test_verbose_restores_verbose(self) -> None:
+        """Original VERBOSE — restore must issue setprop with VERBOSE."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        result = self._run_enabled(s21, s23u)
+        self.assertTrue(result.success)
+        s21_restores = s21.list_restore_commands()
+        self.assertTrue(any(c[2] == "VERBOSE" for c in s21_restores), "VERBOSE prop must restore with VERBOSE")
+
+    def test_verbose_restore_reads_info_verification_fails(self) -> None:
+        """Original VERBOSE but readback is INFO — exit 3, cleanup failure."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        original_s23u_shell = s23u.shell
+        getprop_count = [0]
+        def restore_returns_info(*args: str, timeout: float = 30.0) -> str:
+            if args[0] == "getprop" and "WakeWordDiag" in args[1]:
+                getprop_count[0] += 1
+                if getprop_count[0] >= 3:
+                    return "INFO"  # return wrong value after restore
+            return original_s23u_shell(*args, timeout=timeout)
+        s23u.shell = restore_returns_info
+        result = self._run_enabled(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+        validity = result.summary.get("validity", {})
+        self.assertIn("cleanup_failures", validity)
+        self.assertTrue(any("restore verification failed" in f for f in validity["cleanup_failures"]))
+
+    def test_unset_restore_reads_info_verification_fails(self) -> None:
+        """Original unset but readback is INFO — exit 3, cleanup failure."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="")
+        original_s23u_shell = s23u.shell
+        getprop_count = [0]
+        def unset_restore_returns_info(*args: str, timeout: float = 30.0) -> str:
+            if args[0] == "getprop" and "WakeWordDiag" in args[1]:
+                getprop_count[0] += 1
+                if getprop_count[0] >= 3:
+                    return "INFO"  # return wrong value after restore
+            return original_s23u_shell(*args, timeout=timeout)
+        s23u.shell = unset_restore_returns_info
+        result = self._run_enabled(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+
+    def test_cleanup_command_raises(self) -> None:
+        """Cleanup setprop raises — exit 3."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="INFO")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="INFO")
+        original_s23u_shell = s23u.shell
+        setprop_calls = [0]
+        def raise_on_restore(*args: str, timeout: float = 30.0) -> str:
+            if args[0] == "setprop" and len(args) >= 3 and args[1] == "log.tag.WakeWordDiag":
+                setprop_calls[0] += 1
+                if setprop_calls[0] > 1:
+                    raise HarnessError("injected cleanup command failure")
+            return original_s23u_shell(*args, timeout=timeout)
+        s23u.shell = raise_on_restore
+        result = self._run_enabled(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+
+    def test_first_restores_second_mismatches(self) -> None:
+        """S21 restores correctly, S23U fails exact verification — exit 3."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="INFO")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="INFO")
+        original_s23u_shell = s23u.shell
+        getprop_count = [0]
+        def s23u_mismatch(*args: str, timeout: float = 30.0) -> str:
+            if args[0] == "getprop" and "WakeWordDiag" in args[1]:
+                getprop_count[0] += 1
+                if getprop_count[0] >= 3:
+                    return "DEBUG"
+            return original_s23u_shell(*args, timeout=timeout)
+        s23u.shell = s23u_mismatch
+        result = self._run_enabled(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+        self.assertEqual(s21.diagnostic, "INFO")  # S21 restored correctly
+        validity = result.summary.get("validity", {})
+        self.assertIn("cleanup_failures", validity)
+
+    def test_primary_failure_and_cleanup_mismatch(self) -> None:
+        """Primary run failure AND cleanup mismatch — both preserved in validity."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        # Make S23U fail unplug check AND also fail cleanup verification
+        original_s23u = s23u.shell
+        s23u_run_failed = [False]
+        def s23u_fail_all(*args: str, timeout: float = 30.0) -> str:
+            if args[:2] == ("dumpsys", "battery"):
+                s23u_run_failed[0] = True
+                return "AC powered: true\nUSB powered: false\nlevel: 80\nstatus: 3\n"
+            if args[0] == "getprop" and "WakeWordDiag" in args[1] and s23u_run_failed[0]:
+                return "VERBOSE"
+            return original_s23u(*args, timeout=timeout)
+        s23u.shell = s23u_fail_all
+        result = self._run_enabled(s21, s23u)
+        self.assertFalse(result.success)
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        # S21 was originally VERBOSE and should be restored to VERBOSE
+        self.assertEqual(s21.diagnostic, "VERBOSE")
+        """Cleanup mismatch produces valid JSON and Markdown."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        original_s23u = s23u.shell
+        getprop_count = [0]
+        def wrong_restore(*args: str, timeout: float = 30.0) -> str:
+            if args[0] == "getprop" and "WakeWordDiag" in args[1]:
+                getprop_count[0] += 1
+                if getprop_count[0] >= 3:
+                    return "INFO"
+            return original_s23u(*args, timeout=timeout)
+        s23u.shell = wrong_restore
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        with tempfile.TemporaryDirectory() as tmp:
+            from battery_telemetry_harness import write_sanitized_summary
+            json_path, markdown_path = write_sanitized_summary(Path(tmp), result.summary, ("FAKE-S21", "FAKE-S23U"))
+            self.assertTrue(json_path.exists())
+            self.assertTrue(markdown_path.exists())
+            data = json.loads(json_path.read_text())
+            self.assertEqual(data["classification"], "ABORTED_NON_EVIDENTIARY")
+            self.assertIn("cleanup_failures", data.get("validity", {}))
+
+class EOFHandlingTest(unittest.TestCase):
+    """Test EOF at each operator confirmation gate."""
+
+    def test_eof_at_first_prompt(self) -> None:
+        """EOF at first operator confirmation produces structured abort."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", side_effect=EOFError()), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        self.assertIn("operator input closed", validity["primary_failure"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_eof_after_diagnostics_setup(self) -> None:
+        """EOF after diagnostic mutation still restores property."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="INFO")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="INFO")
+        call_count = [0]
+        def input_sequence(*_a: str) -> str:
+            call_count[0] += 1
+            if call_count[0] >= 3:
+                raise EOFError()
+            return "START"
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", side_effect=input_sequence), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        self.assertEqual(s21.diagnostic, "INFO")
+        self.assertEqual(s23u.diagnostic, "INFO")
+
+class LateSummaryFailureTest(unittest.TestCase):
+    """Test that summary derivation failures produce structured aborts."""
+
+    def test_nonpositive_elapsed(self) -> None:
+        """Nonpositive elapsed time produces structured abort."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        # monotonic_ns returns same value for all calls -> elapsed = 0
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), \
+             patch("time.monotonic_ns", return_value=1_000_000_000):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertNotEqual(result.summary.get("classification", ""), "EVIDENTIARY")
+
+    def test_uptime_decrease(self) -> None:
+        """Decreasing uptime produces structured abort."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        uptime_count = [0]
+        def decreasing_uptime(*args: str, timeout: float = 30.0) -> str:
+            if args == ("cat", "/proc/uptime"):
+                uptime_count[0] += 1
+                if uptime_count[0] >= 3:
+                    return "5.0 2.0\n"
+            return s23u.shell.__wrapped__(*args, timeout=timeout) if hasattr(s23u.shell, '__wrapped__') else (
+                FakePhysicalAdb.shell(s23u, *args, timeout=timeout))
+        s23u.shell = decreasing_uptime
+        with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+
+    def test_parser_failure_in_summary(self) -> None:
+        """Unhandled exception in summary derivation produces structured abort."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        orig_summary = PairedHarness.public_summary
+        def broken_summary(*args, **kwargs):
+            raise HarnessError("injected summary derivation failure")
+        with patch.object(PairedHarness, "public_summary", broken_summary), \
+             tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+
 if __name__ == "__main__":
     unittest.main()
