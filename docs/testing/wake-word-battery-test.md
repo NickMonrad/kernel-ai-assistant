@@ -77,6 +77,51 @@ sanitised JSON and Markdown with `ABORTED_NON_EVIDENTIARY`. Partial reports expl
 identify unavailable identity, boundary, timestamp, and battery evidence; they never
 invent zero values. A report-write error is sanitised, printed, and exits nonzero.
 
+### Abort preservation — best-effort, no re-queries
+
+On abort, evidence preservation uses only in-memory data and never issues new ADB
+queries. The `preserve_partial_evidence_best_effort()` helper:
+
+- Start evidence: writes raw text already in the boundary snapshot dict (`raw_battery`,
+  `raw_batteryproperties`, `raw_power`, `raw_deviceidle`, `services_text`). No
+  `dumpsys package` call is made.
+- End evidence: writes data already collected by `capture_end_raw()`. No re-fetch.
+- Bugreports are never retried (they are directory-based, not in-memory).
+- Filesystem errors are caught per device/file and returned as sanitised
+  `evidence_preservation_warnings` in the validity object.
+
+Evidence-preservation warnings are informational. They do not replace the primary
+failure, the cleanup failure, or change the exit code.
+
+### Strict numeric parsing
+
+Power-estimation and numeric fields use a strict pattern:
+
+```text
+NUMBER_PATTERN = r"(?:\d+(?:\.\d+)?|\.\d+)"
+```
+
+This rejects `1..25`, `.`, `12.3.4`, and values that Python `float()` accepts
+but are not valid device measurements (`NaN`, `Infinity`, `inf`).
+
+Malformed optional unrelated consumer rows are silently skipped with a private
+diagnostic — they never invalidate the run. Malformed target-critical evidence
+raises a sanitised `HarnessError` → structured `ABORTED_NON_EVIDENTIARY`.
+
+All `int()`/`float()` conversions in parsers are either regex-guarded, inside
+try/except, or use `parse_float_metric()`. No broad `except Exception` is added.
+
+### Exit code contract
+
+| Condition | Exit code |
+| --- | ---: |
+| Successful smoke/evidentiary run | 0 |
+| Primary execution/precondition/collection failure | 1 |
+| Report writing failure (JSON or Markdown) | 2 |
+| Diagnostic cleanup failure (with or without primary) | 3 |
+
+Evidence-preservation warnings never change the exit code.
+
 ## UID mapping and fixture provenance
 
 For application UIDs:
