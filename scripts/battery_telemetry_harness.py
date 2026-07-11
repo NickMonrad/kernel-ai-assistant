@@ -161,12 +161,11 @@ def parse_android_uid(text_uid: str) -> tuple[int, int]:
         app_id = int(match.group(3))
         if form == "a":
             return user_id * PER_USER_RANGE + FIRST_APPLICATION_UID + app_id, user_id
-        elif form == "i":
-            # Isolated processes use UIDs in a separate range
-            raise ValueError(f"isolated UID parsing not yet implemented: {text_uid!r}")
         elif form == "s":
-            # Shared/system UID form
-            raise ValueError(f"shared UID parsing not yet implemented: {text_uid!r}")
+            # Shared UID: u<user_id>s<shared_uid>
+            # The decimal UID is user_id * PER_USER_RANGE + shared_uid_value
+            # where shared_uid_value is typically a system UID (1000, 1001, etc.)
+            return user_id * PER_USER_RANGE + app_id, user_id
     raise ValueError(f"malformed Android UID: {text_uid!r}")
 
 
@@ -777,7 +776,7 @@ class AdbClient:
         self._runner = runner
 
     def run(self, *args: str, timeout: float = 30.0) -> str:
-        result = self._runner(["adb", "-s", self.serial, *args], text=True, capture_output=True, timeout=timeout)
+        result = self._runner(["adb", "-s", self.serial, *args], text=True, capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL)
         if result.returncode != 0:
             raise HarnessError(f"ADB command failed: {' '.join(args)}")
         return result.stdout

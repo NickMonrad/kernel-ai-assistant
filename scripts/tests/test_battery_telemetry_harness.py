@@ -105,9 +105,15 @@ class UidConversionTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_android_uid("u0i12345")
 
-    def test_parse_android_uid_shared_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            parse_android_uid("u0s12345")
+    def test_parse_android_uid_shared(self) -> None:
+        decimal, user = parse_android_uid("u0s1000")
+        self.assertEqual(decimal, 1000)
+        self.assertEqual(user, 0)
+
+    def test_parse_android_uid_shared_secondary_user(self) -> None:
+        decimal, user = parse_android_uid("u10s1000")
+        self.assertEqual(decimal, 1001000)
+        self.assertEqual(user, 10)
 
     def test_roundtrip(self) -> None:
         for decimal in (1000, 9999, 10123, 10124, 1010123):
