@@ -232,6 +232,89 @@ Cleanup command or verification failure invalidates the run as
 valid result. The operator may need to re-arm the detector after changing diagnostic
 logging; the harness never enables a broader shared debug tag.
 
+
+## Target-app battery attribution availability
+
+Target-app estimated power comes from two sources:
+
+| Source | Absent line | Valid line | Malformed token |
+| --- | --- | --- | --- |
+| Human-readable Batterystats (`UID u0a<N>: <value>`) | `not_reported` | `available` | `parse_failed` |
+| Check-in `pwi` record computed-mah field | `not_reported` | `available` | `parse_failed` |
+
+The states are independent per source: a malformed human-readable value does not affect
+the check-in parser state or vice versa. A `parse_failed` optional attribution metric
+does not invalidate the full battery run.
+
+Malformed unrelated UID power lines are silently skipped from the top-consumer list.
+Required structural or precondition evidence failure (device identity, service state,
+battery status) always produces a structured abort.
+
+## Privacy fallback
+
+When the detailed public summary fails ``assert_commit_safe`` (e.g. a private
+identifier leaked into the structured output), the harness produces a minimal
+fallback report:
+
+- Contains no ``run_id``, device identity, package metadata, serials, selectors,
+  IP addresses, file paths, artifact filenames, exception text, preservation
+  warnings, or battery values.
+- Contains only classification, mode, duration, and the generic reason
+  ``"public evidence failed privacy validation"``.
+- The fallback is validated independently with ``assert_commit_safe`` (without
+  secrets) and must pass before it is written.
+
+If fallback validation also fails, no report is written and the exit code is 2.
+The original exception text is sanitised for console output.
+
+## Isolated UIDs
+
+Android isolated UIDs (form ``u<user>i<id>`` in Batterystats) represent transient
+process sandboxes. The harness silently skips isolated UID blocks during
+``extract_all_uids()``:
+
+- They are never mapped to a target, never published in ``app_attribution``,
+  and never included in ``top_consumers``.
+- Normal application (``u<user>a<id>``), shared (``u<user>s<id>``), and system
+  (bare decimal) UID handling continues unchanged.
+- Malformed or unrecognised UID text is also silently skipped.
+
+## Post-failure command contract
+
+After a primary ADB failure, the harness guarantees:
+
+| Mode | Post-failure ADB allowed |
+| --- | --- |
+| Disabled | None. Zero subsequent ADB commands of any kind. |
+| Enabled | Only exact diagnostic restoration: ``setprop log.tag.WakeWordDiag <original>`` and ``getprop log.tag.WakeWordDiag`` for each device whose diagnostic was changed. |
+
+Specifically forbidden after a primary failure:
+
+- ``dumpsys package``, ``dumpsys battery``, ``dumpsys power``, ``dumpsys deviceidle``,
+  ``dumpsys batteryproperties``, ``dumpsys batterystats`` (all variants),
+  ``dumpsys procstats``, ``dumpsys meminfo``, ``dumpsys activity services``
+- ``cat /proc/uptime``
+- ``bugreport`` (no retry)
+- ``logcat``
+- Any new diagnostics setup
+- Any identity or collection query
+
+Partial evidence preservation is filesystem-only and uses only already-captured
+in-memory data. It never issues new ADB queries, including ``dumpsys package``
+for run identity or bugreport retries.
+
+Cleanup failures are recorded as secondary failures in the validity object and
+produce exit code 3 when combined with a primary failure.
+
+## Exit code contract
+
+| Condition | Exit code |
+| --- | ---: |
+| Successful smoke or evidentiary run | 0 |
+| Primary execution/precondition/collection failure | 1 |
+| Report writing failure (JSON or Markdown) | 2 |
+| Diagnostic cleanup failure (with or without primary) | 3 |
+
 ## Validation
 
 Run the focused suite and fixture dry run before any physical smoke:
