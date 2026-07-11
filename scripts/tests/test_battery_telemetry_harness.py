@@ -219,35 +219,35 @@ class CheckinParsingTest(unittest.TestCase):
         self.s23u_checkin = _load_fixture("battery_s23u_checkin.csv")
 
     def test_uid_cpu_s21(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10775)
+        parsed = parse_checkin(self.s21_checkin, 10123)
         self.assertEqual(parsed["cpu_user_ms"].value, 120)
         self.assertEqual(parsed["cpu_kernel_ms"].value, 7)
 
     def test_uid_cpu_s23u(self) -> None:
-        parsed = parse_checkin(self.s23u_checkin, 10776)
+        parsed = parse_checkin(self.s23u_checkin, 10124)
         self.assertEqual(parsed["cpu_user_ms"].value, 60)
         self.assertEqual(parsed["cpu_kernel_ms"].value, 3)
 
     def test_awl_aggregate(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10775)
+        parsed = parse_checkin(self.s21_checkin, 10123)
         wakes = parsed["checkin_wakelocks"].value
         self.assertEqual(len(wakes), 1)
         self.assertEqual(wakes[0]["name"], "aggregate_partial")
         self.assertEqual(wakes[0]["type"], "aggregate_partial")
         self.assertEqual(wakes[0]["duration_ms"], 4200)
-        
+
 
     def test_estimated_power(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10775)
+        parsed = parse_checkin(self.s21_checkin, 10123)
         self.assertEqual(parsed["estimated_power_mah"].value, 1.5)
 
     def test_proc_cpu(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10775)
+        parsed = parse_checkin(self.s21_checkin, 10123)
         self.assertEqual(parsed["checkin_proc_cpu_user_ms"].value, 120)
         self.assertEqual(parsed["checkin_proc_cpu_kernel_ms"].value, 7)
 
     def test_proc_cpu_from_checkin(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10775)
+        parsed = parse_checkin(self.s21_checkin, 10123)
         self.assertEqual(parsed["checkin_proc_cpu_user_ms"].value, 120)
 
     def test_none_uid_unsupported(self) -> None:

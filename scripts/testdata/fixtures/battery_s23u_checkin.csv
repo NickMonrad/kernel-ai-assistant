@@ -1,9 +1,9 @@
-# sanitised structural fixture structurally derived from S23 Ultra Android 15 output
-# dumpsys batterystats --checkin
+# sanitised structural fixture derived from S23 Ultra Android 15 output
+# UIDs and durations may be consistently remapped while record relationships are preserved.
 9,0,l,i,vers,11,35,15,2,2,30000,450000,1,150,1,0
 9,0,l,l,bat,0,0,0,0,0,0,0,0,0,0,0
-9,10776,l,cpu,60,3,0
-9,10776,l,pr,"com.kernel.ai.debug",60,3,0,0,0,0
-9,10776,l,awl,2100,0
-9,10776,l,pwi,uid,0.8,0,0,0.183
+9,10124,l,cpu,60,3,0
+9,10124,l,pr,"com.kernel.ai.debug",60,3,0,0,0,0
+9,10124,l,awl,2100,0
+9,10124,l,pwi,uid,0.8,0,0,0.183
 9,1000,l,cpu,72,5,0

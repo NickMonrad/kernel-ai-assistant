@@ -1,10 +1,10 @@
-# sanitised structural fixture structurally derived from S21 Android 15 output
-# dumpsys batterystats --checkin
+# sanitised structural fixture derived from S21 Android 15 output
+# UIDs and durations may be consistently remapped while record relationships are preserved.
 9,0,l,i,vers,11,35,15,2,2,30000,450000,1,100,1,0
 9,0,l,l,bat,0,0,0,0,0,0,0,0,0,0,0
-9,10775,l,cpu,120,7,0
-9,10775,l,pr,"com.kernel.ai.debug",120,7,0,0,0,0
-9,10775,l,awl,4200,0
-9,10775,l,pwi,uid,1.5,0,0,0.476
+9,10123,l,cpu,120,7,0
+9,10123,l,pr,"com.kernel.ai.debug",120,7,0,0,0,0
+9,10123,l,awl,4200,0
+9,10123,l,pwi,uid,1.5,0,0,0.476
 9,1000,l,cpu,50,3,0
 9,1000,l,wl,*alarm*,1,1500,5

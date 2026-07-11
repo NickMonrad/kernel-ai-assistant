@@ -20,6 +20,7 @@ import csv
 import dataclasses
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -175,26 +176,22 @@ def _parse_duration_ms(duration_str: str) -> int:
     """Convert a Batterystats duration string like ``+4s200ms`` to milliseconds.
 
     Supports combinations of hours (``h``), minutes (``m``), seconds (``s``),
-    and milliseconds (``ms``).  The leading ``+`` is optional.
+    and milliseconds (``ms``) in strict order (h → m → s → ms).
+    The leading ``+`` is optional.
     Raises ``ValueError`` on empty or malformed input.
     """
-    value = duration_str.strip().lstrip("+")
+    value = duration_str.strip()
     if not value:
         raise ValueError("empty duration string")
-    h = m = s = ms = 0
-    parts = re.findall(r"(\d+)(ms|h|m|s)", value, re.IGNORECASE)
-    if not parts:
+    # Strict fullmatch with ordered groups — each component optional but must
+    # appear in h → m → s → ms order if present; at least one is required.
+    match = re.fullmatch(r"\+?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?(?:(\d+)ms)?", value)
+    if not match or not any(match.groups()):
         raise ValueError(f"malformed duration: {duration_str!r}")
-    for amount, unit in parts:
-        n = int(amount)
-        if unit == "h":
-            h += n
-        elif unit == "m":
-            m += n
-        elif unit == "s":
-            s += n
-        elif unit == "ms":
-            ms += n
+    h = int(match.group(1) or 0)
+    m = int(match.group(2) or 0)
+    s = int(match.group(3) or 0)
+    ms = int(match.group(4) or 0)
     return h * 3600000 + m * 60000 + s * 1000 + ms
 
 def parse_duration(value: str) -> int:
@@ -381,7 +378,7 @@ def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
     fg = re.search(r"Fg Service for:\s*([^\n]+)", block)
     if fg:
         try:
-            result["foreground_service_ms"] = available(_parse_duration_ms(fg.group(1).strip()))
+            result["foreground_service_ms"] = available(_parse_duration_ms(re.sub(r"\s+", "", fg.group(1))))
         except ValueError:
             result["foreground_service_ms"] = parse_failed("Fg Service duration malformed")
     else:
@@ -391,7 +388,7 @@ def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
     run = re.search(r"Total running:\s*([^\n]+)", block)
     if run:
         try:
-            result["service_uptime_ms"] = available(_parse_duration_ms(run.group(1).strip()))
+            result["service_uptime_ms"] = available(_parse_duration_ms(re.sub(r"\s+", "", run.group(1))))
         except ValueError:
             result["service_uptime_ms"] = parse_failed("Total running duration malformed")
     else:
@@ -1033,8 +1030,9 @@ class PairedHarness:
             mah_per_hour: Metric = not_reported("charge delta unavailable")
             actual_elapsed_s = (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0
 
+            # Nonpositive elapsed invalidates the entire paired run — no reliable timing.
             if actual_elapsed_s <= 0:
-                rate = parse_failed("zero or negative elapsed interval")
+                raise HarnessError(f"{alias}: nonpositive monotonic elapsed ({actual_elapsed_s}s) — pair invalidated")
             elif battery_start["level_percent"].state is Availability.AVAILABLE and battery_end["level_percent"].state is Availability.AVAILABLE:
                 loss = battery_start["level_percent"].value - battery_end["level_percent"].value
                 delta = available(loss)
@@ -1071,9 +1069,11 @@ class PairedHarness:
             if "design_capacity" in props_start:
                 health_props["design_capacity"] = props_start["design_capacity"].public()
 
-            # Screen-on / wakefulness continuity with uptime-based reboot detection
             start_uptime = starts[alias].get("uptime_seconds", 0)
             end_uptime = ends[alias].get("uptime_seconds", 0)
+            # Uptime decrease → likely reboot → invalidate the pair.
+            if start_uptime > 0 and end_uptime > 0 and end_uptime < start_uptime:
+                raise HarnessError(f"{alias}: uptime decreased from {start_uptime}s to {end_uptime}s — possible reboot, pair invalidated")
             reboot_detected = start_uptime > end_uptime and start_uptime > 0
             screen_info = {
                 "start_wakefulness": starts[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
@@ -1186,11 +1186,11 @@ class PairedHarness:
                         raise HarnessError(f"{alias}: cannot read initial WakeWordDiag property: {exc}") from exc
                     # Set DEBUG
                     client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "DEBUG")
+                    diag_changed[alias] = True
                     # Verify
                     level = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip().upper()
                     if level != "DEBUG":
                         raise HarnessError(f"{alias}: WakeWordDiag property did not take effect (got {level})")
-                    diag_changed[alias] = True
 
                 prompt_for_confirmation("Restart or re-arm both detectors after setting WakeWordDiag DEBUG, then wait for and confirm a WakeWordDiag summary can be observed locally.", interactive)
                 self.verify_enabled_diagnostics()
@@ -1274,6 +1274,21 @@ class PairedHarness:
                     cleanup_errors.append(f"{alias}: cleanup failed — {exc}")
 
         # --- Outcome ---
+        # Cleanup failures take precedence: they invalidate even an already-aborted run.
+        if cleanup_errors:
+            self.abort_reason = f"diagnostic cleanup failure: {'; '.join(cleanup_errors)}"
+            for alias in self.clients:
+                if starts.get(alias):
+                    self.capture_start_raw(alias, starts)
+                end_data = ends.get(alias)
+                raw_data = raw.get(alias)
+                if raw_data:
+                    for filename, content in raw_data.items():
+                        if content:
+                            self.private_write(alias, "partial", filename, content)
+            summary = self.abort_summary(starts, ends, raw)
+            return RunResult(summary, False, 3)
+
         if self.abort_reason:
             for alias in self.clients:
                 if starts.get(alias):
@@ -1286,12 +1301,6 @@ class PairedHarness:
                             self.private_write(alias, "partial", filename, content)
             summary = self.abort_summary(starts, ends, raw)
             return RunResult(summary, False, 1)
-
-        # Cleanup failure invalidates the run
-        if cleanup_errors:
-            self.abort_reason = f"diagnostic cleanup failure: {'; '.join(cleanup_errors)}"
-            summary = self.abort_summary(starts, ends, raw)
-            return RunResult(summary, False, 3)
 
         summary = self.public_summary(starts, ends, raw, classification)
         return RunResult(summary, True, 0)
@@ -1361,23 +1370,60 @@ def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, r
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
+    classification = summary.get("classification", "UNKNOWN")
+    duration = summary.get("requested_duration_seconds", summary.get("duration_seconds", "?"))
+    validity = summary.get("validity", {})
+    validity_state = validity.get("state", "unknown") if isinstance(validity, dict) else "unknown"
+    abort_reason = validity.get("abort_reason") if isinstance(validity, dict) else None
+
     lines = [
         "# Paired battery telemetry summary",
         "",
-        f"**Classification:** `{summary['classification']}`",
-        f"**Duration:** {summary.get('requested_duration_seconds', summary.get('duration_seconds', '?'))} seconds",
+        f"**Classification:** `{classification}`",
+        f"**Duration:** {duration} seconds",
         "",
         "> Primary comparison: **S21 enabled − S21 disabled** and **S23U enabled − S23U disabled**. Cross-device percentage points are secondary context only.",
         "",
         "| Device | Battery delta | Rate | Start skew |",
         "| --- | ---: | ---: | ---: |",
     ]
-    skew = summary["start_skew_ms"].get("value", "unavailable")
-    for alias, device in summary["devices"].items():
-        delta = device["whole_device"]["battery_delta_percentage_points"]
-        rate = device["whole_device"]["battery_percentage_points_per_hour"]
-        lines.append(f"| {alias} | {delta.get('value', delta['state'])} pp | {rate.get('value', rate['state'])} pp/h | {skew} ms |")
-    lines.extend(["", "## Validity", "", f"- State: `{summary['validity']['state']}`", "- Raw artifacts: private and gitignored; no raw path or device identifier is published.", "- No causal or release recommendation may be made from smoke or fixture output."])
+
+    start_skew = summary.get("start_skew_ms", {})
+    if isinstance(start_skew, dict):
+        skew = str(start_skew.get("value", start_skew.get("state", "unavailable")))
+    else:
+        skew = "unavailable"
+
+    for alias, device in summary.get("devices", {}).items():
+        whole_device = device.get("whole_device", {}) if isinstance(device, dict) else {}
+        if isinstance(whole_device, dict):
+            delta = whole_device.get("battery_delta_percentage_points", {})
+            rate = whole_device.get("battery_percentage_points_per_hour", {})
+        else:
+            delta = not_reported("whole_device not available").public()
+            rate = not_reported("whole_device not available").public()
+        if isinstance(delta, dict):
+            delta_str = str(delta.get("value", delta.get("state", "unavailable")))
+        else:
+            delta_str = str(delta)
+        if isinstance(rate, dict):
+            rate_str = str(rate.get("value", rate.get("state", "unavailable")))
+        else:
+            rate_str = str(rate)
+        lines.append(f"| {alias} | {delta_str} pp | {rate_str} pp/h | {skew} ms |")
+
+    lines.extend([
+        "",
+        "## Validity",
+        "",
+        f"- State: `{validity_state}`",
+        "- Raw artifacts: private and gitignored; no raw path or device identifier is published.",
+        "- No causal or release recommendation may be made from smoke or fixture output.",
+    ])
+
+    if abort_reason:
+        lines.append(f"- Abort reason: {abort_reason}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -1427,8 +1473,13 @@ def main(argv: list[str] | None = None) -> int:
         harness = PairedHarness(args.mode, args.package, args.duration, args.private_root, {"s21": AdbClient(args.s21), "s23u": AdbClient(args.s23u)})
         result = harness.run_physical(args.interactive)
         adb_secrets = (args.s21, args.s23u)
-        json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", result.summary, adb_secrets)
-        print(f"{result.summary['classification']} summary written: {json_path.name}, {markdown_path.name}")
+        try:
+            json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", result.summary, adb_secrets)
+            print(f"{result.summary['classification']} summary written: {json_path.name}, {markdown_path.name}")
+        except (HarnessError, OSError) as report_error:
+            adb_selectors = (args.s21, args.s23u)
+            print(f"ABORTED (report write failed): {sanitise_text(str(report_error), adb_selectors)}", file=sys.stderr)
+            return 2
         return result.exit_code
     except (HarnessError, json.JSONDecodeError, OSError) as error:
         adb_selectors = (getattr(args, 's21', '') or '', getattr(args, 's23u', '') or '')

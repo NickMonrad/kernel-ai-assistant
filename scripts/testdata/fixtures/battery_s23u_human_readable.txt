@@ -13,9 +13,9 @@
   Estimated battery capacity: 4000 mAh
 
   u0a124:
-    Fg Service for: 59m 59s 998ms 
-    Total running: 59m 59s 998ms 
-    Total cpu time: u=60ms s=3ms 
+    Fg Service for: 59m 59s 998ms
+    Total running: 59m 59s 998ms
+    Total cpu time: u=60ms s=3ms
     Proc com.kernel.ai.debug:
       CPU: 60ms usr + 3ms krn ; 0ms fg
 
