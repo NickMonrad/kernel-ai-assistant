@@ -16,8 +16,9 @@ Examples (identifiers stay local and are never written to public output):
 from __future__ import annotations
 
 import argparse
+import csv
 import dataclasses
-import json
+import io
 import os
 import re
 import subprocess
@@ -40,15 +41,19 @@ EXPECTED_DEVICES = {
     "s21": {"manufacturer": "samsung", "model": "SM-G991B"},
     "s23u": {"manufacturer": "samsung", "model": "SM-S918B"},
 }
-
 PRIVATE_PATTERNS = (
+    # IP addresses and ADB endpoints
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b"),
+    # IPv6 addresses
     re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]*\b"),
-    # Serial-like identifiers: 8+ alphanumeric containing at least one digit
-    re.compile(r"\b[A-Za-z0-9]{8,}\b(?=\S*\d)"),
+    # Email addresses
     re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b"),
+    # Home directory paths
     re.compile(r"(?:/home/[^\s]+|~/(?:[^\s]+)?)"),
+    # Pairing codes
     re.compile(r"(?i)(?:pair(?:ing)?\s*(?:code|pin)\s*[:=]\s*)\d+"),
+    # Fields named "serial", "device_id", "adb_selector", "endpoint", "imei", "device_id" etc.
+    re.compile(r"""(?i)(?:"(?:serial|device_id|adb_selector|endpoint|imei|mac_address|pairing_code)"\s*:\s*")([^"]+)"""),
 )
 RAW_FILENAMES = {"bugreport", "batterystats-charged.txt", "batterystats-checkin.csv", "logcat.txt"}
 
@@ -164,66 +169,6 @@ def parse_android_uid(text_uid: str) -> tuple[int, int]:
     raise ValueError(f"malformed Android UID: {text_uid!r}")
 
 
-def extract_uid_block(text: str, decimal_uid: int) -> str:
-    """Extract the Batterystats UID block for the given decimal UID.
-
-    Human-readable format uses indented ``Uid u0aNNN:`` blocks. Returns the
-    block content (without the ``Uid u0aNNN:`` header) or empty string if not
-    found.
-    """
-    android_uid = uid_to_android_uid(decimal_uid)
-    lines = text.splitlines()
-    in_block = False
-    block: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        uid_header = re.match(r"^Uid\s+" + re.escape(android_uid) + r":\s*$", stripped)
-        if uid_header:
-            in_block = True
-            continue
-        if in_block:
-            if stripped.startswith("Uid ") or stripped.startswith("Device idle"):
-                break
-            if stripped:
-                block.append(line)
-    return "\n".join(block)
-
-
-def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
-    """Extract all UIDs from Batterystats human-readable output.
-
-    Returns list of (decimal_uid, android_uid_string, block_text) for all
-    Uids found. Used for top-consumer reporting.
-    Supports both ``Uid u0a123:`` (app) and ``Uid 1000:`` (system) header forms.
-    """
-    uids: list[tuple[int, str, str]] = []
-    lines = text.splitlines()
-    i = 0
-    while i < len(lines):
-        stripped = lines[i].strip()
-        # Match Uid u<user>a<app>: (app UIDs) or Uid <N>: (system UIDs)
-        match = re.match(r"Uid\s+(u\d+[ais]\d+|\d+):\s*$", stripped)
-        if match:
-            uid_text = match.group(1)
-            if uid_text.isdigit():
-                decimal_uid = int(uid_text)
-                android_uid = uid_text
-            else:
-                decimal_uid, _ = parse_android_uid(uid_text)
-                android_uid = uid_text
-            block_lines: list[str] = []
-            i += 1
-            while i < len(lines):
-                s = lines[i].strip()
-                if s.startswith("Uid ") or s.startswith("Device idle") or s.startswith("Device type"):
-                    i -= 1
-                    break
-                if s:
-                    block_lines.append(lines[i])
-                i += 1
-            uids.append((decimal_uid, android_uid, "\n".join(block_lines)))
-        i += 1
-    return uids
 
 
 def parse_duration(value: str) -> int:
@@ -263,235 +208,265 @@ def metric_from_match(text: str, pattern: str, label: str) -> Metric:
     if not match:
         return not_reported(f"{label} not reported")
     try:
-        raw = match.group(1)
-        return available(float(raw) if "." in raw else int(raw))
+        return available(int(match.group(1)))
     except ValueError:
         return parse_failed(f"{label} was present but non-numeric")
 
+def extract_uid_block(text: str, decimal_uid: int) -> str:
+    """Extract the Batterystats UID detail section for the given decimal UID.
 
-def parse_battery_dump(text: str) -> dict[str, Metric]:
-    """Parse OEM battery output without converting absent values to zero."""
-    values: dict[str, Metric] = {}
-    aliases = {
-        "level_percent": (r"^\s*level:\s*(-?\d+)", "battery level"),
-        "charge_counter_uah": (r"^\s*Charge counter:\s*(-?\d+)", "charge counter"),
-        "voltage_mv": (r"^\s*voltage:\s*(-?\d+)", "voltage"),
-        "temperature_tenths_c": (r"^\s*temperature:\s*(-?\d+)", "temperature"),
-        "health": (r"^\s*health:\s*(-?\d+)", "health"),
-        "status": (r"^\s*status:\s*(-?\d+)", "status"),
-        "cycle_count": (r"^\s*cycle count:\s*(-?\d+)", "cycle count"),
-        "full_charge_uah": (r"^\s*(?:Full charge|full charge capacity):\s*(-?\d+)", "full charge capacity"),
-    }
-    for key, (pattern, label) in aliases.items():
-        values[key] = metric_from_match(text, pattern, label)
-    for key, label in (("ac_powered", "AC powered"), ("usb_powered", "USB powered"), ("wireless_powered", "Wireless powered")):
-        match = re.search(rf"^\s*{re.escape(label)}:\s*(true|false)", text, re.IGNORECASE | re.MULTILINE)
-        values[key] = available(match.group(1).lower() == "true") if match else not_reported(f"{label} not reported")
-    return values
+    Human-readable format uses a ``UID u0aXXX: <power>`` power-estimate line
+    (capital ``UID``) in the first section, and a ``u0aXXX:`` detail section
+    (no ``UID`` prefix) later with ``Fg Service for:``, ``Total cpu time:``,
+    and ``Proc <pkg>:`` lines.
 
-
-def parse_package_metadata(text: str, package: str) -> dict[str, Metric]:
-    uid_match = re.search(r"\buserId=(\d+)", text)
-    version_name = re.search(r"\bversionName=([^\s]+)", text)
-    version_code = re.search(r"\bversionCode=(\d+)", text)
-    return {
-        "package": available(package) if package in text else not_reported("package absent from dumpsys package"),
-        "uid": available(int(uid_match.group(1))) if uid_match else not_reported("Android package UID not reported"),
-        "version_name": available(version_name.group(1)) if version_name else not_reported("version name not reported"),
-        "version_code": available(int(version_code.group(1))) if version_code else not_reported("version code not reported"),
-    }
-
-
-def _parse_duration_ms(duration_str: str) -> int:
-    """Convert a Batterystats duration string like ``+4s200ms`` to milliseconds.
-
-    Supports: ``+4s200ms``, ``59m59s999ms``, ``1h2m3s4ms``, ``0ms``, ``123ms``.
-    Raises ``ValueError`` on malformed input.
+    Returns the detail section block content or empty string if not found.
     """
-    cleaned = duration_str.replace("+", "").replace(" ", "").strip()
-    if not cleaned:
-        raise ValueError(f"empty duration string: {duration_str!r}")
-    match = re.fullmatch(
-        r"(\d+h)?(\d+m)?(\d+s)?(\d+ms)?",
-        cleaned,
-    )
-    if not match or not match.group(0):
-        raise ValueError(f"malformed duration string: {duration_str!r}")
-    h = int(match.group(1)[:-1]) if match.group(1) else 0
-    m = int(match.group(2)[:-1]) if match.group(2) else 0
-    s = int(match.group(3)[:-1]) if match.group(3) else 0
-    ms = int(match.group(4)[:-2]) if match.group(4) else 0
-    return h * 3600000 + m * 60000 + s * 1000 + ms
+    android_uid = uid_to_android_uid(decimal_uid)
+    lines = text.splitlines()
+    in_block = False
+    block: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        # Match "u0aXXX:" (detail section) - not "UID u0aXXX:" (power section)
+        detail_header = re.match(r"^" + re.escape(android_uid) + r":$", stripped)
+        if detail_header and not stripped.startswith("UID"):
+            in_block = True
+            continue
+        if in_block:
+            # End of block: next "u0aXXX:" or blank line followed by non-indented content
+            next_detail = re.match(r"^(u\d+[ais]\d+|\d+):$", stripped)
+            if next_detail and not stripped.startswith("UID"):
+                break
+            if not stripped:
+                break
+            if not line.startswith("    ") and not line.startswith("      "):
+                if not any(kw in stripped for kw in ("Fg Service", "Total running", "Total cpu", "Proc", "(nothing")):
+                    break
+            block.append(line)
+    return "\n".join(block)
+
+
+def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
+    """Extract all UIDs from Batterystats human-readable output.
+
+    Returns list of (decimal_uid, android_uid_or_numeric, block_text) for all
+    UIDs found in the detail section. Used for top-consumer reporting.
+    Supports both ``u0aXXX:`` (app) and ``<N>:`` (system) detail headers.
+    Only captures the detail section, not the power-estimate section.
+    """
+    uids: list[tuple[int, str, str]] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        # Match u0aXXX: (app detail) or <N>: (system detail)
+        match = re.match(r"^(u\d+[ais]\d+|\d+):$", stripped)
+        if match:
+            uid_text = match.group(1)
+            # Skip "UID u0aXXX:" power headers
+            if lines[i].lstrip().startswith("UID "):
+                i += 1
+                continue
+            if uid_text.isdigit():
+                decimal_uid = int(uid_text)
+                android_uid = uid_text
+            else:
+                decimal_uid, _ = parse_android_uid(uid_text)
+                android_uid = uid_text
+            block_lines: list[str] = []
+            i += 1
+            while i < len(lines):
+                s = lines[i].strip()
+                next_header = re.match(r"^(u\d+[ais]\d+|\d+):$", s)
+                if next_header:
+                    i -= 1
+                    break
+                if not s:
+                    break
+                block_lines.append(lines[i])
+                i += 1
+            uids.append((decimal_uid, android_uid, "\n".join(block_lines)))
+        i += 1
+    return uids
 
 
 def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
-    """Parse hierarchical Batterystats human-readable UID blocks.
+    """Parse Batterystats human-readable output for the target UID.
 
-    Android 15 ``dumpsys batterystats --charged`` uses ``Uid u0aNNN:``
-    headers with nested child lines.  The block for the resolved UID is
-    extracted first, then individual fields are parsed within that block.
+    Android 15 ``dumpsys batterystats --charged`` uses a ``UID u0aXXX:`` power
+    estimate section and a ``u0aXXX:`` detail section.
 
-    Supports CPU (user/system), partial wakelocks (named + duration),
-    foreground-service duration, audio duration, service uptime, and
-    estimated power mAh.
+    Supported detail fields:
+      - ``Fg Service for: <duration>`` → foreground_service_ms
+      - ``Total cpu time: u=<us> s=<ks>`` → cpu_user_ms, cpu_kernel_ms
+      - ``Proc <pkg>: CPU: <us> usr + <ks> krn`` → proc_cpu_user_ms, proc_cpu_kernel_ms
+      - ``Total running: <duration>`` → service_uptime_ms
     """
     if uid is None:
         return {key: unsupported("package UID unavailable") for key in (
             "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms",
-            "estimated_power_mah", "partial_wakelocks", "audio_duration_ms",
-            "service_uptime_ms")}
+            "service_uptime_ms", "estimated_power_mah",
+            "proc_cpu_user_ms", "proc_cpu_kernel_ms")}
+
     block = extract_uid_block(text, uid)
     if not block:
-        return {key: not_reported(f"UID {uid} absent from Batterystats") for key in (
+        return {key: not_reported(f"UID {uid} absent from Batterystats detail") for key in (
             "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms",
-            "estimated_power_mah", "partial_wakelocks", "audio_duration_ms",
-            "service_uptime_ms")}
+            "service_uptime_ms", "estimated_power_mah",
+            "proc_cpu_user_ms", "proc_cpu_kernel_ms")}
 
     result: dict[str, Metric] = {}
 
-    # CPU user / system (inside cpu: block or proc: block)
-    cpu_user = re.search(r"cpu:\s*\n(?:.*\n)*?\s*user:\s*(\d+)ms", block, re.MULTILINE)
-    cpu_sys = re.search(r"cpu:\s*\n(?:.*\n)*?\s*(?:system|kernel):\s*(\d+)ms", block, re.MULTILINE)
-    result["cpu_user_ms"] = available(int(cpu_user.group(1))) if cpu_user else not_reported("CPU user time not reported")
-    result["cpu_kernel_ms"] = available(int(cpu_sys.group(1))) if cpu_sys else not_reported("CPU kernel time not reported")
-
-    # Partial wakelocks: "Wake lock: <name> +<duration> (partial) count <N>"
-    wakelock_matches = re.findall(r"Wake lock:\s*([^+]+)\s*\+(\S+)", block, re.MULTILINE)
-    wakelocks = []
-    for name_raw, dur_raw in wakelock_matches:
-        name = name_raw.strip()
-        dur_ms = _parse_duration_ms(dur_raw)
-        wakelocks.append({"name": name, "duration_ms": dur_ms})
-    result["partial_wakelocks"] = available(wakelocks) if wakelocks else not_reported("no partial wakelocks reported for this UID")
-
-    # Foreground service / foreground activity duration
-    fg = re.search(r"foreground duration:\s*(\S+(?:\s+\S+)?)", block)
+    # Foreground service duration
+    fg = re.search(r"Fg Service for:\s*([^\n]+)", block)
     if fg:
-        result["foreground_service_ms"] = available(_parse_duration_ms(fg.group(1)))
+        try:
+            result["foreground_service_ms"] = available(_parse_duration_ms(fg.group(1).strip()))
+        except ValueError:
+            result["foreground_service_ms"] = parse_failed("Fg Service duration malformed")
     else:
-        result["foreground_service_ms"] = not_reported("foreground duration not reported")
+        result["foreground_service_ms"] = not_reported("foreground service duration not reported")
 
-    # Service uptime
-    svc = re.search(r"Started service:\s*(\S+(?:\s+\S+)?)", block)
-    if svc:
-        result["service_uptime_ms"] = available(_parse_duration_ms(svc.group(1)))
+    # Service uptime (Total running)
+    run = re.search(r"Total running:\s*([^\n]+)", block)
+    if run:
+        try:
+            result["service_uptime_ms"] = available(_parse_duration_ms(run.group(1).strip()))
+        except ValueError:
+            result["service_uptime_ms"] = parse_failed("Total running duration malformed")
     else:
-        result["service_uptime_ms"] = not_reported("service uptime not reported")
+        result["service_uptime_ms"] = not_reported("total running time not reported")
 
-    # Audio duration
-    audio = re.search(r"Audio:\s*\n(?:.*\n)*?\s*duration:\s*(\S+(?:\s+\S+)?)", block, re.MULTILINE)
-    if audio:
-        result["audio_duration_ms"] = available(_parse_duration_ms(audio.group(1)))
+    # CPU time from "Total cpu time: u=<us> s=<ks>"
+    cpu = re.search(r"Total cpu time:\s*u=(\d+[smhd]+\S*)\s*s=(\d+[smhd]+\S*)", block)
+    if cpu:
+        try:
+            result["cpu_user_ms"] = available(_parse_duration_ms(cpu.group(1)))
+            result["cpu_kernel_ms"] = available(_parse_duration_ms(cpu.group(2)))
+        except ValueError:
+            result["cpu_user_ms"] = parse_failed("Total cpu time user malformed")
+            result["cpu_kernel_ms"] = parse_failed("Total cpu time kernel malformed")
     else:
-        result["audio_duration_ms"] = not_reported("audio duration not reported")
+        result["cpu_user_ms"] = not_reported("total cpu time not reported")
+        result["cpu_kernel_ms"] = not_reported("total cpu time not reported")
 
-    # Estimated power
-    power = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
-    result["estimated_power_mah"] = available(float(power.group(1))) if power else not_reported("estimated power not reported")
+    # Process CPU from "Proc <pkg>: CPU: <us> usr + <ks> krn"
+    proc = re.search(r"Proc\s+\S+:\s*CPU:\s*(\d+[smhd]+\S*)\s+usr\s+\+\s*(\d+[smhd]+\S*)\s+krn", block)
+    if proc:
+        try:
+            result["proc_cpu_user_ms"] = available(_parse_duration_ms(proc.group(1)))
+            result["proc_cpu_kernel_ms"] = available(_parse_duration_ms(proc.group(2)))
+        except ValueError:
+            result["proc_cpu_user_ms"] = parse_failed("proc CPU user malformed")
+            result["proc_cpu_kernel_ms"] = parse_failed("proc CPU kernel malformed")
+    else:
+        result["proc_cpu_user_ms"] = not_reported("process CPU not reported")
+        result["proc_cpu_kernel_ms"] = not_reported("process CPU not reported")
+
+    # Estimated power (from power estimation section, not block)
+    android_uid = uid_to_android_uid(uid)
+    power_match = re.search(
+        r"UID\s+" + re.escape(android_uid) + r":\s*([\d.]+)",
+        text, re.MULTILINE
+    )
+    if power_match:
+        result["estimated_power_mah"] = available(round(float(power_match.group(1)), 4))
+    else:
+        result["estimated_power_mah"] = not_reported("estimated power not reported")
 
     return result
-
-
 def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
-    """Parse real Android Batterystats check-in records.
+    """Parse Android Batterystats check-in records using the ``csv`` module.
 
-    Android check-in format uses comma-separated records structured as:
-      ``version,uid,which,tag,...`` where the tag identifying the record type
-      is at column index 3 (0-indexed), the uid identifying the target app is
-      at column index 1, and ``which`` (aggregation mode) is at index 2.
+    Samsung Android 15 check-in format:
+      ``version,uid,which,tag,<data>``
 
-    Supported record tags:
-      - ``cpu`` — per-UID CPU: ``version,uid,which,cpu,user_ms,system_ms``
-      - ``wl`` — wakelock: ``version,uid,which,wl,name,type,duration_ms,count``
-      - ``fgs`` — foreground service: ``version,uid,which,fgs,duration_ms,count``
-      - ``pr`` — process CPU: ``version,uid,which,pr,process,user_ms,system_ms,...
-      - ``au`` — audio: ``version,uid,which,au,duration_ms,count``
-      - ``apk`` — package info: ``version,uid,which,apk,package,versioncode,versionname``
-      - ``awl`` — aggregate wakelock: ``version,uid,which,awl,partial_dur,partial_count,...``
+    The ``which`` column is normally ``l`` (since-last-charged aggregation).
+    The tag identifying the record type is at column index 3.
 
-    Wakelock type markers: 1=partial, 2=window, 4=full, 8=background partial.
-    Cumulative partial wakelock duration is extracted from ``wl`` type=1 or
-    from the ``awl`` partial fields when present.
+    Supported record tags (verified from S21 and S23U Android 15 output):
+      - ``cpu`` — per-UID CPU: ``version,uid,which,cpu,user_ms,system_ms,io_ms``
+      - ``pr`` — process CPU: ``version,uid,which,pr,\"process\",user_ms,system_ms,iowait,0,0,count``
+      - ``awl`` — aggregate wakelock: ``version,uid,which,awl,partial_dur,bg_partial_dur``
+      - ``pwi`` — power estimate: ``version,uid,which,pwi,uid/other,computed,min,max,raw``
+        (parsed as estimated_power_mah from the computed column)
+
+    Tags ``wl``, ``fgs``, ``au``/``aud`` are not emitted by these devices for idle
+    app scenarios. When present from other builds they may be added.
+
+    Malformed target-UID records return ``parse_failed``. Unrelated UID records
+    are safely ignored.
     """
     if uid is None:
         return {key: unsupported("package UID unavailable") for key in (
             "cpu_user_ms", "cpu_kernel_ms", "checkin_wakelocks",
-            "checkin_foreground_service_ms", "checkin_audio_ms",
-            "checkin_proc_cpu_user_ms", "checkin_proc_cpu_kernel_ms")}
+            "checkin_proc_cpu_user_ms", "checkin_proc_cpu_kernel_ms",
+            "estimated_power_mah")}
 
     uid_str = str(uid)
     result: dict[str, Metric] = {
         "cpu_user_ms": not_reported("UID not found in check-in"),
         "cpu_kernel_ms": not_reported("UID not found in check-in"),
         "checkin_wakelocks": not_reported("no check-in wakelock records for this UID"),
-        "checkin_foreground_service_ms": not_reported("no check-in foreground service record"),
-        "checkin_audio_ms": not_reported("no check-in audio record"),
-        "checkin_proc_cpu_user_ms": not_reported("no check-in proc record"),
-        "checkin_proc_cpu_kernel_ms": not_reported("no check-in proc record"),
+        "checkin_proc_cpu_user_ms": not_reported("no check-in proc record for this UID"),
+        "checkin_proc_cpu_kernel_ms": not_reported("no check-in proc record for this UID"),
+        "estimated_power_mah": not_reported("no check-in power estimate for this UID"),
     }
     wakelocks: list[dict[str, int | str]] = []
     wl_uid_set = False
 
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+    reader = csv.reader(io.StringIO(text))
+    for row in reader:
+        if not row or row[0].startswith("#"):
             continue
-        parts = stripped.split(",")
-        if len(parts) < 4:
+        if len(row) < 4:
             continue
 
         # Column layout: [0]=version, [1]=uid, [2]=which, [3]=tag, [4+]=data
-        record_uid = parts[1]
+        record_uid = row[1].strip()
         if record_uid != uid_str:
             continue
-        tag = parts[3]
+        tag = row[3].strip()
 
         try:
-            if tag == "cpu" and len(parts) >= 6:
-                result["cpu_user_ms"] = available(int(parts[4]))
-                result["cpu_kernel_ms"] = available(int(parts[5]))
+            if tag == "cpu" and len(row) >= 6:
+                # 9,uid,l,cpu,user_ms,system_ms,io_ms
+                result["cpu_user_ms"] = available(int(row[4]))
+                result["cpu_kernel_ms"] = available(int(row[5]))
 
-            elif tag == "wl" and len(parts) >= 8:
-                # 9,uid,which,wl,name,type,duration_ms,count
-                wl_type = int(parts[5])
-                type_name = {1: "partial", 2: "window", 4: "full", 8: "background_partial"}.get(wl_type, f"type_{wl_type}")
-                wakelocks.append({
-                    "name": parts[4],
-                    "type": type_name,
-                    "duration_ms": int(parts[6]),
-                    "count": int(parts[7]),
-                })
-                if not wl_uid_set:
-                    result["checkin_wakelocks"] = available(wakelocks)
-                    wl_uid_set = True
+            elif tag == "pr" and len(row) >= 7:
+                # 9,uid,l,pr,"process",user_ms,system_ms,iowait,0,0,count
+                result["checkin_proc_cpu_user_ms"] = available(int(row[5]))
+                result["checkin_proc_cpu_kernel_ms"] = available(int(row[6]))
 
-            elif tag == "fgs" and len(parts) >= 6:
-                # 9,uid,which,fgs,duration_ms,count
-                result["checkin_foreground_service_ms"] = available(int(parts[4]))
-
-            elif tag == "au" and len(parts) >= 6:
-                # 9,uid,which,au,duration_ms,count
-                result["checkin_audio_ms"] = available(int(parts[4]))
-
-            elif tag == "pr" and len(parts) >= 7:
-                # 9,uid,which,pr,process,user_ms,system_ms,...
-                result["checkin_proc_cpu_user_ms"] = available(int(parts[5]))
-                result["checkin_proc_cpu_kernel_ms"] = available(int(parts[6]))
-
-            elif tag == "awl" and len(parts) >= 6:
-                # 9,uid,which,awl,partial_dur,partial_count,...
+            elif tag == "awl" and len(row) >= 5:
+                # 9,uid,l,awl,partial_dur,bg_partial_dur
+                partial_dur = int(row[4])
                 wakelocks.append({
                     "name": "aggregate_partial",
                     "type": "aggregate_partial",
-                    "duration_ms": int(parts[4]),
-                    "count": int(parts[5]),
+                    "duration_ms": partial_dur,
                 })
                 if not wl_uid_set:
                     result["checkin_wakelocks"] = available(wakelocks)
                     wl_uid_set = True
 
-        except (ValueError, IndexError):
-            pass  # Skip malformed records for this tag
+            elif tag == "pwi" and len(row) >= 6 and row[4] == "uid":
+                # 9,uid,l,pwi,uid/other,computed_power,min,max,raw
+                result["estimated_power_mah"] = available(round(float(row[5]), 4))
+
+        except (ValueError, IndexError) as exc:
+            if tag in ("cpu", "pr", "awl", "pwi"):
+                metric_key = {
+                    "cpu": "cpu_user_ms",
+                    "pr": "checkin_proc_cpu_user_ms",
+                    "awl": "checkin_wakelocks",
+                    "pwi": "estimated_power_mah",
+                }.get(tag)
+                result[metric_key] = parse_failed(
+                    f"check-in {tag} record malformed: {exc}"
+                ) if metric_key else result.get("cpu_user_ms", not_reported("unknown"))
 
     return result
 
@@ -985,18 +960,23 @@ class PairedHarness:
             # Whole-device percentage delta
             delta = not_reported("boundary battery level unavailable")
             rate = not_reported("duration or battery level unavailable")
-            if battery_start["level_percent"].state is Availability.AVAILABLE and battery_end["level_percent"].state is Availability.AVAILABLE:
+            charge_delta: Metric = not_reported("charge counter unavailable")
+            mah_consumed: Metric = not_reported("charge delta unavailable")
+            mah_per_hour: Metric = not_reported("charge delta unavailable")
+            actual_elapsed_s = (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0
+
+            if actual_elapsed_s <= 0:
+                rate = parse_failed("zero or negative elapsed interval")
+            elif battery_start["level_percent"].state is Availability.AVAILABLE and battery_end["level_percent"].state is Availability.AVAILABLE:
                 loss = battery_start["level_percent"].value - battery_end["level_percent"].value
                 delta = available(loss)
-                actual_elapsed = (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0
-                elapsed_hours = actual_elapsed / 3600.0 if actual_elapsed > 0 else self.duration_seconds / 3600.0
-                rate = available(round(loss * 3600 / self.duration_seconds, 3))
+                elapsed_hours = actual_elapsed_s / 3600.0
+                rate = available(round(loss / elapsed_hours, 3)) if elapsed_hours > 0 else parse_failed("zero elapsed hours")
 
             # Charge-counter delta (using actual elapsed time)
-            charge_delta = compute_charge_delta_uah(battery_start, battery_end)
-            actual_elapsed_s = max(1, (ends[alias]["monotonic_ms"] - starts[alias]["monotonic_ms"]) / 1000.0)
-            actual_duration_hours = actual_elapsed_s / 3600.0
-            mah_consumed, mah_per_hour = compute_mah_from_uah(charge_delta, actual_duration_hours)
+            if actual_elapsed_s > 0:
+                charge_delta = compute_charge_delta_uah(battery_start, battery_end)
+                mah_consumed, mah_per_hour = compute_mah_from_uah(charge_delta, actual_elapsed_s / 3600.0)
 
             # Doze / device-idle continuity
             idle_start = starts[alias].get("deviceidle", {})
@@ -1265,7 +1245,7 @@ class PairedHarness:
             "classification": "ABORTED_NON_EVIDENTIARY",
             "run_id": self.run_id,
             "mode": self.mode,
-            "duration_seconds": self.duration_seconds,
+            "requested_duration_seconds": self.duration_seconds,
             "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
             "cross_device_warning": "Run was aborted; no comparison possible.",
             "validity": {"state": "aborted", "abort_reason": self.abort_reason},
@@ -1300,7 +1280,7 @@ def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, r
         "classification": "NON_EVIDENTIARY_FIXTURE_DRY_RUN",
         "run_id": run_id,
         "mode": mode,
-        "duration_seconds": duration_seconds,
+        "requested_duration_seconds": duration_seconds,
         "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
         "start_skew_ms": start_skew_ms(starts).public(),
         "validity": {"state": "fixture_only", "abort_reason": None},
@@ -1317,8 +1297,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "# Paired battery telemetry summary",
         "",
         f"**Classification:** `{summary['classification']}`",
-        f"**Mode:** `{summary['mode']}`",
-        f"**Duration:** {summary['duration_seconds']} seconds",
+        f"**Duration:** {summary.get('requested_duration_seconds', summary.get('duration_seconds', '?'))} seconds",
         "",
         "> Primary comparison: **S21 enabled − S21 disabled** and **S23U enabled − S23U disabled**. Cross-device percentage points are secondary context only.",
         "",

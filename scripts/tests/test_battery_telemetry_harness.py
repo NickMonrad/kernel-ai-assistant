@@ -7,6 +7,8 @@ import json
 import sys
 import tempfile
 import unittest
+import argparse
+
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -31,6 +33,7 @@ from battery_telemetry_harness import (  # noqa: E402
     parse_wake_word_diagnostics,
     parse_procstats_attribution,
     parse_duration,
+    metric_from_match,
     parse_failed,
     _parse_duration_ms,
     compute_charge_delta_uah,
@@ -275,6 +278,18 @@ class CheckinParsingTest(unittest.TestCase):
         parsed = parse_checkin(self.s21_checkin, 1000)
         self.assertEqual(parsed["cpu_user_ms"].value, 50)
 
+    def test_pwi_power_estimate(self) -> None:
+        parsed = parse_checkin("9,10123,l,pwi,uid,0.294,0.0,0.294,0.294", 10123)
+        self.assertEqual(parsed["estimated_power_mah"].value, 0.294)
+
+    def test_pwi_and_awl(self) -> None:
+        parsed = parse_checkin("9,10123,0,cpu,100,5\n9,10123,l,pwi,uid,0.294,0.0,0.294,0.294\n9,10123,0,awl,4200,0", 10123)
+        self.assertEqual(parsed["estimated_power_mah"].value, 0.294)
+        self.assertEqual(parsed["cpu_user_ms"].value, 100)
+        wakes = parsed["checkin_wakelocks"].value
+        self.assertEqual(len(wakes), 1)
+        self.assertEqual(wakes[0]["duration_ms"], 4200)
+
 
 class BatteryDumpParsingTest(unittest.TestCase):
     """dumpsys battery parsing."""
@@ -320,6 +335,11 @@ class BatteryDumpParsingTest(unittest.TestCase):
 
     def test_mah_no_delta(self) -> None:
         mah, _ = compute_mah_from_uah(not_reported("no charge counter"), 1.0)
+
+    def test_charge_delta_absent(self) -> None:
+        s = parse_battery_dump("level: 80\nAC powered: false\nUSB powered: false\nWireless powered: false\nstatus: 3")
+        e = parse_battery_dump("level: 79\nAC powered: false\nUSB powered: false\nWireless powered: false\nstatus: 3")
+        self.assertEqual(compute_charge_delta_uah(s, e).state, Availability.NOT_REPORTED)
         self.assertEqual(mah.state, Availability.NOT_REPORTED)
 
 
@@ -485,6 +505,26 @@ class DurationParserTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             _parse_duration_ms("not-a-duration")
 
+    def test_parse_duration_cli_seconds(self) -> None:
+        self.assertEqual(parse_duration("3600s"), 3600)
+
+    def test_parse_duration_cli_minutes(self) -> None:
+        self.assertEqual(parse_duration("60m"), 3600)
+
+    def test_parse_duration_cli_hours(self) -> None:
+        self.assertEqual(parse_duration("2h"), 7200)
+
+    def test_parse_duration_cli_days(self) -> None:
+        self.assertEqual(parse_duration("1d"), 86400)
+
+    def test_parse_duration_cli_malformed_raises(self) -> None:
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_duration("not-a-duration")
+
+    def test_parse_duration_cli_empty_raises(self) -> None:
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_duration("")
+
 
 class FixtureDryRunTest(unittest.TestCase):
     """Fixture-mode dry-run produces safe output."""
@@ -546,6 +586,75 @@ class SanitizationTest(unittest.TestCase):
         with self.assertRaises(HarnessError):
             assert_commit_safe({"device": "10.0.0.2:5555"})
 
+    def test_safe_ids_pass(self) -> None:
+        assert_commit_safe({"device": "s21", "classification": "EVIDENTIARY"})
+
+    def test_safe_simple_string(self) -> None:
+        assert_commit_safe("safe-string-without-patterns")
+
+    def test_safe_with_secrets(self) -> None:
+        assert_commit_safe({"device": "FAKE_001"}, secrets=("FAKE_001",))
+
+
+class MetricApiTest(unittest.TestCase):
+    """Metric dataclass and factory function behaviour."""
+
+    def test_available_value(self) -> None:
+        m = available(42)
+        self.assertEqual(m.state, Availability.AVAILABLE)
+        self.assertEqual(m.value, 42)
+
+    def test_not_reported(self) -> None:
+        m = not_reported("test detail")
+        self.assertEqual(m.state, Availability.NOT_REPORTED)
+        self.assertIsNone(m.value)
+        self.assertEqual(m.detail, "test detail")
+
+    def test_unsupported_factory(self) -> None:
+        m = unsupported("test detail")
+        self.assertEqual(m.state, Availability.UNSUPPORTED)
+        self.assertIsNone(m.value)
+
+    def test_parse_failed_factory(self) -> None:
+        m = parse_failed("test detail")
+        self.assertEqual(m.state, Availability.PARSE_FAILED)
+
+    def test_not_applicable_factory(self) -> None:
+        m = not_applicable("test detail")
+        self.assertEqual(m.state, Availability.NOT_APPLICABLE)
+
+    def test_metric_public(self) -> None:
+        m = available(42)
+        self.assertEqual(m.public(), {"state": "available", "value": 42})
+
+    def test_metric_public_not_reported(self) -> None:
+        m = not_reported("no data")
+        self.assertEqual(m.public(), {"state": "not_reported", "value": None})
+
+    def test_metric_public_unsupported(self) -> None:
+        m = unsupported("no data")
+        self.assertEqual(m.public(), {"state": "unsupported", "value": None})
+
+    def test_metric_from_match_found_int(self) -> None:
+        m = metric_from_match("cpu: 120ms", r"cpu:\s*(\d+)", "test")
+        self.assertEqual(m.state, Availability.AVAILABLE)
+        self.assertEqual(m.value, 120)
+
+    def test_metric_from_match_found_float(self) -> None:
+        m = metric_from_match("power: 1.50 mAh", r"power:\s*([\d.]+)", "test")
+        self.assertEqual(m.value, 1.5)
+
+    def test_metric_from_match_not_found(self) -> None:
+        m = metric_from_match("no match here", r"cpu:\s*(\d+)", "test")
+        self.assertEqual(m.state, Availability.NOT_REPORTED)
+
+    def test_metric_from_match_non_numeric(self) -> None:
+        m = metric_from_match("cpu: abc", r"cpu:\s*(\S+)", "test")
+        self.assertEqual(m.state, Availability.PARSE_FAILED)
+
+    def test_metric_from_match_matches_across_lines(self) -> None:
+        m = metric_from_match("Line1\ncpu: 55\nline3", r"cpu:\s*(\d+)", "test")
+        self.assertEqual(m.value, 55)
 
 class ProcstatsTest(unittest.TestCase):
     """Procstats evidence."""
@@ -628,6 +737,9 @@ class ExitCodeTest(unittest.TestCase):
 
     def test_cleanup_failure_three(self) -> None:
         self.assertEqual(RunResult({"c": "ABORTED"}, False, 3).exit_code, 3)
+
+    def test_error_return_two(self) -> None:
+        self.assertEqual(RunResult({"c": "ERROR"}, False, 2).exit_code, 2)
 
 
 if __name__ == "__main__":
