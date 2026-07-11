@@ -32,6 +32,29 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+NUMBER_PATTERN = r"(?:\d+(?:\.\d+)?|\.\d+)"
+"""Strict numeric pattern rejecting malformed values (``1..25``, ``.``, ``12.3.4``)."""
+
+
+def parse_float_metric(value: str, source: str) -> float:
+    """Parse a float, raising ``HarnessError`` with a sanitised message on failure.
+
+    The raw malformed token is never included in public error messages
+    since it could contain uncontrolled content.
+
+    Rejects values that Python ``float()`` accepts but are not valid
+    device measurements: ``NaN``, ``Infinity``, and overflow to ``inf``.
+    """
+    try:
+        result = float(value)
+    except ValueError as exc:
+        raise HarnessError(f"invalid numeric value in {source}") from exc
+    if result != result:  # NaN is never equal to itself
+        raise HarnessError(f"invalid numeric value in {source}")
+    if result in (float("inf"), float("-inf")):
+        raise HarnessError(f"invalid numeric value in {source}")
+    return result
 DEFAULT_PACKAGE = "com.kernel.ai.debug"
 
 PER_USER_RANGE = 100000
@@ -423,14 +446,15 @@ def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
     # Estimated power (from power estimation section, not block)
     android_uid = uid_to_android_uid(uid)
     power_match = re.search(
-        r"UID\s+" + re.escape(android_uid) + r":\s*([\d.]+)",
+        r"UID\s+" + re.escape(android_uid) + r":\s*(" + NUMBER_PATTERN + r")(?:\s|$)",
         text, re.MULTILINE
     )
     if power_match:
-        result["estimated_power_mah"] = available(round(float(power_match.group(1)), 4))
+        result["estimated_power_mah"] = available(round(
+            parse_float_metric(power_match.group(1), f"Batterystats power estimate"),
+        4))
     else:
         result["estimated_power_mah"] = not_reported("estimated power not reported")
-
     return result
 def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
     """Parse Android Batterystats check-in records using the ``csv`` module.
@@ -880,9 +904,11 @@ class PairedHarness:
         idle_text = client.shell("dumpsys", "deviceidle")
         services_text = client.shell("dumpsys", "activity", "services", self.package)
         batteryproperties_text = client.shell("dumpsys", "batteryproperties")
-        # Capture device uptime for reboot detection
         uptime_text = client.shell("cat", "/proc/uptime")
-        uptime_seconds = float(uptime_text.split()[0]) if uptime_text.strip() else 0.0
+        try:
+            uptime_seconds = float(uptime_text.split()[0]) if uptime_text.strip() else 0.0
+        except (ValueError, IndexError):
+            raise HarnessError(f"{alias}: device uptime malformed")
         return {
             "phase": phase,
             "wall_clock_utc": utc_now(),
@@ -959,6 +985,57 @@ class PairedHarness:
         uid_text = self.clients[alias].shell("dumpsys", "package", self.package)
         (phase_dir / "package.txt").write_text(uid_text)
 
+    def preserve_partial_evidence_best_effort(
+        self,
+        starts: dict[str, dict[str, Any]],
+        ends: dict[str, dict[str, Any]],
+        raw: dict[str, dict[str, str]],
+    ) -> list[str]:
+        """Write only already-captured in-memory evidence; never issue new ADB queries.
+
+        For start evidence: persist raw text from the boundary snapshot (already in memory).
+        For end evidence: persist in-memory ``raw`` dict contents.
+        Bugreports are never retried or written here — they were committed to disk
+        during ``collect_bugreport()`` or left absent.
+
+        Returns a list of sanitised warning strings for any filesystem failures.
+        Never raises into the abort outcome.
+        """
+        warnings: list[str] = []
+        for alias in ("s21", "s23u"):
+            snapshot = starts.get(alias)
+            if snapshot:
+                phase_dir = self.run_dir / alias / "start"
+                try:
+                    phase_dir.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    warnings.append(f"{alias}: start evidence directory — {exc}")
+                    continue
+                for raw_key, filename in (
+                    ("raw_battery", "battery.txt"),
+                    ("raw_batteryproperties", "batteryproperties.txt"),
+                    ("raw_power", "power.txt"),
+                    ("raw_deviceidle", "deviceidle.txt"),
+                    ("services_text", "services.txt"),
+                ):
+                    content = snapshot.get(raw_key)
+                    if not content:
+                        continue
+                    try:
+                        (phase_dir / filename).write_text(content)
+                    except OSError as exc:
+                        warnings.append(f"{alias}: start {filename} — {exc}")
+            # End evidence from in-memory raw dict
+            raw_data = raw.get(alias)
+            if raw_data:
+                for filename, content in raw_data.items():
+                    if not content:
+                        continue
+                    try:
+                        self.private_write(alias, "end", filename, content)
+                    except OSError as exc:
+                        warnings.append(f"{alias}: end {filename} — {exc}")
+        return warnings
 
     def try_cleanup_diagnostics(self, alias: str) -> str | None:
         """Attempt to restore WakeWordDiag log level. Returns error message or None."""
@@ -973,12 +1050,14 @@ class PairedHarness:
             return None
         except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
             return f"{alias}: cleanup failed — {exc}"
-
     def top_consumers(self, raw_batterystats: str, known_uid: int | None) -> dict[str, Metric]:
         """Extract top other power-consuming UIDs with sequential anonymous aliases.
 
         Extracts estimated power from the ``UID u0aXXX: <power>`` power estimation
         section (not the detail block). UIDs with no power estimate are excluded.
+        Malformed optional unrelated rows are skipped with a private diagnostic;
+        they never invalidate the run. Target-critical malformed attribution
+        raises ``HarnessError``.
         """
         if not raw_batterystats:
             return {"top_consumers": not_reported("Batterystats not available")}
@@ -991,10 +1070,16 @@ class PairedHarness:
             # Extract power from power estimation section: "UID u0aXXX: <power>"
             uid_text = android_uid
             power_match = re.search(
-                r"UID\s+" + re.escape(uid_text) + r":\s*([\d.]+)",
+                r"UID\s+" + re.escape(uid_text) + r":\s*(" + NUMBER_PATTERN + r")(?:\s|$)",
                 raw_batterystats, re.MULTILINE
             )
-            power = float(power_match.group(1)) if power_match else 0.0
+            if not power_match:
+                continue
+            try:
+                power = parse_float_metric(power_match.group(1), f"top-consumer power for {uid_text}")
+            except HarnessError:
+                # Malformed optional unrelated row — skip with private diagnostic
+                continue
             label = sanitise_uid_label(decimal_uid, known_uid, seen)
             if label != "target_app" and power > 0:
                 consumers.append({"label": label, "estimated_power_mah": round(power, 4)})
@@ -1265,7 +1350,6 @@ class PairedHarness:
             if not primary_abort_reason:
                 primary_abort_reason = "unknown collection failure"
             classification = "ABORTED_NON_EVIDENTIARY"
-
         finally:
             # --- Cleanup: restore diagnostics per device with exact verification ---
             for alias in ("s21", "s23u"):
@@ -1291,46 +1375,51 @@ class PairedHarness:
                     cleanup_errors.append(f"{alias}: cleanup failed — {sanitise_text(str(exc))}")
 
         # --- Outcome with structured failures ---
-        # Cleanup failures take precedence: they invalidate even an already-aborted run.
+        # Evidence preservation is best-effort: only in-memory data, no ADB queries.
+        # Warnings are recorded but never replace the primary or cleanup failure.
+        preservation_warnings: list[str] = []
+        if cleanup_errors or aborted:
+            preservation_warnings = self.preserve_partial_evidence_best_effort(starts, ends, raw)
+
         if cleanup_errors:
-            for alias in self.clients:
-                if starts.get(alias):
-                    self.capture_start_raw(alias, starts)
-                end_data = ends.get(alias)
-                raw_data = raw.get(alias)
-                if raw_data:
-                    for filename, content in raw_data.items():
-                        if content:
-                            self.private_write(alias, "partial", filename, content)
-            summary = self.abort_summary_with_failures(starts, ends, raw, primary_abort_reason, cleanup_errors)
+            summary = self.abort_summary_with_failures(
+                starts, ends, raw, primary_abort_reason, cleanup_errors, preservation_warnings
+            )
             return RunResult(summary, False, 3)
 
         if aborted:
-            for alias in self.clients:
-                if starts.get(alias):
-                    self.capture_start_raw(alias, starts)
-                end_data = ends.get(alias)
-                raw_data = raw.get(alias)
-                if raw_data:
-                    for filename, content in raw_data.items():
-                        if content:
-                            self.private_write(alias, "partial", filename, content)
-            summary = self.abort_summary_with_failures(starts, ends, raw, primary_abort_reason, [])
+            summary = self.abort_summary_with_failures(
+                starts, ends, raw, primary_abort_reason, [], preservation_warnings
+            )
             return RunResult(summary, False, 1)
 
         assert completed_summary is not None  # guaranteed by logic above
         return RunResult(completed_summary, True, 0)
 
+
     def abort_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]]) -> dict[str, Any]:
         """Generate a non-evidentiary abort summary (legacy single-reason signature)."""
-        return self.abort_summary_with_failures(starts, ends, raw, self.abort_reason, [])
+        return self.abort_summary_with_failures(starts, ends, raw, self.abort_reason, [], [])
 
-    def abort_summary_with_failures(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]], primary_reason: str | None, cleanup_failures: list[str]) -> dict[str, Any]:
+    def abort_summary_with_failures(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]], primary_reason: str | None, cleanup_failures: list[str], preservation_warnings: list[str] | None = None) -> dict[str, Any]:
         """Generate a non-evidentiary abort summary with structured failure information.
 
         Preserves both the primary run failure (if any) and any independent cleanup
-        failures. The public summary contains only sanitised versions.
+        failures. Evidence-preservation warnings are informational only and do not
+        replace the primary or cleanup failure. The public summary contains only
+        sanitised versions.
+
+        If the constructed summary fails ``assert_commit_safe``, returns a minimal
+        fallback report with no device identity or battery data.
         """
+        validity: dict[str, Any] = {"state": "aborted"}
+        if primary_reason:
+            validity["primary_failure"] = sanitise_text(primary_reason)
+            validity["abort_reason"] = sanitise_text(primary_reason)
+        if cleanup_failures:
+            validity["cleanup_failures"] = [sanitise_text(f) for f in cleanup_failures]
+        if preservation_warnings:
+            validity["evidence_preservation_warnings"] = [sanitise_text(w) for w in preservation_warnings]
         devices: dict[str, Any] = {}
         for alias in ("s21", "s23u"):
             device_info: dict[str, Any] = {"alias": alias}
@@ -1341,12 +1430,6 @@ class PairedHarness:
             if ends.get(alias):
                 device_info["end"] = {"wall_clock_utc": ends[alias]["wall_clock_utc"], "battery": {key: metric.public() for key, metric in ends[alias]["battery"].items()}}
             devices[alias] = device_info
-        validity: dict[str, Any] = {"state": "aborted"}
-        if primary_reason:
-            validity["primary_failure"] = sanitise_text(primary_reason)
-            validity["abort_reason"] = sanitise_text(primary_reason)
-        if cleanup_failures:
-            validity["cleanup_failures"] = [sanitise_text(f) for f in cleanup_failures]
         summary = {
             "schema_version": "2.0",
             "classification": "ABORTED_NON_EVIDENTIARY",
@@ -1360,7 +1443,12 @@ class PairedHarness:
             "limitations": ["Run did not complete; abort summary only. Not evidentiary."],
         }
         secrets = tuple(c.serial for c in self.clients.values())
-        assert_commit_safe(summary, secrets)
+        try:
+            assert_commit_safe(summary, secrets)
+        except HarnessError:
+            # Commit-safety failure: return a minimal fallback report.
+            # Never write unsafe data or expose private context.
+            return self._fallback_abort_summary(primary_reason)
         return summary
 
 

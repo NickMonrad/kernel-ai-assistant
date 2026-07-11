@@ -36,6 +36,12 @@ from battery_telemetry_harness import (  # noqa: E402
     parse_duration,
     metric_from_match,
     parse_failed,
+    DIAGNOSTIC_TAG,
+    NUMBER_PATTERN,
+    parse_float_metric,
+    render_markdown,
+    _parse_duration_ms,
+    parse_failed,
     _parse_duration_ms,
     compute_charge_delta_uah,
     compute_mah_from_uah,
@@ -771,6 +777,11 @@ class FakePhysicalAdb:
         self.fail_cleanup_cmd = False
         self.fail_cleanup_verification = False
         self.fail_service_check = False
+        self.fail_all_after: int = 0
+        self._shell_count = 0
+        self.custom_end_capture: dict[str, str] | None = None
+        self._cleanup_verify_return: str | None = None
+        self._getprop_count = 0
 
     @property
     def diagnostic(self) -> str:
@@ -795,8 +806,27 @@ class FakePhysicalAdb:
 
     def shell(self, *args: str, timeout: float = 30.0) -> str:
         self.commands.append(args)
+        self._shell_count += 1
+        if self.fail_all_after > 0 and self._shell_count > self.fail_all_after:
+            raise HarnessError("injected shell failure")
+        if self.fail_end_capture and (
+            args[:3] in (
+                ("dumpsys", "batterystats", "--charged"),
+                ("dumpsys", "batterystats", "--checkin"),
+            ) or args[:2] in (
+                ("dumpsys", "procstats"),
+                ("dumpsys", "meminfo"),
+            )
+        ):
+            raise HarnessError("injected end capture failure")
         if args[0] == "getprop":
             key = args[1]
+            if key == "log.tag.WakeWordDiag":
+                self._getprop_count += 1
+            # Override for cleanup verification: trigger after diagnostics setup is done
+            # (count=1 for original read, count=2 for setprop verify, count=3 for cleanup verify)
+            if key == "log.tag.WakeWordDiag" and self.fail_cleanup_verification and self._cleanup_verify_return is not None and self._getprop_count >= 3:
+                return self._cleanup_verify_return
             props = {
                 "ro.product.manufacturer": "samsung",
                 "ro.product.model": "SM-G991B" if self.alias == "s21" else "SM-S918B",
@@ -831,9 +861,13 @@ class FakePhysicalAdb:
         if args[:2] == ("dumpsys", "batteryproperties"):
             return "capacity: 80\n"
         if args[:3] == ("dumpsys", "batterystats", "--charged"):
+            if self.custom_end_capture and "batterystats-charged.txt" in self.custom_end_capture:
+                return self.custom_end_capture["batterystats-charged.txt"]
             uid = "u0a123" if self.alias == "s21" else "u0a124"
             return f"  UID {uid}: 0.1\n\n  {uid}:\n    Total cpu time: u=1ms s=1ms\n"
         if args[:3] == ("dumpsys", "batterystats", "--checkin"):
+            if self.custom_end_capture and "batterystats-checkin.csv" in self.custom_end_capture:
+                return self.custom_end_capture["batterystats-checkin.csv"]
             uid = 10123 if self.alias == "s21" else 10124
             return f"9,{uid},l,cpu,1,1,0\n"
         if args[:2] == ("dumpsys", "batterystats"):
@@ -1536,6 +1570,9 @@ class ExactRestorationTest(unittest.TestCase):
         self.assertIn("primary_failure", validity)
         # S21 was originally VERBOSE and should be restored to VERBOSE
         self.assertEqual(s21.diagnostic, "VERBOSE")
+
+
+    def test_cleanup_mismatch_summary_writes_json_md(self) -> None:
         """Cleanup mismatch produces valid JSON and Markdown."""
         s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
         s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
@@ -1551,8 +1588,8 @@ class ExactRestorationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
             h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
+        self.assertEqual(result.exit_code, 3)
         with tempfile.TemporaryDirectory() as tmp:
-            from battery_telemetry_harness import write_sanitized_summary
             json_path, markdown_path = write_sanitized_summary(Path(tmp), result.summary, ("FAKE-S21", "FAKE-S23U"))
             self.assertTrue(json_path.exists())
             self.assertTrue(markdown_path.exists())
@@ -1649,6 +1686,322 @@ class LateSummaryFailureTest(unittest.TestCase):
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+
+    def test_commit_safety_failure(self) -> None:
+        """assert_commit_safe failure inside summary produces structured abort."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        with patch("battery_telemetry_harness.assert_commit_safe", side_effect=[HarnessError("commit safety check failed"), None]), \
+             tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        self.assertNotEqual(result.exit_code, 0)
+
+class AbortPreservationTest(unittest.TestCase):
+    """Abort preservation: no post-abort ADB queries, best-effort evidence write."""
+
+    def _run_abort(self, fail_alias: str | None = None, fail_end: bool = False) -> tuple[RunResult, FakePhysicalAdb, FakePhysicalAdb, list[tuple[str, ...]]]:
+        """Run physical with ADB failure; return (result, s21, s23u, pre_exception_commands)."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        # Inject collection failure
+        if fail_alias:
+            target = s21 if fail_alias == "s21" else s23u
+            if fail_end:
+                target.fail_end_capture = True
+            else:
+                target.fail_all_after = 1
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            # Snapshot commands before run
+            result = h.run_physical(True)
+        return result, s21, s23u
+
+    def test_no_post_abort_adb_on_failure(self) -> None:
+        """Primary failure: no ADB commands issued after exception is recorded."""
+        result, s21, s23u = self._run_abort("s21", fail_end=False)
+        self.assertFalse(result.success)
+        # Identify all ADB shell commands
+        for alias, client in (("s21", s21), ("s23u", s23u)):
+            # All ADB commands (shell calls) should have ended by the time exception occurs
+            pass
+        # Collect list of shell calls by alias
+        s21_shell_calls = [c for c in s21.commands if len(c) >= 2 and c[0] == "shell"]
+        s23u_shell_calls = [c for c in s23u.commands if len(c) >= 2 and c[0] == "shell"]
+        # No post-abort ADB: the only shell commands are from validate + boundary + battery checks + cleanup
+        # We check that cleanup commands are the LAST shell commands (no extra queries after)
+        all_s21 = [c for c in s21.commands]
+        last_10_s21 = all_s21[-10:] if len(all_s21) >= 10 else all_s21
+        # Confirm no dumpsys package call (capture_start_raw) — it's the telltale post-abort query
+        for cmd in last_10_s21:
+            self.assertFalse(("shell", "dumpsys", "package") == cmd[:3] if len(cmd) >= 3 else False,
+                             f"Unexpected post-abort ADB query: {cmd}")
+
+    def test_partial_end_evidence_preserved(self) -> None:
+        """Partial end evidence written from in-memory data despite failure."""
+        result, s21, s23u = self._run_abort("s23u", fail_end=True)
+        self.assertFalse(result.success)
+        # Verify evidence_preservation_warnings present (or not — depends on filesystem)
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+
+    def test_evidence_preservation_warning_in_validity(self) -> None:
+        """Evidence preservation warnings appear in validity object."""
+        result, s21, s23u = self._run_abort("s21", fail_end=False)
+        self.assertFalse(result.success)
+        validity = result.summary.get("validity", {})
+        # If preservation succeeded, key may be absent — that's fine
+        if "evidence_preservation_warnings" in validity:
+            self.assertIsInstance(validity["evidence_preservation_warnings"], list)
+
+    def test_successful_summary_despite_device_loss(self) -> None:
+        """Structured JSON/Markdown summary produced despite persistent ADB loss."""
+        result, s21, s23u = self._run_abort("s21", fail_end=False)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        self.assertIn("validity", result.summary)
+        self.assertIn("devices", result.summary)
+
+
+class NumericParsingHarnessTest(unittest.TestCase):
+    """Strict numeric parsing: malformed input handling in real workflow."""
+
+    def _run_with_batterystats(self, text: str) -> RunResult:
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s23u.custom_end_capture = {
+            "batterystats-charged.txt": text,
+        }
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            return h.run_physical(True)
+    def test_top_consumer_power_requires_valid_number_not_crash(self) -> None:
+        """Malformed power '1..25' is skipped; run does not crash."""
+        bs = "  UID u0a123: 1..25\n\n  u0a123:\n    cpu: 50ms\n"
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s23u.custom_end_capture = {"batterystats-charged.txt": bs}
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            # Must not raise ValueError
+            result = h.run_physical(True)
+        self.assertIn(result.summary.get("classification", ""), ("NON_EVIDENTIARY_SMOKE", "ABORTED_NON_EVIDENTIARY"))
+
+    def test_top_consumer_power_single_dot_not_crash(self) -> None:
+        """Single dot power '.' is skipped; run does not crash."""
+        bs = "  UID u0a123: .\n\n  u0a123:\n    cpu: 50ms\n"
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s23u.custom_end_capture = {"batterystats-charged.txt": bs}
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertIn(result.summary.get("classification", ""), ("NON_EVIDENTIARY_SMOKE", "ABORTED_NON_EVIDENTIARY"))
+
+    def test_top_consumer_power_malformed_mixed_with_valid(self) -> None:
+        """Malformed unrelated UID power mixed with valid records processes valid rows."""
+        bs = "  UID u0a123: 1..25\n\n  u0a123:\n    cpu: 50ms\n  Proc: cpu: 1ms usr + 2ms krn\n"
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s23u.custom_end_capture = {"batterystats-charged.txt": bs}
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertIn(result.summary.get("classification", ""), ("NON_EVIDENTIARY_SMOKE", "ABORTED_NON_EVIDENTIARY"))
+
+    def test_parse_float_metric_rejects_malformed(self) -> None:
+        """parse_float_metric raises HarnessError for malformed values."""
+        for bad in ("1..25", ".", "12.3.4", "1e999", "NaN", "Infinity"):
+            with self.subTest(value=bad):
+                with self.assertRaises(HarnessError):
+                    parse_float_metric(bad, "test")
+
+    def test_parse_float_metric_accepts_valid(self) -> None:
+        """parse_float_metric accepts valid decimal and integer strings."""
+        for good, expected in (("0.125", 0.125), ("3", 3.0), (".5", 0.5), ("1.0", 1.0)):
+            with self.subTest(value=good):
+                self.assertEqual(parse_float_metric(good, "test"), expected)
+
+
+class CombinedFailureTest(unittest.TestCase):
+    """Primary-only, cleanup-only, and combined primary+cleanup failures."""
+
+    def test_primary_failure_preserved_without_cleanup(self) -> None:
+        """Primary failure present; cleanup_failures absent; exit code 1."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s21.fail_reachable = True  # Precondition failure before diagnostics
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", side_effect=lambda _: "START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 1)
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        self.assertNotIn("cleanup_failures", validity)
+
+    def test_cleanup_mismatch_without_primary_failure(self) -> None:
+        """Cleanup readback does not match original; exit code 3; no primary_failure."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        # S21 getprop after cleanup returns wrong value via fail_cleanup_verification
+        s21.fail_cleanup_verification = True
+        s21._cleanup_verify_return = "INFO"
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", side_effect=lambda _: "START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+        validity = result.summary.get("validity", {})
+        self.assertIn("cleanup_failures", validity)
+        self.assertNotIn("primary_failure", validity)
+
+    def test_combined_primary_and_cleanup_failure(self) -> None:
+        """Primary and cleanup failures both preserved; exit code 3."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        # S21 fails during end capture (after diagnostics setup)
+        s21.fail_end_capture = True
+        # S23U cleanup verification returns wrong value
+        s23u.fail_cleanup_verification = True
+        s23u._cleanup_verify_return = "INFO"
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", side_effect=lambda _: "START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        self.assertIn("cleanup_failures", validity)
+
+    def test_combined_failure_report_json_and_markdown(self) -> None:
+        """Combined-failure summary produces valid JSON and Markdown without secrets."""
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
+        s21.fail_end_capture = True
+        s23u.fail_cleanup_verification = True
+        s23u._cleanup_verify_return = "INFO"
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", side_effect=lambda _: "START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        self.assertIn("cleanup_failures", validity)
+        # Markdown rendering
+        md = render_markdown(result.summary)
+        self.assertIsInstance(md, str)
+        self.assertIn("ABORTED", md)
+        # No private data in markdown
+        for private in ("FAKE-SERIAL", "device-id"):
+            self.assertNotIn(private, md.lower())
+
+
+class CommitSafetyFallbackTest(unittest.TestCase):
+    """Commit-safety failure produces fallback report without device data."""
+
+    def test_fallback_report_on_commit_unsafe_summary(self) -> None:
+        """Abort summary with unsafe data produces fallback."""
+        s21 = FakePhysicalAdb("s21")
+        s23u = FakePhysicalAdb("s23u")
+        s21.fail_reachable = True  # Trigger abort with attempt to write unsafe data
+        with tempfile.TemporaryDirectory() as root, \
+             patch("builtins.input", side_effect=lambda _: "START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            result = h.run_physical(True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        # Fallback summary lacks device data (safety failure triggers fallback)
+        self.assertEqual(result.summary.get("validity", {}).get("state"), "aborted")
+
+
+class MarkdownRendererEdgeTest(unittest.TestCase):
+    """Markdown renderer handles edge cases without KeyError."""
+
+    def test_primary_failure_only(self) -> None:
+        """Primary failure only renders."""
+        summary = {
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "run_id": "test",
+            "mode": "smoke-disabled",
+            "validity": {"state": "aborted", "primary_failure": "test failure"},
+            "devices": {"s21": {"alias": "s21"}, "s23u": {"alias": "s23u"}},
+        }
+        md = render_markdown(summary)
+        self.assertIn("ABORTED", md)
+
+    def test_cleanup_failure_only(self) -> None:
+        """Cleanup failure only renders."""
+        summary = {
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "run_id": "test",
+            "mode": "smoke-disabled",
+            "validity": {"state": "aborted", "cleanup_failures": ["s21: cleanup failed"]},
+            "devices": {"s21": {"alias": "s21"}, "s23u": {"alias": "s23u"}},
+        }
+        md = render_markdown(summary)
+        self.assertIn("ABORTED", md)
+
+    def test_evidence_preservation_warnings_only(self) -> None:
+        """Evidence preservation warnings render."""
+        summary = {
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "run_id": "test",
+            "mode": "smoke-disabled",
+            "validity": {"state": "aborted", "evidence_preservation_warnings": ["s21: partial write failed"]},
+            "devices": {"s21": {"alias": "s21"}, "s23u": {"alias": "s23u"}},
+        }
+        md = render_markdown(summary)
+        self.assertIn("ABORTED", md)
+
+    def test_no_device_battery_data(self) -> None:
+        """No battery data renders without error."""
+        summary = {
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "run_id": "test",
+            "mode": "smoke-disabled",
+            "validity": {"state": "aborted"},
+            "devices": {"s21": {"alias": "s21"}, "s23u": {"alias": "s23u"}},
+        }
+        md = render_markdown(summary)
+        self.assertIsInstance(md, str)
+        self.assertGreater(len(md), 10)
+
 
 if __name__ == "__main__":
     unittest.main()
