@@ -1,0 +1,24 @@
+{
+  "devices": {
+    "s21": {
+      "manufacturer": "Samsung",
+      "model": "SM-G991B",
+      "android_api": "35",
+      "start_monotonic_ms": 1000000,
+      "start_level": 80,
+      "end_level": 79,
+      "uid": 10123,
+      "batterystats": "  UID u0a123: 0.294\n      cpu=0.294\n\n  u0a123:\n    Fg Service for: 59m 59s 999ms\n    Total running: 59m 59s 999ms\n    Total cpu time: u=120ms s=7ms\n"
+    },
+    "s23u": {
+      "manufacturer": "Samsung",
+      "model": "SM-S918B",
+      "android_api": "35",
+      "start_monotonic_ms": 1000038,
+      "start_level": 80,
+      "end_level": 80,
+      "uid": 10124,
+      "batterystats": "  UID u0a124: 0.0980\n      cpu=0.0980\n\n  u0a124:\n    Fg Service for: 59m 59s 998ms\n    Total running: 59m 59s 998ms\n    Total cpu time: u=60ms s=3ms\n"
+    }
+  }
+}
