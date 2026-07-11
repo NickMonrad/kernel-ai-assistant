@@ -2080,60 +2080,74 @@ class AbortPreservationTest(unittest.TestCase):
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
 
     def test_failed_start_preservation_does_not_block_end(self) -> None:
-        """Start preservation failure does not skip end evidence preservation."""
+        """A failed start .keep write still attempts and persists known end evidence."""
         journal = SharedCommandJournal()
         s21 = FakePhysicalAdb("s21", journal=journal)
         s23u = FakePhysicalAdb("s23u", journal=journal)
         s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
-        fail_start_only = True
+        attempted_paths: list[Path] = []
+        successful_paths: list[Path] = []
+        failed_paths: list[Path] = []
         original_write = PairedHarness.write_private_evidence
-        def selective_fail_write(self, path, content):
-            nonlocal fail_start_only
-            if "start" in str(path) and ".keep" in str(path):
-                fail_start_only = True
-                raise OSError("start .keep fail")
-            return original_write(self, path, content)
+
+        def selective_fail_write(harness, path, content):
+            attempted_paths.append(path)
+            if path.parent.name == "start" and path.name == ".keep":
+                failed_paths.append(path)
+                raise OSError("/home/private-user/start-keep-failure")
+            original_write(harness, path, content)
+            successful_paths.append(path)
+
         with patch.object(PairedHarness, "write_private_evidence", selective_fail_write):
             result = self._run_with_journal(s21, s23u)
+
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        validity = result.summary.get("validity", {})
-        warnings = validity.get("evidence_preservation_warnings", [])
-        # At least the start .keep warning; end may also have warnings but not prevented
-        start_warnings = [w for w in warnings if "start" in str(w)]
-        self.assertGreaterEqual(len(start_warnings), 1, "expected at least start .keep warning")
-        # No ADB commands after failure
-        pf = journal.post_primary_failure
-        self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        self.assertGreater(len(failed_paths), 0, "start .keep failure was not injected")
+        self.assertTrue(
+            any(path.parent.name == "end" and path.name == "battery.txt" for path in attempted_paths),
+            f"end evidence was not attempted after failed start preservation: {attempted_paths}",
+        )
+        self.assertTrue(
+            any(path.parent.name == "end" and path.name == "battery.txt" for path in successful_paths),
+            f"end evidence was not persisted after failed start preservation: {successful_paths}",
+        )
+        self.assertEqual(journal.post_primary_failure, [])
 
     def test_failed_end_preservation_does_not_affect_start(self) -> None:
-        """End preservation failure does not affect start evidence preservation."""
+        """A failed end write still attempts and persists known start evidence."""
         journal = SharedCommandJournal()
         s21 = FakePhysicalAdb("s21", journal=journal)
         s23u = FakePhysicalAdb("s23u", journal=journal)
         s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
-        fail_end_only = True
+        attempted_paths: list[Path] = []
+        successful_paths: list[Path] = []
+        failed_paths: list[Path] = []
         original_write = PairedHarness.write_private_evidence
-        def selective_fail_end(self, path, content):
-            nonlocal fail_end_only
-            if "end" in str(path):
-                raise OSError("end write fail")
-            return original_write(self, path, content)
+
+        def selective_fail_end(harness, path, content):
+            attempted_paths.append(path)
+            if path.parent.name == "end":
+                failed_paths.append(path)
+                raise OSError("/home/private-user/end-evidence-failure")
+            original_write(harness, path, content)
+            successful_paths.append(path)
+
         with patch.object(PairedHarness, "write_private_evidence", selective_fail_end):
             result = self._run_with_journal(s21, s23u)
+
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        validity = result.summary.get("validity", {})
-        warnings = validity.get("evidence_preservation_warnings", [])
-        end_warnings = [w for w in warnings if "end" in str(w)]
-        self.assertGreaterEqual(len(end_warnings), 1, "expected at least one end warning")
-        # Start warnings should not be present (start preservation succeeded)
-        start_warnings = [w for w in warnings if "start" in str(w)]
-        self.assertEqual(len(start_warnings), 0,
-                         f"expected zero start warnings when only end fails, got: {start_warnings}")
-        # No ADB commands after failure
-        pf = journal.post_primary_failure
-        self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        self.assertGreater(len(failed_paths), 0, "end failure was not injected")
+        self.assertTrue(
+            any(path.parent.name == "start" and path.name == "battery.txt" for path in attempted_paths),
+            f"start evidence was not attempted before failed end preservation: {attempted_paths}",
+        )
+        self.assertTrue(
+            any(path.parent.name == "start" and path.name == "battery.txt" for path in successful_paths),
+            f"start evidence was not persisted before failed end preservation: {successful_paths}",
+        )
+        self.assertEqual(journal.post_primary_failure, [])
 
     def test_preservation_produces_no_adb_commands(self) -> None:
         """All preservation is filesystem-only; no new ADB queries after failure."""
@@ -2752,39 +2766,82 @@ class CLIPersistentLossTest(unittest.TestCase):
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
             return h.run_physical(True)
+    def test_enabled_sticky_outage_exit_3_cli(self) -> None:
+        """main() preserves the end-raw primary and reports sticky cleanup failure."""
         journal = SharedCommandJournal()
         s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
         s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
-        # Sticky failure: empty phase matches any lifecycle; first shell failure persists
-        s23u.failure_point = FailurePoint(phase="", transport="shell")
+        s23u.failure_point = FailurePoint(
+            phase="end_raw",
+            transport="shell",
+            args_prefix=("dumpsys", "batterystats", "--charged"),
+        )
         s23u.persistent_after_first_failure = True
-        with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path, journal = self._run_main(s21, s23u, root, mode="smoke-enabled")
-            self.assertEqual(exit_code, 3)
-            summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector"))
-            self.assertIn("primary_failure", summary.get("validity", {}))
-            self.assertIn("cleanup_failures", summary.get("validity", {}))
-            # Markdown contains both failure sections
-            md = md_path.read_text()
-            self.assertIn("Primary failure", md)
-            self.assertIn("Cleanup failure", md)
-            # Exact global suffix (use journal from _run_main return)
-            pf = journal.post_primary_failure
-            self.assertEqual(len(pf), 3, f"expected exactly 3 post-failure commands, got {len(pf)}: {pf}")
-            expected_suffix = [
-                ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
-                ("s21", "shell", ("getprop", "log.tag.WakeWordDiag")),
-                ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE")),
-            ]
-            for (exp_alias, exp_transport, exp_args), rec in zip(expected_suffix, pf):
-                self.assertEqual(rec.alias, exp_alias)
-                self.assertEqual(rec.transport, exp_transport)
-                self.assertEqual(rec.args, exp_args)
-            # No collection commands in post-failure
-            for rec in pf:
-                self.assertFalse(rec.args[:1] in {("dumpsys",), ("bugreport",), ("logcat",), ("cat",)},
-                                 f"forbidden command after failure: {rec}")
+        original_end_raw = PairedHarness.capture_end_raw
 
+        def phase_end_raw(harness, alias):
+            harness.clients[alias].phase = "end_raw"
+            return original_end_raw(harness, alias)
+
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(PairedHarness, "capture_end_raw", phase_end_raw):
+            exit_code, json_path, md_path, returned_journal = self._run_main(
+                s21,
+                s23u,
+                root,
+                mode="smoke-enabled",
+            )
+
+            self.assertIs(returned_journal, journal)
+            self.assertEqual(exit_code, 3)
+            summary = self._verify_common(
+                json_path,
+                md_path,
+                (
+                    "private-s21-selector",
+                    "private-s23u-selector",
+                    "FAKE-S21",
+                    "FAKE-S23U",
+                    str(root),
+                    "battery.txt",
+                    "batterystats-charged.txt",
+                ),
+            )
+            validity = summary.get("validity", {})
+            self.assertIn("primary_failure", validity)
+            self.assertIn("cleanup_failures", validity)
+            markdown = md_path.read_text()
+            self.assertIn("Primary failure", markdown)
+            self.assertIn("Cleanup failure", markdown)
+
+            primary = journal.primary_failure_record
+            self.assertIsNotNone(primary)
+            self.assertEqual(primary.alias, "s23u")
+            self.assertEqual(primary.phase, "end_raw")
+            self.assertEqual(primary.transport, "shell")
+            self.assertEqual(primary.args, ("dumpsys", "batterystats", "--charged"))
+            debug_setprops = [
+                record for record in journal.records
+                if record.args == ("setprop", "log.tag.WakeWordDiag", "DEBUG")
+            ]
+            self.assertEqual(len(debug_setprops), 2)
+            self.assertTrue(all(record.sequence < primary.sequence for record in debug_setprops))
+
+            suffix = journal.post_primary_failure
+            expected_suffix = [
+                ("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"), "success"),
+                ("s21", "shell", ("getprop", "log.tag.WakeWordDiag"), "success"),
+                ("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"), "HarnessError"),
+            ]
+            self.assertEqual(len(suffix), len(expected_suffix), suffix)
+            self.assertEqual(
+                [(record.alias, record.transport, record.args, record.outcome) for record in suffix],
+                expected_suffix,
+            )
+            self.assertTrue(
+                all(record.args[:1] not in {("dumpsys",), ("bugreport",), ("logcat",), ("cat",)} for record in suffix),
+                suffix,
+            )
 
 class CLIFallbackTest(unittest.TestCase):
     """Privacy-fallback report tests via main()."""
