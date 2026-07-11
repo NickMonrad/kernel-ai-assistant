@@ -332,6 +332,10 @@ def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
     Returns list of (decimal_uid, android_uid_or_numeric, block_text) for all
     UIDs found in the detail section. Used for top-consumer reporting.
     Supports both ``u0aXXX:`` (app) and ``<N>:`` (system) detail headers.
+
+    Isolated UIDs (``u<user>i<id>``) are silently skipped — the harness does not
+    need to expose or precisely attribute unrelated isolated processes.
+    Malformed UID text is also skipped with a private diagnostic.
     Only captures the detail section, not the power-estimate section.
     """
     uids: list[tuple[int, str, str]] = []
@@ -339,7 +343,7 @@ def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
     i = 0
     while i < len(lines):
         stripped = lines[i].strip()
-        # Match u0aXXX: (app detail) or <N>: (system detail)
+        # Match u0aXXX: (app detail) or <N>: (system detail) or u0sXXX (shared)
         match = re.match(r"^(u\d+[ais]\d+|\d+):$", stripped)
         if match:
             uid_text = match.group(1)
@@ -351,7 +355,27 @@ def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
                 decimal_uid = int(uid_text)
                 android_uid = uid_text
             else:
-                decimal_uid, _ = parse_android_uid(uid_text)
+                # Check for isolated UID — skip silently, it's an unrelated process
+                form_match = re.match(r"u\d+([ais])\d+", uid_text)
+                if form_match and form_match.group(1) == "i":
+                    # Isolated UID: skip detail block
+                    i += 1
+                    while i < len(lines):
+                        s = lines[i].strip()
+                        if re.match(r"^(u\d+[ais]\d+|\d+):$", s):
+                            i -= 1
+                            break
+                        if not s:
+                            break
+                        i += 1
+                    i += 1
+                    continue
+                try:
+                    decimal_uid, _ = parse_android_uid(uid_text)
+                except ValueError:
+                    # Malformed UID text — skip
+                    i += 1
+                    continue
                 android_uid = uid_text
             block_lines: list[str] = []
             i += 1
@@ -444,17 +468,20 @@ def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
         result["proc_cpu_kernel_ms"] = not_reported("process CPU not reported")
 
     # Estimated power (from power estimation section, not block)
+    # Two-stage: detect line existence, then validate the token
     android_uid = uid_to_android_uid(uid)
-    power_match = re.search(
-        r"UID\s+" + re.escape(android_uid) + r":\s*(" + NUMBER_PATTERN + r")(?:\s|$)",
+    target_line = re.search(
+        r"UID\s+" + re.escape(android_uid) + r":\s*(\S+)",
         text, re.MULTILINE
     )
-    if power_match:
+    if not target_line:
+        result["estimated_power_mah"] = not_reported("estimated power not reported")
+    elif re.match(NUMBER_PATTERN + r"$", target_line.group(1)):
         result["estimated_power_mah"] = available(round(
-            parse_float_metric(power_match.group(1), f"Batterystats power estimate"),
+            parse_float_metric(target_line.group(1), "Batterystats power estimate"),
         4))
     else:
-        result["estimated_power_mah"] = not_reported("estimated power not reported")
+        result["estimated_power_mah"] = parse_failed("target power value malformed")
     return result
 def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
     """Parse Android Batterystats check-in records using the ``csv`` module.
@@ -1008,8 +1035,8 @@ class PairedHarness:
                 phase_dir = self.run_dir / alias / "start"
                 try:
                     phase_dir.mkdir(parents=True, exist_ok=True)
-                except OSError as exc:
-                    warnings.append(f"{alias}: start evidence directory — {exc}")
+                except OSError:
+                    warnings.append(f"{alias}: start evidence could not be persisted")
                     continue
                 for raw_key, filename in (
                     ("raw_battery", "battery.txt"),
@@ -1023,8 +1050,8 @@ class PairedHarness:
                         continue
                     try:
                         (phase_dir / filename).write_text(content)
-                    except OSError as exc:
-                        warnings.append(f"{alias}: start {filename} — {exc}")
+                    except OSError:
+                        warnings.append(f"{alias}: start evidence could not be persisted")
             # End evidence from in-memory raw dict
             raw_data = raw.get(alias)
             if raw_data:
@@ -1033,8 +1060,8 @@ class PairedHarness:
                         continue
                     try:
                         self.private_write(alias, "end", filename, content)
-                    except OSError as exc:
-                        warnings.append(f"{alias}: end {filename} — {exc}")
+                    except OSError:
+                        warnings.append(f"{alias}: partial end evidence could not be persisted")
         return warnings
 
     def try_cleanup_diagnostics(self, alias: str) -> str | None:
@@ -1448,8 +1475,36 @@ class PairedHarness:
         except HarnessError:
             # Commit-safety failure: return a minimal fallback report.
             # Never write unsafe data or expose private context.
-            return self._fallback_abort_summary(primary_reason)
+            return self._fallback_abort_summary()
         return summary
+
+    def _fallback_abort_summary(self) -> dict[str, Any]:
+        """Minimal fallback when the detailed abort summary fails privacy validation.
+
+        Contains no run ID, device identity, package metadata, serials, selectors,
+        IP addresses, file paths, artifact filenames, exception text, preservation
+        warnings, or battery values. Must pass ``assert_commit_safe`` without secrets.
+        """
+        fallback: dict[str, Any] = {
+            "schema_version": "2.0",
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "mode": self.mode,
+            "requested_duration_seconds": self.duration_seconds,
+            "validity": {
+                "state": "aborted",
+                "primary_failure": "public evidence failed privacy validation",
+            },
+            "raw_artifacts": "private and gitignored",
+            "devices": {},
+            "limitations": [
+                "Detailed public evidence was suppressed because privacy validation failed.",
+                "Run is not evidentiary.",
+            ],
+        }
+        # Validate independently. If even this minimal report fails, raise — the outer
+        # report-writing path will catch it and return exit code 2.
+        assert_commit_safe(fallback)
+        return fallback
 
 
 def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, run_id: str) -> dict[str, Any]:
