@@ -1081,7 +1081,8 @@ class PairedHarness:
                 "Samsung-specific fields (remaining_capacity, design_capacity) use unit_unknown unless verified from vendor documentation.",
             ],
         }
-        assert_commit_safe(summary)
+        secrets = tuple(c.serial for c in self.clients.values())
+        assert_commit_safe(summary, secrets)
         return summary
     @staticmethod
     def _public_snapshot(snapshot: dict[str, Any], phase: str) -> dict[str, Any]:
@@ -1272,7 +1273,8 @@ class PairedHarness:
             "devices": devices,
             "limitations": ["Run did not complete; abort summary only. Not evidentiary."],
         }
-        assert_commit_safe(summary)
+        secrets = tuple(c.serial for c in self.clients.values())
+        assert_commit_safe(summary, secrets)
         return summary
 
 
@@ -1332,8 +1334,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_sanitized_summary(output_dir: Path, summary: dict[str, Any]) -> tuple[Path, Path]:
-    assert_commit_safe(summary)
+def write_sanitized_summary(output_dir: Path, summary: dict[str, Any], secrets: Iterable[str] = ()) -> tuple[Path, Path]:
+    assert_commit_safe(summary, secrets)
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "run-summary.json"
     markdown_path = output_dir / "run-summary.md"
@@ -1377,7 +1379,8 @@ def main(argv: list[str] | None = None) -> int:
             raise HarnessError("--s21 and --s23u (or private environment variables) are required for physical execution")
         harness = PairedHarness(args.mode, args.package, args.duration, args.private_root, {"s21": AdbClient(args.s21), "s23u": AdbClient(args.s23u)})
         result = harness.run_physical(args.interactive)
-        json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", result.summary)
+        adb_secrets = (args.s21, args.s23u)
+        json_path, markdown_path = write_sanitized_summary(harness.run_dir / "sanitized", result.summary, adb_secrets)
         print(f"{result.summary['classification']} summary written: {json_path.name}, {markdown_path.name}")
         return result.exit_code
     except (HarnessError, json.JSONDecodeError, OSError) as error:
