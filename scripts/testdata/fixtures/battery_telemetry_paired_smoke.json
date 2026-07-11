@@ -8,8 +8,7 @@
       "start_level": 80,
       "end_level": 79,
       "uid": 10123,
-      "batterystats": "  Uid u0a123:\n    cpu:\n      user: 120ms\n      system: 7ms\n    Wake lock: WakeWordLock +0s300ms (partial) count 14\n    power: 1.50 mAh\n",
-      "wakeword_diag": "WakeWordDetector: diagnostics elapsedMs=120000 audioFrames=1500 stage1=1500 stage2=12 stage3=10 stage2PerHour=360 stage3PerHour=300 silenceSkips=1488 silenceSkipRatio=0.992 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=0 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified"
+      "batterystats": "  UID u0a123: 0.294\n      cpu=0.294\n\n  u0a123:\n    Fg Service for: 59m 59s 999ms\n    Total running: 59m 59s 999ms\n    Total cpu time: u=120ms s=7ms\n"
     },
     "s23u": {
       "manufacturer": "Samsung",
@@ -19,8 +18,7 @@
       "start_level": 80,
       "end_level": 80,
       "uid": 10124,
-      "batterystats": "  Uid u0a124:\n    cpu:\n      user: 60ms\n      system: 3ms\n    Wake lock: WakeWordLock +0s200ms (partial) count 14\n    power: 0.80 mAh\n",
-      "wakeword_diag": "WakeWordDetector: diagnostics elapsedMs=120000 audioFrames=1500 stage1=1500 stage2=8 stage3=7 stage2PerHour=240 stage3PerHour=210 silenceSkips=1492 silenceSkipRatio=0.994 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=0 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified"
+      "batterystats": "  UID u0a124: 0.0980\n      cpu=0.0980\n\n  u0a124:\n    Fg Service for: 59m 59s 998ms\n    Total running: 59m 59s 998ms\n    Total cpu time: u=60ms s=3ms\n"
     }
   }
 }

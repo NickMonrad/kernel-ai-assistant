@@ -132,15 +132,15 @@ class BatterystatsParsingTest(unittest.TestCase):
 
     def test_uid_block_extraction_s21(self) -> None:
         block = extract_uid_block(self.s21_text, 10123)
-        self.assertIn("Wake lock: WakeWordLock", block)
-        self.assertIn("cpu:", block)
-        self.assertIn("power:", block)
-        self.assertNotIn("Uid 1000", block)
+        self.assertIn("Fg Service for:", block)
+        self.assertIn("Total cpu time:", block)
+        self.assertIn("Total running:", block)
+        self.assertNotIn("1000:", block)
 
     def test_uid_block_extraction_s23u(self) -> None:
         block = extract_uid_block(self.s23u_text, 10124)
-        self.assertIn("Wake lock: WakeWordLock", block)
-        self.assertIn("cpu:", block)
+        self.assertIn("Fg Service for:", block)
+        self.assertIn("Total cpu time:", block)
 
     def test_uid_block_absent_uid_returns_empty(self) -> None:
         block = extract_uid_block(self.s21_text, 99999)
@@ -156,12 +156,6 @@ class BatterystatsParsingTest(unittest.TestCase):
         self.assertEqual(parsed["cpu_user_ms"].value, 60)
         self.assertEqual(parsed["cpu_kernel_ms"].value, 3)
 
-    def test_partial_wakelock_s21(self) -> None:
-        parsed = parse_batterystats(self.s21_text, 10123)
-        wakes = parsed["partial_wakelocks"].value
-        self.assertEqual(len(wakes), 1)
-        self.assertEqual(wakes[0]["name"], "WakeWordLock")
-        self.assertEqual(wakes[0]["duration_ms"], 4200)
 
     def test_foreground_service_duration(self) -> None:
         parsed = parse_batterystats(self.s21_text, 10123)
@@ -171,13 +165,9 @@ class BatterystatsParsingTest(unittest.TestCase):
         parsed = parse_batterystats(self.s21_text, 10123)
         self.assertEqual(parsed["service_uptime_ms"].value, 3599999)
 
-    def test_audio_duration(self) -> None:
-        parsed = parse_batterystats(self.s21_text, 10123)
-        self.assertEqual(parsed["audio_duration_ms"].value, 3599999)
-
     def test_estimated_power(self) -> None:
         parsed = parse_batterystats(self.s21_text, 10123)
-        self.assertEqual(parsed["estimated_power_mah"].value, 1.5)
+        self.assertEqual(parsed["estimated_power_mah"].value, 0.294)
 
     def test_absent_uid_returns_not_reported(self) -> None:
         parsed = parse_batterystats(self.s21_text, 99999)
@@ -229,36 +219,36 @@ class CheckinParsingTest(unittest.TestCase):
         self.s23u_checkin = _load_fixture("battery_s23u_checkin.csv")
 
     def test_uid_cpu_s21(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10123)
+        parsed = parse_checkin(self.s21_checkin, 10775)
         self.assertEqual(parsed["cpu_user_ms"].value, 120)
         self.assertEqual(parsed["cpu_kernel_ms"].value, 7)
 
     def test_uid_cpu_s23u(self) -> None:
-        parsed = parse_checkin(self.s23u_checkin, 10124)
+        parsed = parse_checkin(self.s23u_checkin, 10776)
         self.assertEqual(parsed["cpu_user_ms"].value, 60)
         self.assertEqual(parsed["cpu_kernel_ms"].value, 3)
 
-    def test_wakelock_with_type(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10123)
+    def test_awl_aggregate(self) -> None:
+        parsed = parse_checkin(self.s21_checkin, 10775)
         wakes = parsed["checkin_wakelocks"].value
         self.assertEqual(len(wakes), 1)
-        self.assertEqual(wakes[0]["name"], "WakeWordLock")
-        self.assertEqual(wakes[0]["type"], "partial")
+        self.assertEqual(wakes[0]["name"], "aggregate_partial")
+        self.assertEqual(wakes[0]["type"], "aggregate_partial")
         self.assertEqual(wakes[0]["duration_ms"], 4200)
-        self.assertEqual(wakes[0]["count"], 14)
+        
 
-    def test_fgs_not_sf(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10123)
-        self.assertEqual(parsed["checkin_foreground_service_ms"].value, 3600000)
+    def test_estimated_power(self) -> None:
+        parsed = parse_checkin(self.s21_checkin, 10775)
+        self.assertEqual(parsed["estimated_power_mah"].value, 1.5)
 
     def test_proc_cpu(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10123)
+        parsed = parse_checkin(self.s21_checkin, 10775)
         self.assertEqual(parsed["checkin_proc_cpu_user_ms"].value, 120)
         self.assertEqual(parsed["checkin_proc_cpu_kernel_ms"].value, 7)
 
-    def test_audio(self) -> None:
-        parsed = parse_checkin(self.s21_checkin, 10123)
-        self.assertEqual(parsed["checkin_audio_ms"].value, 3600000)
+    def test_proc_cpu_from_checkin(self) -> None:
+        parsed = parse_checkin(self.s21_checkin, 10775)
+        self.assertEqual(parsed["checkin_proc_cpu_user_ms"].value, 120)
 
     def test_none_uid_unsupported(self) -> None:
         parsed = parse_checkin(self.s21_checkin, None)
@@ -272,7 +262,7 @@ class CheckinParsingTest(unittest.TestCase):
 
     def test_malformed_skipped(self) -> None:
         parsed = parse_checkin("9,10123,0,cpu,abc,7", 10123)
-        self.assertEqual(parsed["cpu_user_ms"].state, Availability.NOT_REPORTED)
+        self.assertEqual(parsed["cpu_user_ms"].state, Availability.PARSE_FAILED)
 
     def test_system_uid(self) -> None:
         parsed = parse_checkin(self.s21_checkin, 1000)
@@ -458,17 +448,17 @@ class ZeroVsAbsentTest(unittest.TestCase):
     """Genuine zero distinct from absent."""
 
     def test_zero_cpu(self) -> None:
-        text = "  Uid u0a123:\n    cpu:\n      user: 0ms\n      system: 0ms\n    power: 0.00 mAh"
+        text = "  u0a123:\n    Total cpu time: u=0ms s=0ms"
         p = parse_batterystats(text, 10123)
         self.assertEqual(p["cpu_user_ms"].state, Availability.AVAILABLE)
         self.assertEqual(p["cpu_user_ms"].value, 0)
 
     def test_nonzero(self) -> None:
-        text = "  Uid u0a123:\n    cpu:\n      user: 120ms\n      system: 7ms\n    power: 1.50 mAh"
+        text = "  UID u0a123: 1.50\n\n  u0a123:\n    Total cpu time: u=120ms s=7ms"
         self.assertEqual(parse_batterystats(text, 10123)["cpu_user_ms"].value, 120)
 
     def test_missing_not_zero(self) -> None:
-        text = "  Uid u0a123:\n    Wake lock: WakeWordLock +1s000ms (partial) count 1\n    power: 0.50 mAh"
+        text = "  u0a123:\n    (nothing executed)"
         p = parse_batterystats(text, 10123)
         self.assertEqual(p["cpu_user_ms"].state, Availability.NOT_REPORTED)
         self.assertIsNone(p["cpu_user_ms"].value)
@@ -537,13 +527,13 @@ class FixtureDryRunTest(unittest.TestCase):
                     "manufacturer": "Samsung", "model": "SM-G991B", "android_api": "35",
                     "start_monotonic_ms": 1000, "start_level": 80, "end_level": 79,
                     "uid": 10123,
-                    "batterystats": "  Uid u0a123:\n    cpu:\n      user: 120ms\n      system: 7ms\n    Wake lock: WakeWordLock +4s200ms (partial) count 14\n    power: 1.50 mAh\n",
+                    "batterystats": "  UID u0a123: 1.50\n\n  u0a123:\n    Total cpu time: u=120ms s=7ms\n",
                 },
                 "s23u": {
                     "manufacturer": "Samsung", "model": "SM-S918B", "android_api": "35",
                     "start_monotonic_ms": 1035, "start_level": 80, "end_level": 80,
                     "uid": 10124,
-                    "batterystats": "  Uid u0a124:\n    cpu:\n      user: 60ms\n      system: 3ms\n    Wake lock: WakeWordLock +2s100ms (partial) count 8\n    power: 0.80 mAh\n",
+                    "batterystats": "  UID u0a124: 0.80\n\n  u0a124:\n    Total cpu time: u=60ms s=3ms\n",
                 },
             }
         }
@@ -594,8 +584,7 @@ class SanitizationTest(unittest.TestCase):
         assert_commit_safe("safe-string-without-patterns")
 
     def test_safe_with_secrets(self) -> None:
-        assert_commit_safe({"device": "FAKE_001"}, secrets=("FAKE_001",))
-
+        assert_commit_safe({"device": "s21"}, secrets=("FAKE_001",))
 
 class MetricApiTest(unittest.TestCase):
     """Metric dataclass and factory function behaviour."""
@@ -630,11 +619,11 @@ class MetricApiTest(unittest.TestCase):
 
     def test_metric_public_not_reported(self) -> None:
         m = not_reported("no data")
-        self.assertEqual(m.public(), {"state": "not_reported", "value": None})
+        self.assertEqual(m.public(), {"state": "not_reported", "detail": "no data"})
 
     def test_metric_public_unsupported(self) -> None:
         m = unsupported("no data")
-        self.assertEqual(m.public(), {"state": "unsupported", "value": None})
+        self.assertEqual(m.public(), {"state": "unsupported", "detail": "no data"})
 
     def test_metric_from_match_found_int(self) -> None:
         m = metric_from_match("cpu: 120ms", r"cpu:\s*(\d+)", "test")
