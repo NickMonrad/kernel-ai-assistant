@@ -1244,7 +1244,7 @@ class PairedHarness:
                 except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
                     raise HarnessError(f"{alias}: bugreport failed — {exc}. Run invalidated.") from exc
 
-        except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+        except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt, EOFError) as exc:
             if isinstance(exc, KeyboardInterrupt):
                 self.abort_reason = "operator keyboard interrupt"
             else:
