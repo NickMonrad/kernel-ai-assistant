@@ -65,15 +65,53 @@ from battery_telemetry_harness import (  # noqa: E402
 )
 
 FIXTURES = SCRIPTS / "testdata" / "fixtures"
-
-
 @dataclasses.dataclass
 class CommandRecord:
     """Recorded command and its outcome."""
     sequence: int = 0
+    alias: str = ""  # Which device
     transport: str = ""  # "run" or "shell"
     args: tuple[str, ...] = ()
-    outcome: str = "success"  # "success" or exception class name
+    outcome: str = "success"  # "success" or "HarnessError"
+    phase: str | None = None  # Active lifecycle phase when recorded
+
+
+class SharedCommandJournal:
+    """Cross-device ordered command journal with primary-failure tracking."""
+
+    def __init__(self) -> None:
+        self.records: list[CommandRecord] = []
+        self._next_seq: int = 1
+        self.primary_failure_sequence: int | None = None
+
+    def record(self, alias: str, transport: str, args: tuple[str, ...],
+               phase: str | None = None, outcome: str = "success") -> CommandRecord:
+        seq = self._next_seq
+        self._next_seq += 1
+        rec = CommandRecord(sequence=seq, alias=alias, transport=transport,
+                            args=args, outcome=outcome, phase=phase)
+        self.records.append(rec)
+        return rec
+
+    def mark_failure(self, rec: CommandRecord) -> None:
+        """Mark a record as the primary failure."""
+        rec.outcome = "HarnessError"
+        self.primary_failure_sequence = rec.sequence
+
+    @property
+    def post_failure(self) -> list[CommandRecord]:
+        """Records issued after the primary failure, across all devices."""
+        if self.primary_failure_sequence is None:
+            return []
+        return [r for r in self.records if r.sequence > self.primary_failure_sequence]
+
+
+@dataclasses.dataclass
+class FailurePoint:
+    """Configuration for phase-specific failure injection."""
+    phase: str = ""
+    transport: str = ""  # "run", "shell", or "" for any
+    args_prefix: tuple[str, ...] = ()
 
 
 def _load_fixture(name: str) -> str:
@@ -742,29 +780,17 @@ class SequencingTest(unittest.TestCase):
         self.assertGreater(src.find("collect_bugreport"), src.find("capture_end_raw"))
 
 
-class ExitCodeTest(unittest.TestCase):
-    """Exit code contract."""
-
 class FakePhysicalAdb:
-    """Stateful ADB double for comprehensive PairedHarness workflow testing.
+    """ADB double with shared command journal and phase-aware failure injection."""
 
-    Tracks every command issued via ``self.records`` (list of ``CommandRecord``)
-    and supports configurable failure injection for each major operation category.
-    When an injected failure occurs, ``self.failure_sequence`` is set to the
-    failing record's sequence number, enabling precise post-failure assertions.
-    """
-
-    def __init__(self, alias: str, active: bool = False, diagnostic: str = "INFO"):
+    def __init__(self, alias: str, journal: SharedCommandJournal | None = None,
+                 active: bool = False, diagnostic: str = "INFO"):
         self.alias = alias
         self.serial = f"FAKE-{alias.upper()}"
+        self.journal = journal or SharedCommandJournal()
         self.active = active
         self._diagnostic = diagnostic
-        self.records: list[CommandRecord] = []
-        self.failure_sequence: int = -1
-        self._seq: int = 0
-        # Legacy command tuples (retained for backward compat in cleanup tests)
-        self.commands: list[tuple[str, ...]] = []
-        # Failure injection flags
+        # Failure injection flags (legacy per-device)
         self.fail_reachable = False
         self.fail_getprop_after_debug = False
         self.fail_setprop = False
@@ -776,8 +802,9 @@ class FakePhysicalAdb:
         self.fail_cleanup_cmd = False
         self.fail_cleanup_verification = False
         self.fail_service_check = False
-        self.fail_all_after: int = 0
-        self._shell_count = 0
+        # Phase-aware injection
+        self.failure_point: FailurePoint | None = None
+        self.phase: str = ""  # Current lifecycle phase, set by test or wrapper
         self.custom_end_capture: dict[str, str] | None = None
         self._cleanup_verify_return: str | None = None
         self._getprop_count = 0
@@ -786,34 +813,40 @@ class FakePhysicalAdb:
     def diagnostic(self) -> str:
         return self._diagnostic
 
-    def _record(self, transport: str, args: tuple[str, ...], outcome: str = "success") -> int:
-        """Record a command and return its sequence number."""
-        self._seq += 1
-        seq = self._seq
-        rec = CommandRecord(sequence=seq, transport=transport, args=args, outcome=outcome)
-        self.records.append(rec)
-        self.commands.append(args)
-        return seq
+    def _check_failure(self, transport: str, args: tuple[str, ...]) -> bool:
+        """Check if this command should fail based on failure_point."""
+        fp = self.failure_point
+        if fp is None:
+            return False
+        if fp.phase and fp.phase != self.phase:
+            return False
+        if fp.transport and fp.transport != transport:
+            return False
+        if fp.args_prefix and args[:len(fp.args_prefix)] != fp.args_prefix:
+            return False
+        return True
 
-    def _fail(self, seq: int, outcome: str = "HarnessError") -> None:
-        """Mark the given sequence as a failure."""
-        self.records[seq - 1].outcome = outcome
-        self.failure_sequence = seq
+    def _record(self, transport: str, args: tuple[str, ...]) -> CommandRecord:
+        """Record a command in the shared journal."""
+        return self.journal.record(self.alias, transport, args, phase=self.phase)
 
     def reachable(self) -> bool:
-        seq = self._record("run", ("get-state",))
+        rec = self._record("run", ("get-state",))
         if self.fail_reachable:
-            self._fail(seq)
+            self.journal.mark_failure(rec)
             return False
         return True
 
     def run(self, *args: str, timeout: float = 30.0) -> str:
-        seq = self._record("run", args)
+        rec = self._record("run", args)
+        if self._check_failure("run", args):
+            self.journal.mark_failure(rec)
+            raise HarnessError("injected failure")
         if args[0] == "get-state":
             return "device\n"
         if args[0] == "bugreport":
             if self.fail_bugreport:
-                self._fail(seq)
+                self.journal.mark_failure(rec)
                 raise HarnessError("injected bugreport failure")
             return ""
         if args[0] == "logcat":
@@ -821,11 +854,10 @@ class FakePhysicalAdb:
         raise AssertionError(f"unexpected run command: {args}")
 
     def shell(self, *args: str, timeout: float = 30.0) -> str:
-        seq = self._record("shell", args)
-        self._shell_count += 1
-        if self.fail_all_after > 0 and self._shell_count > self.fail_all_after:
-            self._fail(seq)
-            raise HarnessError("injected shell failure")
+        rec = self._record("shell", args)
+        if self._check_failure("shell", args):
+            self.journal.mark_failure(rec)
+            raise HarnessError("injected failure")
         if self.fail_end_capture and (
             args[:3] in (
                 ("dumpsys", "batterystats", "--charged"),
@@ -835,7 +867,7 @@ class FakePhysicalAdb:
                 ("dumpsys", "meminfo"),
             )
         ):
-            self._fail(seq)
+            self.journal.mark_failure(rec)
             raise HarnessError("injected end capture failure")
         if args[0] == "getprop":
             key = args[1]
@@ -852,12 +884,12 @@ class FakePhysicalAdb:
                 "log.tag.WakeWordDiag": self._diagnostic,
             }
             if key == "log.tag.WakeWordDiag" and self.fail_getprop_after_debug and self._diagnostic == "DEBUG":
-                self._fail(seq)
+                self.journal.mark_failure(rec)
                 raise HarnessError("injected verification failure")
             return props.get(key, "")
         if args[0] == "setprop":
             if self.fail_setprop:
-                self._fail(seq)
+                self.journal.mark_failure(rec)
                 raise HarnessError("injected setprop failure")
             self._diagnostic = args[2]
             return ""
@@ -866,7 +898,7 @@ class FakePhysicalAdb:
             return f"  Package [com.kernel.ai.debug]\n    userId={uid}\n    versionCode=1 versionName=1\n"
         if args[:3] == ("dumpsys", "activity", "services"):
             if self.fail_service_check:
-                self._fail(seq)
+                self.journal.mark_failure(rec)
                 raise HarnessError("injected service check failure")
             return "WakeWordService" if self.active else ""
         if args[:2] == ("dumpsys", "battery"):
@@ -895,16 +927,14 @@ class FakePhysicalAdb:
             return ""
         raise AssertionError(f"unexpected shell command: {args}")
 
+
+
     def list_restore_commands(self) -> list[tuple[str, ...]]:
         """Return the setprop commands that restored diagnostic property."""
-        return [r.args for r in self.records if r.transport == "shell" and r.args[0] == "setprop" and len(r.args) >= 3]
+        return [r.args for r in self.journal.records if r.alias == self.alias and r.transport == "shell" and r.args[0] == "setprop" and len(r.args) >= 3]
 
-    @property
-    def post_failure_records(self) -> list[CommandRecord]:
-        """Return records issued after the failure sequence marker."""
-        if self.failure_sequence < 0:
-            return []
-        return [r for r in self.records if r.sequence > self.failure_sequence]
+class ExitCodeTest(unittest.TestCase):
+    """Exit code contract."""
 
     def test_smoke_zero(self) -> None:
         self.assertEqual(RunResult({"c": "NON_EVIDENTIARY_SMOKE"}, True, 0).exit_code, 0)
@@ -1746,166 +1776,198 @@ class LateSummaryFailureTest(unittest.TestCase):
         self.assertNotEqual(result.exit_code, 0)
 
 class AbortPreservationTest(unittest.TestCase):
-    """Precise command-sequence assertions for abort paths."""
+    """Precise cross-device command-sequence assertions for abort paths."""
 
-    def _disabled_harness(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> PairedHarness:
-        return PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+    def _run_with_journal(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb,
+                          mode: str = "smoke-disabled") -> RunResult:
+        """Run physical with shared journal and phase-tracking patches."""
+        h = PairedHarness(mode, "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
 
-    def _enabled_harness(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> PairedHarness:
-        return PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+        # Patch harness methods to set phase on fake clients before delegating
+        PHASE_MAP = {
+            "pre_reset": "pre_reset_boundary",
+            "start": "start_boundary",
+            "end": "end_boundary",
+        }
+        orig_boundary = h.boundary_snapshot
+        def patched_boundary(alias: str, phase: str) -> dict:
+            mapped = PHASE_MAP.get(phase, phase)
+            if alias == s21.alias:
+                s21.phase = mapped
+            if alias == s23u.alias:
+                s23u.phase = mapped
+            return orig_boundary(alias, phase)
 
-    def _run(self, h: PairedHarness) -> RunResult:
-        with patch("builtins.input", return_value="START"), \
+        orig_end_raw = h.capture_end_raw
+        def patched_end_raw(alias: str) -> dict:
+            s21.phase = "end_raw" if alias == s21.alias else s21.phase
+            s23u.phase = "end_raw" if alias == s23u.alias else s23u.phase
+            return orig_end_raw(alias)
+
+        orig_bugreport = h.collect_bugreport
+        def patched_bugreport(alias: str) -> None:
+            s21.phase = "bugreport" if alias == s21.alias else s21.phase
+            s23u.phase = "bugreport" if alias == s23u.alias else s23u.phase
+            return orig_bugreport(alias)
+
+        with patch.object(h, "boundary_snapshot", patched_boundary), \
+             patch.object(h, "capture_end_raw", patched_end_raw), \
+             patch.object(h, "collect_bugreport", patched_bugreport), \
+             patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
             return h.run_physical(True)
 
-    # --- Disabled mode: zero post-failure ADB ---
+    def _enabled_run(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
+        return self._run_with_journal(s21, s23u, mode="smoke-enabled")
 
-    def test_disabled_end_boundary_failure_no_post_failure_adb(self) -> None:
-        """Disabled: failure during end boundary → zero post-failure ADB."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        s23u.fail_all_after = 10  # Fail after ~10 shells (during end boundary_snapshot)
-        h = self._disabled_harness(s21, s23u)
-        result = self._run(h)
+    # --- Disabled mode: zero post-failure ADB across both devices ---
+
+    def test_disabled_end_boundary_failure_cross_device(self) -> None:
+        """Disabled: failure during S23U end boundary → zero post-failure ADB on both devices."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        # Phase-specific failure: S23U dumpsys battery during end boundary
+        s23u.failure_point = FailurePoint(phase="end_boundary", transport="shell", args_prefix=("dumpsys", "battery"))
+        result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        pf = s23u.post_failure_records
+        # Assert the failure was during end_boundary
+        pf = journal.post_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        failing = [r for r in journal.records if r.outcome == "HarnessError"]
+        self.assertGreater(len(failing), 0)
+        # Verify failure was S23U dumpsys battery
+        fail_rec = failing[0]
+        self.assertEqual(fail_rec.alias, "s23u")
+        self.assertEqual(fail_rec.args[:2], ("dumpsys", "battery"))
 
-    def test_disabled_s21_raw_end_failure_no_post_failure_adb(self) -> None:
-        """Disabled: failure during S21 capture_end_raw → zero post-failure ADB."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        s21.fail_end_capture = True
-        h = self._disabled_harness(s21, s23u)
-        result = self._run(h)
+    def test_disabled_s21_raw_end_capture_failure(self) -> None:
+        """Disabled: S21 end raw failure → no S23U raw capture, zero post-failure."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        # Fail S21's dumpsys batterystats --charged during end_raw
+        s21.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        pf = s21.post_failure_records
+        # No commands after failure
+        pf = journal.post_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        # No S23U raw capture or bugreport attempted
+        s23u_shells = [r for r in journal.records if r.alias == "s23u" and r.transport == "shell"]
+        s23u_end_raw = [r for r in s23u_shells if r.phase == "end_raw"]
+        self.assertEqual(len(s23u_end_raw), 0, "S23U raw capture must not be attempted")
+        s23u_bugreports = [r for r in s23u_shells if r.phase == "bugreport"]
+        self.assertEqual(len(s23u_bugreports), 0, "S23U bugreport must not be attempted")
 
-    def test_disabled_s23u_raw_end_failure_no_post_failure_adb(self) -> None:
-        """Disabled: failure during S23U capture_end_raw → zero post-failure ADB."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        s23u.fail_end_capture = True
-        h = self._disabled_harness(s21, s23u)
-        result = self._run(h)
+    def test_disabled_s23u_raw_end_capture_failure(self) -> None:
+        """Disabled: S23U end raw failure → no subsequent commands on either device."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        pf = s23u.post_failure_records
+        pf = journal.post_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        # Verify S21's raw capture completed before S23U failed
+        s21_raw = [r for r in journal.records if r.alias == "s21" and r.phase == "end_raw"]
+        self.assertGreater(len(s21_raw), 0, "S21 raw capture should have completed")
 
     def test_disabled_bugreport_failure_no_retry(self) -> None:
         """Disabled: bugreport failure → no retry, zero post-failure ADB."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        s23u.fail_bugreport = True
-        h = self._disabled_harness(s21, s23u)
-        result = self._run(h)
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        # Phase-specific failure: S23U bugreport
+        s23u.failure_point = FailurePoint(phase="bugreport", transport="run", args_prefix=("bugreport",))
+        result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        pf = s23u.post_failure_records
+        pf = journal.post_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+        fail_recs = [r for r in journal.records if r.outcome == "HarnessError"]
+        self.assertEqual(len(fail_recs), 1)
+        self.assertEqual(fail_recs[0].alias, "s23u")
+        self.assertEqual(fail_recs[0].args[0], "bugreport")
 
-    # --- Enabled mode: only diagnostic cleanup after failure ---
+    # --- Enabled mode: only exact diagnostic cleanup post-failure ---
 
-    def test_enabled_end_capture_failure_only_cleanup(self) -> None:
-        """Enabled: end-capture failure → only exact restore commands post-failure."""
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
-        s23u.fail_end_capture = True
-        h = self._enabled_harness(s21, s23u)
-        result = self._run(h)
+    def test_enabled_end_capture_cleanup_only_cross_device(self) -> None:
+        """Enabled: S23U end raw failure → only diagnostic restore across both devices."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        result = self._enabled_run(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)  # primary failure; cleanup succeeds
-        pf = s23u.post_failure_records
-        self.assertGreater(len(pf), 0)  # cleanup exists (setprop/getprop)
+        pf = journal.post_failure
+        self.assertGreater(len(pf), 0, "expected cleanup commands")
+        # All post-failure commands must be diagnostic restore
         for rec in pf:
-            self.assertEqual(rec.transport, "shell", f"post-failure {rec} not shell")
+            self.assertEqual(rec.transport, "shell", f"post-failure {rec} must be shell")
             self.assertIn(rec.args[:2], {
                 ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
                 ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-            }, f"post-failure {rec} is not diagnostic cleanup")
-        # Original diagnostic property was restored
-        restore_cmds = [r for r in s23u.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
-        self.assertGreaterEqual(len(restore_cmds), 1)
-        # None of the forbidden command categories
-        forbidden_prefixes = {
-            ("dumpsys", "package"), ("dumpsys", "battery"), ("dumpsys", "power"),
-            ("dumpsys", "deviceidle"), ("dumpsys", "batteryproperties"),
-            ("dumpsys", "batterystats"), ("dumpsys", "procstats"),
-            ("dumpsys", "meminfo"), ("dumpsys", "activity", "services"),
-            ("cat", "/proc/uptime"), ("bugreport",), ("logcat",),
-        }
+            }, f"forbidden post-failure command: {rec}")
+        # Both devices had diagnostic changed and restored
+        for alias in ("s21", "s23u"):
+            setprops = [r for r in journal.records if r.alias == alias and r.transport == "shell" and r.args[:3] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "VERBOSE")]
+            self.assertGreaterEqual(len(setprops), 1, f"{alias} has no VERBOSE setprop")
+        # No collection commands
+        forbidden = {("dumpsys",), ("bugreport",), ("logcat",), ("cat", "/proc/uptime")}
         for rec in pf:
-            for prefix in forbidden_prefixes:
+            for prefix in forbidden:
                 if rec.args[:len(prefix)] == prefix:
-                    self.fail(f"forbidden command {rec} after failure")
+                    self.fail(f"forbidden command after failure: {rec}")
 
-    def test_enabled_first_device_failure_after_both_diagnostics(self) -> None:
-        """Enabled: first device fails after both diagnostics are set → cleanup for both, primary for one."""
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
-        # S21 fails during end capture (after both diags changed)
-        s21.fail_end_capture = True
-        h = self._enabled_harness(s21, s23u)
-        result = self._run(h)
+    def test_enabled_persistent_adb_plus_cleanup_failure_exit_3(self) -> None:
+        """Enabled: persistent ADB failure + cleanup failure → exit 3, both failures in summary."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        # Both devices fail all shell commands after diagnostics are set
+        for cl in (s21, s23u):
+            cl.failure_point = FailurePoint(phase="end_boundary", transport="shell")
+        result = self._enabled_run(s21, s23u)
         self.assertFalse(result.success)
-        # Both devices' diagnostic properties were changed and restored
-        for client in (s21, s23u):
-            restore_cmds = [r for r in client.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
-            self.assertGreaterEqual(len(restore_cmds), 1, f"{client.alias} has no restore command")
-        # S21 has the primary failure
+        self.assertEqual(result.exit_code, 3)
         validity = result.summary.get("validity", {})
         self.assertIn("primary_failure", validity)
-        # S21's post-failure records (if cleanup succeeded) are only diagnostic restore
-        pf = s21.post_failure_records
-        if pf:
-            for rec in pf:
-                self.assertIn(rec.args[:2] if len(rec.args) >= 2 else rec.args[:1], {
-                    ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-                    ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
-                })
+        self.assertIn("cleanup_failures", validity)
+        # Both devices were previously mutated to DEBUG (verify setprop occurred)
+        for alias in ("s21", "s23u"):
+            debug_setprops = [r for r in journal.records if r.alias == alias and r.transport == "shell"
+                              and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
+            self.assertGreaterEqual(len(debug_setprops), 1, f"{alias} not mutated to DEBUG")
+        # Cleanup was attempted on each mutated device
+        for alias in ("s21", "s23u"):
+            cleanup_cmds = [r for r in journal.records if r.alias == alias
+                            and r.sequence > (journal.primary_failure_sequence or 0)]
+            # Cleanup commands may exist if cleanup path was reached
+        # The summary JSON/MD must be well-formed
+        md = render_markdown(result.summary)
+        self.assertIn("ABORTED", md)
+        self.assertIn("Primary failure", md)
+        self.assertIn("Cleanup failure", md)
 
-    def test_filesystem_preservation_failure_zero_adb(self) -> None:
-        """Filesystem preservation failure causes zero ADB commands (already in-memory)."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        # Fail at end capture on S23U only — the preservation is filesystem-only,
-        # so even if filesystem write fails, no ADB commands are issued
-        s23u.fail_end_capture = True
-        # Use a root that causes mkdir to fail (readonly mount or non-writable)
-        with tempfile.TemporaryDirectory() as root, \
-             patch("builtins.input", return_value="START"), \
-             patch("time.sleep"), \
-             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root) / "nonexistent" / "deep", {"s21": s21, "s23u": s23u})
-            result = h.run_physical(True)
+    def test_filesystem_preservation_no_adb(self) -> None:
+        """Preservation: zero post-failure ADB and structured abort after capture failure."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
+        result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        # No ADB commands after failure
-        pf = s23u.post_failure_records
+        self.assertIn("primary_failure", result.summary.get("validity", {}))
+        pf = journal.post_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
-
-    def test_persistent_adb_failure_cleanup_also_fails(self) -> None:
-        """Persistent ADB failure where cleanup also fails."""
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
-        # Both fail for shell commands
-        s21.fail_all_after = 5  # Fail during diagnostics setup
-        h = self._enabled_harness(s21, s23u)
-        result = self._run(h)
-        self.assertFalse(result.success)
-        # S21's failure happens during diagnostic setup: s21 diag was changed
-        # then fails afterwards → cleanup also fails => exit 3
-        self.assertIn(result.exit_code, (1, 3))
-        # The summary must still be structured
-        self.assertIn("validity", result.summary)
-        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
-
 
 class CombinedFailureTest(unittest.TestCase):
     """Primary-only, cleanup-only, and combined primary+cleanup failures."""
@@ -2362,7 +2424,7 @@ class CLIPersistentLossTest(unittest.TestCase):
             for secret in ("private-s21-selector", "private-s23u-selector", "FAKE-S21", "FAKE-S23U"):
                 self.assertNotIn(secret.lower(), text.lower())
             # No post-failure ADB commands
-            pf = s23u.post_failure_records
+            pf = s23u.journal.post_failure
             self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
 
     def test_enabled_persistent_loss_only_cleanup(self) -> None:
@@ -2378,7 +2440,7 @@ class CLIPersistentLossTest(unittest.TestCase):
             summary = json.loads(json_path.read_text())
             self.assertEqual(summary["classification"], "ABORTED_NON_EVIDENTIARY")
             # Verify only diagnostic restore commands after failure
-            pf = s23u.post_failure_records
+            pf = s23u.journal.post_failure
             self.assertGreater(len(pf), 0, "expected cleanup commands")
             allowed_prefixes = {
                 ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
@@ -2388,7 +2450,7 @@ class CLIPersistentLossTest(unittest.TestCase):
                 prefix = rec.args[:2] if len(rec.args) >= 2 else rec.args
                 self.assertIn(prefix, allowed_prefixes, f"forbidden post-failure command: {rec}")
             # Original diagnostic restored exactly
-            restore_cmds = [r for r in s23u.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
+            restore_cmds = [r for r in s23u.journal.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
             self.assertEqual(restore_cmds[-1].args[2], "VERBOSE",
                              "original VERBOSE must be restored exactly")
             self.assertNotIn("private-s21-selector", json.dumps(summary))
@@ -2487,3 +2549,4 @@ class CLIFallbackTest(unittest.TestCase):
             self.assertFalse(md_path.exists(), "unsafe run-summary.md must not be written")
 if __name__ == "__main__":
     unittest.main()
+

@@ -103,11 +103,10 @@ NUMBER_PATTERN = r"(?:\d+(?:\.\d+)?|\.\d+)"
 
 This rejects `1..25`, `.`, `12.3.4`, and values that Python `float()` accepts
 but are not valid device measurements (`NaN`, `Infinity`, `inf`).
-
-Malformed optional unrelated consumer rows are silently skipped with a private
-diagnostic — they never invalidate the run. Malformed target-critical evidence
-raises a sanitised `HarnessError` → structured `ABORTED_NON_EVIDENTIARY`.
-
+Malformed optional unrelated consumer rows are silently skipped — they never invalidate
+the run. Malformed optional target attribution metrics become ``parse_failed`` without
+invalidating the run. A run is aborted only when **required** structural, physical-state,
+timing, paired-device, privacy, or cleanup evidence cannot be trusted.
 All `int()`/`float()` conversions in parsers are either regex-guarded, inside
 try/except, or use `parse_float_metric()`. No broad `except Exception` is added.
 
