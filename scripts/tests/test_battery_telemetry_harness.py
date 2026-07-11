@@ -77,10 +77,11 @@ class CommandRecord:
 
 
 class SharedCommandJournal:
-    """Cross-device ordered command journal with primary-failure tracking."""
+    """Cross-device ordered command journal with immutable primary-failure tracking."""
 
     def __init__(self) -> None:
         self.records: list[CommandRecord] = []
+        self.failure_records: list[CommandRecord] = []
         self._next_seq: int = 1
         self.primary_failure_sequence: int | None = None
 
@@ -94,16 +95,37 @@ class SharedCommandJournal:
         return rec
 
     def mark_failure(self, rec: CommandRecord) -> None:
-        """Mark a record as the primary failure."""
+        """Mark a record as a failure; first failure sets primary_failure_sequence."""
         rec.outcome = "HarnessError"
-        self.primary_failure_sequence = rec.sequence
+        self.failure_records.append(rec)
+        if self.primary_failure_sequence is None:
+            self.primary_failure_sequence = rec.sequence
 
     @property
-    def post_failure(self) -> list[CommandRecord]:
+    def primary_failure_record(self) -> CommandRecord | None:
+        """The first failed record, or None if no failures."""
+        if not self.failure_records or self.primary_failure_sequence is None:
+            return None
+        return self.failure_records[0]
+
+    @property
+    def post_primary_failure(self) -> list[CommandRecord]:
         """Records issued after the primary failure, across all devices."""
         if self.primary_failure_sequence is None:
             return []
         return [r for r in self.records if r.sequence > self.primary_failure_sequence]
+
+    @property
+    def subsequent_failures(self) -> list[CommandRecord]:
+        """Failures recorded after the primary failure (i.e., cleanup failures)."""
+        if self.primary_failure_sequence is None:
+            return []
+        return [r for r in self.failure_records if r.sequence > self.primary_failure_sequence]
+
+    @property
+    def post_failure(self) -> list[CommandRecord]:
+        """Alias for post_primary_failure."""
+        return self.post_primary_failure
 
 
 @dataclasses.dataclass
@@ -808,13 +830,18 @@ class FakePhysicalAdb:
         self.custom_end_capture: dict[str, str] | None = None
         self._cleanup_verify_return: str | None = None
         self._getprop_count = 0
+        # Sticky persistent failure mode — once triggered, all commands fail
+        self.persistent_after_first_failure: bool = False
+        self.sticky_failure_active: bool = False
 
     @property
     def diagnostic(self) -> str:
         return self._diagnostic
 
     def _check_failure(self, transport: str, args: tuple[str, ...]) -> bool:
-        """Check if this command should fail based on failure_point."""
+        """Check if this command should fail based on failure_point or sticky failure."""
+        if self.sticky_failure_active:
+            return True
         fp = self.failure_point
         if fp is None:
             return False
@@ -832,6 +859,11 @@ class FakePhysicalAdb:
 
     def reachable(self) -> bool:
         rec = self._record("run", ("get-state",))
+        if self._check_failure("run", ("get-state",)):
+            self.journal.mark_failure(rec)
+            if self.persistent_after_first_failure:
+                self.sticky_failure_active = True
+            raise HarnessError("injected failure")
         if self.fail_reachable:
             self.journal.mark_failure(rec)
             return False
@@ -841,6 +873,8 @@ class FakePhysicalAdb:
         rec = self._record("run", args)
         if self._check_failure("run", args):
             self.journal.mark_failure(rec)
+            if self.persistent_after_first_failure:
+                self.sticky_failure_active = True
             raise HarnessError("injected failure")
         if args[0] == "get-state":
             return "device\n"
@@ -852,11 +886,12 @@ class FakePhysicalAdb:
         if args[0] == "logcat":
             return "WakeWordDetector: diagnostics elapsedMs=1"
         raise AssertionError(f"unexpected run command: {args}")
-
     def shell(self, *args: str, timeout: float = 30.0) -> str:
         rec = self._record("shell", args)
         if self._check_failure("shell", args):
             self.journal.mark_failure(rec)
+            if self.persistent_after_first_failure:
+                self.sticky_failure_active = True
             raise HarnessError("injected failure")
         if self.fail_end_capture and (
             args[:3] in (
@@ -951,6 +986,90 @@ class ExitCodeTest(unittest.TestCase):
     def test_error_return_two(self) -> None:
         self.assertEqual(RunResult({"c": "ERROR"}, False, 2).exit_code, 2)
 
+
+class SharedCommandJournalTest(unittest.TestCase):
+    """Immutable primary-failure tracking in SharedCommandJournal."""
+
+    def _journal_with_records(self, count: int = 3) -> SharedCommandJournal:
+        j = SharedCommandJournal()
+        for i in range(count):
+            j.record("s21", "shell", ("getprop", str(i)))
+        return j
+
+    def test_first_failure_sets_primary_sequence(self) -> None:
+        j = self._journal_with_records(3)
+        rec = j.records[1]
+        j.mark_failure(rec)
+        self.assertEqual(j.primary_failure_sequence, rec.sequence)
+        self.assertEqual(len(j.failure_records), 1)
+        self.assertIs(j.failure_records[0], rec)
+
+    def test_second_failure_does_not_replace_primary(self) -> None:
+        j = self._journal_with_records(5)
+        first = j.records[1]
+        second = j.records[3]
+        j.mark_failure(first)
+        primary_seq = j.primary_failure_sequence
+        j.mark_failure(second)
+        self.assertEqual(j.primary_failure_sequence, primary_seq,
+                         "primary_failure_sequence must not be overwritten")
+        self.assertEqual(len(j.failure_records), 2)
+        self.assertIs(j.failure_records[0], first)
+        self.assertIs(j.failure_records[1], second)
+
+    def test_third_failure_also_does_not_replace_primary(self) -> None:
+        j = self._journal_with_records(7)
+        first = j.records[1]
+        second = j.records[3]
+        third = j.records[5]
+        j.mark_failure(first)
+        j.mark_failure(second)
+        j.mark_failure(third)
+        self.assertEqual(j.primary_failure_sequence, first.sequence)
+        self.assertEqual(len(j.failure_records), 3)
+
+    def test_post_primary_failure_contains_all_later_records(self) -> None:
+        j = self._journal_with_records(7)
+        fail_rec = j.records[2]
+        later = [j.records[3], j.records[4], j.records[5], j.records[6]]
+        j.mark_failure(fail_rec)
+        pf = j.post_primary_failure
+        self.assertEqual(len(pf), 4)
+        for rec in later:
+            self.assertIn(rec, pf)
+        self.assertNotIn(fail_rec, pf)
+
+    def test_primary_record_is_original_end_boundary_failure(self) -> None:
+        j = SharedCommandJournal()
+        r1 = j.record("s21", "shell", ("dumpsys", "battery"))
+        r2 = j.record("s23u", "shell", ("dumpsys", "batterystats", "--charged"))
+        r3 = j.record("s21", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"))
+        r4 = j.record("s23u", "shell", ("setprop", "log.tag.WakeWordDiag", "VERBOSE"))
+        j.mark_failure(r2)  # primary: end_raw failure
+        j.mark_failure(r3)  # cleanup failure on s21
+        j.mark_failure(r4)  # cleanup failure on s23u
+        self.assertEqual(j.primary_failure_sequence, r2.sequence)
+        self.assertIs(j.primary_failure_record, r2)
+        self.assertEqual(j.subsequent_failures, [r3, r4])
+
+    def test_failure_records_preserve_global_order(self) -> None:
+        j = SharedCommandJournal()
+        r1 = j.record("s21", "shell", ("ok",))
+        r2 = j.record("s23u", "shell", ("fail1",))
+        r3 = j.record("s21", "shell", ("ok2",))
+        r4 = j.record("s23u", "shell", ("fail2",))
+        j.mark_failure(r2)
+        j.mark_failure(r4)
+        self.assertEqual(j.failure_records, [r2, r4])
+
+    def test_no_failure_empty_properties(self) -> None:
+        j = SharedCommandJournal()
+        self.assertIsNone(j.primary_failure_sequence)
+        self.assertIsNone(j.primary_failure_record)
+        self.assertEqual(j.failure_records, [])
+        self.assertEqual(j.post_primary_failure, [])
+        self.assertEqual(j.subsequent_failures, [])
+        self.assertEqual(j.post_failure, [])
 
 
 
@@ -1926,48 +2045,43 @@ class AbortPreservationTest(unittest.TestCase):
                 if rec.args[:len(prefix)] == prefix:
                     self.fail(f"forbidden command after failure: {rec}")
 
-    def test_enabled_persistent_adb_plus_cleanup_failure_exit_3(self) -> None:
-        """Enabled: persistent ADB failure + cleanup failure → exit 3, both failures in summary."""
-        journal = SharedCommandJournal()
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
-        # Both devices fail all shell commands after diagnostics are set
-        for cl in (s21, s23u):
-            cl.failure_point = FailurePoint(phase="end_boundary", transport="shell")
-        result = self._enabled_run(s21, s23u)
-        self.assertFalse(result.success)
-        self.assertEqual(result.exit_code, 3)
-        validity = result.summary.get("validity", {})
-        self.assertIn("primary_failure", validity)
-        self.assertIn("cleanup_failures", validity)
-        # Both devices were previously mutated to DEBUG (verify setprop occurred)
-        for alias in ("s21", "s23u"):
-            debug_setprops = [r for r in journal.records if r.alias == alias and r.transport == "shell"
-                              and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
-            self.assertGreaterEqual(len(debug_setprops), 1, f"{alias} not mutated to DEBUG")
-        # Cleanup was attempted on each mutated device
-        for alias in ("s21", "s23u"):
-            cleanup_cmds = [r for r in journal.records if r.alias == alias
-                            and r.sequence > (journal.primary_failure_sequence or 0)]
-            # Cleanup commands may exist if cleanup path was reached
-        # The summary JSON/MD must be well-formed
-        md = render_markdown(result.summary)
-        self.assertIn("ABORTED", md)
-        self.assertIn("Primary failure", md)
-        self.assertIn("Cleanup failure", md)
-
     def test_filesystem_preservation_no_adb(self) -> None:
-        """Preservation: zero post-failure ADB and structured abort after capture failure."""
+        """Preservation: real write_private_evidence failure → generic warning, zero post-failure ADB."""
         journal = SharedCommandJournal()
         s21 = FakePhysicalAdb("s21", journal=journal)
         s23u = FakePhysicalAdb("s23u", journal=journal)
         s23u.failure_point = FailurePoint(phase="end_raw", transport="shell", args_prefix=("dumpsys", "batterystats", "--charged"))
-        result = self._run_with_journal(s21, s23u)
+        # Track whether write_private_evidence was called and raised
+        write_called = False
+        original_write = PairedHarness.write_private_evidence
+        def failing_write(self, path, content):
+            nonlocal write_called
+            write_called = True
+            raise OSError("/home/private-user/secret-path")
+        with patch.object(PairedHarness, "write_private_evidence", failing_write):
+            result = self._run_with_journal(s21, s23u)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
-        self.assertIn("primary_failure", result.summary.get("validity", {}))
-        pf = journal.post_failure
+        self.assertTrue(write_called, "write_private_evidence must be called during preservation")
+        self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        # Generic preservation warnings present
+        warnings = validity.get("evidence_preservation_warnings", [])
+        self.assertGreater(len(warnings), 0, "expected preservation warnings")
+        for w in warnings:
+            self.assertNotIn("private", str(w).lower())
+            self.assertNotIn("home", str(w).lower())
+            self.assertNotIn("/", str(w))
+        # No private path in public JSON or MD
+        md = render_markdown(result.summary)
+        for text in ("/home/private-user/secret-path", "secret-path", "OSError"):
+            self.assertNotIn(text, json.dumps(result.summary))
+            self.assertNotIn(text, md)
+        # No post-failure ADB commands
+        pf = journal.post_primary_failure
         self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
+
 
 class CombinedFailureTest(unittest.TestCase):
     """Primary-only, cleanup-only, and combined primary+cleanup failures."""
@@ -2383,9 +2497,10 @@ class CLIPersistentLossTest(unittest.TestCase):
     """CLI report path after persistent device loss via main()."""
 
     def _run_main(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb, root: str,
-                  mode: str = "smoke-disabled") -> tuple[int, Path, Path]:
-        """Run main() with patched AdbClient and return (exit_code, json_path, md_path)."""
+                  mode: str = "smoke-disabled") -> tuple[int, Path, Path, SharedCommandJournal]:
+        """Run main() with patched AdbClient and return (exit_code, json_path, md_path, journal)."""
         root_path = Path(root)
+        journal = s21.journal
         with patch("battery_telemetry_harness.AdbClient", side_effect=[s21, s23u]), \
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
@@ -2404,44 +2519,57 @@ class CLIPersistentLossTest(unittest.TestCase):
         sanitized = run_dir / "sanitized"
         json_path = sanitized / "run-summary.json"
         md_path = sanitized / "run-summary.md"
-        return exit_code, json_path, md_path
+        return exit_code, json_path, md_path, journal
+
+    def _verify_common(self, json_path: Path, md_path: Path, secrets: tuple[str, ...]) -> dict:
+        """Shared JSON/MD verification: exists, no secrets, ABORTED classification."""
+        self.assertTrue(json_path.exists(), f"JSON not at {json_path}")
+        self.assertTrue(md_path.exists(), f"MD not at {md_path}")
+        summary = json.loads(json_path.read_text())
+        self.assertEqual(summary["classification"], "ABORTED_NON_EVIDENTIARY")
+        # No private data
+        text = json.dumps(summary)
+        for secret in secrets:
+            self.assertNotIn(secret.lower(), text.lower(),
+                             f"secret leaked: {secret}")
+        md = md_path.read_text()
+        self.assertIn("ABORTED", md)
+        for secret in secrets:
+            self.assertNotIn(secret.lower(), md.lower(),
+                             f"secret leaked in markdown: {secret}")
+        return summary
 
     def test_disabled_persistent_loss(self) -> None:
         """Disabled persistent device loss via main(): exit 1, reports exist, no secrets."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
-        s23u.fail_end_capture = True  # Fail during end capture (after all gates pass)
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
+        s23u.fail_end_capture = True
         with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path = self._run_main(s21, s23u, root)
+            exit_code, json_path, md_path, _ = self._run_main(s21, s23u, root)
             self.assertEqual(exit_code, 1)
-            self.assertTrue(json_path.exists(), f"JSON not at {json_path}")
-            self.assertTrue(md_path.exists(), f"MD not at {md_path}")
-            summary = json.loads(json_path.read_text())
-            self.assertEqual(summary["classification"], "ABORTED_NON_EVIDENTIARY")
+            summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector", "FAKE-S21", "FAKE-S23U"))
             self.assertIn("primary_failure", summary.get("validity", {}))
-            # No private data
-            text = json.dumps(summary)
-            for secret in ("private-s21-selector", "private-s23u-selector", "FAKE-S21", "FAKE-S23U"):
-                self.assertNotIn(secret.lower(), text.lower())
             # No post-failure ADB commands
-            pf = s23u.journal.post_failure
+            pf = journal.post_primary_failure
             self.assertEqual(len(pf), 0, f"expected zero post-failure ADB, got: {pf}")
 
     def test_enabled_persistent_loss_only_cleanup(self) -> None:
         """Enabled persistent loss via main(): only exact diagnostic restore commands post-failure."""
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
-        s23u.fail_end_capture = True  # After diagnostic setup
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u.fail_end_capture = True
         with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path = self._run_main(s21, s23u, root, mode="smoke-enabled")
-            self.assertEqual(exit_code, 1)  # primary failure; cleanup succeeds
-            self.assertTrue(json_path.exists())
-            self.assertTrue(md_path.exists())
-            summary = json.loads(json_path.read_text())
-            self.assertEqual(summary["classification"], "ABORTED_NON_EVIDENTIARY")
-            # Verify only diagnostic restore commands after failure
-            pf = s23u.journal.post_failure
+            exit_code, json_path, md_path, _ = self._run_main(s21, s23u, root, mode="smoke-enabled")
+            self.assertEqual(exit_code, 1)
+            summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector"))
+            self.assertIn("primary_failure", summary.get("validity", {}))
+            self.assertNotIn("cleanup_failures", summary.get("validity", {}))
+            # Exact global suffix: diagnostic restore on both mutated devices
+            pf = journal.post_primary_failure
             self.assertGreater(len(pf), 0, "expected cleanup commands")
+            # All commands must be setprop/getprop for the diagnostic tag
             allowed_prefixes = {
                 ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
                 ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
@@ -2449,35 +2577,122 @@ class CLIPersistentLossTest(unittest.TestCase):
             for rec in pf:
                 prefix = rec.args[:2] if len(rec.args) >= 2 else rec.args
                 self.assertIn(prefix, allowed_prefixes, f"forbidden post-failure command: {rec}")
-            # Original diagnostic restored exactly
-            restore_cmds = [r for r in s23u.journal.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
+            # Original diagnostic restored exactly — final setprop value is VERBOSE
+            restore_cmds = [r for r in journal.records if r.transport == "shell" and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
             self.assertEqual(restore_cmds[-1].args[2], "VERBOSE",
                              "original VERBOSE must be restored exactly")
-            self.assertNotIn("private-s21-selector", json.dumps(summary))
-
+ 
     def test_enabled_restoration_failure_exit_3(self) -> None:
         """Enabled restoration failure via main(): exit 3, reports contain both failures."""
-        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE")
-        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE")
-        s21.fail_end_capture = True  # Primary failure
-        s23u.fail_cleanup_verification = True  # Cleanup verification fails
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        s21.fail_end_capture = True
+        s23u.fail_cleanup_verification = True
         s23u._cleanup_verify_return = "WARN"
         with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path = self._run_main(s21, s23u, root, mode="smoke-enabled")
+            exit_code, json_path, md_path, _ = self._run_main(s21, s23u, root, mode="smoke-enabled")
             self.assertEqual(exit_code, 3)
-            self.assertTrue(json_path.exists())
-            summary = json.loads(json_path.read_text())
+            summary = self._verify_common(json_path, md_path, ("private-s21-selector", "private-s23u-selector"))
             self.assertIn("primary_failure", summary.get("validity", {}))
             self.assertIn("cleanup_failures", summary.get("validity", {}))
+            # Markdown also contains both sections
+            md = md_path.read_text()
+            self.assertIn("Primary failure", md)
+            self.assertIn("Cleanup failure", md)
+
+    def test_enabled_persistent_adb_plus_cleanup_failure_exit_3(self) -> None:
+        """Enabled persistent ADB outage + cleanup failure → exit 3, exact global suffix."""
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", active=True, diagnostic="VERBOSE", journal=journal)
+        s23u = FakePhysicalAdb("s23u", active=True, diagnostic="VERBOSE", journal=journal)
+        # Primary failure occurs during end_boundary on S23U; sticky persists through cleanup
+        s23u.failure_point = FailurePoint(phase="end_boundary", transport="shell")
+        s23u.persistent_after_first_failure = True
+        # Both devices were mutated; S21 is reachable, S23U is sticky-failed
+        result = self._with_sticky_journal(s21, s23u)
+        self.assertFalse(result.success)
+        self.assertEqual(result.exit_code, 3)
+        validity = result.summary.get("validity", {})
+        self.assertIn("primary_failure", validity)
+        self.assertIn("cleanup_failures", validity)
+        # Both devices had been changed to DEBUG before the primary failure
+        debug_setprops = [r for r in journal.records if r.alias in ("s21", "s23u") and r.transport == "shell"
+                          and r.args[:2] == ("setprop", f"log.tag.{DIAGNOSTIC_TAG}")]
+        self.assertGreaterEqual(len(debug_setprops), 2, "both devices not mutated to DEBUG")
+        # Cleanup was attempted on both mutated devices
+        pf = journal.post_primary_failure
+        # The global suffix contains only diagnostic restoration on both devices
+        # S21 succeeds (sticky only on S23U), S23U fails from persistent outage
+        s21_suffix = [rec for rec in pf if rec.alias == "s21"]
+        s23u_suffix = [rec for rec in pf if rec.alias == "s23u"]
+        self.assertGreater(len(s21_suffix), 0, "expected S21 cleanup attempts")
+        self.assertGreater(len(s23u_suffix), 0, "expected S23U cleanup attempts")
+        # All post-failure commands must be diagnostic restore (setprop/getprop)
+        allowed_prefixes = {
+            ("setprop", f"log.tag.{DIAGNOSTIC_TAG}"),
+            ("getprop", f"log.tag.{DIAGNOSTIC_TAG}"),
+        }
+        for rec in pf:
+            prefix = rec.args[:2] if len(rec.args) >= 2 else rec.args
+            self.assertIn(prefix, allowed_prefixes,
+                          f"forbidden post-failure command: {rec}")
+        # S21 commands succeed; S23U commands fail from sticky outage
+        for rec in s21_suffix:
+            self.assertEqual(rec.outcome, "success", f"S21 cleanup should succeed: {rec}")
+        for rec in s23u_suffix:
+            self.assertEqual(rec.outcome, "HarnessError", f"S23U cleanup should fail: {rec}")
+        # No collection commands anywhere in suffix
+        forbidden = {("dumpsys",), ("bugreport",), ("logcat",), ("cat",), ("get-state",)}
+        for rec in pf:
+            for prefix in forbidden:
+                if rec.args[:len(prefix)] == prefix:
+                    self.fail(f"forbidden command after failure: {rec}")
+    def _with_sticky_journal(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
+        """Run physical with phase-tracking patches and sticky failure for CLI test."""
+        h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+        PHASE_MAP = {
+            "pre_reset": "pre_reset_boundary",
+            "start": "start_boundary",
+            "end": "end_boundary",
+        }
+        orig_boundary = h.boundary_snapshot
+        def patched_boundary(alias: str, phase: str) -> dict:
+            mapped = PHASE_MAP.get(phase, phase)
+            if alias == s21.alias:
+                s21.phase = mapped
+            if alias == s23u.alias:
+                s23u.phase = mapped
+            return orig_boundary(alias, phase)
+
+        orig_end_raw = h.capture_end_raw
+        def patched_end_raw(alias: str) -> dict:
+            s21.phase = "end_raw" if alias == s21.alias else s21.phase
+            s23u.phase = "end_raw" if alias == s23u.alias else s23u.phase
+            return orig_end_raw(alias)
+
+        orig_bugreport = h.collect_bugreport
+        def patched_bugreport(alias: str) -> None:
+            s21.phase = "bugreport" if alias == s21.alias else s21.phase
+            s23u.phase = "bugreport" if alias == s23u.alias else s23u.phase
+            return orig_bugreport(alias)
+
+        with patch.object(h, "boundary_snapshot", patched_boundary), \
+             patch.object(h, "capture_end_raw", patched_end_raw), \
+             patch.object(h, "collect_bugreport", patched_bugreport), \
+             patch("builtins.input", return_value="START"), \
+             patch("time.sleep"), \
+             patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
+            return h.run_physical(True)
 
 
 class CLIFallbackTest(unittest.TestCase):
     """Privacy-fallback report tests via main()."""
-
     def _run_main(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb, root: str,
-                  assert_commit_side_effect: list | None = None) -> tuple[int, Path, Path]:
-        """Run main() with optional assert_commit_safe override."""
+                  assert_commit_side_effect: list | None = None) -> tuple[int, Path, Path, SharedCommandJournal]:
+        """Run main() with optional assert_commit_safe override; returns (exit, json, md, journal)."""
         root_path = Path(root)
+        journal = s21.journal
         patches = [
             patch("battery_telemetry_harness.AdbClient", side_effect=[s21, s23u]),
             patch("builtins.input", side_effect=lambda _: "START"),
@@ -2503,20 +2718,21 @@ class CLIFallbackTest(unittest.TestCase):
         sanitized = run_dir / "sanitized"
         json_path = sanitized / "run-summary.json"
         md_path = sanitized / "run-summary.md"
-        return exit_code, json_path, md_path
+        return exit_code, json_path, md_path, journal
 
     def test_privacy_fallback_via_main(self) -> None:
         """Detailed abort summary fails privacy validation → minimal fallback via main()."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
         s23u.fail_end_capture = True
         with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path = self._run_main(
+            exit_code, json_path, md_path, _ = self._run_main(
                 s21, s23u, root,
                 assert_commit_side_effect=[
                     HarnessError("detailed privacy failure"),
-                    None,  # fallback passes
-                    None,  # write_sanitized_summary passes
+                    None,
+                    None,
                 ],
             )
             self.assertEqual(exit_code, 1)
@@ -2530,14 +2746,20 @@ class CLIFallbackTest(unittest.TestCase):
             self.assertNotIn("run_id", summary)
             self.assertNotIn("private-s21-fallback", json.dumps(summary))
             self.assertNotIn("FAKE", json.dumps(summary))
+            # Markdown has no private data
+            md = md_path.read_text()
+            self.assertIn("ABORTED", md)
+            self.assertNotIn("private-s21-fallback", md)
+            self.assertNotIn("FAKE", md)
 
     def test_fallback_validation_failure_exit_2(self) -> None:
         """Both detailed and fallback validation fail → exit 2, no JSON/MD written."""
-        s21 = FakePhysicalAdb("s21")
-        s23u = FakePhysicalAdb("s23u")
+        journal = SharedCommandJournal()
+        s21 = FakePhysicalAdb("s21", journal=journal)
+        s23u = FakePhysicalAdb("s23u", journal=journal)
         s23u.fail_end_capture = True
         with tempfile.TemporaryDirectory() as root:
-            exit_code, json_path, md_path = self._run_main(
+            exit_code, json_path, md_path, _ = self._run_main(
                 s21, s23u, root,
                 assert_commit_side_effect=[
                     HarnessError("detailed fails"),

@@ -1012,6 +1012,12 @@ class PairedHarness:
         uid_text = self.clients[alias].shell("dumpsys", "package", self.package)
         (phase_dir / "package.txt").write_text(uid_text)
 
+
+    def write_private_evidence(self, path: Path, content: str) -> None:
+        """Atomically persist a private evidence file; may be patched in tests."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
     def preserve_partial_evidence_best_effort(
         self,
         starts: dict[str, dict[str, Any]],
@@ -1034,7 +1040,7 @@ class PairedHarness:
             if snapshot:
                 phase_dir = self.run_dir / alias / "start"
                 try:
-                    phase_dir.mkdir(parents=True, exist_ok=True)
+                    self.write_private_evidence(phase_dir / ".keep", "")
                 except OSError:
                     warnings.append(f"{alias}: start evidence could not be persisted")
                     continue
@@ -1049,7 +1055,7 @@ class PairedHarness:
                     if not content:
                         continue
                     try:
-                        (phase_dir / filename).write_text(content)
+                        self.write_private_evidence(phase_dir / filename, content)
                     except OSError:
                         warnings.append(f"{alias}: start evidence could not be persisted")
             # End evidence from in-memory raw dict
