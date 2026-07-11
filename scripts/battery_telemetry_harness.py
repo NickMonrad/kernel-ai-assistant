@@ -1155,7 +1155,6 @@ class PairedHarness:
         Returns a ``RunResult`` with structured summary and exit code.
         """
         self.write_private_manifest()
-        self.validate_devices()
         cleanup_errors: list[str] = []
         # Per-device diagnostic tracking: maps alias to original property value
         diag_originals: dict[str, str | None] = {}
@@ -1166,6 +1165,8 @@ class PairedHarness:
         classification = "ABORTED_NON_EVIDENTIARY"
 
         try:
+            self.validate_devices()
+
             # --- Operator gates ---
             if self.mode == "baseline-disabled":
                 prompt_for_confirmation("Manually disable Listen for Hey Jandal on both S21 and S23 Ultra. Return only after both toggles are off.", interactive)
@@ -1242,7 +1243,7 @@ class PairedHarness:
                 try:
                     self.collect_bugreport(alias)
                 except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
-                    raise HarnessError(f"{alias}: bugreport failed — {exc}. Run invalidated.") from exc
+                    raise HarnessError(f"{alias}: device report collection failed. Run invalidated.") from exc
 
         except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt, EOFError) as exc:
             if isinstance(exc, KeyboardInterrupt):
@@ -1325,8 +1326,7 @@ class PairedHarness:
             "mode": self.mode,
             "requested_duration_seconds": self.duration_seconds,
             "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
-            "cross_device_warning": "Run was aborted; no comparison possible.",
-            "validity": {"state": "aborted", "abort_reason": self.abort_reason},
+            "validity": {"state": "aborted", "abort_reason": sanitise_text(self.abort_reason) if self.abort_reason else None},
             "raw_artifacts": "private, gitignored run directory; partial evidence preserved",
             "devices": devices,
             "limitations": ["Run did not complete; abort summary only. Not evidentiary."],
