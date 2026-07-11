@@ -17,7 +17,7 @@ The harness uses sanitized aliases (`s21`, `s23u`) in public summaries. ADB sele
 
 ### Commands
 
-Fixture dry run — no ADB command or device state change:
+Fixture dry run — no ADB command or device state change (uses hierarchical UID block format):
 
 ```bash
 python3 scripts/battery_telemetry_harness.py smoke \
@@ -49,19 +49,21 @@ Physical runs write only to the gitignored `scripts/private-battery-runs/<run-id
 
 ```text
 <run-id>/
-  s21/start/  s21/end/  s21/bugreport/
-  s23u/start/ s23u/end/ s23u/bugreport/
+  s21/start/    s21/end/  s21/bugreport/
+  s23u/start/   s23u/end/ s23u/bugreport/
   sanitized/run-summary.json
   sanitized/run-summary.md
 ```
 
-The private tree contains complete Batterystats (`--charged` and `--checkin`), power, package, procstats, meminfo, service, aggregate WakeWordDiag, and end-only bugreport artifacts. Inspect it locally, never with `git add`:
+The private tree contains complete Batterystats (`--charged` and `--checkin`), power, package, procstats, meminfo, service, batteryproperties, device-idle, aggregate WakeWordDiag, and end-only bugreport artifacts. Start-boundary raw evidence (battery, batteryproperties, power, deviceidle, services, package/UID mapping) is persisted separately for auditability. Inspect it locally, never with `git add`:
 
 ```bash
 git check-ignore -v scripts/private-battery-runs/example/s21/end/batterystats-charged.txt
 ```
 
 The public JSON/Markdown summary is sanitised and validates that it contains no ADB selector, IP address, pairing code, account/email identifier, home path, raw artifact name, or unfiltered log.
+
+On abort (precondition failure, ADB loss, KeyboardInterrupt, parser error), partial evidence is preserved and a non-evidentiary abort summary is written. The abort summary marks the run as `ABORTED_NON_EVIDENTIARY` and records which precondition failed.
 
 ### Manual operator gates
 
@@ -73,7 +75,7 @@ The physical harness stops at each gate; typing `START` is required to proceed.
 2. The operator manually disables Listen for Hey Jandal on both devices and confirms.
 3. The harness requires both wake-word services to be inactive and `WakeWordDiag` not DEBUG.
 4. The operator manually unplugs charger and USB, turns both displays off, and locks both devices; then confirms.
-5. The harness rejects the pair unless both devices report AC/USB/wireless false, discharging, screen off, and service inactive. It resets Batterystats only after this accepted boundary.
+5. The harness rejects the pair unless both devices report AC/USB/wireless false, discharging/not-charging status, screen off (confirmed via Wakefulness, mScreenOn, or Display Power), and service inactive. It resets Batterystats only after this accepted boundary.
 
 **Enabled treatment**
 
@@ -84,19 +86,154 @@ The physical harness stops at each gate; typing `START` is required to proceed.
 
 If either device fails any gate, the attempt is aborted for **both** devices. It is not a valid single-device result. The harness uses boundary snapshots rather than continuous polling; end-state loss, charging, service state, or missing evidence invalidates the pair.
 
-### Boundary evidence and parsing
+## Real-device formats now supported
 
-Accepted starts are timestamped with wall clock and monotonic time; start skew is reported. End capture records `dumpsys battery`, `batteryproperties`, complete `batterystats --charged`, complete `batterystats --checkin`, power, device idle, package/service, procstats, and meminfo. The harness resolves package UID from complete package output, then parses available app CPU user/kernel time, partial wakelocks, foreground-service duration, estimated app power, and check-in CPU evidence.
+### Android UID mapping
+
+The harness converts decimal UIDs to Android's `u0aNNN` textual form:
+
+| Decimal UID | Textual UID | User |
+|---|---|---|
+| 10123 | u0a10123 | Primary (user 0) |
+| 1010123 | u10a10123 | Secondary (user 10) |
+
+The conversion supports any user ID, not just user 0. Parsing handles both forms.
+
+### Batterystats human-readable (`--charged`)
+
+Hierarchical `Uid u0aNNN:` blocks are extracted by finding the block for the resolved UID, then parsing nested fields within it:
+
+- `cpu:` block for user/system CPU time in ms
+- `Wake lock:` entries for named partial wakelocks with human-readable durations (e.g. `+4s200ms`)
+- `Foreground:` activity duration
+- `Service:` started-service uptime
+- `Audio:` duration
+- `power:` estimated mAh
+
+If the UID block is not found, all fields return `not_reported`. If no UID was resolved, all fields return `unsupported`.
+
+### Batterystats check-in (`--checkin`)
+
+Comma-separated records with tag-based positioning:
+
+| Tag | Columns | Parsed fields |
+|---|---|---|
+| `uid` | `,<decimal_uid>,cpu,<user_ms>,<system_ms>` | CPU user, kernel |
+| `wl` | `,<decimal_uid>,<name>,<duration_ms>,<count>` | Wakelock name + duration |
+| `sf` | `,<decimal_uid>,<duration_ms>,<count>` | Foreground service duration |
+| `pr` | `,<decimal_uid>,<proc>,<user_ms>,<system_ms>,...` | Process CPU user, kernel |
+| `au` | `,<decimal_uid>,<duration_ms>,<count>` | Audio duration |
+
+Header/metadata rows (`i`, `l`, `f` tags) are skipped. Comment lines starting with `#` are ignored.
+
+### Screen-off detection
+
+The harness checks multiple indicators in order:
+
+1. `dumpsys deviceidle`: `mScreenOn=false`
+2. `dumpsys power`: `mScreenOn=false`
+3. `dumpsys power`: `Wakefulness=Asleep` or `Wakefulness=Doze`
+4. `dumpsys power`: `Display Power: state=OFF`
+
+If none of these are found, the precondition raises `HarnessError` — an assumed screen-off result is never accepted.
+
+### Charging/discharging status
+
+Samsung Android 15 uses `status: 3` (DISCHARGING) or `status: 4` (NOT_CHARGING) when unplugged. Both are accepted. If the powered flags (AC/USB/Wireless) or status field are absent, the precondition raises `HarnessError`.
+
+## Derived metrics
+
+### Whole-device battery
+
+| Metric | Source | Unit |
+|---|---|---|
+| Battery delta | Start/end `level` | Percentage points |
+| Rate | Delta / duration | pp/h |
+| Charge-counter delta | Start/end `Charge counter` | µAh |
+| mAh consumed | Charge delta / 1000 | mAh |
+| mAh per hour | mAh / duration | mAh/h |
+
+Charge-counter convention: `delta = start_counter − end_counter`. Positive = consumption. Negative values indicate charging occurred during the window.
+
+### Battery health and capacity
+
+| Metric | Source | Notes |
+|---|---|---|
+| Capacity | `dumpsys batteryproperties` | µAh |
+| Charge counter | `dumpsys batteryproperties` | µAh |
+| Current now | `dumpsys batteryproperties` | µA (negative = discharging) |
+| Voltage | `dumpsys battery` | mV |
+| Temperature | `dumpsys battery` | tenths °C |
+| Health | `dumpsys battery` | numeric (2 = good) |
+| Cycle count | `dumpsys battery` | where exposed |
+| Full-charge capacity | `dumpsys battery` | µAh |
+| Design capacity | `dumpsys batteryproperties` | µAh (where exposed) |
+
+### App attribution
+
+Fields are sourced from Batterystats human-readable (primary), check-in records (secondary), and procstats (tertiary):
+
+| Field | Primary source | Check-in source |
+|---|---|---|
+| CPU user | `cpu:` block | `uid,cpu` / `pr,` record |
+| CPU kernel/system | `cpu:` block | `uid,cpu` / `pr,` record |
+| Partial wakelocks | `Wake lock:` entries | `wl,` record |
+| Foreground service | `Foreground:` block | `sf,` record |
+| Service uptime | `Service:` block | — |
+| Audio duration | `Audio:` block | `au,` record |
+| Estimated power | `power:` line | — |
+
+All fields carry explicit `available`, `not_reported`, `unsupported`, `parse_failed`, or `not_applicable` states. Genuine zero is never confused with missing data.
+
+### Device-idle and unrelated drain
+
+| Metric | Source |
+|---|---|
+| Start/end Doze state | `dumpsys deviceidle` `mState=` |
+| Screen-on state | `dumpsys power` and `deviceidle` |
+| Wakefulness | `dumpsys power` `Wakefulness=` |
+| Charging resumed | `mCharging` at both boundaries |
+| Reboot detection | Monotonic clock comparisons |
+| Top other consumers | Other UIDs sorted by estimated power (sanitised as `system`, `other_uid_N`) |
+
+Unrelated-app identities are replaced with generic labels (`system`, `radio`, `wifi`, `display`, `other_uid_1`, `other_uid_2`) to avoid publishing the user's installed-app inventory.
+
+## Failure-safe diagnostic cleanup
+
+When running in **enabled** mode, the harness sets `WakeWordDiag` to `DEBUG`. Cleanup is guaranteed through a `try/finally` block:
+
+- Cleanup runs independently on both devices
+- Catches `HarnessError`, `OSError`, `TimeoutExpired`, and `KeyboardInterrupt`
+- Each cleanup failure is recorded as a warning but does not mask the original error
+- After cleanup, the property is verified to no longer be `DEBUG`
+- If cleanup cannot be confirmed, a sanitised warning is printed identifying only the device alias
+
+The operator may still need to restart or re-arm the detector because the logging decision is latched for the current detector run.
+
+## Abort behaviour
+
+When a paired run aborts:
+
+1. Private evidence already captured is preserved (start boundary, partial end data)
+2. A sanitised abort summary is written in both JSON and Markdown
+3. The classification is set to `ABORTED_NON_EVIDENTIARY`
+4. The failing device alias and precondition are recorded
+5. No valid comparison result is produced
+6. The run never continues with only one phone
+
+## Bugreport sequencing
+
+The official end boundary (battery, power, deviceidle, services, batterystats) is always captured **before** either bugreport begins. This ensures the long bugreport capture does not alter the official elapsed battery window. Timestamps for end boundary, bugreport start, and bugreport end are all recorded.
+
+## Boundary evidence and parsing
+
+Accepted starts are timestamped with wall clock and monotonic time; start skew is reported. Start raw evidence (battery, batteryproperties, power, deviceidle, services, and package/UID mapping) is persisted to the private run directory for auditability.
+
+End capture records `dumpsys battery`, `batteryproperties`, complete `batterystats --charged`, complete `batterystats --checkin`, power, device idle, package/service, procstats, and meminfo. The harness resolves package UID from complete package output, converting it to the Android textual UID form (`u0aNNN`) for UID block extraction. Check-in records are parsed by record tag and positional column.
 
 Every parsed value carries an explicit state: `available`, `not_reported`, `unsupported`, `parse_failed`, or `not_applicable`. Missing OEM fields never become zero. Battery charge counter, voltage, temperature, health, full-charge capacity, and cycle count are reported only when exposed. Enabled runs parse only aggregate `WakeWordDiag` summaries; disabled runs mark wake metrics not applicable. NNAPI assignment remains inconclusive unless native provider evidence proves assignment.
 
-After enabled end collection, the harness restores:
-
-```bash
-adb shell setprop log.tag.WakeWordDiag INFO
-```
-
-The operator restarts/re-arms the detector if it will continue running. The harness never enables shared `KernelAI` DEBUG logging.
+After enabled end collection, the harness restores the diagnostic tag through `try/finally` on both devices independently. The operator restarts/re-arms the detector if it will continue running. The harness never enables shared `KernelAI` DEBUG logging.
 
 ## Preconditions
 
@@ -219,10 +356,23 @@ After collecting end evidence, perform one final spoken locked-screen `Hey Janda
 
 ## Cleanup
 
-After the final capture, restore the dedicated diagnostic tag:
+After the final capture, restore the dedicated diagnostic tag through the harness `try/finally` block. On each device:
 
 ```bash
 adb shell setprop log.tag.WakeWordDiag INFO
 ```
 
-Stop and re-arm or restart the detector after restoring the property if it will continue running. Its current run retains the DEBUG decision made when it started.
+Stop and re-arm or restart the detector after restoring the property if it will continue running. Its current run retains the DEBUG decision made when it started. If the harness exited abnormally, cleanup is still attempted on both devices independently; warnings are printed but the original failure is preserved.
+
+## Known unsupported fields per device
+
+### S21 (SM-G991B, Android 15)
+- `Display Power: state=` is not exposed in `dumpsys power`
+- Cycle count may not be exposed depending on kernel/battery firmware
+- Design capacity may not be exposed in `dumpsys batteryproperties`
+
+### S23 Ultra (SM-S918B, Android 15)
+- `Display Power: state=OFF` is exposed
+- Cycle count and design capacity availability depends on firmware version
+
+Both devices report the standard `dumpsys battery`, `batteryproperties`, `batterystats`, power, and deviceidle fields documented above.

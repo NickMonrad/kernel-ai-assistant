@@ -1,0 +1,13 @@
+# sanitised structural fixture derived from S23 Ultra Android 15 output
+# dumpsys batterystats --checkin
+9,0,i,vers,11,35,15,2,2,30000,450000,1,150,1,0
+9,0,l,bat,0,0,0,0,0,0,0,0,0,0,0
+9,0,f,screen,0,0,0,0
+9,0,uid,10124,cpu,60,3
+9,0,apk,10124,com.kernel.ai.debug,1,0
+9,0,wl,10124,WakeWordLock,2100,8
+9,0,sf,10124,3600000,1
+9,0,pr,10124,com.kernel.ai.debug,60,3,0,0,0,0
+9,0,au,10124,3600000,0
+9,0,uid,1000,cpu,72,5
+9,0,wl,1000,*alarm*,2100,7

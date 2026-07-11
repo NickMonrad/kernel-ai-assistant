@@ -1,0 +1,18 @@
+# sanitised structural fixture derived from S21 Android 15 output
+# dumpsys batteryproperties
+BatteryProperties:
+  ac_charge_current: 1000000
+  available_charge_current: 500000
+  battery_status: 5
+  capacity: 4000000
+  charge_counter: 4200000
+  current_now: -500
+  health: 2
+  max_charging_current: 0
+  max_charging_voltage: 0
+  present: true
+  remaining_capacity: 3000000
+  status: 3
+  technology: Li-ion
+  temperature: 250
+  voltage: 3800

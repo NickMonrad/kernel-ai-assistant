@@ -71,4 +71,4 @@ testdata/
 scripts/private-battery-runs/
 !scripts/testdata/
 !scripts/testdata/fixtures/
-!scripts/testdata/fixtures/battery_telemetry_paired_smoke.json
+!scripts/testdata/fixtures/*

@@ -96,6 +96,86 @@ def not_applicable(detail: str) -> Metric:
     return Metric(Availability.NOT_APPLICABLE, detail=detail)
 
 
+def uid_to_android_uid(decimal_uid: int) -> str:
+    """Convert a decimal Android UID to the u0aNNN textual form.
+
+    Android encodes <user_id> * 100000 + <app_id> into the decimal UID.
+    The textual form is u<user_id>a<app_id>.
+    Secondary users (work profile etc.) produce u10aNNN, u11aNNN, etc.
+    """
+    user_id = decimal_uid // 100000
+    app_id = decimal_uid % 100000
+    return f"u{user_id}a{app_id}"
+
+
+def parse_android_uid(text_uid: str) -> tuple[int, int]:
+    """Parse a u<user_id>a<app_id> string into (decimal_uid, user_id).
+
+    Returns (decimal_uid, user_id) or raises ValueError on malformed input.
+    """
+    match = re.fullmatch(r"u(\d+)a(\d+)", text_uid.strip())
+    if not match:
+        raise ValueError(f"malformed Android UID: {text_uid!r}")
+    user_id = int(match.group(1))
+    app_id = int(match.group(2))
+    return user_id * 100000 + app_id, user_id
+
+
+def extract_uid_block(text: str, decimal_uid: int) -> str:
+    """Extract the Batterystats UID block for the given decimal UID.
+
+    Human-readable format uses indented ``Uid u0aNNN:`` blocks. Returns the
+    block content (without the ``Uid u0aNNN:`` header) or empty string if not
+    found.
+    """
+    android_uid = uid_to_android_uid(decimal_uid)
+    lines = text.splitlines()
+    in_block = False
+    block: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        uid_header = re.match(r"^Uid\s+" + re.escape(android_uid) + r":\s*$", stripped)
+        if uid_header:
+            in_block = True
+            continue
+        if in_block:
+            if stripped.startswith("Uid ") or stripped.startswith("Device idle"):
+                break
+            if stripped:
+                block.append(line)
+    return "\n".join(block)
+
+
+def extract_all_uids(text: str) -> list[tuple[int, str, str]]:
+    """Extract all UIDs from Batterystats human-readable output.
+
+    Returns list of (decimal_uid, android_uid_string, block_text) for all
+    Uids found. Used for top-consumer reporting.
+    """
+    uids: list[tuple[int, str, str]] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        match = re.match(r"Uid\s+(u\d+a\d+):\s*$", stripped)
+        if match:
+            android_uid = match.group(1)
+            decimal_uid, _ = parse_android_uid(android_uid)
+            block_lines: list[str] = []
+            i += 1
+            while i < len(lines):
+                s = lines[i].strip()
+                if s.startswith("Uid ") or s.startswith("Device idle") or s.startswith("Device type"):
+                    i -= 1
+                    break
+                if s:
+                    block_lines.append(lines[i])
+                i += 1
+            uids.append((decimal_uid, android_uid, "\n".join(block_lines)))
+        i += 1
+    return uids
+
+
 def parse_duration(value: str) -> int:
     match = re.fullmatch(r"(\d+)([smhd])", value.strip().lower())
     if not match:
@@ -172,56 +252,159 @@ def parse_package_metadata(text: str, package: str) -> dict[str, Metric]:
     }
 
 
-def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
-    """Parse common labelled Batterystats samples for a resolved app UID.
+def _parse_duration_ms(duration_str: str) -> int:
+    """Convert a Batterystats duration string like +4s200ms to milliseconds."""
+    total = 0
+    for match in re.finditer(r"(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?\s*(?:(\d+)ms)?", duration_str.replace("+", "").replace(" ", "")):
+        h, m, s, ms = (int(g) if g else 0 for g in match.groups())
+        total += h * 3600000 + m * 60000 + s * 1000 + ms
+    return total
 
-    Android and Samsung formats vary.  A UID must be resolved first; unmatched
-    fields are reported as not_reported rather than silently treated as zero.
+
+def parse_batterystats(text: str, uid: int | None) -> dict[str, Metric]:
+    """Parse hierarchical Batterystats human-readable UID blocks.
+
+    Android 15 ``dumpsys batterystats --charged`` uses ``Uid u0aNNN:``
+    headers with nested child lines.  The block for the resolved UID is
+    extracted first, then individual fields are parsed within that block.
+
+    Supports CPU (user/system), partial wakelocks (named + duration),
+    foreground-service duration, audio duration, service uptime, and
+    estimated power mAh.
     """
     if uid is None:
         return {key: unsupported("package UID unavailable") for key in (
-            "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms", "estimated_power_mah", "partial_wakelocks")}
-    uid_markers = (rf"\buid[=:, ]+{uid}\b", rf"\bUID\s+{uid}\b", rf"\b{uid},")
-    uid_lines = [line for line in text.splitlines() if any(re.search(marker, line, re.IGNORECASE) for marker in uid_markers)]
-    if not uid_lines:
-        return {key: not_reported(f"UID {uid} absent from complete Batterystats") for key in (
-            "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms", "estimated_power_mah", "partial_wakelocks")}
-    block = "\n".join(uid_lines)
-    result = {
-        "cpu_user_ms": metric_from_match(block, r"(?:cpu[ _-]*user|user[ _-]*cpu)[=:, ]+(\d+)", "app CPU user time"),
-        "cpu_kernel_ms": metric_from_match(block, r"(?:cpu[ _-]*(?:kernel|system)|kernel[ _-]*cpu)[=:, ]+(\d+)", "app CPU kernel time"),
-        "foreground_service_ms": metric_from_match(block, r"(?:foreground[ _-]*service|fgs)[=:, ]+(\d+)", "foreground service duration"),
-        "estimated_power_mah": metric_from_match(block, r"(?:estimated[ _-]*power|power[ _-]*mah)[=:, ]+(\d+(?:\.\d+)?)", "estimated app power"),
-    }
-    wakelocks = re.findall(r"(?:partial[ _-]*wakelock|wl)[=:, ]+([^,; ]+)[,:; ]+(\d+)", block, re.IGNORECASE)
-    result["partial_wakelocks"] = available([{"name": name, "duration_ms": int(duration)} for name, duration in wakelocks]) if wakelocks else not_reported("partial wakelocks not reported for UID")
+            "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms",
+            "estimated_power_mah", "partial_wakelocks", "audio_duration_ms",
+            "service_uptime_ms")}
+    block = extract_uid_block(text, uid)
+    if not block:
+        return {key: not_reported(f"UID {uid} absent from Batterystats") for key in (
+            "cpu_user_ms", "cpu_kernel_ms", "foreground_service_ms",
+            "estimated_power_mah", "partial_wakelocks", "audio_duration_ms",
+            "service_uptime_ms")}
+
+    result: dict[str, Metric] = {}
+
+    # CPU user / system (inside cpu: block or proc: block)
+    cpu_user = re.search(r"cpu:\s*\n(?:.*\n)*?\s*user:\s*(\d+)ms", block, re.MULTILINE)
+    cpu_sys = re.search(r"cpu:\s*\n(?:.*\n)*?\s*(?:system|kernel):\s*(\d+)ms", block, re.MULTILINE)
+    result["cpu_user_ms"] = available(int(cpu_user.group(1))) if cpu_user else not_reported("CPU user time not reported")
+    result["cpu_kernel_ms"] = available(int(cpu_sys.group(1))) if cpu_sys else not_reported("CPU kernel time not reported")
+
+    # Partial wakelocks: "Wake lock: <name> +<duration> (partial) count <N>"
+    wakelock_matches = re.findall(r"Wake lock:\s*([^+]+)\s*\+(\S+)", block, re.MULTILINE)
+    wakelocks = []
+    for name_raw, dur_raw in wakelock_matches:
+        name = name_raw.strip()
+        dur_ms = _parse_duration_ms(dur_raw)
+        wakelocks.append({"name": name, "duration_ms": dur_ms})
+    result["partial_wakelocks"] = available(wakelocks) if wakelocks else not_reported("no partial wakelocks reported for this UID")
+
+    # Foreground service / foreground activity duration
+    fg = re.search(r"foreground duration:\s*(\S+(?:\s+\S+)?)", block)
+    if fg:
+        result["foreground_service_ms"] = available(_parse_duration_ms(fg.group(1)))
+    else:
+        result["foreground_service_ms"] = not_reported("foreground duration not reported")
+
+    # Service uptime
+    svc = re.search(r"Started service:\s*(\S+(?:\s+\S+)?)", block)
+    if svc:
+        result["service_uptime_ms"] = available(_parse_duration_ms(svc.group(1)))
+    else:
+        result["service_uptime_ms"] = not_reported("service uptime not reported")
+
+    # Audio duration
+    audio = re.search(r"Audio:\s*\n(?:.*\n)*?\s*duration:\s*(\S+(?:\s+\S+)?)", block, re.MULTILINE)
+    if audio:
+        result["audio_duration_ms"] = available(_parse_duration_ms(audio.group(1)))
+    else:
+        result["audio_duration_ms"] = not_reported("audio duration not reported")
+
+    # Estimated power
+    power = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
+    result["estimated_power_mah"] = available(float(power.group(1))) if power else not_reported("estimated power not reported")
+
     return result
 
 
 def parse_checkin(text: str, uid: int | None) -> dict[str, Metric]:
-    """Parse a deliberately narrow check-in representation and preserve absence."""
+    """Parse real Android Batterystats check-in records.
+
+    Check-in format uses comma-separated records with tag-based positioning.
+    Relevant record types:
+
+    - uid,<decimal_uid>,cpu,<user_ms>,<system_ms>
+    - wl,<decimal_uid>,<name>,<duration_ms>,<count>
+    - sf,<decimal_uid>,<duration_ms>,<count>
+    - pr,<decimal_uid>,<proc>,<user_ms>,<system_ms>,<iowait>,<fault>,<fault>,<count>
+    - au,<decimal_uid>,<duration_ms>,<count>
+    - apk,<decimal_uid>,<package>,<version>,<version_code>
+    """
     if uid is None:
-        return {"cpu_user_ms": unsupported("package UID unavailable"), "cpu_kernel_ms": unsupported("package UID unavailable")}
-    rows = [row.split(",") for row in text.splitlines() if row.strip()]
-    uid_rows = [row for row in rows if str(uid) in row]
-    if not uid_rows:
-        return {"cpu_user_ms": not_reported("UID absent from check-in"), "cpu_kernel_ms": not_reported("UID absent from check-in")}
-    fields: dict[str, int] = {}
-    for row in uid_rows:
-        for index, token in enumerate(row[:-1]):
-            if token in {"cpu_user_ms", "cpu_kernel_ms"}:
-                try:
-                    fields[token] = int(row[index + 1])
-                except ValueError:
-                    return {"cpu_user_ms": parse_failed("malformed check-in CPU value"), "cpu_kernel_ms": parse_failed("malformed check-in CPU value")}
-    return {
-        "cpu_user_ms": available(fields["cpu_user_ms"]) if "cpu_user_ms" in fields else not_reported("check-in CPU user time not reported"),
-        "cpu_kernel_ms": available(fields["cpu_kernel_ms"]) if "cpu_kernel_ms" in fields else not_reported("check-in CPU kernel time not reported"),
+        return {key: unsupported("package UID unavailable") for key in (
+            "cpu_user_ms", "cpu_kernel_ms", "checkin_wakelocks",
+            "checkin_foreground_service_ms", "checkin_audio_ms",
+            "checkin_proc_cpu_user_ms", "checkin_proc_cpu_kernel_ms")}
+
+    result: dict[str, Metric] = {
+        "cpu_user_ms": not_reported("UID not found in check-in"),
+        "cpu_kernel_ms": not_reported("UID not found in check-in"),
+        "checkin_wakelocks": not_reported("no check-in wakelock records for this UID"),
+        "checkin_foreground_service_ms": not_reported("no check-in foreground service record"),
+        "checkin_audio_ms": not_reported("no check-in audio record"),
+        "checkin_proc_cpu_user_ms": not_reported("no check-in proc record"),
+        "checkin_proc_cpu_kernel_ms": not_reported("no check-in proc record"),
     }
+    uid_str = str(uid)
 
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split(",")
+        if len(parts) < 3:
+            continue
+        # Skip header/metadata rows: i (version), l (battery), f (feature), etc.
+        if parts[2] == "uid" and len(parts) >= 7 and parts[3] == uid_str and parts[4] == "cpu":
+            try:
+                result["cpu_user_ms"] = available(int(parts[5]))
+                result["cpu_kernel_ms"] = available(int(parts[6]))
+            except ValueError:
+                result["cpu_user_ms"] = parse_failed("check-in uid CPU user value malformed")
+                result["cpu_kernel_ms"] = parse_failed("check-in uid CPU kernel value malformed")
+        elif parts[2] == "wl" and parts[3] == uid_str and len(parts) >= 5:
+            try:
+                wakelocks = [{"name": parts[4], "duration_ms": int(parts[5])}]
+                # Optional count at parts[6]
+                result["checkin_wakelocks"] = available(wakelocks)
+            except ValueError:
+                result["checkin_wakelocks"] = parse_failed("check-in wakelock duration malformed")
+        elif parts[2] == "sf" and parts[3] == uid_str and len(parts) >= 5:
+            try:
+                result["checkin_foreground_service_ms"] = available(int(parts[4]))
+            except ValueError:
+                result["checkin_foreground_service_ms"] = parse_failed("check-in foreground service duration malformed")
+        elif parts[2] == "au" and parts[3] == uid_str and len(parts) >= 5:
+            try:
+                result["checkin_audio_ms"] = available(int(parts[4]))
+            except ValueError:
+                result["checkin_audio_ms"] = parse_failed("check-in audio duration malformed")
+        elif parts[2] == "pr" and parts[3] == uid_str and len(parts) >= 7:
+            try:
+                result["checkin_proc_cpu_user_ms"] = available(int(parts[5]))
+                result["checkin_proc_cpu_kernel_ms"] = available(int(parts[6]))
+            except ValueError:
+                result["checkin_proc_cpu_user_ms"] = parse_failed("check-in proc CPU user value malformed")
+                result["checkin_proc_cpu_kernel_ms"] = parse_failed("check-in proc CPU kernel value malformed")
 
+    return result
 def parse_wake_word_diagnostics(text: str, enabled: bool) -> dict[str, Metric]:
-    keys = ("audioFrames", "stage1", "stage2", "stage3", "stage2PerHour", "stage3PerHour", "silenceSkips", "silenceSkipRatio", "verifier", "verifierPasses", "verifierRejects", "highActivations", "verifiedActivations", "embeddingProvider")
+    """Parse aggregate WakeWordDetector diagnostic summaries from logcat output."""
+    keys = ("audioFrames", "stage1", "stage2", "stage3", "stage2PerHour", "stage3PerHour",
+            "silenceSkips", "silenceSkipRatio", "verifier", "verifierPasses", "verifierRejects",
+            "highActivations", "verifiedActivations", "embeddingProvider")
     if not enabled:
         return {key: not_applicable("wake word disabled") for key in keys}
     lines = [line for line in text.splitlines() if "WakeWordDetector: diagnostics" in line]
@@ -235,6 +418,176 @@ def start_skew_ms(start_times: dict[str, int]) -> Metric:
     if set(start_times) != {"s21", "s23u"}:
         return parse_failed("both paired monotonic timestamps are required")
     return available(abs(start_times["s21"] - start_times["s23u"]))
+
+
+def parse_batteryproperties(text: str) -> dict[str, Metric]:
+    """Parse dumpsys batteryproperties output for capacity/health evidence."""
+    result: dict[str, Metric] = {}
+    extracts = {
+        "capacity_uah": (r"capacity:\s*(\d+)", "batteryproperties capacity"),
+        "charge_counter_uah": (r"charge_counter:\s*(\d+)", "batteryproperties charge counter"),
+        "remaining_capacity_uah": (r"remaining_capacity:\s*(\d+)", "remaining capacity"),
+        "current_now_ua": (r"current_now:\s*(-?\d+)", "current now"),
+        "design_capacity_uah": (r"(?i)design_capacity:\s*(\d+)", "design capacity"),
+        "health": (r"health:\s*(\d+)", "batteryproperties health"),
+        "temperature_tenths_c": (r"temperature:\s*(\d+)", "batteryproperties temperature"),
+        "voltage_uv": (r"voltage:\s*(\d+)", "batteryproperties voltage"),
+    }
+    for key, (pattern, label) in extracts.items():
+        result[key] = metric_from_match(text, pattern, label)
+    return result
+
+
+def parse_deviceidle_state(text: str) -> dict[str, Metric]:
+    """Extract device-idle/Doze state from dumpsys deviceidle output."""
+    result: dict[str, Metric] = {}
+    for key, pattern, is_bool in [
+        ("state", r"mState=(.+)", False),
+        ("light_state", r"mLightState=(.+)", False),
+        ("screen_on", r"mScreenOn=(true|false)", True),
+        ("idle", r"mIdle=(true|false)", True),
+        ("charging", r"mCharging=(true|false)", True),
+    ]:
+        match = re.search(pattern, text)
+        if match:
+            raw = match.group(1).lower()
+            result[key] = available(raw == "true") if is_bool else available(raw)
+        else:
+            result[key] = not_reported(f"deviceidle {key} not reported")
+    return result
+
+
+def parse_power_state(text: str) -> dict[str, Metric]:
+    """Extract power/wakefulness/screen-off state from dumpsys power output.
+
+    Android 15 uses ``Wakefulness=Asleep`` and ``mScreenOn=false``.
+    Some builds add ``Display Power: state=OFF``.
+    """
+    result: dict[str, Metric] = {}
+    wakefulness = re.search(r"Wakefulness=(\S+)", text)
+    result["wakefulness"] = available(wakefulness.group(1)) if wakefulness else not_reported("wakefulness not reported")
+    screen_on = re.search(r"mScreenOn=(true|false)", text)
+    result["screen_on"] = available(screen_on.group(1).lower() == "true") if screen_on else not_reported("screen on state not reported")
+    display_power = re.search(r"Display Power:\s*state=(\S+)", text)
+    result["display_power"] = available(display_power.group(1)) if display_power else unsupported("display power field not exposed on this build")
+    interactive = re.search(r"mInteractive=(true|false)", text)
+    result["interactive"] = available(interactive.group(1).lower() == "true") if interactive else not_reported("interactive state not reported")
+    return result
+
+
+def parse_procstats_attribution(text: str, package: str) -> dict[str, Metric]:
+    """Parse procstats output for service evidence and CPU attribution.
+
+    Procstats provides service/process uptime and memory evidence that can
+    corroborate Batterystats attribution.
+    """
+    result: dict[str, Metric] = {}
+    service_lines = re.findall(rf"Service\s+{re.escape(package)}", text)
+    result["service_active"] = available(len(service_lines) > 0) if service_lines else not_reported("service evidence not found in procstats")
+    # Total CPU time in procstats (ms)
+    cpu_match = re.search(rf"Total CPU:\s*(?:[^:]*:\s*)?(\S+)", text)
+    if cpu_match:
+        raw = cpu_match.group(1)
+        try:
+            result["procstats_cpu_ms"] = available(int(raw))
+        except ValueError:
+            result["procstats_cpu_ms"] = parse_failed("procstats CPU value malformed")
+    else:
+        result["procstats_cpu_ms"] = not_reported("procstats CPU time not reported")
+    return result
+
+
+def compute_charge_delta_uah(start: dict[str, Metric], end: dict[str, Metric]) -> Metric:
+    """Compute consumed charge from start/end charge counters.
+
+    Charge counter decreases as battery discharges.  Convention:
+    delta = start_counter - end_counter (positive = consumption).
+    Returns negative values if charging occurred (reverse direction).
+    """
+    s = start.get("charge_counter_uah")
+    e = end.get("charge_counter_uah")
+    if s is None or e is None:
+        return not_reported("charge counter not reported")
+    if s.state is not Availability.AVAILABLE or e.state is not Availability.AVAILABLE:
+        return not_reported("charge counter unavailable at boundary")
+    delta = s.value - e.value
+    return available(delta)
+
+
+def compute_mah_from_uah(delta_uah: Metric, duration_hours: float) -> tuple[Metric, Metric]:
+    """Derive mAh consumed and mAh/hour from a charge-counter delta in µAh."""
+    if delta_uah.state is not Availability.AVAILABLE:
+        return (delta_uah, not_reported("mAh/hour unavailable; no charge counter delta"))
+    mAh = delta_uah.value / 1000.0
+    rate = mAh / duration_hours if duration_hours > 0 else not_reported("zero duration")
+    return (available(round(mAh, 3)), available(round(rate, 3)))
+
+
+def sanitise_uid_label(uid: int, known_app_uid: int | None) -> str:
+    """Map a decimal UID to a sanitised label for top-consumer reporting.
+
+    Known app UID gets labelled 'target_app'; other UIDs get generic labels.
+    System UIDs (< 10000) are grouped as 'system'; others as 'other_uid_N'.
+    This avoids publishing the user's private installed-app inventory.
+    """
+    if known_app_uid is not None and uid == known_app_uid:
+        return "target_app"
+    if uid < 10000:
+        return "system"
+    return f"other_uid_{uid}"
+
+
+def screen_off(power_text: str, device_idle_text: str) -> bool:
+    """Check screen-off status from dumpsys power and deviceidle output.
+
+    Returns True if any supported indicator confirms the screen is off.
+    Raises HarnessError when no known screen field is present (cannot assume).
+    """
+    # Check deviceidle first
+    idle_screen = re.search(r"mScreenOn=(true|false)", device_idle_text)
+    if idle_screen:
+        return idle_screen.group(1).lower() == "false"
+    # Check power state
+    power_screen = re.search(r"mScreenOn=(true|false)", power_text)
+    if power_screen:
+        return power_screen.group(1).lower() == "false"
+    # Check Wakefulness
+    wakefulness = re.search(r"Wakefulness=(\S+)", power_text)
+    if wakefulness:
+        return wakefulness.group(1).lower() in ("asleep", "dose")
+    # Check Display Power
+    display = re.search(r"Display Power:\s*state=(\S+)", power_text)
+    if display:
+        return display.group(1).upper() == "OFF"
+    raise HarnessError("no known screen-off indicator found; precondition cannot be verified")
+
+
+def external_power_ok(battery_text: str) -> bool:
+    """Verify device is disconnected from all charging sources.
+
+    Samsung Android 15 ``dumpsys battery`` fields:
+      AC powered: false, USB powered: false, Wireless powered: false
+      status: 3 = DISCHARGING  (Samsung also uses 3 for not charging when unplugged)
+      status: 4 = NOT_CHARGING (some builds)
+
+    Both status values (3 and 4) are accepted as not externally powered.
+    Raises HarnessError if required power fields are absent.
+    """
+    powered_keys = [("AC powered", "ac_powered"), ("USB powered", "usb_powered"), ("Wireless powered", "wireless_powered")]
+    for label, key in powered_keys:
+        match = re.search(rf"^\s*{re.escape(label)}:\s*(true|false)", battery_text, re.MULTILINE | re.IGNORECASE)
+        if not match:
+            raise HarnessError(f"required battery field '{label}' not found")
+        if match.group(1).lower() == "true":
+            return False
+    status = re.search(r"^\s*status:\s*(\d+)", battery_text, re.MULTILINE)
+    if not status:
+        raise HarnessError("required battery field 'status' not found")
+    status_val = int(status.group(1))
+    # Samsung: 3 = DISCHARGING, 4 = NOT_CHARGING; both acceptable
+    if status_val not in (3, 4):
+        return False
+    return True
 
 
 @dataclasses.dataclass
@@ -296,12 +649,6 @@ def service_active(client: AdbClient, package: str) -> bool:
     return "WakeWordService" in client.shell("dumpsys", "activity", "services", package)
 
 
-def external_power_ok(battery: dict[str, Metric]) -> bool:
-    return all(battery[key].state is Availability.AVAILABLE and battery[key].value is False for key in ("ac_powered", "usb_powered", "wireless_powered")) and battery["status"].state is Availability.AVAILABLE and battery["status"].value == 3
-
-
-def screen_off(power: str, device_idle: str) -> bool:
-    return "mScreenOn=false" in power or "mScreenOn=false" in device_idle
 
 
 def prompt_for_confirmation(message: str, interactive: bool) -> None:
@@ -316,12 +663,11 @@ def prompt_for_confirmation(message: str, interactive: bool) -> None:
 class PairedHarness:
     def __init__(self, mode: str, package: str, duration_seconds: int, private_root: Path, clients: dict[str, AdbClient] | None = None):
         self.mode = mode
-        self.enabled = mode == "enabled"
+        self.run_id = f"{mode}-{datetime.now(timezone.utc):%Y-%m-%dT%H-%M-%SZ}-{uuid.uuid4().hex[:8]}"
         self.package = package
         self.duration_seconds = duration_seconds
         self.private_root = private_root
         self.clients = clients or {}
-        self.run_id = f"{mode}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:8]}"
         self.run_dir = private_root / self.run_id
         self.abort_reason: str | None = None
         self.identities: dict[str, DeviceIdentity] = {}
@@ -366,25 +712,34 @@ class PairedHarness:
         (self.run_dir / "manifest-private.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     def boundary_snapshot(self, alias: str, phase: str) -> dict[str, Any]:
+        """Capture a boundary snapshot including parsed metrics and raw texts."""
         client = self.clients[alias]
         battery_text = client.shell("dumpsys", "battery")
-        power = client.shell("dumpsys", "power")
-        idle = client.shell("dumpsys", "deviceidle")
-        services = client.shell("dumpsys", "activity", "services", self.package)
+        power_text = client.shell("dumpsys", "power")
+        idle_text = client.shell("dumpsys", "deviceidle")
+        services_text = client.shell("dumpsys", "activity", "services", self.package)
+        batteryproperties_text = client.shell("dumpsys", "batteryproperties")
         return {
             "phase": phase,
             "wall_clock_utc": utc_now(),
             "monotonic_ms": time.monotonic_ns() // 1_000_000,
+            "raw_battery": battery_text,
+            "raw_power": power_text,
+            "raw_deviceidle": idle_text,
+            "raw_batteryproperties": batteryproperties_text,
             "battery": parse_battery_dump(battery_text),
-            "screen_off": screen_off(power, idle),
-            "service_active": "WakeWordService" in services,
-            "device_idle_excerpt": sanitise_text("\n".join(line.strip() for line in idle.splitlines() if "mState" in line or "mScreenOn" in line)),
+            "batteryproperties": parse_batteryproperties(batteryproperties_text),
+            "power": parse_power_state(power_text),
+            "deviceidle": parse_deviceidle_state(idle_text),
+            "screen_off": screen_off(power_text, idle_text),
+            "service_active": "WakeWordService" in services_text,
+            "services_text": services_text,
         }
 
     def verify_unplugged_pair(self, boundaries: dict[str, dict[str, Any]]) -> None:
         failures = []
         for alias, snapshot in boundaries.items():
-            if not external_power_ok(snapshot["battery"]):
+            if not external_power_ok(snapshot["raw_battery"]):
                 failures.append(f"{alias}: external power or discharging precondition failed")
             if not snapshot["screen_off"]:
                 failures.append(f"{alias}: screen-off precondition failed")
@@ -426,34 +781,144 @@ class PairedHarness:
         destination.mkdir(parents=True, exist_ok=True)
         self.clients[alias].run("bugreport", str(destination), timeout=900)
 
+    def capture_start_raw(self, alias: str, starts: dict[str, dict[str, Any]]) -> None:
+        """Persist private start-boundary raw evidence for auditability."""
+        snapshot = starts[alias]
+        phase_dir = self.run_dir / alias / "start"
+        phase_dir.mkdir(parents=True, exist_ok=True)
+        (phase_dir / "battery.txt").write_text(snapshot["raw_battery"])
+        (phase_dir / "batteryproperties.txt").write_text(snapshot["raw_batteryproperties"])
+        (phase_dir / "power.txt").write_text(snapshot["raw_power"])
+        (phase_dir / "deviceidle.txt").write_text(snapshot["raw_deviceidle"])
+        (phase_dir / "services.txt").write_text(snapshot["services_text"])
+        uid_text = self.clients[alias].shell("dumpsys", "package", self.package)
+        (phase_dir / "package.txt").write_text(uid_text)
+
+    def top_consumers(self, raw_batterystats: str, known_uid: int | None) -> dict[str, Metric]:
+        """Extract top other power-consuming UIDs for device-idle context."""
+        if not raw_batterystats:
+            return {"top_consumers": not_reported("Batterystats not available")}
+        all_uids = extract_all_uids(raw_batterystats)
+        if not all_uids:
+            return {"top_consumers": not_reported("no UIDs found in Batterystats")}
+        consumers: list[dict[str, Any]] = []
+        for decimal_uid, android_uid, block in all_uids:
+            power_match = re.search(r"power:\s*(\d+(?:\.\d+)?)\s*mAh", block)
+            power = float(power_match.group(1)) if power_match else 0.0
+            label = sanitise_uid_label(decimal_uid, known_uid)
+            if label != "target_app" and power > 0:
+                consumers.append({"label": label, "estimated_power_mah": power, "android_uid": android_uid})
+        consumers.sort(key=lambda c: c["estimated_power_mah"], reverse=True)
+        return {"top_consumers": available(consumers[:5])} if consumers else {"top_consumers": not_reported("no non-target consumers above zero power")}
+
+    def try_cleanup_diagnostics(self, alias: str) -> str | None:
+        """Attempt to restore WakeWordDiag log level. Returns error message or None."""
+        client = self.clients.get(alias)
+        if not client:
+            return f"{alias}: no ADB client"
+        try:
+            client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "INFO")
+            level = client.shell("getprop", f"log.tag.{DIAGNOSTIC_TAG}").strip().upper()
+            if level == "DEBUG":
+                return f"{alias}: property still DEBUG after restore attempt"
+            return None
+        except (HarnessError, OSError, subprocess.TimeoutExpired) as exc:
+            return f"{alias}: cleanup failed — {exc}"
+
     def public_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw_end: dict[str, dict[str, str]], classification: str) -> dict[str, Any]:
+        """Build the sanitised public summary with all derived metrics."""
         devices: dict[str, Any] = {}
         for alias in ("s21", "s23u"):
             identity = self.identities[alias]
             battery_start = starts[alias]["battery"]
             battery_end = ends[alias]["battery"]
+            props_start = starts[alias]["batteryproperties"]
+            props_end = ends[alias]["batteryproperties"]
             uid_metric = identity.package["uid"]
             uid = uid_metric.value if uid_metric.state is Availability.AVAILABLE else None
+
+            # App attribution from both Batterystats sources
             stats = parse_batterystats(raw_end[alias].get("batterystats-charged.txt", ""), uid)
             checkin = parse_checkin(raw_end[alias].get("batterystats-checkin.csv", ""), uid)
             wake = parse_wake_word_diagnostics(raw_end[alias].get("logcat.txt", ""), self.enabled)
+
+            # Procstats evidence
+            procstats_text = raw_end[alias].get("procstats.txt", "")
+            procstats = parse_procstats_attribution(procstats_text, self.package)
+
+            # Whole-device percentage delta
             delta = not_reported("boundary battery level unavailable")
             rate = not_reported("duration or battery level unavailable")
             if battery_start["level_percent"].state is Availability.AVAILABLE and battery_end["level_percent"].state is Availability.AVAILABLE:
                 loss = battery_start["level_percent"].value - battery_end["level_percent"].value
                 delta = available(loss)
                 rate = available(round(loss * 3600 / self.duration_seconds, 3))
+
+            # Charge-counter delta
+            charge_delta = compute_charge_delta_uah(battery_start, battery_end)
+            duration_hours = self.duration_seconds / 3600.0
+            mah_consumed, mah_per_hour = compute_mah_from_uah(charge_delta, duration_hours)
+
+            # Doze / device-idle continuity
+            idle_start = starts[alias].get("deviceidle", {})
+            idle_end = ends[alias].get("deviceidle", {})
+            doze_info = {
+                "start_state": idle_start.get("state", not_reported("start doze state unavailable")).public(),
+                "end_state": idle_end.get("state", not_reported("end doze state unavailable")).public(),
+                "start_idle": idle_start.get("idle", not_reported("start idle flag unavailable")).public(),
+                "end_idle": idle_end.get("idle", not_reported("end idle flag unavailable")).public(),
+                "start_charging": idle_start.get("charging", not_reported("start charging flag unavailable")).public(),
+                "end_charging": idle_end.get("charging", not_reported("end charging flag unavailable")).public(),
+            }
+
+            # Top consumers (sanitised)
+            top = self.top_consumers(raw_end[alias].get("batterystats-charged.txt", ""), uid)
+            top_consumers_public = {key: value.public() for key, value in top.items()}
+
+            # Battery health from batteryproperties (start)
+            health_props = {
+                key: props_start[key].public() if key in props_start else not_reported(f"{key} not in batteryproperties").public()
+                for key in ("capacity_uah", "charge_counter_uah", "remaining_capacity_uah",
+                            "current_now_ua", "health", "temperature_tenths_c", "voltage_uv")
+            }
+            # design capacity if exposed
+            if "design_capacity_uah" in props_start:
+                health_props["design_capacity_uah"] = props_start["design_capacity_uah"].public()
+
+            # Screen-on / wakefulness continuity
+            screen_info = {
+                "start_wakefulness": starts[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
+                "end_wakefulness": ends[alias]["power"].get("wakefulness", not_reported("not reported")).public(),
+                "start_screen_on": starts[alias]["power"].get("screen_on", not_reported("not reported")).public(),
+                "end_screen_on": ends[alias]["power"].get("screen_on", not_reported("not reported")).public(),
+                "reboot_detected": available(starts[alias]["monotonic_ms"] > ends[alias]["monotonic_ms"])
+                    if (starts[alias]["monotonic_ms"] is not None and ends[alias]["monotonic_ms"] is not None)
+                    else not_reported("monotonic clock unavailable"),
+            }
+
+            # Build device section
             devices[alias] = {
                 "identity": identity.public(),
-                "start": self._public_snapshot(starts[alias]),
-                "end": self._public_snapshot(ends[alias]),
-                "whole_device": {"battery_delta_percentage_points": delta.public(), "battery_percentage_points_per_hour": rate.public()},
-                "battery_health": {key: battery_end[key].public() for key in ("charge_counter_uah", "voltage_mv", "temperature_tenths_c", "health", "cycle_count", "full_charge_uah")},
-                "app_attribution": {key: value.public() for key, value in {**stats, **{f"checkin_{key}": value for key, value in checkin.items()}}.items()},
+                "start": self._public_snapshot(starts[alias], "start"),
+                "end": self._public_snapshot(ends[alias], "end"),
+                "whole_device": {
+                    "battery_delta_percentage_points": delta.public(),
+                    "battery_percentage_points_per_hour": rate.public(),
+                    "charge_delta_uah": charge_delta.public(),
+                    "mah_consumed": mah_consumed.public(),
+                    "mah_per_hour": mah_per_hour.public(),
+                },
+                "battery_health": health_props,
+                "battery_end": {key: battery_end[key].public() for key in ("charge_counter_uah", "voltage_mv", "temperature_tenths_c", "health", "cycle_count", "full_charge_uah")},
+                "app_attribution": {key: value.public() for key, value in {**stats, **{f"checkin_{key}": value for key, value in checkin.items()}, **{f"procstats_{key}": value for key, value in procstats.items()}}.items()},
                 "wake_word": {key: value.public() for key, value in wake.items()},
+                "doze": doze_info,
+                "screen": screen_info,
+                "top_consumers": top_consumers_public,
             }
+
         summary = {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "classification": classification,
             "run_id": self.run_id,
             "mode": self.mode,
@@ -468,59 +933,155 @@ class PairedHarness:
                 "Missing platform/OEM fields retain explicit availability states and are never converted to zero.",
                 "No accelerator assignment is claimed without native provider evidence.",
                 "Smoke and fixture runs never support battery or causal conclusions.",
+                "mAh consumption derived from charge-counter delta; sign convention: positive = consumption.",
             ],
         }
         assert_commit_safe(summary)
         return summary
-
     @staticmethod
-    def _public_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    def _public_snapshot(snapshot: dict[str, Any], phase: str) -> dict[str, Any]:
         return {
             "wall_clock_utc": snapshot["wall_clock_utc"],
             "battery": {key: metric.public() for key, metric in snapshot["battery"].items()},
+            "batteryproperties": {key: metric.public() for key, metric in snapshot["batteryproperties"].items()},
             "screen_off": snapshot["screen_off"],
             "service_active": snapshot["service_active"],
-            "device_idle": snapshot["device_idle_excerpt"],
+            "deviceidle": {key: metric.public() for key, metric in snapshot["deviceidle"].items()},
+            "power": {key: metric.public() for key, metric in snapshot["power"].items()},
         }
 
     def run_physical(self, interactive: bool) -> dict[str, Any]:
+        """Execute a paired physical run with abort-safe cleanup.
+
+        The enabled lifecycle (WakeWordDiag DEBUG) is wrapped in try/finally
+        so diagnostics are restored even after precondition failure, ADB loss,
+        KeyboardInterrupt, or parser error.
+        """
         self.write_private_manifest()
         self.validate_devices()
-        if self.mode == "baseline-disabled":
-            prompt_for_confirmation("Manually disable Listen for Hey Jandal on both S21 and S23 Ultra. Return only after both toggles are off.", interactive)
-        elif self.mode == "enabled":
-            prompt_for_confirmation("Manually enable Listen for Hey Jandal on both devices, verify the intended build/assets, and complete one pre-test wake smoke on each device.", interactive)
-        else:
-            prompt_for_confirmation("This is a NON_EVIDENTIARY_SMOKE. Prepare the requested mode manually and confirm both device states.", interactive)
-        self.verify_mode_service_state()
-        self.set_enabled_diagnostics()
-        if self.enabled:
-            prompt_for_confirmation("Restart or re-arm both detectors after setting WakeWordDiag DEBUG, then wait for and confirm a WakeWordDiag summary can be observed locally.", interactive)
-            self.verify_enabled_diagnostics()
+        cleanup_errors: list[str] = []
+        diagnostics_was_enabled = False
+        starts: dict[str, dict[str, Any]] = {}
+        ends: dict[str, dict[str, Any]] = {}
+        raw: dict[str, dict[str, str]] = {}
+        classification = "ABORTED_NON_EVIDENTIARY"
+
+        try:
+            # --- Operator gates ---
+            if self.mode == "baseline-disabled":
+                prompt_for_confirmation("Manually disable Listen for Hey Jandal on both S21 and S23 Ultra. Return only after both toggles are off.", interactive)
+            elif self.mode == "enabled":
+                prompt_for_confirmation("Manually enable Listen for Hey Jandal on both devices, verify the intended build/assets, and complete one pre-test wake smoke on each device.", interactive)
+            else:
+                prompt_for_confirmation("This is a NON_EVIDENTIARY_SMOKE. Prepare the requested mode manually and confirm both device states.", interactive)
+
             self.verify_mode_service_state()
-        prompt_for_confirmation("Physically unplug charger and USB from both devices. Turn both screens off and lock them. Confirm only when both are ready.", interactive)
-        pre_reset = {alias: self.boundary_snapshot(alias, "pre_reset") for alias in self.clients}
-        self.verify_unplugged_pair(pre_reset)
-        for client in self.clients.values():
-            client.shell("dumpsys", "batterystats", "--reset")
-        starts = {alias: self.boundary_snapshot(alias, "start") for alias in self.clients}
-        self.verify_unplugged_pair(starts)
-        if self.mode == "smoke":
-            wait_seconds = min(self.duration_seconds, 120)
-            classification = "NON_EVIDENTIARY_SMOKE"
-        else:
-            wait_seconds = self.duration_seconds
-            classification = "EVIDENTIARY"
-        time.sleep(wait_seconds)
-        ends = {alias: self.boundary_snapshot(alias, "end") for alias in self.clients}
-        self.verify_unplugged_pair(ends)
-        raw = {alias: self.capture_end_raw(alias) for alias in self.clients}
-        for alias in self.clients:
-            self.collect_bugreport(alias)
-        if self.enabled:
+            self.set_enabled_diagnostics()
+            diagnostics_was_enabled = self.enabled
+
+            if self.enabled:
+                prompt_for_confirmation("Restart or re-arm both detectors after setting WakeWordDiag DEBUG, then wait for and confirm a WakeWordDiag summary can be observed locally.", interactive)
+                self.verify_enabled_diagnostics()
+                self.verify_mode_service_state()
+
+            prompt_for_confirmation("Physically unplug charger and USB from both devices. Turn both screens off and lock them. Confirm only when both are ready.", interactive)
+            pre_reset = {alias: self.boundary_snapshot(alias, "pre_reset") for alias in self.clients}
+            self.verify_unplugged_pair(pre_reset)
+
             for client in self.clients.values():
-                client.shell("setprop", f"log.tag.{DIAGNOSTIC_TAG}", "INFO")
+                client.shell("dumpsys", "batterystats", "--reset")
+
+            starts = {alias: self.boundary_snapshot(alias, "start") for alias in self.clients}
+            self.verify_unplugged_pair(starts)
+            # Persist start raw evidence
+            for alias in self.clients:
+                self.capture_start_raw(alias, starts)
+
+            # --- Wait / idle window ---
+            if self.mode == "smoke":
+                wait_seconds = min(self.duration_seconds, 120)
+                classification = "NON_EVIDENTIARY_SMOKE"
+            else:
+                wait_seconds = self.duration_seconds
+                classification = "EVIDENTIARY"
+            time.sleep(wait_seconds)
+
+            # --- End boundary (before bugreport) ---
+            ends = {alias: self.boundary_snapshot(alias, "end") for alias in self.clients}
+            self.verify_unplugged_pair(ends)
+
+            # --- End raw capture ---
+            raw = {}
+            for alias in self.clients:
+                raw[alias] = self.capture_end_raw(alias)
+
+            # --- Bugreport (separate, after official end) ---
+            for alias in self.clients:
+                self.collect_bugreport(alias)
+
+        except (HarnessError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                self.abort_reason = "operator keyboard interrupt"
+            else:
+                self.abort_reason = str(exc)
+            classification = "ABORTED_NON_EVIDENTIARY"
+
+        finally:
+            # --- Cleanup: restore diagnostics on both devices independently ---
+            if diagnostics_was_enabled:
+                for alias in self.clients:
+                    err = self.try_cleanup_diagnostics(alias)
+                    if err:
+                        cleanup_errors.append(err)
+                        print(f"WARNING: {err}", file=sys.stderr)
+
+        # --- Outcome ---
+        if self.abort_reason:
+            # Preserve partial evidence
+            for alias in self.clients:
+                if starts.get(alias):
+                    self.capture_start_raw(alias, starts)
+                end_data = ends.get(alias)
+                raw_data = raw.get(alias)
+                if raw_data:
+                    for filename, content in raw_data.items():
+                        if content:
+                            self.private_write(alias, "partial", filename, content)
+            return self.abort_summary(starts, ends, raw)
+
+        # Successful completion
+        if cleanup_errors:
+            # Diagnostics was restored with warnings but run completed
+            print(f"WARNING: cleanup issues on: {'; '.join(cleanup_errors)}", file=sys.stderr)
         return self.public_summary(starts, ends, raw, classification)
+
+    def abort_summary(self, starts: dict[str, dict[str, Any]], ends: dict[str, dict[str, Any]], raw: dict[str, dict[str, str]]) -> dict[str, Any]:
+        """Generate a non-evidentiary abort summary preserving partial evidence."""
+        devices: dict[str, Any] = {}
+        for alias in ("s21", "s23u"):
+            device_info: dict[str, Any] = {"alias": alias}
+            if alias in self.identities:
+                device_info["identity"] = self.identities[alias].public()
+            if starts.get(alias):
+                device_info["start"] = {"wall_clock_utc": starts[alias]["wall_clock_utc"], "battery": {key: metric.public() for key, metric in starts[alias]["battery"].items()}}
+            if ends.get(alias):
+                device_info["end"] = {"wall_clock_utc": ends[alias]["wall_clock_utc"], "battery": {key: metric.public() for key, metric in ends[alias]["battery"].items()}}
+            devices[alias] = device_info
+        summary = {
+            "schema_version": "2.0",
+            "classification": "ABORTED_NON_EVIDENTIARY",
+            "run_id": self.run_id,
+            "mode": self.mode,
+            "duration_seconds": self.duration_seconds,
+            "primary_comparison": "S21 enabled − S21 disabled; S23U enabled − S23U disabled",
+            "cross_device_warning": "Run was aborted; no comparison possible.",
+            "validity": {"state": "aborted", "abort_reason": self.abort_reason},
+            "raw_artifacts": "private, gitignored run directory; partial evidence preserved",
+            "devices": devices,
+            "limitations": ["Run did not complete; abort summary only. Not evidentiary."],
+        }
+        assert_commit_safe(summary)
+        return summary
 
 
 def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, run_id: str) -> dict[str, Any]:
@@ -541,7 +1102,7 @@ def fixture_summary(fixture: dict[str, Any], mode: str, duration_seconds: int, r
             "wake_word": {key: value.public() for key, value in parse_wake_word_diagnostics(device.get("wakeword_diag", ""), mode == "enabled").items()},
         }
     summary = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "classification": "NON_EVIDENTIARY_FIXTURE_DRY_RUN",
         "run_id": run_id,
         "mode": mode,

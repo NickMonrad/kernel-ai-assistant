@@ -1,0 +1,15 @@
+# sanitised structural fixture derived from S21 Android 15 output
+# dumpsys battery (start boundary)
+Current Battery Service state:
+  AC powered: false
+  USB powered: false
+  Wireless powered: false
+  status: 3
+  health: 2
+  present: true
+  level: 80
+  scale: 100
+  voltage: 3800
+  temperature: 250
+  technology: Li-ion
+  Charge counter: 4200000

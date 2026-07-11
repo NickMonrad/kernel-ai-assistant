@@ -1,0 +1,16 @@
+# sanitised structural fixture derived from S23 Ultra Android 15 output
+# dumpsys power
+Power Manager State:
+  Wakefulness=Asleep
+  mScreenOn=false (state: 0)
+  mDisplayPowerCallbacks=1
+  mDisplayReady=true
+  mHalAutoSuspendModeEnabled=true
+  mHalInteractiveModeEnabled=false
+  mWakeLockSummary=0x0
+  mProximityPositive=false
+  mInteractive=false
+  mDirty=0x00000000
+  mUidChanges=0
+  mWakefulness=Asleep
+  Display Power: state=OFF

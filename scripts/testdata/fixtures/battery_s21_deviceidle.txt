@@ -1,0 +1,10 @@
+# sanitised structural fixture derived from S21 Android 15 output
+# dumpsys deviceidle
+  mState=IDLE
+  mScreenOn=false
+  mIdle=true
+  mCharging=false
+  mForceIdle=false
+  mLightState=IDLE
+  mLightIdle=true
+  mLightCharging=false
