@@ -258,7 +258,8 @@ def parse_battery_dump(text: str) -> dict[str, Metric]:
 
 
 def parse_package_metadata(text: str, package: str) -> dict[str, Metric]:
-    uid_match = re.search(r"\buserId=(\d+)", text)
+    """Parse package metadata across Android 15 `userId` and `appId` layouts."""
+    uid_match = re.search(r"\b(?:userId|appId)=(\d+)", text)
     version_name = re.search(r"\bversionName=([^\s]+)", text)
     version_code = re.search(r"\bversionCode=(\d+)", text)
     return {

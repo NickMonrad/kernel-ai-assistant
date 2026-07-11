@@ -123,6 +123,13 @@ class UidConversionTest(unittest.TestCase):
         self.assertEqual(parse_android_uid("u10a123")[0], 1010123)
         self.assertEqual(parse_android_uid("1000")[0], 1000)
 
+    def test_parse_package_metadata_accepts_android15_app_id(self) -> None:
+        parsed = parse_package_metadata(
+            "com.kernel.ai.debug\nappId=10775\nversionCode=1 versionName=1",
+            "com.kernel.ai.debug",
+        )
+        self.assertEqual(parsed["uid"].value, 10775)
+
 
 class BatterystatsParsingTest(unittest.TestCase):
     """Hierarchical UID block parsing with real-device fixture excerpts."""
