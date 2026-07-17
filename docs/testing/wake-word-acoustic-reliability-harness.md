@@ -3,571 +3,594 @@
 **Issue:** #1403  
 **Parent investigation:** #1402  
 **Related optimisation work:** #1395, #1398, #1399  
-**Status:** Proposed design; physical source-to-target feasibility check still required before implementation slices are finalised.
+**Status:** Design approved; implementation and one short physical source-to-target feasibility session remain outstanding.
 
-## 1. Decision summary
+## 1. Purpose
 
-Use a **host-controlled Android source device** to play repeatable acoustic fixtures into the real microphone of a separate target device.
+This document defines the durable architecture for unattended, repeatable acoustic wake-word reliability testing across the S21 and S23 Ultra.
 
-The selected permanent source mechanism is a small component compiled only into the Jandal **debug** build:
-
-- source location: `app/src/debug/`;
-- invocation: explicit ADB broadcast to a debug-only receiver;
-- playback: platform `MediaPlayer` reading an app-private WAV through a file descriptor;
-- evidence: machine-readable source result plus a narrow `AcousticStimulus` debug log;
-- volume: record, set to a calibrated media-stream index, and restore exactly;
-- fixtures: private natural-voice WAVs are primary; TTS-generated WAVs are supplementary;
-- release isolation: no source component, manifest entry, resource, action or fixture may appear in release APK/AAB output.
-
-Do **not** rely on a system media player, Voice Recorder playback, VLC, mpv, Termux, Media3/ExoPlayer, or live TTS as the permanent runner dependency.
-
-The source helper only solves stimulus delivery. A later host-side runner must still schedule trials, preserve target idle, collect target evidence after each trial, classify failures, sanitise reports and restore state.
-
-## 2. Why this is needed
-
-The remaining #1402 concern appears only after an idle period. Requiring an operator to return every 15–30 minutes to speak a wake phrase is slow, inconsistent and unsuitable for repeated launch validation.
-
-The harness must reduce operator effort to one setup and calibration checkpoint while preserving the real product path on the target:
+The harness must exercise the real target-device path:
 
 ```text
-speaker on source Android device
+source speaker
   -> room acoustics
   -> target microphone / AudioRecord
-  -> RMS silence gate
-  -> ONNX mel, embedding and classifier stages
-  -> wake activation callback
-  -> assistant session / acknowledgement cue
+  -> silence gate
+  -> ONNX wake pipeline
+  -> wake activation
+  -> assistant session
+  -> acknowledgement cue
   -> STT handoff or timeout
   -> detector re-arm
 ```
 
-Direct PCM fixture injection remains valuable for deterministic model and silence-transition testing, but it bypasses the microphone, audio routing, service and cue/handoff path. It is complementary rather than a replacement for this acoustic harness.
+Direct PCM injection is complementary deterministic coverage for #1398/#1399. It is not a substitute for the physical acoustic path required by #1402.
 
-## 3. Constraints and design principles
+## 2. Approved decisions
 
-1. **One operator checkpoint, not one per trial.**
-2. **S21 is the primary target.** The S23 Ultra is the normal source and a smaller comparison target.
-3. **No production behaviour changes.** Do not alter thresholds, models, provider policy, silence gating, cue behaviour or service lifecycle to make the harness work.
-4. **Target idle must remain credible.** Do not poll or stream logcat from the target during the configured idle interval.
-5. **Every source playback must be proven.** A missing target activation is uninterpretable when the source event is unknown.
-6. **Missing target evidence is inconclusive, not zero.**
-7. **Raw voice and device evidence are private.** Public output is sanitised and alias-based.
-8. **Release exclusion is a build gate, not an assumption.**
-9. **Use the smallest sufficient playback implementation.** One local WAV does not require a streaming framework or full media application.
-10. **Separate detector reliability from command timing.** Wake-only trials are the primary recall oracle; wake-plus-command trials are a smaller handoff suite.
+1. **Fixture sources:** one fresh private natural recording of only “Hey Jandal” is the primary #1402 oracle. Qwen is the only initial synthetic TTS source. Natural and voice-cloned material stays private and gitignored. Approved non-personal Qwen fixtures may be committed with provenance and hashes.
+2. **Source component:** implement a Jandal-specific helper in `app/src/debug`; do not create a separate test APK or generic external player.
+3. **Fixture duration:** version 1 accepts individual fixtures up to five seconds. Wake and command files remain separate where practical. A short combined file is smoke-only. Longer files fail explicitly.
+4. **Audibility preflight:** use one human-monitored, automation-assisted checkpoint. Begin at a predefined safe volume, allow only bounded operator adjustments, verify delivery and route, then freeze the setup. Wake recognition is evidence, not a prerequisite for approving the source level.
+5. **Placement and Bluetooth:** use the normal side-by-side desk placement, with phones not touching and generally orienting the source speaker toward the target microphone. Bluetooth may remain enabled, but no active external Bluetooth audio route may affect source playback, target capture or acknowledgement audio.
+6. **Wake and command trials:** wake-only natural audio is the primary matrix. A smaller subset uses a separate Qwen “What time is it?” file.
+7. **Command synchronisation:** the durable runner waits for the target’s per-trial STT-ready / `ListeningStarted` event, then applies a small cue-clearance margin before playing the command. Device-specific fixed delays are prototype fallbacks only.
+8. **Cue audit:** audit every STT entry point, the central cue mechanism and every harness audio-state mutation. `cue_requested` is not acoustic proof. Final audio attributes, stream policy and effective level require S21/S23U evidence and belong in a separate production remediation issue.
+9. **Evidence and dashboard:** integrate with the existing normalised evidence system. Add explicit valid pass, valid failure and invalid-attempt semantics, plus wake-specific dashboard views.
+10. **Frozen matrix:** use the valid-trial counts in §15. Invalid attempts stay visible and may be repeated only to complete the required valid count. Never retry a valid failure away.
 
-## 4. Research findings and option decision
+## 3. Design principles
 
-### 4.1 Platform `MediaPlayer` with a fixed WAV — selected
+- One deliberate operator checkpoint, not one interaction per trial.
+- S21 is the launch-blocking primary target; S23U is normally the source and a smaller comparison target.
+- No threshold, model, provider, silence-gate or production service changes may be made to make the harness pass.
+- The target must not be polled or have logs streamed during an idle interval.
+- Source playback completion and exact state restoration are mandatory evidence.
+- Missing evidence is unknown, not a negative measurement.
+- Raw speech, selectors, endpoints and detailed device artifacts stay private.
+- Release exclusion is tested, not assumed.
+- Wake detection, cue audibility, STT readiness, command recognition and re-arm remain separately classifiable.
+- Diagnostic pre-fix runs and post-fix regression gates must be visibly distinct.
 
-Android `MediaPlayer` accepts local input through a file descriptor and exposes completion and error listeners. That is sufficient for short, local PCM WAV playback without adding a media framework.
+## 4. Selected source approach
 
-References:
+Use platform `MediaPlayer` in a debug-only Jandal component to replay immutable local PCM WAV fixtures.
 
-- [Android `MediaPlayer`](https://developer.android.com/reference/android/media/MediaPlayer)
-- [`setOnCompletionListener`](https://developer.android.com/reference/android/media/MediaPlayer#setOnCompletionListener(android.media.MediaPlayer.OnCompletionListener))
-
-**Strengths**
+### Why selected
 
 - exact waveform repeatability;
-- explicit prepared, started, completed and failed states;
-- no third-party runtime dependency;
-- supports app-private files through a file descriptor;
+- natural and synthetic fixtures use the same path;
+- prepared, started, completed and error callbacks;
+- no external player or automation dependency;
+- app-private file-descriptor access;
 - small implementation surface;
-- easy to isolate to `src/debug`;
-- supports natural and pre-generated TTS WAVs through the same path.
+- direct volume, route, focus and cleanup ownership;
+- strong debug/release separation.
 
-**Risks and mitigations**
+### Rejected as permanent dependencies
 
-- global media volume affects acoustic level: capture and restore the exact stream index;
-- source process could be killed: use a short explicit broadcast with `goAsync()` and bounded playback; validate on both Samsung devices;
-- exported test entry point: compile only in debug, require an explicit component, accept allowlisted fixture IDs rather than arbitrary paths, and prove absence from release output;
-- OEM audio differences: calibration and source metadata are part of every run.
+- **Live Android TTS:** device-engine variability and weak natural-speech validity. Synthesis-to-file remains supplementary.
+- **System or installed media player:** handler, UI, queue, lock-screen, focus and completion behaviour are not owned by the harness.
+- **Voice Recorder playback:** suitable for fixture creation only.
+- **Termux / Termux:API:** acceptable for a disposable topology proof when already installed, but excessive installation and maintenance burden as a required dependency.
+- **VLC or mpv:** full external media applications without a sufficiently narrow per-trial contract.
+- **Media3/ExoPlayer:** unnecessary for one short local WAV unless platform playback later proves insufficient.
 
-### 4.2 Native Android TTS — supplementary only
-
-Android TTS can report utterance progress and can synthesize speech to a file. The repository already uses `TextToSpeech` with progress callbacks in `AndroidTextToSpeechController`, proving device support for the API.
-
-References:
-
-- [Android `TextToSpeech`](https://developer.android.com/reference/android/speech/tts/TextToSpeech)
-- [`synthesizeToFile`](https://developer.android.com/reference/android/speech/tts/TextToSpeech#synthesizeToFile(java.lang.CharSequence,android.os.Bundle,java.io.File,java.lang.String))
-- [`setOnUtteranceProgressListener`](https://developer.android.com/reference/android/speech/tts/TextToSpeech#setOnUtteranceProgressListener(android.speech.tts.UtteranceProgressListener))
-
-**Decision**
-
-- Do not synthesize live during each reliability trial.
-- Optionally synthesize once to a WAV, record engine package, voice, locale, rate, pitch and SHA-256, then replay that immutable file through the selected player.
-- Treat TTS as supplementary coverage or orchestration validation.
-- A TTS miss is not evidence that natural user speech is broken.
-
-The helper must not reuse or change production assistant-output behaviour merely to generate a test stimulus.
-
-### 4.3 System media player / generic `ACTION_VIEW` — rejected
-
-A generic media intent delegates to whichever application handles the MIME type. The harness would not reliably own:
-
-- selected handler;
-- playback start and completion;
-- queue state;
-- previous media state;
-- lock-screen or UI behaviour;
-- audio focus;
-- app-update stability;
-- cleanup after cancellation.
-
-This may be acceptable for a one-off manual sanity check, but not as an evidentiary unattended runner.
-
-### 4.4 Voice Recorder — fixture creation only
-
-Samsung Voice Recorder or another recorder may be used to capture the original private phrase. It is not selected for automated playback because it is UI-driven and provides no stable host completion contract.
-
-Raw recorder output must be converted and validated on the host before it becomes a fixture.
-
-### 4.5 Termux and Termux:API — useful disposable proof, rejected permanently
-
-Termux:API exposes media playback and TTS commands. `termux-media-player` can play one local file and report playback information; `termux-tts-speak` supports engine, locale, pitch, rate and stream selection.
-
-References:
-
-- [Termux:API repository](https://github.com/termux/termux-api)
-- [`termux-media-player`](https://github.com/termux/termux-api-package/blob/master/scripts/termux-media-player.in)
-- [`termux-tts-speak`](https://github.com/termux/termux-api-package/blob/master/scripts/termux-tts-speak.in)
-
-**Why it is not the permanent dependency**
-
-- requires Termux plus its API add-on from compatible signing sources;
-- introduces installation, permission and package-maintenance steps unrelated to Jandal;
-- adds a large external environment for a tiny playback requirement;
-- Termux documents Android process-lifetime caveats and is seeking Android application maintainers;
-- trial IDs, exact restoration and result schema would still require custom wrapping.
-
-Termux remains an optional no-code topology check when already installed. The project should not require the operator to install it solely for this harness.
-
-### 4.6 VLC, mpv and other open-source player applications — rejected
-
-VLC and mpv-android are capable players, but they are full applications intended for broad media use. Invoking an external app does not automatically provide a stable per-trial completion and cleanup contract. VLC also brings a substantially larger native media stack; mpv-android explicitly states that the application is not an importable Android library.
-
-References:
-
-- [VLC for Android](https://github.com/videolan/vlc-android)
-- [mpv-android](https://github.com/mpv-android/mpv-android)
-
-They provide no advantage over platform playback for a short local WAV.
-
-### 4.7 Media3 / ExoPlayer — rejected for the initial implementation
-
-Media3 adds streaming protocols, renderers, buffering, playlists and a broader player abstraction. Those are useful for a media application but are unnecessary for one local short WAV.
-
-Reference: [Media3 ExoPlayer](https://developer.android.com/media/media3/exoplayer)
-
-Reconsider only when the platform implementation demonstrates a concrete unsupported requirement.
-
-## 5. Decision matrix
-
-| Criterion | Live native TTS | System / installed player | Termux / open-source app | Debug platform player |
-|---|---|---|---|---|
-| Exact repeatability | Low | Medium with fixed WAV | High with fixed WAV | **High** |
-| Natural-speech validity | Low–medium | High with natural WAV | High with natural WAV | **High with natural WAV** |
-| Host automation | Requires new entry point | Low / app-specific | Medium–high | **High** |
-| Start/completion evidence | Good API callbacks | Usually weak | Medium | **Strong callbacks + result file** |
-| Volume restoration | Custom work | Weak | Wrapper required | **Owned and testable** |
-| External dependency | Platform TTS engine | Handler app | Multiple external apps | **None** |
-| Private app-file support | Custom work | Poor | Termux-private or shared file | **App-private file descriptor** |
-| Release-build isolation | Possible | Not applicable | External | **Debug source-set gate** |
-| Setup burden | Medium | Low initially, high to stabilise | High when not installed | **Low after helper install** |
-| Long-term maintenance | Medium | Low confidence | Medium–low | **High** |
-| Suitable primary release oracle | No | No | Possible but operationally weak | **Yes, with natural WAV calibration** |
-
-## 6. Selected test topology
+## 5. Test topology
 
 ```text
 Host-side Python runner
   |
   +-- ADB -> source device (normally S23U)
-  |           - Jandal debug build installed
-  |           - Listen for Hey Jandal disabled
-  |           - debug acoustic source receiver
-  |           - private app-local fixtures
+  |           - Jandal debug build
+  |           - Hey Jandal disabled
+  |           - wake service inactive
+  |           - debug acoustic source component
+  |           - app-private fixtures
   |
   +-- ADB -> target device (normally S21)
-              - current Jandal debug build
-              - Listen for Hey Jandal enabled
-              - WakeWordDiag plus focused trace events
-              - locked and screen off during idle
+              - same reviewed Jandal debug commit
+              - Hey Jandal enabled
+              - screen locked/off during idle
+              - structured debug event journal
+              - focused post-trial evidence
 ```
 
-The topology must support swapping aliases so that S21 becomes source and S23U becomes target for comparison.
+The runner must support swapping aliases for the S23U comparison matrix.
 
 ### Source self-activation prevention
 
-Before a run, the host must verify on the source:
+Before every run, verify that the source:
 
-- **Listen for Hey Jandal** is disabled;
-- the wake-word service is inactive;
-- no assistant voice session is active;
-- media output route is the built-in speaker unless the run explicitly records another route.
+- has Hey Jandal disabled;
+- has no active wake service or assistant voice session;
+- uses the built-in speaker;
+- has no active external Bluetooth audio route;
+- is not the same physical device as the target.
 
-A source device that can respond to its own stimulus invalidates the run.
+Any violation invalidates the run.
 
-## 7. Debug-only acoustic source design
+## 6. Debug-only source component
 
-### 7.1 Build placement
-
-Use Android's build-type source sets:
+### 6.1 Placement
 
 ```text
 app/src/debug/AndroidManifest.xml
 app/src/debug/java/com/kernel/ai/debug/acoustic/AcousticStimulusReceiver.kt
 ```
 
-Android Gradle merges `src/debug` only into debug variants. The main app already has a distinct `com.kernel.ai.debug` application ID.
+Use the existing debug application ID. Do not introduce a standalone APK.
 
-Reference: [Configure Android build variants and source sets](https://developer.android.com/build/build-variants)
+### 6.2 Invocation
 
-### 7.2 Invocation contract
+The host invokes an explicit debug receiver with:
 
-Invoke an explicit receiver component from ADB. The exact action is internal to the harness, for example:
+- `trial_id`: opaque host-generated identifier;
+- `fixture_id`: allowlisted ID, never an arbitrary path;
+- `volume_index`: bounded against the source media-stream maximum;
+- optional bounded player gain, normally `1.0`.
 
-```text
-com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS
-```
+Reject malformed IDs, unknown fixtures, traversal, arbitrary paths, missing/empty/unsupported audio, files over five seconds, unsafe volume values and overlapping playback.
 
-Required extras:
+### 6.3 Lifecycle
 
-- `trial_id` — host-generated opaque identifier;
-- `fixture_id` — allowlisted filename stem, never an arbitrary path;
-- `volume_index` — validated against the source stream maximum;
-- optional `player_gain` — bounded `0.0..1.0`, normally `1.0`.
-
-The receiver must reject:
-
-- missing or malformed trial IDs;
-- traversal characters or arbitrary paths;
-- unknown fixture IDs;
-- concurrent playback;
-- files that are absent, empty, too long or not in the accepted WAV format;
-- unsafe volume values.
-
-### 7.3 Playback lifecycle
-
-1. Use `goAsync()` to hold the explicit broadcast only for the bounded short playback.
-2. Record source wall-clock and monotonic timestamps.
-3. Resolve an app-private fixture under a fixed directory.
-4. Validate fixture metadata and SHA-256 against the private fixture manifest.
-5. Capture current media-stream volume and route.
-6. Apply the calibrated media-stream volume.
-7. Request transient audio focus using media/speech attributes.
-8. Open the fixture through a file descriptor.
+1. Use `goAsync()` for the bounded short playback.
+2. Capture source wall-clock and monotonic timestamps.
+3. Resolve an allowlisted app-private fixture.
+4. Validate format, duration and SHA-256.
+5. Snapshot media volume, route, ringer/DND-relevant state and audio focus context.
+6. Apply the approved source volume.
+7. Request transient focus with explicit playback attributes.
+8. Open the WAV by file descriptor.
 9. Prepare and start `MediaPlayer`.
-10. Emit structured `prepared` and `started` events.
-11. On completion or error, release the player, abandon focus and restore the exact original volume.
-12. Verify restoration.
-13. Write a machine-readable private result and emit one final structured event.
-14. Complete the pending broadcast result.
+10. Emit structured prepared and started events.
+11. On completion, error or timeout, release the player and abandon focus.
+12. Restore the exact original audio state.
+13. Verify restoration.
+14. Write a private machine-readable result and final event.
+15. Finish the pending broadcast result.
 
-Playback must have a hard timeout shorter than the broadcast execution allowance. The initial fixture limit should be five seconds. Wake-plus-command should therefore use separate short files or a deliberately bounded combined file.
+Longer fixtures must return an explicit result such as `fixture_duration_not_supported`. Future long-form or multi-round testing should use a more durable debug-only component rather than extending this receiver contract.
 
-If Samsung firmware proves the asynchronous receiver lifecycle unreliable, the implementation issue may substitute a debug-only foreground service while preserving the same host contract and result schema. That is a fallback, not the initial design.
+A debug-only foreground service is a fallback only if device evidence proves the receiver lifecycle unreliable.
 
-### 7.4 Source evidence
-
-Use a dedicated tag such as `AcousticStimulus`, enabled only in debug builds. Do not use broad `KernelAI` debug logging.
+### 6.4 Source evidence
 
 Record:
 
-- trial ID;
-- fixture ID and SHA-256;
+- trial and fixture IDs;
+- fixture SHA-256 and duration;
 - request, prepare, start, completion and cleanup monotonic times;
-- volume before, requested, applied and restored;
-- output route summary;
-- completion status or error category;
-- player timeout;
-- overlapping-request rejection;
-- cleanup/restoration success.
+- volume before, requested, applied, maximum and restored;
+- output route before and during playback;
+- focus result;
+- completion, timeout or error category;
+- overlap rejection;
+- cleanup and exact-restoration status.
 
-The same fields must be available in a private JSON result so the runner does not depend solely on logcat text parsing.
+## 7. Release-isolation gate
 
-## 8. Stimulus strategy
+Automated tests must prove:
 
-### 8.1 Primary fixtures: natural voice WAV
+- the debug manifest contains the explicit source component;
+- the release merged manifest contains no receiver, action or helper class;
+- release APK and AAB contents contain no helper code or fixtures;
+- only the debug package accepts the explicit action;
+- the helper accepts only app-private allowlisted fixture IDs;
+- private fixtures are never packaged in any variant;
+- release behaviour and production wake configuration are unchanged.
 
-Use a small private fixture set rather than one recording:
+Release-isolation failure blocks the source implementation.
 
-1. normal natural **“Hey Jandal”**;
-2. faster onset;
-3. lower-amplitude derivative of the normal fixture;
-4. optional second natural take;
-5. negative speech / near phrase;
-6. silence-only control.
+## 8. Fixture strategy
 
-The first #1402 matrix should use the normal natural fixture as its primary oracle. Additional fixtures help explain a failure but must not be mixed together when calculating a pass rate.
+### 8.1 Initial set
 
-### 8.2 Canonical format
+Primary private fixtures:
 
-Recommended canonical fixture format:
+1. one fresh natural “Hey Jandal” recording;
+2. a digitally attenuated derivative of that recording.
+
+Initial Qwen fixtures:
+
+3. a small set of “Hey Jandal” variants;
+4. “What time is it?”;
+5. optional short combined wake-plus-command smoke file;
+6. silence control.
+
+The primary #1402 pass rate uses the same fresh natural wake fixture throughout. Additional variants diagnose sensitivity and are reported separately.
+
+Do not reuse the user’s wake-model training corpus as the primary reliability oracle. Keep Qwen voice/settings distinct from voice-cloned training material where practical. Defer Kokoro and other synthetic sources unless Qwen presents a concrete limitation or blind spot.
+
+### 8.2 Format
 
 - RIFF/WAVE;
 - linear PCM;
 - signed 16-bit little-endian;
 - mono;
 - 48 kHz;
+- maximum five seconds;
 - no embedded personal metadata;
-- maximum duration five seconds;
-- peak-normalised to a documented level, initially `-3 dBFS`;
-- attenuated variants derived digitally and recorded in manifest metadata.
+- documented peak level, initially `-3 dBFS`;
+- attenuated derivatives recorded in manifest metadata.
 
-The target still receives the fixture acoustically and performs its normal 16 kHz capture path.
+### 8.3 Privacy and provenance
 
-### 8.3 Wake-only versus command fixtures
-
-The primary reliability matrix uses **wake-only** fixtures. This avoids misclassifying a fixed command-delay failure as a wake-word miss.
-
-A smaller end-to-end suite may use:
-
-- a combined fixture containing wake phrase, calibrated silence and command; or
-- separate wake and command fixtures with a fixed calibrated delay.
-
-Version 1 must not poll the target during the idle interval or require reactive command playback. Any combined fixture must record its exact gap and must not be used as the sole detector-recall oracle.
-
-### 8.4 TTS fixtures
-
-When TTS is evaluated:
-
-- synthesize once to file;
-- record engine package/version where available;
-- record voice name, locale, pitch and rate;
-- hash the output;
-- replay through the same `MediaPlayer` path;
-- label results as synthetic;
-- do not treat synthetic failure as a product regression without natural-voice corroboration.
-
-### 8.5 Fixture privacy
-
-Private structure:
+Private layout:
 
 ```text
 scripts/private-acoustic-fixtures/<fixture-set-id>/
   manifest-private.json
   natural/
-  synthetic/
+  synthetic-private/
 ```
 
-This directory must be gitignored. Do not commit raw human speech, recorder metadata, source paths or speaker identity.
+Private natural or voice-cloned audio, speaker identity, source paths and recorder metadata must remain gitignored.
 
-Commit-safe fixture metadata may include:
+Approved non-personal Qwen files may be committed only when their manifest records:
 
-- opaque fixture ID;
-- type (`natural`, `tts`, `negative`, `silence`);
-- duration;
-- sample format;
+- fixture ID;
+- type and intended role;
+- model/voice/settings provenance;
+- duration and sample format;
 - SHA-256;
-- digital attenuation;
 - approval status.
 
-## 9. Physical setup and calibration
+## 9. Audibility preflight and physical setup
 
-Document and photograph locally, but do not publish room or identifying images.
+Use the operator’s normal adjacent-on-desk setup:
 
-Recommended initial setup:
+- devices side-by-side but not touching or stacked;
+- source speaker generally oriented toward the target microphone;
+- no obstructed speaker or microphone;
+- quiet enough to hear clipping, muffling or routing mistakes;
+- Bluetooth may remain enabled;
+- source must use its built-in speaker;
+- neither device may have an active external Bluetooth audio route affecting the test;
+- placement remains fixed after approval.
 
-- phones stationary on the same non-vibrating surface;
-- source speaker aimed toward target microphone;
-- approximately 30 cm separation, measured and recorded;
-- no case or accessory obstructing source speaker or target microphone;
-- source output route set to built-in speaker;
-- no Bluetooth audio route;
-- quiet room for the primary matrix;
-- target locked and screen off;
-- wireless ADB established before the idle interval.
+Record an approximate gap and placement notes. A mandatory 30 cm distance is not required.
 
-### Calibration procedure
+### Preflight
 
-1. Validate source and target identities with public aliases only.
-2. Verify source wake service inactive and target wake service active.
-3. Verify the fixture SHA-256 on host and source.
-4. Start at a conservative source media volume.
-5. Play the normal wake fixture three times with the target recently armed.
-6. Require three valid source completions and three target wake activations.
-7. When calibration fails, adjust physical placement first, then volume.
-8. Record the selected source volume index, maximum index, route and placement.
-9. Lock the target and begin the unattended matrix.
+1. Verify source and target identities, builds and roles.
+2. Verify source wake disabled and target wake enabled.
+3. Verify fixture hashes.
+4. Snapshot all relevant source and target audio state.
+5. Start from a conservative predefined source media-volume index, provisionally near 60% of maximum.
+6. Play the primary wake fixture in a human-monitored checkpoint.
+7. Verify source completion, route, exact restoration and target audio/gate evidence.
+8. Permit only bounded predefined operator adjustments, for example a lower level or approximately 75%.
+9. Record the approved volume index/max, route, placement, fixture hash and operator approval.
+10. Freeze the setup for the unattended matrix.
 
-Calibration trials do not count toward the post-idle result.
+Do not use open-ended volume search, binary search, repeated maximum-volume ramps or automatic level changes after a failure.
 
-The selected volume should be the lowest stable level that gives 3/3 recently-armed activations in that setup, not automatically maximum volume.
+Recognition outcomes during preflight are evidence:
+
+- audio evidence and 3/3 wake: strong control;
+- audio evidence and 1/3 or 2/3 wake: valid setup with an immediate reliability concern;
+- audio evidence and 0/3 wake: likely product/model/fixture concern, not automatic proof of insufficient volume;
+- no target audio/gate evidence: setup, route or source-level concern.
+
+Call this an **audibility preflight**, not laboratory calibration.
 
 ## 10. Preserving target idle
 
-The host must not continuously stream target logcat or poll target state during a configured idle wait.
-
 For each trial:
 
-1. Validate target state before the idle countdown.
-2. Take a target diagnostic-counter snapshot.
-3. Start the idle timer.
-4. Do not issue target ADB commands during the idle interval.
-5. Trigger playback only on the source device.
-6. Wait a fixed post-stimulus observation window.
-7. Query target state and retrieve focused logs/counter deltas after that window.
+1. Validate target state and take a boundary snapshot.
+2. Start the idle countdown.
+3. Do not poll the target or continuously stream target logs during the idle interval.
+4. Trigger wake playback on the source.
+5. For wake-only trials, observe the bounded target completion/re-arm window.
+6. For command trials, open one bounded event wait only after wake playback.
+7. Collect the complete target event snapshot after the trial.
 
-This preserves the source-to-target acoustic event as the first deliberate activity at the end of the idle interval.
+Material interaction, screen-on, reboot, service loss, charging-state violation or missing evidence marks the attempt invalid rather than failed.
 
-The reliability runner is not a battery benchmark, but it should still record material target interaction, screen-on, charging, service loss, reboot and ADB outage so invalid trials are not treated as recall failures.
+## 11. Target structured event journal
 
-## 11. Target observability requirements
+`WakeWordDiag` cumulative summaries are too coarse for individual trials. Add a debug-only bounded event journal using monotonic timestamps and sequence numbers.
 
-`WakeWordDiag` cumulative summaries are valuable for run-level cadence but are too coarse for a single acoustic attempt. A separate implementation slice should audit existing logs and add only missing debug-gated trace events.
+Required events or equivalent evidence:
 
-Required target events or equivalent evidence:
-
-- detector generation/start identifier;
+- detector generation started;
 - silence gate entered;
-- first voiced frame after gated silence;
+- first voiced frame after silence;
 - Stage 2 resumed;
-- Stage 3 became ready after embedding-ring fill;
-- high-confidence or verified activation;
-- wake callback invoked;
-- assistant/voice session started;
-- acknowledgement cue requested;
-- cue playback started/completed/error, where the playback layer exposes it;
-- STT capture started;
-- STT result/timeout/error category without publishing private transcript content by default;
-- session completed/cancelled;
-- detector re-armed with a new generation identifier;
-- service loss or detector error.
+- Stage 3 ready after embedding history fill;
+- activation candidate and verified activation;
+- wake callback;
+- voice/assistant session started;
+- STT start requested;
+- STT ready / `ListeningStarted`;
+- cue requested;
+- cue playback started/completed/error where available;
+- STT speech/partial/final/error without publishing transcript by default;
+- command routing result for command trials;
+- session completion/cancellation;
+- detector re-armed with a new generation;
+- service or detector error.
 
-These events must be:
+Events must be structured, low-volume, debug-gated, monotonic and free of private transcript, path, account, selector and endpoint data.
 
-- debug-gated;
-- low-volume;
-- structured for reliable parsing;
-- free of transcript, account, path, selector and endpoint data;
-- based on monotonic time as well as ordinary log timestamp where practical.
+### Durable synchronisation
 
-The host cannot place a trial ID into acoustic audio. Correlation therefore relies on one stimulus at a time, an isolated observation window, source monotonic timing and target clock-offset measurement.
+After source wake playback completes, the host opens one bounded wait for `STT_READY` / `ListeningStarted`. Once received, it waits the approved small cue-clearance margin and triggers the separate command fixture.
 
-## 12. Trial model
+Filtered `logcat` or bounded polling is allowed only for the feasibility prototype. The permanent machine contract is event-driven, with the journal retained for evidence and late-subscriber recovery.
 
-### 12.1 Timing classes
+## 12. Wake-only and command coverage
 
-**Silence-transition tests** exercise the RMS gate and inference readiness:
+### Wake-only
 
-- 10 seconds;
-- 30 seconds;
-- 2 minutes.
+The main matrix plays only the fresh natural “Hey Jandal” fixture. A wake-only trial can still validate:
 
-**Extended-idle tests** exercise service survival, Doze, audio routing and re-arm:
+- acoustic/gate transition;
+- wake classifier activation;
+- callback and session start;
+- STT readiness;
+- cue request/playback evidence;
+- timeout/session end;
+- detector re-arm.
 
-- 15 minutes;
-- 30 minutes;
-- optional longer unattended interval only when needed.
+### Command subset
 
-Do not require a 30-minute delay to debug every gate transition.
+Selected trials then play a separate Qwen “What time is it?” fixture after the actual per-trial target readiness event and cue-clearance margin.
 
-### 12.2 Initial matrix
+Record:
 
-| Target | Idle period | Trials | Primary purpose |
-|---|---:|---:|---|
-| S21 | 10 s | 5 | rapid repeated gate transitions |
-| S21 | 30 s | 5 | sustained silence transition |
-| S21 | 2 min | 5 | longer quiet / re-arm |
-| S21 | 15 min | 2 | Android idle and service reliability |
-| S21 | 30 min | 2 | reproduce reported post-idle condition |
-| S23U | 2 min | 3 | device comparison |
-| S23U | 30 min | 2 | extended-idle comparison |
+- activation to STT request;
+- STT request to ready;
+- ready to cue;
+- ready to command playback;
+- command playback to speech/partial/final transcript;
+- command routing result.
 
-Run the smallest failing subset during harness development. The complete matrix is an execution issue after the source and diagnostics are reviewed.
+A bounded device-specific fixed delay may be used only during the initial feasibility prototype and must be recorded separately for S21 and S23U. It is not the final architecture.
 
-### 12.3 Trial JSON
+## 13. Start-listening cue audit dependency
 
-Suggested sanitised schema:
+The current wake and foreground STT flows may use different stream semantics. The reliability harness must not assume that `cue_requested` proves an audible cue.
+
+Create a separate focused production issue to:
+
+- inventory every STT entry point, including wake, Actions, Chat one-shot, back-and-forth, slot filling, retries, widgets/side-key and alarm/timer stop-command listening;
+- verify every cue is tied to actual recogniser readiness;
+- audit the playback mechanism, tone/asset, duration, stream or `AudioAttributes`, focus, route, DND/ringer interaction and effective volume;
+- audit all harnesses for alarm/media/ring/DND/route mutation;
+- require transactional snapshot, exact restoration and verification in `finally`;
+- determine one central context-aware cue policy;
+- test the final policy on S21 and S23U;
+- define which monitored acoustic checks are required for #1402 evidence.
+
+Do not silently raise user volume in production. Do not choose the final stream or level without device evidence.
+
+For version 1 evidence:
+
+- collect app-level cue events, selected policy, route and effective stream/volume on every trial;
+- require human acoustic confirmation during audibility preflight and selected S21 post-idle trials;
+- add automated source-phone microphone cue detection only if the symptom remains unclassifiable.
+
+## 14. Evidence contract
+
+Integrate with the existing normalised test-evidence pipeline and `test-results` dashboard.
+
+Emit one record per **target** device. Represent the source/stimulus device in run context, not as the primary evidence device.
+
+Suggested suite:
+
+```text
+wake_word_acoustic_reliability
+```
+
+### 14.1 Run context
+
+Include:
+
+- `run_kind`: `diagnostic_pre_fix` or `regression_post_fix`;
+- `gate_mode`: `diagnostic` or `release_gate`;
+- matrix ID/version;
+- target and source aliases;
+- target/source commits and helper version;
+- fixture-set ID and hashes;
+- audibility-preflight approval;
+- placement notes;
+- approved source volume index/max and route;
+- cue-policy version;
+- expected valid-trial counts;
+- monitored acoustic-check completion.
+
+### 14.2 Attempt status
+
+Extend the evidence schema and consumers to support:
+
+- `passed`: valid product success;
+- `failed`: valid product failure;
+- `invalid`: setup, source, environment or evidence failure.
+
+Invalid attempts remain visible with an `invalid_reason`, but are excluded from product reliability pass-rate calculation. They may be repeated only to complete the required valid matrix count.
+
+Suggested summary:
 
 ```json
 {
-  "schema_version": 1,
-  "run_id": "opaque-run-id",
-  "trial_id": "opaque-trial-id",
-  "source_alias": "s23u",
-  "target_alias": "s21",
-  "fixture": {
-    "fixture_id": "natural-normal-01",
-    "kind": "natural_wav",
-    "sha256": "...",
-    "duration_ms": 1210
-  },
-  "idle_seconds": 1800,
-  "source": {
-    "status": "completed",
-    "requested_host_time": "...",
-    "started_elapsed_ms": 0,
-    "completed_elapsed_ms": 0,
-    "volume_before": 0,
-    "volume_applied": 0,
-    "volume_max": 0,
-    "volume_restored": true,
-    "route": "built_in_speaker"
-  },
-  "target": {
-    "pre_service_state": "active",
-    "post_service_state": "active",
-    "screen_remained_off": true,
-    "reboot_detected": false,
-    "events": [],
-    "diagnostic_delta": {}
-  },
-  "classification": "pass",
-  "validity": "valid",
-  "warnings": []
+  "total_attempts": 22,
+  "valid": 20,
+  "passed": 18,
+  "failed": 2,
+  "invalid": 2,
+  "pass_rate": 0.9
 }
 ```
 
-Raw records may include extra detail, but public records must use aliases and sanitised values.
+### 14.3 Per-attempt case
 
-## 13. Classification rules
+Each attempted trial records:
 
-Evaluate validity before product classification.
+- trial ID;
+- idle interval;
+- `wake_only` or `wake_plus_command`;
+- fixture ID/hash;
+- source completion and restoration;
+- target pre/post state;
+- status, failure classification or invalid reason;
+- monotonic event offsets and derived latencies;
+- audio/gate, activation, callback, STT, cue, command and re-arm evidence;
+- sanitised artifact references;
+- warnings and operator annotations where required.
+
+Use offsets from the start of the trial rather than assuming host and Android wall clocks are directly comparable.
+
+### 14.4 Completeness gate
+
+A run is not publishable evidence unless:
+
+- every expected matrix position has the required number of valid trials;
+- every attempt is passed, failed or explicitly invalid;
+- every invalid attempt has a reason;
+- every valid failure is classified or explicitly `unclassified`;
+- commit, helper version and fixture hashes are present;
+- preflight, route and volume evidence are present;
+- summaries reconcile with cases;
+- cleanup and exact restoration are verified;
+- public output passes privacy validation.
+
+## 15. Frozen valid-trial matrix
+
+Counts below are required **valid** trials. Invalid attempts remain in evidence and may be repeated to complete the count.
+
+### S21 primary launch gate
+
+| Idle interval | Wake-only | Wake + command |
+|---|---:|---:|
+| Recently armed / 10 seconds | 5 | 3 |
+| 30 seconds | 5 | 0 |
+| 2 minutes | 5 | 3 |
+| 15 minutes | 2 | 0 |
+| 30 minutes | 2 | 2 |
+
+### S23U comparison
+
+| Idle interval | Wake-only | Wake + command |
+|---|---:|---:|
+| 2 minutes | 3 | 2 |
+| 30 minutes | 2 | 1 |
+
+The S21 matrix is launch blocking. S23U is comparison evidence unless it reveals the same product defect.
+
+## 16. Failure classification
+
+Evaluate validity first.
 
 | Evidence | Classification |
 |---|---|
-| Source did not start, complete or restore state | `source_stimulus_failure` |
-| Target service stopped, rebooted, screen interaction occurred or evidence window is untrustworthy | `invalid_or_inconclusive` |
-| Source succeeded but target saw no voiced transition or usable audio-frame evidence | `acoustic_or_gate_miss` |
-| Gate opened and Stage 2/3 became ready but classifier did not activate | `classifier_model_miss` |
-| Activation occurred but wake callback or assistant session did not start | `activation_handoff_failure` |
-| Session started but cue request/playback failed | `cue_audio_failure` |
-| Cue/session succeeded but STT did not start or complete in an end-to-end trial | `stt_capture_failure` |
+| Source playback, route, hash or restoration failure | invalid: `source_stimulus_failure` |
+| Target screen/state/service/reboot/ADB/evidence boundary invalid | invalid: `device_environment_error` |
+| Source succeeded but target saw no credible audio/voiced transition | `acoustic_or_gate_miss` |
+| Gate opened and inference became ready but no activation | `classifier_model_miss` |
+| Activation occurred but callback/session did not start | `activation_handoff_failure` |
+| Session started but STT never became ready | `stt_readiness_failure` |
+| Cue request/playback policy failed | `cue_audio_failure` |
+| Cue evidence healthy but audibility not established | `cue_audibility_unconfirmed` |
+| Command audio played but speech/transcript/routing failed | `command_capture_or_routing_failure` |
 | Session ended but detector did not re-arm | `service_rearm_failure` |
-| Required evidence is absent or ambiguous | `inconclusive` |
-| Expected wake path completed and detector re-armed | `pass` |
+| Required evidence remains ambiguous | `unclassified` |
+| Expected path completed and re-armed | `pass` |
 
-A successful source event plus no target activation is not automatically a model miss. Gate transition and classifier-readiness evidence are required to separate acoustic/gating loss from classifier loss.
+A valid failure is never repeated until it becomes a pass. A rerun is allowed only for a separately recorded invalid attempt.
 
-Actual cue audibility is harder than cue-request evidence. Version 1 records target cue events, route and stream state. When the original inaudible-cue symptom remains after that evidence is healthy, create a focused observer-audio capture slice rather than adding source microphone recording to the first player implementation.
+## 17. Dashboard presentation
 
-## 14. Host runner responsibilities
+Extend the existing dashboard rather than creating a standalone report.
 
-A later Python runner should follow existing repository patterns in `scripts/` and the privacy/abort principles used by the battery harness.
+### Run summary
 
-It must:
+Show:
 
-- map private ADB selectors to `s21` and `s23u` aliases;
-- verify source and target build identities;
+- Diagnostic or Regression Gate badge;
+- target and source device;
+- commit and matrix version;
+- valid passed/failed and invalid attempts;
+- audibility-preflight status;
+- monitored cue-audibility status;
+- overall classification.
+
+A successful pre-fix reproduction must not look like a failed release gate.
+
+### Matrix view
+
+Group by idle interval and trial type, showing valid pass/required count, failures and invalid attempts.
+
+### Failure view
+
+Show counts for:
+
+- source/setup invalid;
+- acoustic/gate miss;
+- classifier miss;
+- activation/handoff;
+- STT readiness;
+- cue policy or audibility;
+- command recognition/routing;
+- re-arm;
+- unclassified.
+
+### Timing view
+
+For each device, show median and min/max for:
+
+- activation to STT request;
+- STT request to ready;
+- ready to cue;
+- ready to command playback;
+- command playback to speech/transcript.
+
+Small trial counts do not justify p95 claims.
+
+### Trial drill-down
+
+Expose the sanitised event sequence and artifact links for each attempt. Reuse existing JSON, screenshot, video and log artifact-link conventions.
+
+## 18. Post-fix acceptance for #1402
+
+A post-remediation S21 confirmation run requires:
+
+- the entire frozen S21 matrix completed with valid evidence;
+- zero valid S21 failures;
+- zero unclassified outcomes;
+- every command trial recognises and routes “What time is it?”;
+- cue behaviour meets the agreed app-level and monitored acoustic evidence standard;
+- STT readiness and detector re-arm verified;
+- fixed placement, volume and route throughout the matrix;
+- one complete independent confirmation run after the fix, not piecemeal retries.
+
+This is targeted regression evidence, not proof of universally perfect wake-word reliability.
+
+## 19. Host runner responsibilities
+
+The runner must:
+
+- map private selectors to public aliases;
+- verify device identities, builds and roles;
 - verify source wake disabled and target wake enabled;
 - verify helper version and fixture hashes;
-- save and restore diagnostic-tag values transactionally;
-- run one operator setup/calibration checkpoint;
-- preserve target idle without polling;
+- transactionally manage diagnostic settings and all mutated audio state;
+- run one audibility-preflight checkpoint;
+- freeze placement, volume and route;
+- preserve target idle;
 - schedule source playback;
-- capture source result and target post-window evidence;
-- abort or mark individual trials invalid on state failures;
+- perform bounded event-driven command synchronisation;
+- classify each valid failure or invalid attempt;
 - preserve private raw evidence;
-- emit sanitised JSON and Markdown;
-- provide smoke and dry-run modes;
-- never post GitHub output automatically;
-- restore source volume and target diagnostic properties even after cancellation.
+- emit normalised sanitised evidence and Markdown;
+- support dry-run, smoke and cancellation;
+- never post to GitHub automatically;
+- restore exact state after success, failure, cancellation or ADB loss;
+- fail evidence publication when cleanup verification fails.
 
-Suggested private layout:
+Private layout:
 
 ```text
 scripts/private-acoustic-runs/<run-id>/
@@ -576,181 +599,148 @@ scripts/private-acoustic-runs/<run-id>/
   trials/<trial-id>/
     source/
     target/
-  sanitized/run-summary.json
-  sanitized/run-summary.md
+  sanitized/
+    evidence-<target>.json
+    run-summary.md
 ```
 
-## 15. Failure handling and cleanup
+## 20. Physical feasibility gate
 
-### Abort the run or trial when
+Desk research cannot prove the acoustic topology. Before closing #1403, run one short human-assisted session:
 
-- a device identity is wrong or ambiguous;
-- source and target resolve to the same device;
-- source wake listening is active;
-- target wake listening or service is inactive at required boundaries;
-- source playback or volume restoration fails;
-- target reboot or app crash occurs;
-- target screen turns on or material interaction occurs during a strict idle trial;
-- source or target ADB is unavailable at an evidence boundary;
-- fixture hash differs;
-- output sanitisation fails;
-- diagnostic cleanup fails.
+1. use the minimal debug source prototype or another temporary local playback path;
+2. use the fresh private natural wake file, its attenuated derivative and the initial Qwen files;
+3. use S23U as source and S21 as target in the approved desk placement;
+4. complete the audibility preflight;
+5. run three recently armed, three 30-second and three 2-minute natural wake trials;
+6. run a smaller Qwen wake sample to classify synthetic suitability;
+7. run at least one command handoff using a temporary measured per-device delay if structured readiness is not yet available;
+8. record source completion, target evidence, readiness delay and setup friction;
+9. do not use this small session as the final #1402 regression result.
 
-### Cleanup order
+Feasibility may refine implementation details, but it must not reopen approved decisions without concrete device evidence.
 
-1. stop any active source player;
-2. restore exact source media volume;
-3. abandon source audio focus;
-4. restore target and source diagnostic properties;
-5. preserve already collected private evidence without broad re-querying;
-6. write a sanitised aborted report;
-7. exit nonzero.
+## 21. Implementation slices and dependencies
 
-No cleanup path may uninstall Jandal, clear app data, delete model downloads or alter wake thresholds.
+### Slice A — audit and standardise the start-listening cue
 
-## 16. Release isolation gate
+**Title:** Audit and standardise the start-listening cue across all STT entry points
 
-The debug source mechanism is accepted only when automated checks prove:
+Scope:
 
-- the debug manifest contains the explicit receiver;
-- the release merged manifest does not contain the receiver, action or class;
-- release APK/AAB contents do not contain the debug class, resources or private fixtures;
-- `com.kernel.ai` release cannot receive the test action;
-- `com.kernel.ai.debug` is the only Jandal package that can expose it;
-- the helper accepts only app-private allowlisted fixture IDs;
-- no raw fixture is packaged in any variant.
+- full production cue and STT-entry inventory;
+- harness audio-state mutation audit;
+- central context-aware cue policy;
+- S21/S23U device evidence;
+- exact state restoration requirements;
+- monitored audibility standard for #1402.
 
-The application already uses a separate debug application ID and Android source sets provide a build-type-specific manifest and code location. The implementation PR must add an explicit release-exclusion regression test or package audit.
+Dependency: starts immediately; its conclusions are required before final #1402 cue classification.
 
-## 17. Relationship to silence replay optimisation
+### Slice B — controlled acoustic source
 
-### #1398
-
-The acoustic harness validates the real-world requirements of the planned PCM pre-roll design:
-
-- the beginning of the phrase is not lost after silence;
-- no transition frames are dropped;
-- activation remains reliable after extended silence;
-- latency and re-arm remain acceptable.
-
-The harness does not implement PCM replay and must not close #1398.
-
-When #1402 produces a reproducible silence-transition/readiness defect, the relevant portion of #1398 may become launch-critical or a narrower fix may be created.
-
-### #1399
-
-The same fixture and runner structure can validate RMS threshold, hangover, hysteresis and noise-floor candidates. Gate tuning must use deterministic fixtures and compare recall/false-positive behaviour, not battery alone.
-
-### Direct PCM injection
-
-A future test seam should separate audio-frame acquisition from wake inference and feed privacy-safe PCM fixtures directly. That enables fast, deterministic model comparisons and ring/replay tests. It remains a separate optional child under #1398/#1399 because the current #1402 path must still exercise real microphone, routing and service behaviour.
-
-## 18. Physical feasibility gate still required
-
-Desk research can select the architecture, but it cannot prove that an S23U speaker at a practical calibrated level reliably activates the S21 microphone and current model.
-
-Before closing #1403, run a short operator-assisted validation:
-
-1. install a minimal debug source prototype or use an already available local playback mechanism;
-2. use one private normal natural WAV and one TTS-generated WAV;
-3. position S23U as source and S21 as target;
-4. run three recently-armed, three 30-second and three 2-minute natural trials;
-5. run the same reduced matrix with TTS only to classify its suitability;
-6. record source completion, target activation and setup friction;
-7. do not claim the final #1402 reliability result from this small matrix.
-
-This is one short setup session. It does not require the operator to wait beside the phones for the future extended-idle matrix.
-
-## 19. Proposed implementation slices
-
-Create these only after this design and physical feasibility result are reviewed.
-
-### Slice A — controlled acoustic source
-
-**Proposed title:** Build debug-only controlled acoustic stimulus source for wake-word testing
+**Title:** Build debug-only controlled acoustic stimulus source for wake-word testing
 
 Scope:
 
 - debug receiver and manifest;
-- app-private fixture loading and validation;
+- app-private allowlisted fixtures;
 - `MediaPlayer` lifecycle;
-- source result JSON and structured events;
-- volume/focus restoration;
-- concurrency and timeout handling;
-- release-exclusion tests;
-- source-side unit/instrumented tests.
+- source result and structured events;
+- volume, route and focus restoration;
+- concurrency, timeout and format validation;
+- release-exclusion tests.
 
-Estimated size: M.
+Dependency: approved design; physical feasibility can occur during this slice.
 
-### Slice B — target attempt observability
+### Slice C — target event journal and observability
 
-**Proposed title:** Add structured debug events for post-silence wake, cue, handoff and re-arm
-
-Scope:
-
-- audit existing evidence first;
-- add only missing low-volume events;
-- preserve production hot-loop behaviour;
-- sanitised parser fixtures and tests;
-- no threshold, provider or model changes.
-
-Estimated size: M.
-
-### Slice C — unattended paired runner
-
-**Proposed title:** Build unattended paired acoustic wake-word reliability runner
+**Title:** Add structured target event journal for wake, STT, cue, handoff and re-arm
 
 Scope:
 
-- host scheduling and state validation;
-- calibration workflow;
+- audit existing diagnostics;
+- add only missing debug-gated events;
+- bounded event-wait interface and journal snapshot;
+- parser fixtures and tests;
+- no production thresholds, models or hot-loop logging changes.
+
+Dependency: approved design. Can proceed in parallel with Slice B after event vocabulary review.
+
+### Slice D — evidence schema and dashboard
+
+**Title:** Add acoustic wake reliability evidence and dashboard support
+
+Scope:
+
+- normalised `passed` / `failed` / `invalid` attempt semantics;
+- wake-specific run and case fields;
+- completeness validation;
+- summary and metrics updates;
+- matrix, timing, failure and drill-down dashboard views;
+- backward compatibility for existing evidence.
+
+Dependency: approved evidence contract; coordinate with Slice E runner output.
+
+### Slice E — unattended paired runner
+
+**Title:** Build unattended paired acoustic wake-word reliability runner
+
+Scope:
+
+- role/state validation;
+- audibility preflight;
 - target-idle preservation;
-- trial correlation and classification;
-- private/sanitised reports;
-- dry-run, smoke and cancellation behaviour;
-- no automatic GitHub publication.
+- source orchestration;
+- event-driven command playback;
+- frozen matrix scheduling;
+- classification, cleanup and evidence generation;
+- dry-run, smoke and cancellation tests.
 
-Estimated size: L.
+Dependencies: B, C and the evidence contract from D; cue policy integration from A.
 
-### Slice D — #1402 execution
+### Slice F — execute and resolve #1402
 
-**Proposed title:** Execute unattended S21 post-idle wake reliability matrix
+**Title:** Execute the S21 post-idle acoustic wake reliability matrix
 
 Scope:
 
-- approved S21 matrix;
+- pre-fix reproduction and classification;
+- focused remediation identified by evidence;
+- full clean post-fix S21 gate;
 - smaller S23U comparison;
-- classification of every failure;
-- determine whether #1398, cue/handoff remediation or no launch fix is required;
-- update and resolve #1402.
+- dashboard evidence publication;
+- update and resolve #1402;
+- feed relevant findings into #1398/#1399.
 
-Estimated size: S–M after the harness exists.
+Dependencies: A–E complete and reviewed.
 
 ### Optional post-launch slice — direct PCM fixtures
 
-**Proposed title:** Add injectable PCM fixture source for wake-word silence and replay regression tests
+Parent under #1398/#1399, not required for the first acoustic harness.
 
-Parent: #1398/#1399, not required for the first acoustic harness.
+## 22. Consistency review
 
-## 20. Review decisions required
+The approved design has these deliberate separations:
 
-Before implementation, review and confirm:
+- The source helper delivers audio; it does not schedule the matrix or classify the target.
+- The event journal synchronises and explains target behaviour; it does not alter wake logic.
+- The cue audit changes production audio policy only when device evidence supports it.
+- The evidence/dashboard slice changes reporting semantics; it does not hide invalid attempts or failures.
+- The runner never polls during target idle and never retries valid failures away.
+- The physical feasibility session validates topology only; the frozen matrix remains the #1402 regression gate.
+- Acoustic testing remains distinct from battery measurement and direct PCM injection.
 
-1. `app/src/debug` helper versus a separate test APK. This design recommends `src/debug` for lowest setup burden and strongest direct release exclusion.
-2. natural voice fixtures remain private and are not committed;
-3. the initial primary oracle is wake-only natural WAV;
-4. TTS is supplementary and synthesized once to file;
-5. actual cue audibility capture is deferred unless target cue/route evidence cannot classify the symptom;
-6. physical feasibility passes with practical source volume and placement;
-7. the child-issue boundaries remain appropriate after the prototype.
+No unresolved architectural decision remains. Physical feasibility can refine bounded implementation details such as the safe starting source-volume index and cue-clearance margin.
 
-## 21. Sources
+## 23. Sources
 
 - [Android MediaPlayer API](https://developer.android.com/reference/android/media/MediaPlayer)
+- [Android AudioAttributes API](https://developer.android.com/reference/android/media/AudioAttributes)
+- [Android AudioDeviceInfo API](https://developer.android.com/reference/android/media/AudioDeviceInfo)
 - [Android TextToSpeech API](https://developer.android.com/reference/android/speech/tts/TextToSpeech)
 - [Android build variants and source sets](https://developer.android.com/build/build-variants)
 - [Media3 ExoPlayer overview](https://developer.android.com/media/media3/exoplayer)
 - [Termux:API](https://github.com/termux/termux-api)
-- [Termux API client scripts](https://github.com/termux/termux-api-package)
 - [VLC for Android](https://github.com/videolan/vlc-android)
-- [mpv-android](https://github.com/mpv-android/mpv-android)
+- [mpv-android](https://github.com/mpv-android)
