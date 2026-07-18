@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "approved_at": "2026-07-18T10:00:00Z",
+  "operator": "user",
+  "source_role": "s23u",
+  "target_role": "s21",
+  "fixture_set_id": "v1-fixture-set",
+  "fixture_hashes": {
+    "natural_wake": "a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890",
+    "qwen_command": "b2c3d4e5f678901abcdef1234567890abcdef1234567890abcdef1234567890"
+  },
+  "source_volume_index": 7,
+  "source_volume_max": 25,
+  "source_route": "builtin_speaker",
+  "placement_notes": "side by side, ~20cm gap",
+  "operator_approved": true
+}

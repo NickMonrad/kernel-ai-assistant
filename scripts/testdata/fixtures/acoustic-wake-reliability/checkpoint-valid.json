@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_id": "smoke-2026-07-18T10-00-00Z",
+  "run_kind": "diagnostic_pre_fix",
+  "gate_mode": "diagnostic",
+  "matrix_id": "AWVR-001",
+  "matrix_version": 1,
+  "preflight_hash": "sha256-of-preflight-manifest",
+  "completed_trials": [
+    {
+      "trial_id": "trial-001",
+      "matrix_slot": {
+        "idle_s": 10,
+        "wake_only": true
+      },
+      "status": "passed",
+      "attempt": 1
+    }
+  ],
+  "in_progress_trial": null,
+  "invalid_attempts": []
+}
