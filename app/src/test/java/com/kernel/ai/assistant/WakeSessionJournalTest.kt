@@ -77,26 +77,29 @@ class WakeSessionJournalTest {
     }
 
     @Test
-    fun `only alert command events belong to the active wake session`() {
+    fun `only matching alert command capture belongs to active wake session`() {
+        val captureSessionId = 73L
         val wakeEvents = listOf(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand),
-            VoiceInputEvent.SpeechDetected(VoiceCaptureMode.AlertCommand),
-            VoiceInputEvent.PartialTranscript(VoiceCaptureMode.AlertCommand, "partial"),
-            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "final"),
-            VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "error"),
-            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId),
+            VoiceInputEvent.SpeechDetected(VoiceCaptureMode.AlertCommand, captureSessionId),
+            VoiceInputEvent.PartialTranscript(VoiceCaptureMode.AlertCommand, "partial", captureSessionId),
+            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "final", captureSessionId),
+            VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "error", captureSessionId),
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId),
         )
         val unrelatedEvents = listOf(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command),
-            VoiceInputEvent.SpeechDetected(VoiceCaptureMode.SlotReply),
-            VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "private"),
-            VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "private"),
-            VoiceInputEvent.Error(VoiceCaptureMode.Command, "private"),
-            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.SlotReply),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId - 1),
+            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "wrong capture", captureSessionId + 1),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId),
+            VoiceInputEvent.SpeechDetected(VoiceCaptureMode.SlotReply, captureSessionId),
+            VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "private", captureSessionId),
+            VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "private", captureSessionId),
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "private", captureSessionId),
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.SlotReply, captureSessionId),
         )
 
-        assertTrue(wakeEvents.all(VoiceInputEvent::isWakeSessionEvent))
-        assertFalse(unrelatedEvents.any(VoiceInputEvent::isWakeSessionEvent))
+        assertTrue(wakeEvents.all { it.isWakeSessionEvent(captureSessionId) })
+        assertFalse(unrelatedEvents.any { it.isWakeSessionEvent(captureSessionId) })
     }
 
     private fun journal(events: MutableList<RecordedEvent>) = WakeSessionJournal(

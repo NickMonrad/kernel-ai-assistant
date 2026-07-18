@@ -108,34 +108,51 @@ Concurrent requests are rejected without mutating audio state.
 
 ## Target structured event journal
 
-The debug application (`com.kernel.ai.debug`) includes an additional receiver for
-structured diagnostics from the target device. It provides a bounded in-memory event
-journal, an event-driven bounded wait and a snapshot-since mechanism. It does not
-alter wake thresholds, models, provider selection, silence-gate semantics or
-production service behaviour.
+The debug application (`com.kernel.ai.debug`) includes a concurrent content-provider
+machine interface and a legacy read-only broadcast receiver for structured target
+diagnostics. The interface provides a bounded in-memory event journal, an event-driven
+bounded wait and a snapshot-since mechanism. It does not alter wake thresholds, models,
+provider selection, silence-gate semantics or production service behaviour.
 
-### Receiver actions
+### Provider calls
+
+Use `content call` for orchestration. Provider calls run on independent Binder threads;
+unlike ordered `am broadcast` delivery, one open wait cannot block a second wait or a
+control request, and waits are not subject to the BroadcastReceiver ANR deadline.
 
 ```sh
 # Get the current highest sequence number (0 = journal empty)
-adb shell am broadcast \
-  -n com.kernel.ai.debug/com.kernel.ai.debug.journal.TargetEventJournalReceiver \
-  -a com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE
+adb shell content call \
+  --uri content://com.kernel.ai.debug.target-event-journal \
+  --method GET_JOURNAL_SEQUENCE
 
 # Wait up to 10 seconds for an STT_READY event after sequence 5
-adb shell am broadcast \
-  -n com.kernel.ai.debug/com.kernel.ai.debug.journal.TargetEventJournalReceiver \
-  -a com.kernel.ai.debug.action.WAIT_FOR_JOURNAL_EVENT \
-  --el since_sequence 5 \
-  --es event_type STT_READY \
-  --el timeout_ms 10000
+adb shell content call \
+  --uri content://com.kernel.ai.debug.target-event-journal \
+  --method WAIT_FOR_JOURNAL_EVENT \
+  --extra request_id:s:trial-1 \
+  --extra since_sequence:l:5 \
+  --extra event_type:s:STT_READY \
+  --extra timeout_ms:l:10000
+
+# Cancel that exact wait without blocking sequence or snapshot requests
+adb shell content call \
+  --uri content://com.kernel.ai.debug.target-event-journal \
+  --method CANCEL_JOURNAL_WAIT \
+  --extra request_id:s:trial-1
 
 # Retrieve the complete snapshot since sequence 5
-adb shell am broadcast \
-  -n com.kernel.ai.debug/com.kernel.ai.debug.journal.TargetEventJournalReceiver \
-  -a com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT \
-  --el since_sequence 5
+adb shell content call \
+  --uri content://com.kernel.ai.debug.target-event-journal \
+  --method GET_JOURNAL_SNAPSHOT \
+  --extra since_sequence:l:5
 ```
+
+For backwards-compatible manual reads, `GET_JOURNAL_SEQUENCE` and
+`GET_JOURNAL_SNAPSHOT` remain available on `TargetEventJournalReceiver`.
+Wait and cancellation requests intentionally are not broadcast actions: Android
+serialises ordered shell broadcasts, so a long-lived receiver would block control
+requests and could be killed at the receiver completion deadline.
 
 ### Journal contract
 
@@ -186,16 +203,27 @@ an empty journal uses zero for both. `overflowed` remains true after eviction.
 
 ### Bounded wait contract
 
-`WAIT_FOR_JOURNAL_EVENT` provides event-driven synchronisation for the future
-paired runner. After source playback the runner opens one bounded wait for
-`STT_READY` / `ListeningStarted`. The receiver checks once synchronously, then
-enters a `wait`/`notify` loop on the journal's intrinsic lock.
+`WAIT_FOR_JOURNAL_EVENT` is event-driven and requires a stable `request_id`
+plus a canonical `event_type`. Optional `since_sequence` defaults to zero and
+must be non-negative. Optional `timeout_ms` defaults to 15,000 ms and must be
+within the inclusive 500–60,000 ms range; invalid values are rejected rather
+than clamped. Request IDs are 1–64 ASCII letters, digits, `.`, `_`, or `-` and
+must be unique among active waits.
 
-Timeouts:
-- Default: 15 seconds
-- Minimum: 500 ms
+Up to four waits execute concurrently; additional waits fail immediately with
+`endpoint_busy` rather than occupying Binder threads needed by control calls.
+Independent Binder calls keep sequence, snapshot, validation, and cancellation
+responsive while waits are open. `CANCEL_JOURNAL_WAIT` requires a known active
+`request_id`; cancellation wakes that exact wait through the journal condition
+rather than polling.
 
-Result codes: `0` = event found; `1` = timeout; `2` = error.
+Each provider result is a Bundle with `result_code` and `result_data`.
+Result codes are `0` = success/event found, `1` = timeout, `2` = deterministic
+argument/endpoint error, and `3` = cancelled. Timeouts return
+`timeout:<request_id>:<timeout_ms>ms`; successful cancellation and the cancelled
+wait both return `cancelled:<request_id>`. Stable argument errors cover missing,
+invalid, duplicate, and unknown request IDs; negative sequences; missing or
+unknown event types; and out-of-range timeouts.
 
 ### Response format
 
@@ -224,9 +252,10 @@ evidence is retrieved after the trial via `GET_JOURNAL_SNAPSHOT`.
 
 ### Release isolation
 
-The receiver, journal implementation and all debug actions are present only in
-debug builds. Production hooks call the no-op `AcousticEventRecorder` through
-`AcousticJournalBridge`; release optimisation may inline or remove that no-op path.
+The provider, read-only receiver, journal implementation and all debug actions are
+present only in debug builds. Production hooks call the no-op
+`AcousticEventRecorder` through `AcousticJournalBridge`; release optimisation may
+inline or remove that no-op path.
 
 Verify with:
 
@@ -270,5 +299,6 @@ Calls `AcousticJournalBridge.record(...)` at these points:
 ### `AcousticJournalBridge` (`core/voice/src/main/`)
 
 Thread-safe singleton bridge that connects production hooks to the debug-only
-journal. Defaults to `NoOp`. The debug `TargetEventJournalReceiver` installs the
-real journal on first invocation via `AcousticJournalBridge.install(...)`.
+journal. Defaults to `NoOp`. The debug `TargetEventJournalProvider` installs the
+real journal when the debug process creates the provider; legacy read-only receiver
+calls delegate to the same endpoint and journal.

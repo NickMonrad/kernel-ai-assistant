@@ -521,7 +521,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
@@ -549,7 +549,7 @@ class ActionsViewModelVoiceTest {
         val router = QuickIntentRouter()
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         val voiceViewModel = ActionsViewModel(
             quickIntentRouter = router,
@@ -605,7 +605,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
@@ -628,7 +628,7 @@ class ActionsViewModelVoiceTest {
     fun `partial transcript is surfaced while listening`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
@@ -678,7 +678,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
@@ -711,7 +711,7 @@ class ActionsViewModelVoiceTest {
     fun `listening stopped preserves transcript while processing`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
@@ -1026,7 +1026,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
@@ -2468,7 +2468,7 @@ class ActionsViewModelVoiceTest {
     fun `ListeningStarted event triggers start-listening cue player`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
@@ -2502,7 +2502,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text to Alice", InputMode.Voice)
         advanceUntilIdle()
@@ -2532,7 +2532,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a message to Bob", InputMode.Voice)
         advanceUntilIdle()
@@ -2629,7 +2629,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text to Carol", InputMode.Voice)
         advanceUntilIdle()
@@ -2662,7 +2662,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send an email to Dave", InputMode.Voice)
         advanceUntilIdle()
@@ -2693,7 +2693,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send an email to Eve", InputMode.Voice)
         advanceUntilIdle()
@@ -2713,7 +2713,7 @@ class ActionsViewModelVoiceTest {
     fun `idle command voice error retries once then surfaces error`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
@@ -2748,7 +2748,7 @@ class ActionsViewModelVoiceTest {
     fun `idle command retry budget resets on fresh startVoiceCommand call`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         // First session: exhaust retry budget.
         viewModel.startVoiceCommand()
@@ -2791,7 +2791,7 @@ class ActionsViewModelVoiceTest {
             )
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text to Dave", InputMode.Voice)
         advanceUntilIdle()
@@ -2885,7 +2885,7 @@ class ActionsViewModelVoiceTest {
                 )
             coEvery {
                 voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-            } returns VoiceInputStartResult.Started
+            } returns VoiceInputStartResult.Started(1L)
 
             viewModel.executeAction("send a text message to my wife", InputMode.Voice)
             advanceUntilIdle()
@@ -3638,7 +3638,7 @@ class ActionsViewModelVoiceTest {
     fun `microphone resume check with grant retries voice action`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
 
         viewModel.onVoiceCaptureRequiresPermission(VoiceCaptureMode.Command)
         advanceUntilIdle()

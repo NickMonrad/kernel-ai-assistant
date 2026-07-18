@@ -95,4 +95,29 @@ object AcousticEventType {
 
     /** Detector-level error (ONNX session, AudioRecord, etc.). */
     const val DETECTOR_ERROR = "DETECTOR_ERROR"
+
+    val ALL: Set<String> = setOf(
+        DETECTOR_GENERATION_STARTED,
+        SILENCE_GATE_ENTERED,
+        VOICED_FRAME_AFTER_SILENCE,
+        STAGE2_RESUMED,
+        STAGE3_READY,
+        ACTIVATION_CANDIDATE,
+        VERIFIED_ACTIVATION,
+        WAKE_CALLBACK_INVOKED,
+        VOICE_SESSION_STARTED,
+        STT_START_REQUESTED,
+        STT_READY,
+        CUE_REQUESTED,
+        STT_SPEECH_DETECTED,
+        STT_PARTIAL,
+        STT_FINAL,
+        STT_ERROR,
+        COMMAND_ROUTING_RESULT,
+        SESSION_COMPLETED,
+        SESSION_CANCELLED,
+        DETECTOR_REARMED,
+        SERVICE_ERROR,
+        DETECTOR_ERROR,
+    )
 }

@@ -26,4 +26,31 @@ class WakeWordSilenceGateTest {
     fun `default silence skip interval is one second`() {
         assertEquals(13, secondsToFrames(WAKE_WORD_MAX_SILENCE_SKIP_SECONDS))
     }
+
+    @Test
+    fun `prolonged silence enters once and periodic inference does not resume`() {
+        val state = SilenceGateTransitionState()
+
+        assertTrue(state.enter())
+        assertTrue(state.isGated)
+        assertEquals(false, state.enter())
+        assertEquals(false, state.onStage2Execution())
+        assertTrue(state.isGated)
+        assertEquals(false, state.enter())
+    }
+
+    @Test
+    fun `voiced exit resumes stage2 once then permits a new gate entry`() {
+        val state = SilenceGateTransitionState()
+        state.enter()
+
+        assertTrue(state.onVoicedFrame())
+        assertEquals(false, state.isGated)
+        assertEquals(false, state.onVoicedFrame())
+        assertTrue(state.onStage2Execution())
+        assertEquals(false, state.onStage2Execution())
+        assertTrue(state.enter())
+        assertTrue(state.isGated)
+        assertEquals(false, state.enter())
+    }
 }

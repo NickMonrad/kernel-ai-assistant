@@ -2,19 +2,28 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.media.AudioManager
+import android.os.Bundle
+import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import io.mockk.every
 import io.mockk.coEvery
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.runs
+import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -196,18 +205,25 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         // Arrange: on-device recognizer throws on startListening(); platform recognizer succeeds.
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformListener = slot<RecognitionListener>()
 
         every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
         every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { platformRecognizer.setRecognitionListener(capture(platformListener)) } just runs
 
         every { onDeviceRecognizer.startListening(any()) } throws
             RuntimeException("on-device recognizer unavailable")
+        val nextEvent = async { controller.events.first() }
+        runCurrent()
 
         // Act
         val result = controller.startListening(VoiceCaptureMode.Command)
 
         // Assert: overall result is Started (platform succeeded)
-        assertEquals(VoiceInputStartResult.Started, result)
+        val started = result as VoiceInputStartResult.Started
+        assertTrue(started.captureSessionId > 0L)
+        platformListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        assertEquals(started.captureSessionId, nextEvent.await().captureSessionId)
 
         // Platform recognizer was started
         verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
@@ -216,6 +232,22 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         // Orphaned on-device recognizer was cleaned up before the retry
         verify(atLeast = 1) { onDeviceRecognizer.cancel() }
         verify(atLeast = 1) { onDeviceRecognizer.destroy() }
+    }
+
+    @Test
+    fun `separate logical starts receive distinct capture session identifiers`() = runTest {
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany
+            listOf(firstRecognizer, secondRecognizer)
+
+        val first = controller.startListening(VoiceCaptureMode.Command) as
+            VoiceInputStartResult.Started
+        val second = controller.startListening(VoiceCaptureMode.Command) as
+            VoiceInputStartResult.Started
+
+        assertTrue(first.captureSessionId > 0L)
+        assertTrue(second.captureSessionId > first.captureSessionId)
     }
 
     @Test

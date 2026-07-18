@@ -126,7 +126,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private var startupFallbackJob: Job? = null
 
 
-    private var nextSessionId: Long = 0L
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
@@ -151,7 +150,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
             try {
                 requestAudioFocus()
-                val sessionId = ++nextSessionId
+                val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
                 activeSessionId = sessionId
                 val startBackend = initialRecognizerBackend(mode)
@@ -187,7 +186,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         throw startEx
                     }
                 }
-                VoiceInputStartResult.Started
+                VoiceInputStartResult.Started(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
                 stopListeningInternal(emitStopped = false)
@@ -210,6 +209,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
 
         val mode = currentMode
+        val sessionId = activeSessionId
         val recognizer = speechRecognizer
         startupFallbackJob?.cancel()
         startupFallbackJob = null
@@ -225,7 +225,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         releaseAudioFocus()
 
         if (emitStopped && mode != null) {
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
         }
     }
 
@@ -376,10 +376,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 _events.tryEmit(
                     VoiceInputEvent.Error(
                         mode = mode,
+                        captureSessionId = sessionId,
                         message = "Android speech recognition stopped responding before it returned a result.",
                     ),
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
                 stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
             }
         }
@@ -395,7 +396,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             cancelStartupFallback()
             resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
-            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
         }
 
         override fun onBeginningOfSpeech() {
@@ -403,7 +404,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             heardSpeech = true
             resetSessionWatchdog()
             Log.d(TAG, "Android native STT speech began: sessionId=$sessionId mode=$mode backend=$backend")
-            _events.tryEmit(VoiceInputEvent.SpeechDetected(mode))
+            _events.tryEmit(VoiceInputEvent.SpeechDetected(mode, sessionId))
         }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
@@ -448,10 +449,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
+                    captureSessionId = sessionId,
                     message = mapError(error, availability),
                 ),
             )
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
             stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
@@ -470,13 +472,20 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 _events.tryEmit(
                     VoiceInputEvent.Error(
                         mode = mode,
+                        captureSessionId = sessionId,
                         message = "I didn't catch anything from Android speech recognition.",
                     ),
                 )
             } else {
-                _events.tryEmit(VoiceInputEvent.Transcript(mode = mode, text = transcript))
+                _events.tryEmit(
+                    VoiceInputEvent.Transcript(
+                        mode = mode,
+                        text = transcript,
+                        captureSessionId = sessionId,
+                    ),
+                )
             }
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
             stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
@@ -490,7 +499,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     TAG,
                     "Android native STT partial: sessionId=$sessionId mode=$mode transcript='$transcript'",
                 )
-                _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = transcript))
+                _events.tryEmit(
+                    VoiceInputEvent.PartialTranscript(
+                        mode = mode,
+                        text = transcript,
+                        captureSessionId = sessionId,
+                    ),
+                )
             }
         }
 

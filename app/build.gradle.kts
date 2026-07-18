@@ -159,21 +159,21 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
 
         val debugManifest = mergedManifest("debug").readText()
         val releaseManifest = mergedManifest("release").readText()
-        val journalActions = listOf(
+        val journalBroadcastActions = listOf(
             "GET_JOURNAL_SEQUENCE",
-            "WAIT_FOR_JOURNAL_EVENT",
             "GET_JOURNAL_SNAPSHOT",
         )
-        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" in debugManifest) {
-            "Debug manifest must contain TargetEventJournalReceiver"
+        val journalComponents = listOf(
+            "com.kernel.ai.debug.journal.TargetEventJournalReceiver",
+            "com.kernel.ai.debug.journal.TargetEventJournalProvider",
+            "com.kernel.ai.debug.target-event-journal",
+        )
+        journalComponents.forEach { component ->
+            check(component in debugManifest) { "Debug manifest must contain $component" }
+            check(component !in releaseManifest) { "Release manifest must NOT contain $component" }
         }
-        journalActions.forEach { action ->
+        journalBroadcastActions.forEach { action ->
             check(action in debugManifest) { "Debug manifest must contain $action" }
-        }
-        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" !in releaseManifest) {
-            "Release manifest must NOT contain TargetEventJournalReceiver"
-        }
-        journalActions.forEach { action ->
             check(action !in releaseManifest) { "Release manifest must NOT contain $action" }
         }
         check("package=\"com.kernel.ai\"" in releaseManifest)
@@ -185,6 +185,7 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
         )
         val debugMarkers = listOf(
             "TargetEventJournalReceiver",
+            "TargetEventJournalProvider",
             "com/kernel/ai/debug/journal",
             "AcousticEventJournal",
         )

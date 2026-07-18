@@ -3,6 +3,7 @@ package com.kernel.ai.debug.journal
 import com.kernel.ai.core.voice.AcousticEvent
 import com.kernel.ai.core.voice.AcousticEventRecorder
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 data class AcousticJournalSnapshot(
     val lowestSequence: Long,
@@ -10,6 +11,43 @@ data class AcousticJournalSnapshot(
     val overflowed: Boolean,
     val events: List<AcousticEvent>,
 )
+
+sealed interface AcousticEventWaitResult {
+    data class Found(val event: AcousticEvent) : AcousticEventWaitResult
+    object TimedOut : AcousticEventWaitResult
+    object Cancelled : AcousticEventWaitResult
+}
+
+class AcousticEventWaitCancellation {
+    private val cancelled = AtomicBoolean(false)
+
+    val isCancelled: Boolean get() = cancelled.get()
+
+    internal fun cancel(): Boolean = cancelled.compareAndSet(false, true)
+}
+
+internal class AcousticEventWaitRegistration(
+    val cancellation: AcousticEventWaitCancellation = AcousticEventWaitCancellation(),
+) {
+    private val state = AtomicReference(State.ACTIVE)
+
+    fun cancel(): Boolean = state.compareAndSet(State.ACTIVE, State.CANCELLED)
+
+    fun resolve(result: AcousticEventWaitResult): AcousticEventWaitResult =
+        if (state.compareAndSet(State.ACTIVE, State.COMPLETED)) {
+            result
+        } else if (state.get() == State.CANCELLED) {
+            AcousticEventWaitResult.Cancelled
+        } else {
+            result
+        }
+
+    private enum class State {
+        ACTIVE,
+        CANCELLED,
+        COMPLETED,
+    }
+}
 
 /**
  * Bounded ring-buffer event journal for structured target-side diagnostics.
@@ -25,6 +63,7 @@ data class AcousticJournalSnapshot(
  * **Overflow:** when the journal is full the oldest event is silently
  * replaced and [overflowed] is set to true.
  */
+
 class AcousticEventJournal(
     val journalCapacity: Int = DEFAULT_CAPACITY,
 ) : AcousticEventRecorder {
@@ -71,18 +110,27 @@ class AcousticEventJournal(
         sinceSequence: Long,
         eventType: String,
         timeoutMs: Long,
-    ): AcousticEvent? {
-        snapshotSince(sinceSequence).events.firstOrNull { it.type == eventType }?.let { return it }
+        cancellation: AcousticEventWaitCancellation = AcousticEventWaitCancellation(),
+    ): AcousticEventWaitResult {
         val deadline = System.nanoTime() / 1_000_000 + timeoutMs
         synchronized(lock) {
             while (true) {
-                val remaining = deadline - System.nanoTime() / 1_000_000
-                if (remaining <= 0) return null
+                if (cancellation.isCancelled) return AcousticEventWaitResult.Cancelled
                 reconstructOrdered()
                     .firstOrNull { it.sequence > sinceSequence && it.type == eventType }
-                    ?.let { return it }
-                (lock as java.lang.Object).wait(remaining.coerceAtMost(500L))
+                    ?.let { return AcousticEventWaitResult.Found(it) }
+                val remaining = deadline - System.nanoTime() / 1_000_000
+                if (remaining <= 0) return AcousticEventWaitResult.TimedOut
+                (lock as java.lang.Object).wait(remaining)
             }
+        }
+    }
+
+    fun cancelWait(cancellation: AcousticEventWaitCancellation): Boolean {
+        synchronized(lock) {
+            val changed = cancellation.cancel()
+            if (changed) (lock as java.lang.Object).notifyAll()
+            return changed
         }
     }
 

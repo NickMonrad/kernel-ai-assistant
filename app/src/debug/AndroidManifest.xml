@@ -35,10 +35,13 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE" />
-                <action android:name="com.kernel.ai.debug.action.WAIT_FOR_JOURNAL_EVENT" />
                 <action android:name="com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT" />
             </intent-filter>
         </receiver>
+        <provider
+            android:name="com.kernel.ai.debug.journal.TargetEventJournalProvider"
+            android:authorities="com.kernel.ai.debug.target-event-journal"
+            android:exported="true" />
     </application>
 
 </manifest>

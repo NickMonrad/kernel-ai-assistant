@@ -50,6 +50,9 @@ class VoskOfflineVoiceInputController @Inject constructor(
     @Volatile
     private var audioFocusRequest: AudioFocusRequest? = null
 
+    @Volatile
+    private var activeCaptureSessionId = 0L
+
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         stopListening()
 
@@ -67,28 +70,39 @@ class VoskOfflineVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             try {
                 requestAudioFocus()
+                val captureSessionId = VoiceCaptureSessionIds.allocate()
+                activeCaptureSessionId = captureSessionId
                 val recognizer = Recognizer(installedModel, SAMPLE_RATE)
                 val service = SpeechService(recognizer, SAMPLE_RATE)
                 speechService = service
-                val listener = SessionRecognitionListener(mode)
+                val listener = SessionRecognitionListener(mode, captureSessionId)
                 if (!service.startListening(listener, LISTEN_TIMEOUT_MS)) {
                     service.shutdown()
                     speechService = null
                     releaseAudioFocus()
+                    activeCaptureSessionId = 0L
                     return@withContext VoiceInputStartResult.Unavailable(
                         "Voice capture is already active."
                     )
                 }
                 delay(STARTUP_SETTLE_MS)
-                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
-                VoiceInputStartResult.Started
+                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, captureSessionId))
+                VoiceInputStartResult.Started(captureSessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Vosk voice capture", e)
                 speechService?.shutdown()
                 speechService = null
                 releaseAudioFocus()
-                _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Failed to start offline voice input."))
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                val captureSessionId = activeCaptureSessionId
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode,
+                        e.message ?: "Failed to start offline voice input.",
+                        captureSessionId,
+                    ),
+                )
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                activeCaptureSessionId = 0L
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start offline voice input."
                 )
@@ -97,7 +111,9 @@ class VoskOfflineVoiceInputController @Inject constructor(
     }
 
     override fun stopListening() {
-        val service = speechService ?: return
+        val service = speechService
+        activeCaptureSessionId = 0L
+        if (service == null) return
         service.stop()
         service.shutdown()
         speechService = null
@@ -136,6 +152,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
 
     private inner class SessionRecognitionListener(
         private val mode: VoiceCaptureMode,
+        private val captureSessionId: Long,
     ) : RecognitionListener {
         private var completed = false
 
@@ -143,7 +160,13 @@ class VoskOfflineVoiceInputController @Inject constructor(
             if (completed) return
             val text = parsePartialTranscript(hypothesis)
             if (text.isNotBlank()) {
-                _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = text))
+                _events.tryEmit(
+                    VoiceInputEvent.PartialTranscript(
+                        mode = mode,
+                        text = text,
+                        captureSessionId = captureSessionId,
+                    ),
+                )
             }
         }
 
@@ -155,7 +178,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
             completeWithTranscript(hypothesis)
             if (!completed) {
                 completed = true
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 speechService = null
             }
         }
@@ -167,10 +190,11 @@ class VoskOfflineVoiceInputController @Inject constructor(
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
+                    captureSessionId = captureSessionId,
                     message = exception.message ?: "Offline voice recognition failed.",
                 )
             )
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             speechService = null
             releaseAudioFocus()
         }
@@ -181,10 +205,11 @@ class VoskOfflineVoiceInputController @Inject constructor(
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
+                    captureSessionId = captureSessionId,
                     message = "I didn't catch anything before listening timed out.",
                 )
             )
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             speechService = null
             releaseAudioFocus()
         }
@@ -194,8 +219,14 @@ class VoskOfflineVoiceInputController @Inject constructor(
             val text = parseTranscript(hypothesis)
             if (text.isBlank()) return
             completed = true
-            _events.tryEmit(VoiceInputEvent.Transcript(mode = mode, text = text))
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(
+                VoiceInputEvent.Transcript(
+                    mode = mode,
+                    text = text,
+                    captureSessionId = captureSessionId,
+                ),
+            )
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             stopListening()
         }
     }

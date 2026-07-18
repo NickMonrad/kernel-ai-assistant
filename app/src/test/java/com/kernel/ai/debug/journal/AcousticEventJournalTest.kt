@@ -4,6 +4,7 @@ import com.kernel.ai.core.voice.AcousticEvent
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -89,8 +90,8 @@ class AcousticEventJournalTest {
 
         val result = journal.waitForEvent(0, "TARGET", 500)
 
-        assertNotNull(result)
-        assertEquals(2L, result?.sequence)
+        assertTrue(result is AcousticEventWaitResult.Found)
+        assertEquals(2L, (result as AcousticEventWaitResult.Found).event.sequence)
     }
 
     @Test
@@ -105,14 +106,20 @@ class AcousticEventJournalTest {
         val result = journal.waitForEvent(1, "TARGET", 2_000)
 
         writer.join()
-        assertEquals("TARGET", result?.type)
+        assertEquals(
+            "TARGET",
+            (result as AcousticEventWaitResult.Found).event.type,
+        )
     }
 
     @Test
     fun `wait timeout is bounded and returns null`() {
         val journal = AcousticEventJournal(journalCapacity = 16)
         val elapsed = measureTimeMillis {
-            assertNull(journal.waitForEvent(0, "NEVER", 50))
+            assertEquals(
+                AcousticEventWaitResult.TimedOut,
+                journal.waitForEvent(0, "NEVER", 50),
+            )
         }
 
         assertTrue(elapsed >= 40, "wait returned too early: ${elapsed}ms")
@@ -132,6 +139,139 @@ class AcousticEventJournalTest {
         waiter.join(2_000)
 
         assertFalse(waiter.isAlive)
+    }
+
+    @Test
+    fun `two waits for different events complete independently`() {
+        val journal = AcousticEventJournal(journalCapacity = 16)
+        val first = AtomicReference<AcousticEventWaitResult>()
+        val second = AtomicReference<AcousticEventWaitResult>()
+        val ready = CountDownLatch(2)
+        val firstWaiter = Thread {
+            ready.countDown()
+            first.set(journal.waitForEvent(0, "FIRST", 2_000))
+        }
+        val secondWaiter = Thread {
+            ready.countDown()
+            second.set(journal.waitForEvent(0, "SECOND", 2_000))
+        }
+        firstWaiter.start()
+        secondWaiter.start()
+        ready.await()
+
+        journal.record(event(1, "SECOND"))
+        journal.record(event(2, "FIRST"))
+        firstWaiter.join(2_000)
+        secondWaiter.join(2_000)
+
+        assertEquals(
+            "FIRST",
+            (first.get() as AcousticEventWaitResult.Found).event.type,
+        )
+        assertEquals(
+            "SECOND",
+            (second.get() as AcousticEventWaitResult.Found).event.type,
+        )
+    }
+
+    @Test
+    fun `snapshot and sequence remain responsive during active waits`() {
+        val journal = AcousticEventJournal(journalCapacity = 16)
+        val cancellation = AcousticEventWaitCancellation()
+        val waiter = Thread {
+            journal.waitForEvent(0, "NEVER", 10_000, cancellation)
+        }
+        waiter.start()
+        Thread.sleep(50)
+
+        journal.record(event(1, "OTHER"))
+        assertEquals(1L, journal.currentSequence)
+        assertEquals(listOf("OTHER"), journal.snapshotSince(0).events.map { it.type })
+        assertTrue(journal.cancelWait(cancellation))
+        waiter.join(2_000)
+        assertFalse(waiter.isAlive)
+    }
+
+    @Test
+    fun `cancellation wakes wait promptly and wins before a later event`() {
+        val journal = AcousticEventJournal(journalCapacity = 16)
+        val cancellation = AcousticEventWaitCancellation()
+        val result = AtomicReference<AcousticEventWaitResult>()
+        val waiter = Thread {
+            result.set(journal.waitForEvent(0, "TARGET", 10_000, cancellation))
+        }
+        waiter.start()
+        Thread.sleep(50)
+
+        val elapsed = measureTimeMillis {
+            assertTrue(journal.cancelWait(cancellation))
+            journal.record(event(1, "TARGET"))
+            waiter.join(2_000)
+        }
+
+        assertEquals(AcousticEventWaitResult.Cancelled, result.get())
+        assertTrue(elapsed < 1_000, "cancellation was not prompt: ${elapsed}ms")
+        assertFalse(journal.cancelWait(cancellation))
+    }
+
+    @Test
+    fun `request keyed cancellation wins deterministically over a concurrent event`() {
+        val registration = AcousticEventWaitRegistration()
+        val found = AcousticEventWaitResult.Found(event(1, "TARGET"))
+
+        assertTrue(registration.cancel())
+        assertEquals(AcousticEventWaitResult.Cancelled, registration.resolve(found))
+        assertFalse(registration.cancel())
+    }
+
+    @Test
+    fun `completed wait rejects late cancellation`() {
+        val registration = AcousticEventWaitRegistration()
+        val found = AcousticEventWaitResult.Found(event(1, "TARGET"))
+
+        assertEquals(found, registration.resolve(found))
+        assertFalse(registration.cancel())
+    }
+
+    @Test
+    fun `contract rejects malformed arguments and timeout bounds`() {
+        assertEquals(
+            TargetEventJournalContract.ERROR_MISSING_REQUEST_ID,
+            TargetEventJournalContract.requestIdError(null),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_INVALID_REQUEST_ID,
+            TargetEventJournalContract.requestIdError("bad id"),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_NEGATIVE_SINCE_SEQUENCE,
+            TargetEventJournalContract.sinceSequenceError(-1),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_MISSING_EVENT_TYPE,
+            TargetEventJournalContract.eventTypeError(null),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_INVALID_EVENT_TYPE,
+            TargetEventJournalContract.eventTypeError("NOT_AN_EVENT"),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_INVALID_TIMEOUT,
+            TargetEventJournalContract.timeoutError(
+                TargetEventJournalContract.MIN_TIMEOUT_MS - 1,
+            ),
+        )
+        assertEquals(
+            TargetEventJournalContract.ERROR_INVALID_TIMEOUT,
+            TargetEventJournalContract.timeoutError(
+                TargetEventJournalContract.MAX_TIMEOUT_MS + 1,
+            ),
+        )
+        assertNull(
+            TargetEventJournalContract.timeoutError(
+                TargetEventJournalContract.MAX_TIMEOUT_MS,
+            ),
+        )
     }
 
     @Test

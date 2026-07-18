@@ -27,6 +27,38 @@ internal fun isWakeWordDiagnosticLoggingEnabled(): Boolean =
     Log.isLoggable(DIAGNOSTIC_TAG, Log.DEBUG)
 
 /**
+ * Transition state for silence-gate journal events.
+ *
+ * Periodic full-inference frames do not leave the gate. Only a voiced frame does,
+ * and the first Stage 2 execution after that voiced exit emits the resume event.
+ */
+internal class SilenceGateTransitionState {
+    var isGated: Boolean = false
+        private set
+
+    private var stage2ResumePending = false
+
+    fun enter(): Boolean {
+        if (isGated) return false
+        isGated = true
+        return true
+    }
+
+    fun onVoicedFrame(): Boolean {
+        if (!isGated) return false
+        isGated = false
+        stage2ResumePending = true
+        return true
+    }
+
+    fun onStage2Execution(): Boolean {
+        if (!stage2ResumePending) return false
+        stage2ResumePending = false
+        return true
+    }
+}
+
+/**
  * Diagnostic summaries are only emitted when the dedicated tag's DEBUG level is enabled.
  * Checking at this cadence keeps the production detector hot loop allocation-free.
  */
@@ -334,7 +366,7 @@ class OnnxWakeWordDetector @Inject constructor(
         var nnapiStatus = "not_requested"
 
         // ── Target event journal tracking ──────────────────────────────────────
-        var wasPreviouslyGated = false
+        val silenceGateState = SilenceGateTransitionState()
         var emittedStage3Ready = false
 
         try {
@@ -477,9 +509,8 @@ class OnnxWakeWordDetector @Inject constructor(
                     // every frame even during gating), so the first speech frame
                     // already pre-fills it with speech mel data.
                     // Latency: 80ms + 16-frame ring fill (~1.3s) ≈ ~1.4s.
-                    if (wasGated) {
+                    if (silenceGateState.onVoicedFrame()) {
                         embFramesAccumulated = 0
-                        wasGated = false
                         emittedStage3Ready = false
                         AcousticJournalBridge.record(
                             type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
@@ -550,14 +581,12 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (silenceFrames > silenceHangoverFrames &&
                     chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
                     diagnostics?.recordSilenceGateSkip()
-                    if (!wasPreviouslyGated) {
-                        wasPreviouslyGated = true
+                    if (silenceGateState.enter()) {
                         AcousticJournalBridge.record(
                             type = AcousticEventType.SILENCE_GATE_ENTERED,
                             generationId = generationId,
                         )
                     }
-                    wasGated = true
                     continue  // wake word not expected — skip expensive Stage 2/3
                 }
 
@@ -568,8 +597,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 // melRing is already [76 × 32] row-major.  We reinterpret as [76 × 32 × 1] by
                 // passing the same flat array with shape [1, 76, 32, 1] — the channel is implicit
                 // (every element maps to exactly one channel-1 position).
-                if (wasPreviouslyGated) {
-                    wasPreviouslyGated = false
+                if (silenceGateState.onStage2Execution()) {
                     AcousticJournalBridge.record(
                         type = AcousticEventType.STAGE2_RESUMED,
                         generationId = generationId,
