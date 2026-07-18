@@ -9,11 +9,17 @@ sealed interface VoiceInputStartResult {
 }
 
 sealed interface VoiceInputEvent {
-    data class ListeningStarted(val mode: VoiceCaptureMode) : VoiceInputEvent
-    data class PartialTranscript(val mode: VoiceCaptureMode, val text: String) : VoiceInputEvent
-    data class Transcript(val mode: VoiceCaptureMode, val text: String) : VoiceInputEvent
-    data class Error(val mode: VoiceCaptureMode, val message: String) : VoiceInputEvent
-    data class ListeningStopped(val mode: VoiceCaptureMode) : VoiceInputEvent
+    val mode: VoiceCaptureMode
+
+    data class ListeningStarted(override val mode: VoiceCaptureMode) : VoiceInputEvent
+    data class SpeechDetected(override val mode: VoiceCaptureMode) : VoiceInputEvent
+    data class PartialTranscript(
+        override val mode: VoiceCaptureMode,
+        val text: String,
+    ) : VoiceInputEvent
+    data class Transcript(override val mode: VoiceCaptureMode, val text: String) : VoiceInputEvent
+    data class Error(override val mode: VoiceCaptureMode, val message: String) : VoiceInputEvent
+    data class ListeningStopped(override val mode: VoiceCaptureMode) : VoiceInputEvent
 }
 
 interface VoiceInputController {

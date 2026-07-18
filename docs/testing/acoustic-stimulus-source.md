@@ -157,6 +157,7 @@ adb shell am broadcast \
 | `DETECTOR_GENERATION_STARTED` | ONNX pipeline loaded and detector began | — |
 | `SILENCE_GATE_ENTERED` | Silence gate became active (Stage 2/3 suppressed) | — |
 | `VOICED_FRAME_AFTER_SILENCE` | First voiced frame detected after silence gating | — |
+| `STAGE2_RESUMED` | First Stage 2 execution after silence gating | — |
 | `STAGE3_READY` | Embedding ring filled; classifier active | — |
 | `ACTIVATION_CANDIDATE` | Confidence at or above low threshold | `confidence`, `mode` (high/low) |
 | `VERIFIED_ACTIVATION` | Activation confirmed by STT or high-confidence path | `mode` (high/low) |
@@ -165,18 +166,23 @@ adb shell am broadcast \
 | `STT_START_REQUESTED` | Speech recogniser start called | `attempt` |
 | `STT_READY` | Recogniser reported readiness / ListeningStarted | — |
 | `CUE_REQUESTED` | Start-listening cue playback requested | `force_audible` |
+| `STT_SPEECH_DETECTED` | Recogniser detected speech onset | — |
 | `STT_PARTIAL` | Partial STT result (no transcript text) | `length` (chars) |
-| `STT_ERROR` | STT error | `error` |
+| `STT_FINAL` | Final STT result (no transcript text) | `length` (chars) |
+| `STT_ERROR` | STT error | stable `category` |
+| `COMMAND_ROUTING_RESULT` | Final transcript handoff result | `outcome`, optional stable `category` |
 | `SESSION_COMPLETED` | Voice session ended normally | — |
-| `SESSION_CANCELLED` | Voice session cancelled | `reason` |
+| `SESSION_CANCELLED` | Voice session cancelled | stable `category` |
 | `DETECTOR_REARMED` | Detector re-armed after session end | — |
-| `DETECTOR_ERROR` | Fatal detector error (ONNX/AudioRecord) | `error` |
+| `SERVICE_ERROR` | Wake service cannot run or re-arm | stable `category` |
+| `DETECTOR_ERROR` | Fatal detector error (ONNX/AudioRecord) | stable `category` |
 
 ### Snapshot-since contract
 
-`GET_JOURNAL_SNAPSHOT` with `since_sequence=N` returns all events whose
-sequence number is strictly greater than N, in chronological order. An empty
-array is returned when N equals or exceeds the current highest sequence.
+`GET_JOURNAL_SNAPSHOT` with `since_sequence=N` returns an envelope whose
+`events` contain only sequence numbers strictly greater than N, in ascending
+order. `lowestSequence` and `highestSequence` describe the retained journal;
+an empty journal uses zero for both. `overflowed` remains true after eviction.
 
 ### Bounded wait contract
 
@@ -193,14 +199,21 @@ Result codes: `0` = event found; `1` = timeout; `2` = error.
 
 ### Response format
 
-Events are serialised as compact JSON:
+`WAIT_FOR_JOURNAL_EVENT` returns one compact event:
 
 ```json
 {"s":1,"m":123456789,"w":1705300000000,"t":"STT_READY","g":1,"i":1,"d":{}}
 ```
 
-Fields: `s` sequence; `m` monotonic Ms; `w` wall-clock Ms; `t` type; `g`
-generation ID; `i` session ID; `d` metadata dict.
+`GET_JOURNAL_SNAPSHOT` returns a deterministic envelope. Bounds describe the
+retained journal, while `events` contains only entries with `s > since_seq`:
+
+```json
+{"lowestSequence":1,"highestSequence":4,"overflowed":false,"events":[{"s":4,"m":123456789,"w":1705300000000,"t":"STT_READY","g":1,"i":1,"d":{}}]}
+```
+
+Event fields: `s` sequence; `m` monotonic ms; `w` wall-clock ms; `t` type; `g`
+generation ID; `i` session ID; `d` privacy-safe scalar metadata.
 
 ### Target-idle invariant
 
@@ -212,14 +225,13 @@ evidence is retrieved after the trial via `GET_JOURNAL_SNAPSHOT`.
 ### Release isolation
 
 The receiver, journal implementation and all debug actions are present only in
-debug builds. The production-side `AcousticJournalBridge` and
-`AcousticEventRecorder` no-op interface remain in the release APK/AAB as required
-for the production-code hooks.
+debug builds. Production hooks call the no-op `AcousticEventRecorder` through
+`AcousticJournalBridge`; release optimisation may inline or remove that no-op path.
 
 Verify with:
 
 ```sh
-./gradlew verifyTargetEventJournalReleaseIsolation
+./gradlew :app:verifyTargetEventJournalReleaseIsolation
 ```
 
 ## Production-source integration points
@@ -230,6 +242,7 @@ Calls `AcousticJournalBridge.record(...)` at these transition points:
 - After models load: `DETECTOR_GENERATION_STARTED`
 - Silence gate activation: `SILENCE_GATE_ENTERED`
 - Voice onset after gating: `VOICED_FRAME_AFTER_SILENCE`
+- First Stage 2 execution after gating: `STAGE2_RESUMED`
 - First classifier-ready frame: `STAGE3_READY`
 - At each confidence threshold crossing: `ACTIVATION_CANDIDATE`
 - After STT verification or high-confidence: `VERIFIED_ACTIVATION`
@@ -238,16 +251,21 @@ Calls `AcousticJournalBridge.record(...)` at these transition points:
 ### `WakeWordService` (`app/src/main/`)
 
 Calls `AcousticJournalBridge.record(...)` at these points:
-- `handleDetection()` start: `VOICE_SESSION_STARTED`, allocates session ID
+- In `rearmDetector()`: allocates the detector generation ID and passes it into
+  `WakeWordDetector.start()`
+- In the detector callback: allocates the session ID, then records
+  `WAKE_CALLBACK_INVOKED` with both correlation IDs
+- At `handleDetection()` start: `VOICE_SESSION_STARTED` with the same IDs
 - Before `startListening()`: `STT_START_REQUESTED`
-- On `ListeningStarted` event: `STT_READY`
+- On alert-command `ListeningStarted`: `STT_READY`
 - Before `cuePlayer.playCue()`: `CUE_REQUESTED`
-- On error/break paths: `SESSION_CANCELLED` with reason
-- After session end: `SESSION_COMPLETED`
-- In `rearmDetector()`: allocates generation ID, records `WAKE_CALLBACK_INVOKED`
-  (in the `onDetected` lambda) and `DETECTOR_REARMED`
-- On `VoiceInputEvent.PartialTranscript`: `STT_PARTIAL` (length only, no text)
-- On `VoiceInputEvent.Error`: `STT_ERROR`
+- On alert-command speech onset, partial and final results:
+  `STT_SPEECH_DETECTED`, `STT_PARTIAL` and `STT_FINAL` (lengths only; no text)
+- After command handoff: `COMMAND_ROUTING_RESULT`
+- Exactly one terminal event: `SESSION_COMPLETED` or `SESSION_CANCELLED`
+- After the terminal event: `DETECTOR_REARMED` for the next generation
+- On service, STT or detector loss: the corresponding error event with a stable
+  `category`; exception messages and transcript content are never metadata
 
 ### `AcousticJournalBridge` (`core/voice/src/main/`)
 

@@ -577,6 +577,8 @@ class ClockAlertService : Service() {
                 refreshForeground()
             }
 
+            is VoiceInputEvent.SpeechDetected -> Unit
+
             is VoiceInputEvent.PartialTranscript -> Unit
 
             is VoiceInputEvent.Transcript -> {

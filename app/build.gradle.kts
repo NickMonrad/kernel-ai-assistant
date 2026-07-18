@@ -115,75 +115,6 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
             "Release manifest package must be com.kernel.ai"
         }
 
-tasks.register("verifyTargetEventJournalReleaseIsolation") {
-    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
-    doLast {
-        val buildDirectory = layout.buildDirectory.get().asFile
-        val manifests = buildDirectory.walkTopDown()
-            .filter { it.isFile && it.name == "AndroidManifest.xml" }
-            .toList()
-        fun mergedManifest(variant: String): File = manifests.firstOrNull { file ->
-            file.path.contains("/$variant/") && file.path.contains("merged")
-        } ?: error("Merged $variant manifest not found")
-
-        val debugManifest = mergedManifest("debug").readText()
-        val releaseManifest = mergedManifest("release").readText()
-        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" in debugManifest) {
-            "Debug manifest must contain TargetEventJournalReceiver"
-        }
-        check("GET_JOURNAL_SEQUENCE" in debugManifest)
-        check("WAIT_FOR_JOURNAL_EVENT" in debugManifest)
-        check("GET_JOURNAL_SNAPSHOT" in debugManifest)
-        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" !in releaseManifest) {
-            "Release manifest must NOT contain TargetEventJournalReceiver"
-        }
-        check("GET_JOURNAL_SEQUENCE" !in releaseManifest)
-        check("WAIT_FOR_JOURNAL_EVENT" !in releaseManifest)
-        check("GET_JOURNAL_SNAPSHOT" !in releaseManifest)
-        check("package=\"com.kernel.ai\"" in releaseManifest)
-
-        val artifacts = listOf(
-            buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
-            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
-            buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
-        )
-        artifacts.forEach { artifact ->
-            check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
-            ZipFile(artifact).use { zip ->
-                val names = zip.entries().asSequence().map { it.name }.toList()
-                val debugClassPresent = names.any {
-                    "TargetEventJournalReceiver" in it || "AcousticEventJournal" in it
-                }
-                if (artifact.name.contains("debug")) {
-                    check(debugClassPresent) {
-                        "TargetEventJournalReceiver/AcousticEventJournal missing from debug artifact"
-                    }
-                } else {
-                    check(!debugClassPresent) {
-                        "TargetEventJournalReceiver/AcousticEventJournal present in release artifact"
-                    }
-                }
-
-                val hasJournalPackage = names.any { "com/kernel/ai/debug/journal" in it }
-                if (artifact.name.contains("release")) {
-                    check(!hasJournalPackage) {
-                        "Debug journal package found in release artifact: ${artifact.name}"
-                    }
-                }
-            }
-        }
-
-        val releaseApk = buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk")
-        ZipFile(releaseApk).use { zip ->
-            val releaseNames = zip.entries().asSequence().map { it.name }.toList()
-            check(releaseNames.any { "AcousticJournalBridge" in it }) {
-                "AcousticJournalBridge must be present in release (production no-op interface)"
-            }
-        }
-    }
-}
-
-
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
             buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
@@ -198,11 +129,10 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
                 }
                 val helperBytes = zip.entries().asSequence()
                     .filter { !it.isDirectory }
-                    .flatMap { entry ->
-                        zip.getInputStream(entry).use { input -> sequenceOf(input.readBytes()) }
-                    }
-                    .any { bytes ->
-                        val text = bytes.toString(Charsets.ISO_8859_1)
+                    .any { entry ->
+                        val text = zip.getInputStream(entry).use { input ->
+                            input.readBytes().toString(Charsets.ISO_8859_1)
+                        }
                         "AcousticStimulusReceiver" in text ||
                             "com/kernel/ai/debug/acoustic" in text
                     }
@@ -210,6 +140,77 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
                     check(!helperBytes) { "Debug acoustic helper packaged in ${artifact.name}" }
                 } else {
                     check(helperBytes) { "Debug acoustic helper missing from ${artifact.name}" }
+                }
+            }
+        }
+    }
+}
+
+tasks.register("verifyTargetEventJournalReleaseIsolation") {
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    doLast {
+        val buildDirectory = layout.buildDirectory.get().asFile
+        val manifests = buildDirectory.walkTopDown()
+            .filter { it.isFile && it.name == "AndroidManifest.xml" }
+            .toList()
+        fun mergedManifest(variant: String): File = manifests.firstOrNull { file ->
+            file.path.contains("/$variant/") && file.path.contains("merged")
+        } ?: error("Merged $variant manifest not found")
+
+        val debugManifest = mergedManifest("debug").readText()
+        val releaseManifest = mergedManifest("release").readText()
+        val journalActions = listOf(
+            "GET_JOURNAL_SEQUENCE",
+            "WAIT_FOR_JOURNAL_EVENT",
+            "GET_JOURNAL_SNAPSHOT",
+        )
+        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" in debugManifest) {
+            "Debug manifest must contain TargetEventJournalReceiver"
+        }
+        journalActions.forEach { action ->
+            check(action in debugManifest) { "Debug manifest must contain $action" }
+        }
+        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" !in releaseManifest) {
+            "Release manifest must NOT contain TargetEventJournalReceiver"
+        }
+        journalActions.forEach { action ->
+            check(action !in releaseManifest) { "Release manifest must NOT contain $action" }
+        }
+        check("package=\"com.kernel.ai\"" in releaseManifest)
+
+        val artifacts = listOf(
+            buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
+            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
+        )
+        val debugMarkers = listOf(
+            "TargetEventJournalReceiver",
+            "com/kernel/ai/debug/journal",
+            "AcousticEventJournal",
+        )
+        artifacts.forEach { artifact ->
+            check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
+            ZipFile(artifact).use { zip ->
+                val dexText = zip.entries().asSequence()
+                    .filter { !it.isDirectory && it.name.endsWith(".dex") }
+                    .map { entry ->
+                        zip.getInputStream(entry).use { input ->
+                            input.readBytes().toString(Charsets.ISO_8859_1)
+                        }
+                    }
+                    .toList()
+                check(dexText.isNotEmpty()) { "No DEX payload found in ${artifact.name}" }
+                val containsDebugJournal = dexText.any { text ->
+                    debugMarkers.any { marker -> marker in text }
+                }
+                if (artifact.name.contains("debug")) {
+                    check(containsDebugJournal) {
+                        "Debug journal implementation missing from ${artifact.name}"
+                    }
+                } else {
+                    check(!containsDebugJournal) {
+                        "Debug journal implementation present in ${artifact.name}"
+                    }
                 }
             }
         }

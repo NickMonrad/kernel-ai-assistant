@@ -58,22 +58,25 @@ object AcousticJournalBridge {
         type: String,
         generationId: Long = 0L,
         sessionId: Long = 0L,
-        metadata: Map<String, String> = emptyMap(),
         sequenceProvider: SequenceProvider = AtomicSequenceProvider,
+        metadata: () -> Map<String, String> = EMPTY_METADATA,
     ) {
-        val seq = sequenceProvider.nextSequence()
-        current().record(
+        val target = recorder
+        if (target === AcousticEventRecorder.NoOp) return
+        target.record(
             AcousticEvent(
-                sequence = seq,
+                sequence = sequenceProvider.nextSequence(),
                 monotonicMs = SystemClock.elapsedRealtime(),
                 wallClockMs = System.currentTimeMillis(),
                 type = type,
                 generationId = generationId,
                 sessionId = sessionId,
-                metadata = metadata,
+                metadata = metadata(),
             )
         )
     }
+
+    private val EMPTY_METADATA: () -> Map<String, String> = { emptyMap() }
 }
 
 /**

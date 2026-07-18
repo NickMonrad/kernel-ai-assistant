@@ -1,13 +1,15 @@
 package com.kernel.ai.debug.journal
 
-import android.os.SystemClock
 import com.kernel.ai.core.voice.AcousticEvent
 import com.kernel.ai.core.voice.AcousticEventRecorder
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
-private const val TAG = "TargetJournal"
+data class AcousticJournalSnapshot(
+    val lowestSequence: Long,
+    val highestSequence: Long,
+    val overflowed: Boolean,
+    val events: List<AcousticEvent>,
+)
 
 /**
  * Bounded ring-buffer event journal for structured target-side diagnostics.
@@ -36,10 +38,8 @@ class AcousticEventJournal(
     /** True if at least one event was evicted due to capacity. */
     val overflowed: Boolean get() = _overflowed.get()
 
-    fun allocateGenerationId(): Long = generationCounter.incrementAndGet()
-    fun allocateSessionId(): Long = sessionCounter.incrementAndGet()
     private var localMaxSequence: Long = 0
-    val currentSequence: Long get() = localMaxSequence
+    val currentSequence: Long get() = synchronized(lock) { localMaxSequence }
 
     override fun record(event: AcousticEvent) {
         synchronized(lock) {
@@ -57,16 +57,14 @@ class AcousticEventJournal(
         }
     }
 
-    fun snapshotSince(sinceSequence: Long): List<AcousticEvent> {
-        val ordered: List<AcousticEvent>
-        synchronized(lock) {
-            ordered = if (count == 0) emptyList() else reconstructOrdered()
-        }
-        if (ordered.isEmpty()) return emptyList()
-        if (sinceSequence >= ordered.last().sequence) return emptyList()
-        val startIdx = ordered.indexOfFirst { it.sequence > sinceSequence }
-        if (startIdx < 0) return emptyList()
-        return ordered.subList(startIdx, ordered.size)
+    fun snapshotSince(sinceSequence: Long): AcousticJournalSnapshot = synchronized(lock) {
+        val ordered = reconstructOrdered()
+        AcousticJournalSnapshot(
+            lowestSequence = ordered.firstOrNull()?.sequence ?: 0L,
+            highestSequence = localMaxSequence,
+            overflowed = _overflowed.get(),
+            events = ordered.filter { it.sequence > sinceSequence },
+        )
     }
 
     fun waitForEvent(
@@ -74,7 +72,7 @@ class AcousticEventJournal(
         eventType: String,
         timeoutMs: Long,
     ): AcousticEvent? {
-        snapshotSince(sinceSequence).firstOrNull { it.type == eventType }?.let { return it }
+        snapshotSince(sinceSequence).events.firstOrNull { it.type == eventType }?.let { return it }
         val deadline = System.nanoTime() / 1_000_000 + timeoutMs
         synchronized(lock) {
             while (true) {
@@ -103,6 +101,7 @@ class AcousticEventJournal(
                 ring[i]?.let { result.add(it) }
             }
         }
+        result.sortBy(AcousticEvent::sequence)
         return result
     }
 
@@ -111,5 +110,3 @@ class AcousticEventJournal(
     }
 }
 
-private val generationCounter = AtomicLong(0)
-private val sessionCounter = AtomicLong(0)

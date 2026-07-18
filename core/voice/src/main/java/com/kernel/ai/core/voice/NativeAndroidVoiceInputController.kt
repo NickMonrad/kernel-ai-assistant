@@ -403,6 +403,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             heardSpeech = true
             resetSessionWatchdog()
             Log.d(TAG, "Android native STT speech began: sessionId=$sessionId mode=$mode backend=$backend")
+            _events.tryEmit(VoiceInputEvent.SpeechDetected(mode))
         }
 
         override fun onRmsChanged(rmsdB: Float) = Unit

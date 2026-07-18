@@ -61,7 +61,7 @@ class TargetEventJournalReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 Log.e(TAG, "receiver_error", e)
                 pendingResult.setResultCode(TargetEventJournalContract.RESULT_ERROR)
-                pendingResult.setResultData("receiver_error: ${e.message}")
+                pendingResult.setResultData("receiver_error")
                 pendingResult.finish()
             }
         }
@@ -105,7 +105,7 @@ class TargetEventJournalReceiver : BroadcastReceiver() {
                 val event = journal.waitForEvent(sinceSeq, eventType, timeoutMs)
                 if (event != null) {
                     pendingResult.setResultCode(TargetEventJournalContract.RESULT_OK)
-                    pendingResult.setResultData(serialiseEvent(event))
+                    pendingResult.setResultData(AcousticJournalJson.serialiseEvent(event))
                 } else {
                     pendingResult.setResultCode(TargetEventJournalContract.RESULT_TIMEOUT)
                     pendingResult.setResultData(
@@ -119,12 +119,9 @@ class TargetEventJournalReceiver : BroadcastReceiver() {
                 val sinceSeq = intent.getLongExtra(
                     TargetEventJournalContract.EXTRA_SINCE_SEQUENCE, 0L,
                 )
-                val events = journal.snapshotSince(sinceSeq)
-                val json = events.joinToString(separator = "\n", prefix = "[", postfix = "]") {
-                    serialiseEvent(it)
-                }
+                val snapshot = journal.snapshotSince(sinceSeq)
                 pendingResult.setResultCode(TargetEventJournalContract.RESULT_OK)
-                pendingResult.setResultData(json)
+                pendingResult.setResultData(AcousticJournalJson.serialiseSnapshot(snapshot))
                 pendingResult.finish()
             }
 
@@ -158,25 +155,51 @@ class TargetEventJournalReceiver : BroadcastReceiver() {
             }
         }
 
-        /** Compact JSON serialisation of an [AcousticEvent]. */
-        private fun serialiseEvent(event: com.kernel.ai.core.voice.AcousticEvent): String {
-            val metaJson = if (event.metadata.isEmpty()) "{}" else {
-                event.metadata.entries.joinToString(
-                    separator = ",",
-                    prefix = "{",
-                    postfix = "}",
-                ) { (k, v) ->
-                    "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
-                }
+    }
+}
+
+internal object AcousticJournalJson {
+    fun serialiseSnapshot(snapshot: AcousticJournalSnapshot): String =
+        buildString {
+            append("""{"lowestSequence":${snapshot.lowestSequence},"highestSequence":${snapshot.highestSequence},"overflowed":${snapshot.overflowed},"events":[""")
+            snapshot.events.forEachIndexed { index, event ->
+                if (index > 0) append(',')
+                append(serialiseEvent(event))
             }
-            return """{"s":${event.sequence},"m":${event.monotonicMs},"w":${event.wallClockMs},"t":"${escapeJson(event.type)}","g":${event.generationId},"i":${event.sessionId},"d":$metaJson}"""
+            append("]}")
         }
 
-        private fun escapeJson(s: String): String =
-            s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
+    fun serialiseEvent(event: com.kernel.ai.core.voice.AcousticEvent): String {
+        val metaJson = if (event.metadata.isEmpty()) "{}" else {
+            event.metadata.entries.joinToString(
+                separator = ",",
+                prefix = "{",
+                postfix = "}",
+            ) { (key, value) ->
+                "\"${escapeJson(key)}\":\"${escapeJson(value)}\""
+            }
+        }
+        return """{"s":${event.sequence},"m":${event.monotonicMs},"w":${event.wallClockMs},"t":"${escapeJson(event.type)}","g":${event.generationId},"i":${event.sessionId},"d":$metaJson}"""
     }
+
+    private fun escapeJson(value: String): String =
+        buildString(value.length) {
+            value.forEach { character ->
+                when (character) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\b' -> append("\\b")
+                    '\u000C' -> append("\\f")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> if (character.code < 0x20) {
+                        append("\\u")
+                        append(character.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+        }
 }

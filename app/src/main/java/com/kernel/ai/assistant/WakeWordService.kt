@@ -27,6 +27,7 @@ import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
@@ -99,6 +100,10 @@ class WakeWordService : Service() {
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
             stopSelf(startId)
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "record_audio_permission_missing") },
+            )
             return START_NOT_STICKY
         }
 
@@ -106,6 +111,10 @@ class WakeWordService : Service() {
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "wake_model_unavailable") },
+            )
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -135,22 +144,11 @@ class WakeWordService : Service() {
                         rearmDetector()
                     }
 
-                    is VoiceInputEvent.PartialTranscript -> {
-                        // Record partial presence without exposing transcript text.
-                        AcousticJournalBridge.record(
-                            type = AcousticEventType.STT_PARTIAL,
-                            metadata = mapOf("length" to event.text.length.toString()),
-                        )
-                    }
-
-                    is VoiceInputEvent.Error -> {
-                        AcousticJournalBridge.record(
-                            type = AcousticEventType.STT_ERROR,
-                            metadata = mapOf("error" to (event.message.take(200))),
-                        )
-                    }
-
-                    else -> Unit
+                    is VoiceInputEvent.SpeechDetected,
+                    is VoiceInputEvent.PartialTranscript,
+                    is VoiceInputEvent.Transcript,
+                    is VoiceInputEvent.Error,
+                    -> Unit
                 }
             }
         }
@@ -171,90 +169,107 @@ class WakeWordService : Service() {
 
 
 
-    private fun handleDetection() {
-        val sessionId = AcousticJournalBridge.allocateSessionId()
+    private fun handleDetection(generationId: Long, sessionId: Long) {
         serviceScope.launch {
             isHandlingDetection = true
-            AcousticJournalBridge.record(
-                type = AcousticEventType.VOICE_SESSION_STARTED,
-                sessionId = sessionId,
-            )
+            val journal = WakeSessionJournal(generationId, sessionId)
+            journal.start()
+            var completed = false
+            var cancellationCategory = "stt_no_final_result"
+            val progressCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                voiceInputController.events.collect { event ->
+                    if (!event.isWakeSessionEvent()) return@collect
+                    when (event) {
+                        is VoiceInputEvent.SpeechDetected -> journal.record(
+                            AcousticEventType.STT_SPEECH_DETECTED,
+                        )
+                        is VoiceInputEvent.PartialTranscript -> journal.record(
+                            AcousticEventType.STT_PARTIAL,
+                            metadata = { mapOf("length" to event.text.length.toString()) },
+                        )
+                        else -> Unit
+                    }
+                }
+            }
+
             try {
                 var transcript: String? = null
                 for (attempt in 1..2) {
                     val startupEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
                         voiceInputController.events.first {
-                            it is VoiceInputEvent.ListeningStarted
-                                || it is VoiceInputEvent.Transcript
-                                || it is VoiceInputEvent.Error
-                                || it is VoiceInputEvent.ListeningStopped
+                            it.isWakeSessionEvent() && (
+                                it is VoiceInputEvent.ListeningStarted ||
+                                    it is VoiceInputEvent.Transcript ||
+                                    it is VoiceInputEvent.Error ||
+                                    it is VoiceInputEvent.ListeningStopped
+                                )
                         }
                     }
                     val terminalEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
                         voiceInputController.events.first {
-                            it is VoiceInputEvent.Transcript
-                                || it is VoiceInputEvent.Error
-                                || it is VoiceInputEvent.ListeningStopped
+                            it.isWakeSessionEvent() && (
+                                it is VoiceInputEvent.Transcript ||
+                                    it is VoiceInputEvent.Error ||
+                                    it is VoiceInputEvent.ListeningStopped
+                                )
                         }
                     }
-                    AcousticJournalBridge.record(
-                        type = AcousticEventType.STT_START_REQUESTED,
-                        sessionId = sessionId,
-                        metadata = mapOf("attempt" to attempt.toString()),
+                    journal.record(
+                        AcousticEventType.STT_START_REQUESTED,
+                        metadata = { mapOf("attempt" to attempt.toString()) },
                     )
-                    val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                    val startResult = voiceInputController.startListening(
+                        VoiceCaptureMode.AlertCommand,
+                    )
                     if (startResult !is VoiceInputStartResult.Started) {
                         startupEventDeferred.cancel()
                         terminalEventDeferred.cancel()
+                        cancellationCategory = "stt_unavailable"
+                        journal.record(
+                            AcousticEventType.STT_ERROR,
+                            metadata = { mapOf("category" to "stt_unavailable") },
+                        )
                         Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
                         val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
                         if (!message.isNullOrBlank()) showWakeWordError(message)
-                        AcousticJournalBridge.record(
-                            type = AcousticEventType.SESSION_CANCELLED,
-                            sessionId = sessionId,
-                            metadata = mapOf("reason" to "stt_unavailable", "message" to (message?.take(200) ?: "")),
-                        )
                         break
                     }
 
                     val startupEvent = try {
                         startupEventDeferred.await()
+                    } catch (e: CancellationException) {
+                        terminalEventDeferred.cancel()
+                        throw e
                     } catch (e: Exception) {
                         terminalEventDeferred.cancel()
+                        cancellationCategory = "startup_collection_failed"
                         Log.w(TAG, "WakeWordService: startup event collection failed (attempt $attempt)", e)
-                        AcousticJournalBridge.record(
-                            type = AcousticEventType.SESSION_CANCELLED,
-                            sessionId = sessionId,
-                            metadata = mapOf("reason" to "startup_collection_failed"),
-                        )
                         break
                     }
 
                     if (startupEvent is VoiceInputEvent.ListeningStarted) {
-                        AcousticJournalBridge.record(
-                            type = AcousticEventType.STT_READY,
-                            sessionId = sessionId,
-                        )
+                        journal.record(AcousticEventType.STT_READY)
                     }
 
                     val terminalEvent = when (startupEvent) {
                         is VoiceInputEvent.ListeningStarted -> {
                             if (attempt == 1) {
-                                AcousticJournalBridge.record(
-                                    type = AcousticEventType.CUE_REQUESTED,
-                                    sessionId = sessionId,
-                                    metadata = mapOf("force_audible" to "true"),
+                                journal.record(
+                                    AcousticEventType.CUE_REQUESTED,
+                                    metadata = { mapOf("force_audible" to "true") },
                                 )
                                 cuePlayer.playCue(forceAudible = true)
                             }
                             try {
                                 terminalEventDeferred.await()
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
-                                Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
-                                AcousticJournalBridge.record(
-                                    type = AcousticEventType.SESSION_CANCELLED,
-                                    sessionId = sessionId,
-                                    metadata = mapOf("reason" to "transcript_collection_failed"),
+                                cancellationCategory = "transcript_collection_failed"
+                                Log.w(
+                                    TAG,
+                                    "WakeWordService: transcript collection failed (attempt $attempt)",
+                                    e,
                                 )
                                 break
                             }
@@ -267,30 +282,71 @@ class WakeWordService : Service() {
 
                     val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
                     if (!text.isNullOrBlank()) {
+                        journal.record(
+                            AcousticEventType.STT_FINAL,
+                            metadata = { mapOf("length" to text.length.toString()) },
+                        )
                         transcript = text
                         break
                     }
-                    val errorMessage = (terminalEvent as? VoiceInputEvent.Error)?.message
-                    if (!errorMessage.isNullOrBlank() && attempt == 2) {
-                        showWakeWordError(errorMessage)
+
+                    if (terminalEvent is VoiceInputEvent.Error) {
+                        journal.record(
+                            AcousticEventType.STT_ERROR,
+                            metadata = { mapOf("category" to "stt_recognition_failed") },
+                        )
+                        if (attempt == 2 && terminalEvent.message.isNotBlank()) {
+                            showWakeWordError(terminalEvent.message)
+                        }
+                        cancellationCategory = "stt_recognition_failed"
+                    } else {
+                        cancellationCategory = "stt_stopped_without_result"
                     }
-                    Log.w(TAG, "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
-                        if (attempt < 2) " — retrying" else "")
+                    Log.w(
+                        TAG,
+                        "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
+                            if (attempt < 2) " — retrying" else "",
+                    )
                 }
 
                 if (transcript != null) {
-                    Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
-                    routeTranscript(transcript)
+                    Log.d(TAG, "WakeWordService: routing final transcript")
+                    if (routeTranscript(transcript)) {
+                        journal.record(
+                            AcousticEventType.COMMAND_ROUTING_RESULT,
+                            metadata = { mapOf("outcome" to "handed_off") },
+                        )
+                        completed = true
+                    } else {
+                        journal.record(
+                            AcousticEventType.COMMAND_ROUTING_RESULT,
+                            metadata = {
+                                mapOf(
+                                    "outcome" to "failed",
+                                    "category" to "route_activity_failed",
+                                )
+                            },
+                        )
+                        cancellationCategory = "route_activity_failed"
+                    }
                 }
+            } catch (e: CancellationException) {
+                cancellationCategory = "session_cancelled"
+                throw e
+            } catch (e: Exception) {
+                cancellationCategory = "session_failed"
+                Log.e(TAG, "WakeWordService: wake session failed", e)
             } finally {
+                progressCollector.cancel()
+                if (completed) {
+                    journal.complete()
+                } else {
+                    journal.cancel(cancellationCategory)
+                }
                 isHandlingDetection = false
                 rearmDetector()
             }
         }
-        AcousticJournalBridge.record(
-            type = AcousticEventType.SESSION_COMPLETED,
-            sessionId = sessionId,
-        )
     }
 
     private fun showWakeWordError(message: String) {
@@ -302,20 +358,33 @@ class WakeWordService : Service() {
 
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
-        if (!wakeWordDetector.isAvailable) return
+        if (!wakeWordDetector.isAvailable) {
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "wake_model_unavailable") },
+            )
+            return
+        }
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "record_audio_permission_missing") },
+            )
             return
         }
         val generationId = AcousticJournalBridge.allocateGenerationId()
         wakeWordDetector.start(
+            generationId = generationId,
             onDetected = {
+                val sessionId = AcousticJournalBridge.allocateSessionId()
                 AcousticJournalBridge.record(
                     type = AcousticEventType.WAKE_CALLBACK_INVOKED,
                     generationId = generationId,
+                    sessionId = sessionId,
                 )
-                handleDetection()
+                handleDetection(generationId, sessionId)
             },
             verifyWindow = { pcm ->
                 try {
@@ -334,24 +403,27 @@ class WakeWordService : Service() {
         )
     }
 
-    private fun routeTranscript(transcript: String) {
+    private fun routeTranscript(transcript: String): Boolean {
         // Set the in-process authorisation token before launching the activity.
         // VoiceCommandActivity checks this field and clears it on read — external callers
         // cannot set it, so they cannot inject transcripts even though the activity is exported.
         WakeWordHandoff.pendingTranscript = transcript
-        try {
+        return try {
             startActivity(
                 Intent(this, VoiceCommandActivity::class.java).apply {
                     putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
+            true
         } catch (e: Exception) {
             // Clear the token if startActivity failed so it doesn't linger.
             WakeWordHandoff.pendingTranscript = null
             Log.e(TAG, "WakeWordService: failed to launch VoiceCommandActivity", e)
+            false
         }
     }
+
 
     // ── Notification ───────────────────────────────────────────────────────────
 
@@ -451,3 +523,6 @@ class WakeWordService : Service() {
         }
     }
 }
+
+internal fun VoiceInputEvent.isWakeSessionEvent(): Boolean =
+    mode == VoiceCaptureMode.AlertCommand

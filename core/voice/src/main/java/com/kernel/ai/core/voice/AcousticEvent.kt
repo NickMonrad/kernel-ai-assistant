@@ -33,6 +33,9 @@ object AcousticEventType {
     /** First voiced frame detected after a period of silence-gating. */
     const val VOICED_FRAME_AFTER_SILENCE = "VOICED_FRAME_AFTER_SILENCE"
 
+    /** Stage 2 embedding execution resumed after silence gating. */
+    const val STAGE2_RESUMED = "STAGE2_RESUMED"
+
     /** Stage 3 classifier ready after embedding ring history filled. */
     const val STAGE3_READY = "STAGE3_READY"
 
@@ -69,19 +72,25 @@ object AcousticEventType {
     /** STT produced a partial result.  Metadata: "length" (character count). */
     const val STT_PARTIAL = "STT_PARTIAL"
 
-    /** STT produced an error.  Metadata: "error". */
+    /** STT produced a final result. Metadata: "length" (character count). */
+    const val STT_FINAL = "STT_FINAL"
+
+    /** STT produced an error. Metadata: stable "category". */
     const val STT_ERROR = "STT_ERROR"
+
+    /** Command handoff result. Metadata: "outcome" and optional stable "category". */
+    const val COMMAND_ROUTING_RESULT = "COMMAND_ROUTING_RESULT"
 
     /** Voice session completed normally. */
     const val SESSION_COMPLETED = "SESSION_COMPLETED"
 
-    /** Voice session was cancelled.  Metadata: "reason". */
+    /** Voice session was cancelled. Metadata: stable "category". */
     const val SESSION_CANCELLED = "SESSION_CANCELLED"
 
     /** Detector was re-armed with a new generation. */
     const val DETECTOR_REARMED = "DETECTOR_REARMED"
 
-    /** Service loss or detector error.  Metadata: "error". */
+    /** Service loss. Metadata: stable "category". */
     const val SERVICE_ERROR = "SERVICE_ERROR"
 
     /** Detector-level error (ONNX session, AudioRecord, etc.). */

@@ -595,6 +595,7 @@ class ChatViewModel @Inject constructor(
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(currentTranscript)
                     }
+                    is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.PartialTranscript -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
