@@ -23,6 +23,13 @@
                     android:pathPrefix="/callback" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name="com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

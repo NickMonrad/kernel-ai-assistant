@@ -72,3 +72,5 @@ scripts/private-battery-runs/
 !scripts/testdata/
 !scripts/testdata/fixtures/
 !scripts/testdata/fixtures/*
+scripts/private-acoustic-fixtures/
+scripts/private-acoustic-runs/
