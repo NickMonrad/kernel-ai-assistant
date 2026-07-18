@@ -29,8 +29,12 @@ and receiver component explicitly.
 Each request writes a private JSON result below the app's private
 `files/acoustic-stimulus-results/` directory and emits only structured events
 under the `AcousticStimulus` log tag. The result contains fixture hash and timing,
-route, focus, volume, completion/error, timeout, overlap and cleanup fields. It
-never contains a host path, device selector or audio bytes.
+route, focus, volume, completion/error, timeout, overlap and cleanup fields,
+including a final `cleanup_completed` event with restoration status. If result
+persistence fails, the externally returned outcome is invalid with
+`result_write_failed`; playback/cleanup status remains visible in the returned
+evidence even though the evidence file was not persisted.
+It never contains a host path, device selector or audio bytes.
 
 ## Approved fixture contract
 
@@ -91,13 +95,13 @@ Do not use `adb push` directly into the application data directory, add fixture
 files to a source/resource directory, or reuse wake-model training audio.
 
 ## Lifecycle and safety
-
 Playback uses `MediaPlayer` and `goAsync()` with a seven-second hard timeout.
 The helper snapshots only media volume and the current output route, verifies a
 built-in speaker route, requests transient media focus, opens the validated WAV
 through a file descriptor, and emits prepared/started/completed/error events.
-Every completion, preparation error, player error, timeout or partial failure
-releases the player, closes the descriptor, abandons focus, restores the exact
-original media volume and verifies that restoration. A restoration or cleanup
-failure makes the result invalid. Concurrent requests are rejected without
-mutating audio state.
+After player release, descriptor close, focus abandonment, volume restoration and
+restoration verification it emits the final `cleanup_completed` event. Every
+completion, preparation error, player error, timeout or partial failure releases
+resources and restores the exact original media volume. A restoration or cleanup
+failure makes the result invalid while preserving the original playback error.
+Concurrent requests are rejected without mutating audio state.

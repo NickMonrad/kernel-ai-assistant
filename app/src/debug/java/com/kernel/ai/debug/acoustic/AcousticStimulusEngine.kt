@@ -75,6 +75,9 @@ internal data class StimulusEvent(
     val name: String,
     val monotonicMs: Long,
     val wallClockMs: Long,
+    val cleanupSuccess: Boolean? = null,
+    val exactRestorationVerified: Boolean? = null,
+    val errorCategory: String? = null,
 )
 
 internal data class StimulusResult(
@@ -103,6 +106,8 @@ internal data class StimulusResult(
     val cleanupSuccess: Boolean,
     val exactRestorationVerified: Boolean,
     val events: List<StimulusEvent>,
+    val playbackErrorCategory: String? = null,
+    val evidencePersistenceFailed: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("schema_version", RESULT_SCHEMA_VERSION)
@@ -126,6 +131,8 @@ internal data class StimulusResult(
         put("focus_result", focusResult)
         put("completion_status", completionStatus)
         putOpt("error_category", errorCategory)
+        putOpt("playback_error_category", playbackErrorCategory)
+        put("evidence_persistence_failed", evidencePersistenceFailed)
         put("timeout", timeout)
         put("overlap_rejected", overlapRejected)
         put("cleanup_success", cleanupSuccess)
@@ -137,6 +144,9 @@ internal data class StimulusResult(
                         put("name", event.name)
                         put("monotonic_ms", event.monotonicMs)
                         put("wall_clock_ms", event.wallClockMs)
+                        putOpt("cleanup_success", event.cleanupSuccess)
+                        putOpt("exact_restoration_verified", event.exactRestorationVerified)
+                        putOpt("error_category", event.errorCategory)
                     },
                 )
             }
@@ -220,13 +230,29 @@ internal class AcousticStimulusEngine(
         }
     }
 
-    private fun deliver(result: StimulusResult, finish: (StimulusResult) -> Unit) {
-        try {
+    private fun deliver(
+        result: StimulusResult,
+        finish: (StimulusResult) -> Unit,
+        releaseGate: Boolean = false,
+    ) {
+        val externallyReturned = try {
             resultWriter.write(result)
+            result
         } catch (error: Exception) {
-            Log.e(ACOUSTIC_STIMULUS_LOG_TAG, "result_write_failed", error)
+            runCatching {
+                Log.e(ACOUSTIC_STIMULUS_LOG_TAG, "result_write_failed", error)
+            }
+            result.copy(
+                completionStatus = "invalid",
+                errorCategory = "result_write_failed",
+                playbackErrorCategory = result.playbackErrorCategory ?: result.errorCategory,
+                evidencePersistenceFailed = true,
+            )
+        }
+        try {
+            finish(externallyReturned)
         } finally {
-            finish(result)
+            if (releaseGate) PlaybackGate.release()
         }
     }
 
@@ -388,8 +414,20 @@ internal class AcousticStimulusEngine(
 
         fun isComplete(): Boolean = completed
 
-        fun record(name: String) {
-            val event = StimulusEvent(name, time.monotonicMs(), time.wallClockMs())
+        fun record(
+            name: String,
+            cleanupSuccess: Boolean? = null,
+            exactRestorationVerified: Boolean? = null,
+            errorCategory: String? = null,
+        ) {
+            val event = StimulusEvent(
+                name = name,
+                monotonicMs = time.monotonicMs(),
+                wallClockMs = time.wallClockMs(),
+                cleanupSuccess = cleanupSuccess,
+                exactRestorationVerified = exactRestorationVerified,
+                errorCategory = errorCategory,
+            )
             events += event
             try {
                 eventLogger.event(event, invocation.trialId, invocation.fixtureId)
@@ -453,6 +491,12 @@ internal class AcousticStimulusEngine(
                     cleanupError = cleanupError ?: "volume_restoration_failed"
                 }
             }
+            record(
+                name = "cleanup_completed",
+                cleanupSuccess = cleanupSuccess,
+                exactRestorationVerified = exactRestorationVerified,
+                errorCategory = cleanupError,
+            )
             val result = StimulusResult(
                 trialId = invocation.trialId,
                 fixtureId = invocation.fixtureId,
@@ -479,9 +523,9 @@ internal class AcousticStimulusEngine(
                 cleanupSuccess = cleanupSuccess,
                 exactRestorationVerified = exactRestorationVerified,
                 events = events.toList(),
+                playbackErrorCategory = errorCategory.takeIf { cleanupError != null },
             )
-            PlaybackGate.release()
-            deliver(result, finish)
+            deliver(result, finish, releaseGate = true)
         }
     }
 }
@@ -610,6 +654,9 @@ internal object AndroidStimulusEventLogger : StimulusEventLogger {
             put("fixture_id", fixtureId)
             put("monotonic_ms", result.monotonicMs)
             put("wall_clock_ms", result.wallClockMs)
+            putOpt("cleanup_success", result.cleanupSuccess)
+            putOpt("exact_restoration_verified", result.exactRestorationVerified)
+            putOpt("error_category", result.errorCategory)
         }
         Log.i(ACOUSTIC_STIMULUS_LOG_TAG, json.toString())
     }

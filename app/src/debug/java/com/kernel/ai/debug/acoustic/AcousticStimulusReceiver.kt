@@ -7,6 +7,16 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 
+internal fun acousticStimulusResultCode(result: StimulusResult): Int = when {
+    result.completionStatus == "completed" &&
+        result.errorCategory == null &&
+        !result.evidencePersistenceFailed ->
+        AcousticStimulusContract.RESULT_OK
+    result.overlapRejected || result.completionStatus == "rejected" ->
+        AcousticStimulusContract.RESULT_REJECTED
+    else -> AcousticStimulusContract.RESULT_FAILED
+}
+
 /**
  * Debug-only source playback endpoint. Invoke explicitly against com.kernel.ai.debug.
  */
@@ -25,15 +35,7 @@ class AcousticStimulusReceiver : BroadcastReceiver() {
                         InvocationParser.parse(intent)
                     }
                     createEngine(appContext).handle(parsed) { result ->
-                        pendingResult.setResultCode(
-                            when {
-                                result.completionStatus == "completed" && result.errorCategory == null ->
-                                    AcousticStimulusContract.RESULT_OK
-                                result.overlapRejected || result.completionStatus == "rejected" ->
-                                    AcousticStimulusContract.RESULT_REJECTED
-                                else -> AcousticStimulusContract.RESULT_FAILED
-                            },
-                        )
+                        pendingResult.setResultCode(acousticStimulusResultCode(result))
                         pendingResult.setResultData(result.errorCategory ?: result.completionStatus)
                         pendingResult.finish()
                     }

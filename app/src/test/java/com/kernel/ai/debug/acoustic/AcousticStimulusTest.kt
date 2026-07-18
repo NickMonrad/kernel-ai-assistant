@@ -112,7 +112,7 @@ class AcousticStimulusTest {
     }
 
     @Test
-    fun `valid playback emits prepared started completed and restores exact volume`() {
+    fun `valid playback emits prepared started completed cleanup and restores exact volume`() {
         val audio = FakeAudio()
         val player = FakePlayer()
         val logger = RecordingLogger()
@@ -126,7 +126,12 @@ class AcousticStimulusTest {
 
         assertEquals("completed", result?.completionStatus)
         assertNull(result?.errorCategory)
-        assertEquals(listOf("prepared", "started", "completed"), logger.events.map { it.name })
+        assertEquals(
+            listOf("prepared", "started", "completed", "cleanup_completed"),
+            logger.events.map { it.name },
+        )
+        assertTrue(result?.events?.last()?.cleanupSuccess == true)
+        assertTrue(result?.events?.last()?.exactRestorationVerified == true)
         assertEquals(4, result?.volumeBefore)
         assertEquals(7, result?.requestedVolume)
         assertEquals(7, result?.appliedVolume)
@@ -146,40 +151,104 @@ class AcousticStimulusTest {
         )
         cases.forEach { (audio, player, category) ->
             val writer = RecordingWriter()
-            val engine = testEngine(audio, player, writer, RecordingLogger())
+            val logger = RecordingLogger()
+            val engine = testEngine(audio, player, writer, logger)
             var result: StimulusResult? = null
             engine.handle(InvocationParseResult.Valid(invocation())) { result = it }
             assertEquals(category, result?.errorCategory)
+            assertEquals("cleanup_completed", result?.events?.last()?.name)
             assertEquals(4, result?.restoredVolume)
             assertTrue(result?.exactRestorationVerified == true)
             assertEquals(if (category == "prepare_failed") 1 else 0, player.releaseCount)
             assertEquals(if (category == "prepare_failed") 1 else 0, audio.abandonCount)
-            PlaybackGate.release()
         }
 
         val errorAudio = FakeAudio()
         val errorPlayer = FakePlayer()
         val errorWriter = RecordingWriter()
-        val errorEngine = testEngine(errorAudio, errorPlayer, errorWriter, RecordingLogger())
+        val errorLogger = RecordingLogger()
+        val errorEngine = testEngine(errorAudio, errorPlayer, errorWriter, errorLogger)
         var errorResult: StimulusResult? = null
         errorEngine.handle(InvocationParseResult.Valid(invocation())) { errorResult = it }
         errorPlayer.triggerPrepared()
         errorPlayer.triggerError()
         assertEquals("playback_error", errorResult?.errorCategory)
+        assertEquals(
+            listOf("prepared", "started", "error", "cleanup_completed"),
+            errorLogger.events.map { it.name },
+        )
         assertEquals(4, errorResult?.restoredVolume)
-        PlaybackGate.release()
 
         val timeoutAudio = FakeAudio()
         val timeoutPlayer = FakePlayer()
         val timeoutScheduler = RecordingScheduler()
         val timeoutWriter = RecordingWriter()
-        val timeoutEngine = testEngine(timeoutAudio, timeoutPlayer, timeoutWriter, RecordingLogger(), timeoutScheduler)
+        val timeoutLogger = RecordingLogger()
+        val timeoutEngine = testEngine(timeoutAudio, timeoutPlayer, timeoutWriter, timeoutLogger, timeoutScheduler)
         var timeoutResult: StimulusResult? = null
         timeoutEngine.handle(InvocationParseResult.Valid(invocation())) { timeoutResult = it }
         timeoutScheduler.fire()
         assertEquals("playback_timeout", timeoutResult?.errorCategory)
         assertTrue(timeoutResult?.timeout == true)
+        assertEquals(
+            listOf("timeout", "cleanup_completed"),
+            timeoutLogger.events.map { it.name },
+        )
         assertEquals(4, timeoutResult?.restoredVolume)
+    }
+
+    @Test
+    fun `result writer failure returns failed outcome and releases playback gate`() {
+        val audio = FakeAudio()
+        val player = FakePlayer()
+        var result: StimulusResult? = null
+        testEngine(audio, player, ThrowingWriter(), RecordingLogger())
+            .handle(InvocationParseResult.Valid(invocation())) { result = it }
+        player.triggerPrepared()
+        player.triggerCompletion()
+
+        assertEquals("invalid", result?.completionStatus)
+        assertEquals("result_write_failed", result?.errorCategory)
+        assertNull(result?.playbackErrorCategory)
+        assertTrue(result?.evidencePersistenceFailed == true)
+        assertTrue(result?.cleanupSuccess == true)
+        assertEquals(
+            listOf("prepared", "started", "completed", "cleanup_completed"),
+            result?.events?.map { it.name },
+        )
+        assertEquals(
+            AcousticStimulusContract.RESULT_FAILED,
+            acousticStimulusResultCode(result!!),
+        )
+        assertTrue(
+            result?.completionStatus != "completed" ||
+                acousticStimulusResultCode(result!!) != AcousticStimulusContract.RESULT_OK,
+        )
+        assertTrue(PlaybackGate.tryAcquire())
+        PlaybackGate.release()
+    }
+
+    @Test
+    fun `playback start failure releases resources restores volume and releases gate`() {
+        val audio = FakeAudio()
+        val player = FakePlayer(startThrows = true)
+        val logger = RecordingLogger()
+        var result: StimulusResult? = null
+        testEngine(audio, player, RecordingWriter(), logger)
+            .handle(InvocationParseResult.Valid(invocation())) { result = it }
+        player.triggerPrepared()
+
+        assertEquals("playback_start_failed", result?.errorCategory)
+        assertEquals(1, player.releaseCount)
+        assertEquals(1, audio.abandonCount)
+        assertEquals(4, result?.restoredVolume)
+        assertTrue(result?.exactRestorationVerified == true)
+        assertEquals(
+            listOf("prepared", "error", "cleanup_completed"),
+            logger.events.map { it.name },
+        )
+        assertTrue(PlaybackGate.tryAcquire())
+        PlaybackGate.release()
     }
 
     @Test
@@ -228,6 +297,27 @@ class AcousticStimulusTest {
         assertEquals("volume_restoration_failed", result?.errorCategory)
         assertFalse(result?.cleanupSuccess == true)
         assertFalse(result?.exactRestorationVerified == true)
+    }
+
+    @Test
+    fun `cleanup failure preserves original playback failure`() {
+        val audio = FakeAudio(restorationFails = true)
+        val player = FakePlayer()
+        val logger = RecordingLogger()
+        var result: StimulusResult? = null
+        testEngine(audio, player, RecordingWriter(), logger)
+            .handle(InvocationParseResult.Valid(invocation())) { result = it }
+        player.triggerPrepared()
+        player.triggerError()
+
+        assertEquals("invalid", result?.completionStatus)
+        assertEquals("volume_restoration_failed", result?.errorCategory)
+        assertEquals("playback_error", result?.playbackErrorCategory)
+        assertFalse(result?.cleanupSuccess == true)
+        assertFalse(result?.exactRestorationVerified == true)
+        assertEquals("cleanup_completed", result?.events?.last()?.name)
+        assertFalse(result?.events?.last()?.cleanupSuccess == true)
+        assertEquals("volume_restoration_failed", result?.events?.last()?.errorCategory)
     }
 
     @Test
@@ -288,7 +378,7 @@ class AcousticStimulusTest {
     private fun testEngine(
         audio: FakeAudio,
         player: FakePlayer,
-        writer: RecordingWriter,
+        writer: StimulusResultWriter,
         logger: RecordingLogger,
         scheduler: RecordingScheduler = RecordingScheduler(),
     ) = AcousticStimulusEngine(
@@ -361,6 +451,7 @@ class AcousticStimulusTest {
 
     private class FakePlayer(
         private val prepareThrows: Boolean = false,
+        private val startThrows: Boolean = false,
     ) : StimulusPlayer {
         private var prepared: (() -> Unit)? = null
         private var completion: (() -> Unit)? = null
@@ -375,7 +466,10 @@ class AcousticStimulusTest {
         override fun prepareAsync() {
             if (prepareThrows) throw IllegalStateException("prepare")
         }
-        override fun start() { started = true }
+        override fun start() {
+            if (startThrows) throw IllegalStateException("start")
+            started = true
+        }
         override fun release() { releaseCount++ }
         fun triggerPrepared() { prepared?.invoke() }
         fun triggerCompletion() { completion?.invoke() }
@@ -394,6 +488,12 @@ class AcousticStimulusTest {
     private class RecordingWriter : StimulusResultWriter {
         val results = mutableListOf<StimulusResult>()
         override fun write(result: StimulusResult) { results += result }
+    }
+
+    private class ThrowingWriter : StimulusResultWriter {
+        override fun write(result: StimulusResult) {
+            throw IllegalStateException("writer")
+        }
     }
 
     private class RecordingLogger : StimulusEventLogger {
