@@ -667,6 +667,11 @@ Scope:
 
 Dependency: approved design. Can proceed in parallel with Slice B after event vocabulary review.
 
+Implemented Slice C contract details, including the exact snapshot envelope,
+bounded concurrent wait/cancellation actions, extras, result codes, validation
+errors, and timeout bounds, are maintained in
+[`acoustic-stimulus-source.md`](acoustic-stimulus-source.md#target-structured-event-journal).
+
 ### Slice D — evidence schema and dashboard
 
 **Title:** Add acoustic wake reliability evidence and dashboard support

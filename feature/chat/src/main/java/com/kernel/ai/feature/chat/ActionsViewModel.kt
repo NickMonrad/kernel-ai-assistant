@@ -383,6 +383,7 @@ class ActionsViewModel @Inject constructor(
                         // #791: Play the start-listening earcon now that the mic is truly open.
                         startListeningCuePlayer.playCue()
                     }
+                    is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.PartialTranscript -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)

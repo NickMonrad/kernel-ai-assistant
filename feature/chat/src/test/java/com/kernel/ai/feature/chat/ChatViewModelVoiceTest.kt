@@ -181,7 +181,8 @@ class ChatViewModelVoiceTest {
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceInputController.events } returns voiceInputEvents
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
         every { voiceInputController.stopListening() } just runs
         every { voiceOutputController.events } returns voiceOutputEvents
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
@@ -840,7 +841,7 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started
+        } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceInput()
         runCurrent()
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
@@ -1109,7 +1110,8 @@ class ChatViewModelVoiceTest {
     
     @Test
     fun `mic repair resume with grant restarts one shot voice input`() = runTest(dispatcher) {
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
         
@@ -1128,7 +1130,8 @@ class ChatViewModelVoiceTest {
     
     @Test
     fun `mic repair resume with grant restarts back and forth voice`() = runTest(dispatcher) {
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
         

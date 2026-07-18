@@ -595,6 +595,7 @@ class ChatViewModel @Inject constructor(
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(currentTranscript)
                     }
+                    is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.PartialTranscript -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
@@ -613,7 +614,7 @@ class ChatViewModel @Inject constructor(
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
                             when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                                VoiceInputStartResult.Started -> {
+                                is VoiceInputStartResult.Started -> {
                                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                                     }
@@ -1202,7 +1203,7 @@ class ChatViewModel @Inject constructor(
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                VoiceInputStartResult.Started -> {
+                is VoiceInputStartResult.Started -> {
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1229,7 +1230,7 @@ class ChatViewModel @Inject constructor(
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                VoiceInputStartResult.Started -> {
+                is VoiceInputStartResult.Started -> {
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }

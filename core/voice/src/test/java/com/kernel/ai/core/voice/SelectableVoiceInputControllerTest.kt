@@ -37,7 +37,8 @@ class SelectableVoiceInputControllerTest {
         every { voskOfflineVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
-        coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
+        coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
 
         val controller = SelectableVoiceInputController(
             voiceInputPreferences = voiceInputPreferences,
@@ -80,7 +81,7 @@ class SelectableVoiceInputControllerTest {
                     message = "startup failed",
                 ),
             )
-            VoiceInputStartResult.Started
+            VoiceInputStartResult.Started(1L)
         }
 
         val controller = SelectableVoiceInputController(

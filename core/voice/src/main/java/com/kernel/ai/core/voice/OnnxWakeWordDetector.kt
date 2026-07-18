@@ -27,6 +27,38 @@ internal fun isWakeWordDiagnosticLoggingEnabled(): Boolean =
     Log.isLoggable(DIAGNOSTIC_TAG, Log.DEBUG)
 
 /**
+ * Transition state for silence-gate journal events.
+ *
+ * Periodic full-inference frames do not leave the gate. Only a voiced frame does,
+ * and the first Stage 2 execution after that voiced exit emits the resume event.
+ */
+internal class SilenceGateTransitionState {
+    var isGated: Boolean = false
+        private set
+
+    private var stage2ResumePending = false
+
+    fun enter(): Boolean {
+        if (isGated) return false
+        isGated = true
+        return true
+    }
+
+    fun onVoicedFrame(): Boolean {
+        if (!isGated) return false
+        isGated = false
+        stage2ResumePending = true
+        return true
+    }
+
+    fun onStage2Execution(): Boolean {
+        if (!stage2ResumePending) return false
+        stage2ResumePending = false
+        return true
+    }
+}
+
+/**
  * Diagnostic summaries are only emitted when the dedicated tag's DEBUG level is enabled.
  * Checking at this cadence keeps the production detector hot loop allocation-free.
  */
@@ -213,7 +245,11 @@ class OnnxWakeWordDetector @Inject constructor(
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }.getOrDefault(false)
     }
-    override fun start(onDetected: () -> Unit, verifyWindow: ((ShortArray) -> Boolean)?) {
+    override fun start(
+        generationId: Long,
+        onDetected: () -> Unit,
+        verifyWindow: ((ShortArray) -> Boolean)?,
+    ) {
         val bytes = modelBytes
         if (bytes == null) {
             Log.d(TAG, "WakeWordDetector: start() called but model(s) absent — no-op")
@@ -251,6 +287,7 @@ class OnnxWakeWordDetector @Inject constructor(
         detectionThread = Thread(
             {
                 runDetectionLoop(
+                    generationId = generationId,
                     bytes = bytes,
                     highThreshold = highThreshold,
                     lowThreshold = lowThreshold,
@@ -279,6 +316,7 @@ class OnnxWakeWordDetector @Inject constructor(
     @Suppress("LongMethod")
     @SuppressLint("MissingPermission")
     private fun runDetectionLoop(
+        generationId: Long,
         bytes: ModelBytes,
         highThreshold: Float,
         lowThreshold: Float,
@@ -302,11 +340,13 @@ class OnnxWakeWordDetector @Inject constructor(
         )
         } catch (e: Exception) {
             Log.e(TAG, "WakeWordDetector: AudioRecord construction failed", e)
+            recordDetectorError(generationId, "audio_record_construction_failed")
             running.set(false)
             return
         }
         if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
             Log.e(TAG, "WakeWordDetector: AudioRecord failed to initialise")
+            recordDetectorError(generationId, "audio_record_initialisation_failed")
             running.set(false)
             return
         }
@@ -324,6 +364,10 @@ class OnnxWakeWordDetector @Inject constructor(
         val diagnosticsStartedAt = if (diagnosticsEnabled) SystemClock.elapsedRealtime() else 0L
         var lastDiagnosticReportElapsedMillis = 0L
         var nnapiStatus = "not_requested"
+
+        // ── Target event journal tracking ──────────────────────────────────────
+        val silenceGateState = SilenceGateTransitionState()
+        var emittedStage3Ready = false
 
         try {
             val env = OrtEnvironment.getEnvironment()
@@ -359,10 +403,15 @@ class OnnxWakeWordDetector @Inject constructor(
 
             if (melsSession == null || embedSession == null || classSession == null) {
                 Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
+                recordDetectorError(generationId, "onnx_session_failed")
                 return
-
             }
             Log.i(TAG, "WakeWordDetector: models loaded (embedding provider=$nnapiStatus; mel+classifier: CPU)")
+
+            AcousticJournalBridge.record(
+                type = AcousticEventType.DETECTOR_GENERATION_STARTED,
+                generationId = generationId,
+            )
 
 
             // Resolve ONNX node names once at startup.
@@ -393,7 +442,12 @@ class OnnxWakeWordDetector @Inject constructor(
             var voicedFrameStreak = 0
             var wasGated = false
             runCatching { audioRecord.startRecording() }
-                .onFailure { e -> Log.e(TAG, "WakeWordDetector: startRecording failed", e); running.set(false); return }
+                .onFailure { e ->
+                    Log.e(TAG, "WakeWordDetector: startRecording failed", e)
+                    recordDetectorError(generationId, "audio_record_start_failed")
+                    running.set(false)
+                    return
+                }
             Log.d(TAG, "WakeWordDetector: recording started")
             while (running.get() && !Thread.currentThread().isInterrupted) {
                 // Read exactly one 80ms frame; abort if AudioRecord signals an error.
@@ -403,6 +457,7 @@ class OnnxWakeWordDetector @Inject constructor(
                         audioRecord.read(chunk, totalRead, FRAME_SAMPLES - totalRead)
                     } catch (e: SecurityException) {
                         Log.e(TAG, "WakeWordDetector: permission revoked during read", e)
+                        recordDetectorError(generationId, "audio_record_permission_revoked")
                         running.set(false)
                         -1
                     }
@@ -410,6 +465,7 @@ class OnnxWakeWordDetector @Inject constructor(
                         read > 0 -> totalRead += read
                         read < 0 -> {
                             Log.e(TAG, "WakeWordDetector: AudioRecord.read() error $read — stopping")
+                            recordDetectorError(generationId, "audio_record_read_failed")
                             running.set(false)
                         }
                         // read == 0: no data yet, spin
@@ -453,9 +509,13 @@ class OnnxWakeWordDetector @Inject constructor(
                     // every frame even during gating), so the first speech frame
                     // already pre-fills it with speech mel data.
                     // Latency: 80ms + 16-frame ring fill (~1.3s) ≈ ~1.4s.
-                    if (wasGated) {
+                    if (silenceGateState.onVoicedFrame()) {
                         embFramesAccumulated = 0
-                        wasGated = false
+                        emittedStage3Ready = false
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
+                            generationId = generationId,
+                        )
                     }
                     silenceFrames = 0
                     voicedFrameStreak = 0
@@ -521,7 +581,12 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (silenceFrames > silenceHangoverFrames &&
                     chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
                     diagnostics?.recordSilenceGateSkip()
-                    wasGated = true
+                    if (silenceGateState.enter()) {
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.SILENCE_GATE_ENTERED,
+                            generationId = generationId,
+                        )
+                    }
                     continue  // wake word not expected — skip expensive Stage 2/3
                 }
 
@@ -532,6 +597,12 @@ class OnnxWakeWordDetector @Inject constructor(
                 // melRing is already [76 × 32] row-major.  We reinterpret as [76 × 32 × 1] by
                 // passing the same flat array with shape [1, 76, 32, 1] — the channel is implicit
                 // (every element maps to exactly one channel-1 position).
+                if (silenceGateState.onStage2Execution()) {
+                    AcousticJournalBridge.record(
+                        type = AcousticEventType.STAGE2_RESUMED,
+                        generationId = generationId,
+                    )
+                }
                 melRing.copyInto(embedInput4D)
                 diagnostics?.recordStage2Execution()
                 val embedding: FloatArray = OnnxTensor.createTensor(
@@ -551,6 +622,13 @@ class OnnxWakeWordDetector @Inject constructor(
                 embRingHead = (embRingHead + 1) % EMBEDDING_FRAMES
                 if (embFramesAccumulated < EMBEDDING_FRAMES) embFramesAccumulated++
                 if (embFramesAccumulated < EMBEDDING_FRAMES) continue
+                if (!emittedStage3Ready && embFramesAccumulated >= EMBEDDING_FRAMES) {
+                    emittedStage3Ready = true
+                    AcousticJournalBridge.record(
+                        type = AcousticEventType.STAGE3_READY,
+                        generationId = generationId,
+                    )
+                }
 
                 // ── Stage 3: classifier over the last 16 embedding frames ─────────────
                 // Input:  [1, 16, 96]
@@ -578,8 +656,20 @@ class OnnxWakeWordDetector @Inject constructor(
                     // High-confidence fast path — activate immediately.
                     confidence >= highThreshold -> {
                         Log.i(TAG, "WakeWordDetector: detected (high confidence=$confidence)")
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.ACTIVATION_CANDIDATE,
+                            generationId = generationId,
+                            metadata = {
+                                mapOf("confidence" to confidence.toString(), "mode" to "high")
+                            },
+                        )
                         if (running.compareAndSet(true, false)) {
                             diagnostics?.recordHighConfidenceActivation()
+                            AcousticJournalBridge.record(
+                                type = AcousticEventType.VERIFIED_ACTIVATION,
+                                generationId = generationId,
+                                metadata = { mapOf("mode" to "high") },
+                            )
                             onDetected()
                         }
                     }
@@ -587,6 +677,13 @@ class OnnxWakeWordDetector @Inject constructor(
                     // Secondary band — run STT verification if a verifier is wired.
                     verifyWindow != null && confidence >= lowThreshold -> {
                         Log.d(TAG, "WakeWordDetector: low-threshold crossing (confidence=$confidence) — verifying")
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.ACTIVATION_CANDIDATE,
+                            generationId = generationId,
+                            metadata = {
+                                mapOf("confidence" to confidence.toString(), "mode" to "low")
+                            },
+                        )
                         val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
                         val verified = verifyWindow(snapshot)
                         diagnostics?.recordVerifierResult(verified)
@@ -594,6 +691,11 @@ class OnnxWakeWordDetector @Inject constructor(
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
                             if (running.compareAndSet(true, false)) {
                                 diagnostics?.recordVerifiedActivation()
+                                AcousticJournalBridge.record(
+                                    type = AcousticEventType.VERIFIED_ACTIVATION,
+                                    generationId = generationId,
+                                    metadata = { mapOf("mode" to "low") },
+                                )
                                 onDetected()
                             }
                         } else {
@@ -608,6 +710,7 @@ class OnnxWakeWordDetector @Inject constructor(
             Thread.currentThread().interrupt()
         } catch (e: Exception) {
             Log.e(TAG, "WakeWordDetector: fatal error", e)
+            recordDetectorError(generationId, "detector_runtime_failed")
         } finally {
             activeAudioRecord = null
             runCatching { audioRecord.stop() }
@@ -623,6 +726,14 @@ class OnnxWakeWordDetector @Inject constructor(
                 Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
             }
         }
+    }
+
+    private fun recordDetectorError(generationId: Long, category: String) {
+        AcousticJournalBridge.record(
+            type = AcousticEventType.DETECTOR_ERROR,
+            generationId = generationId,
+            metadata = { mapOf("category" to category) },
+        )
     }
 
     private fun formatDiagnosticSummary(

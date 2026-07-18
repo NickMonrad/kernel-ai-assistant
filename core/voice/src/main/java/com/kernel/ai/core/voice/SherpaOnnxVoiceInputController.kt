@@ -165,19 +165,28 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 )
             }
 
+            val captureSessionId = VoiceCaptureSessionIds.allocate()
             isRecording = true
-            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, captureSessionId))
 
             activeJob = recordingScope.launch {
                 try {
                     when (spec.recognizerKind) {
-                        SherpaSttModelSpec.RecognizerKind.Online -> onlineAudioLoop(ar, mode, rec, spec)
-                        SherpaSttModelSpec.RecognizerKind.Offline -> offlineAudioLoop(ar, mode, rec, spec)
+                        SherpaSttModelSpec.RecognizerKind.Online ->
+                            onlineAudioLoop(ar, mode, captureSessionId, rec, spec)
+                        SherpaSttModelSpec.RecognizerKind.Offline ->
+                            offlineAudioLoop(ar, mode, captureSessionId, rec, spec)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Audio loop error", e)
-                    _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Voice input error"))
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                    _events.tryEmit(
+                        VoiceInputEvent.Error(
+                            mode,
+                            e.message ?: "Voice input error",
+                            captureSessionId,
+                        ),
+                    )
+                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 } finally {
                     stopAudioRecord(ar)
                     releaseAudioFocus()
@@ -185,7 +194,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 }
             }
 
-            VoiceInputStartResult.Started
+            VoiceInputStartResult.Started(captureSessionId)
         }
 
     override fun stopListening() {
@@ -206,6 +215,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private fun onlineAudioLoop(
         ar: AudioRecord,
         mode: VoiceCaptureMode,
+        captureSessionId: Long,
         rec: Any,
         spec: SherpaSttModelSpec,
     ) {
@@ -236,12 +246,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (onlineMethods.isEndpoint!!.invoke(rec, stream) as Boolean) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
-                        _events.tryEmit(VoiceInputEvent.Transcript(mode, text))
+                        _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                         lastPartial = ""
                     }
                     onlineMethods.reset!!.invoke(rec, stream)
                     if (text.isNotEmpty()) {
-                        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                         exitedFromLoop = true
                         isRecording = false
                         break
@@ -253,13 +263,17 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
-                        _events.tryEmit(VoiceInputEvent.Transcript(mode, text))
+                        _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                     } else {
                         _events.tryEmit(
-                            VoiceInputEvent.Error(mode, "I didn't catch anything — please try again.")
+                            VoiceInputEvent.Error(
+                                mode,
+                                "I didn't catch anything — please try again.",
+                                captureSessionId,
+                            ),
                         )
                     }
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     exitedFromLoop = true
                     isRecording = false
                     break
@@ -269,16 +283,16 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 val partial = resultTextOnline(rec, stream)
                 if (partial.isNotEmpty() && partial != lastPartial) {
                     lastPartial = partial
-                    _events.tryEmit(VoiceInputEvent.PartialTranscript(mode, partial))
+                    _events.tryEmit(VoiceInputEvent.PartialTranscript(mode, partial, captureSessionId))
                 }
             }
 
             if (!exitedFromLoop) {
                 val text = signalEndAndDrainOnline(rec, stream)
                 if (text.isNotEmpty()) {
-                    _events.tryEmit(VoiceInputEvent.Transcript(mode, text))
+                    _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 }
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             }
         } finally {
             streamMethods.streamRelease!!.invoke(stream)
@@ -314,6 +328,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private fun offlineAudioLoop(
         ar: AudioRecord,
         mode: VoiceCaptureMode,
+        captureSessionId: Long,
         rec: Any,
         spec: SherpaSttModelSpec,
     ) {
@@ -362,20 +377,28 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 val text = resultTextOffline(rec, stream)
                 if (text.isNotEmpty()) {
-                    _events.tryEmit(VoiceInputEvent.Transcript(mode, text))
+                    _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 } else {
                     _events.tryEmit(
-                        VoiceInputEvent.Error(mode, "I didn't catch anything — please try again.")
+                        VoiceInputEvent.Error(
+                            mode,
+                            "I didn't catch anything — please try again.",
+                            captureSessionId,
+                        ),
                     )
                 }
             } else {
                 _events.tryEmit(
-                    VoiceInputEvent.Error(mode, "I didn't catch anything — please try again.")
+                    VoiceInputEvent.Error(
+                        mode,
+                        "I didn't catch anything — please try again.",
+                        captureSessionId,
+                    ),
                 )
             }
         } finally {
             streamMethods.streamRelease!!.invoke(stream)
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
         }
     }
 
