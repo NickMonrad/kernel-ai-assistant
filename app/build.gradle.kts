@@ -115,6 +115,75 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
             "Release manifest package must be com.kernel.ai"
         }
 
+tasks.register("verifyTargetEventJournalReleaseIsolation") {
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    doLast {
+        val buildDirectory = layout.buildDirectory.get().asFile
+        val manifests = buildDirectory.walkTopDown()
+            .filter { it.isFile && it.name == "AndroidManifest.xml" }
+            .toList()
+        fun mergedManifest(variant: String): File = manifests.firstOrNull { file ->
+            file.path.contains("/$variant/") && file.path.contains("merged")
+        } ?: error("Merged $variant manifest not found")
+
+        val debugManifest = mergedManifest("debug").readText()
+        val releaseManifest = mergedManifest("release").readText()
+        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" in debugManifest) {
+            "Debug manifest must contain TargetEventJournalReceiver"
+        }
+        check("GET_JOURNAL_SEQUENCE" in debugManifest)
+        check("WAIT_FOR_JOURNAL_EVENT" in debugManifest)
+        check("GET_JOURNAL_SNAPSHOT" in debugManifest)
+        check("com.kernel.ai.debug.journal.TargetEventJournalReceiver" !in releaseManifest) {
+            "Release manifest must NOT contain TargetEventJournalReceiver"
+        }
+        check("GET_JOURNAL_SEQUENCE" !in releaseManifest)
+        check("WAIT_FOR_JOURNAL_EVENT" !in releaseManifest)
+        check("GET_JOURNAL_SNAPSHOT" !in releaseManifest)
+        check("package=\"com.kernel.ai\"" in releaseManifest)
+
+        val artifacts = listOf(
+            buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
+            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
+        )
+        artifacts.forEach { artifact ->
+            check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
+            ZipFile(artifact).use { zip ->
+                val names = zip.entries().asSequence().map { it.name }.toList()
+                val debugClassPresent = names.any {
+                    "TargetEventJournalReceiver" in it || "AcousticEventJournal" in it
+                }
+                if (artifact.name.contains("debug")) {
+                    check(debugClassPresent) {
+                        "TargetEventJournalReceiver/AcousticEventJournal missing from debug artifact"
+                    }
+                } else {
+                    check(!debugClassPresent) {
+                        "TargetEventJournalReceiver/AcousticEventJournal present in release artifact"
+                    }
+                }
+
+                val hasJournalPackage = names.any { "com/kernel/ai/debug/journal" in it }
+                if (artifact.name.contains("release")) {
+                    check(!hasJournalPackage) {
+                        "Debug journal package found in release artifact: ${artifact.name}"
+                    }
+                }
+            }
+        }
+
+        val releaseApk = buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk")
+        ZipFile(releaseApk).use { zip ->
+            val releaseNames = zip.entries().asSequence().map { it.name }.toList()
+            check(releaseNames.any { "AcousticJournalBridge" in it }) {
+                "AcousticJournalBridge must be present in release (production no-op interface)"
+            }
+        }
+    }
+}
+
+
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
             buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),

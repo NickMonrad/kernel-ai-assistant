@@ -325,6 +325,11 @@ class OnnxWakeWordDetector @Inject constructor(
         var lastDiagnosticReportElapsedMillis = 0L
         var nnapiStatus = "not_requested"
 
+        // ── Target event journal tracking ──────────────────────────────────────
+        val currentGenerationId = AcousticJournalBridge.allocateGenerationId()
+        var wasPreviouslyGated = false
+        var emittedStage3Ready = false
+
         try {
             val env = OrtEnvironment.getEnvironment()
             cpuOptions = OrtSession.SessionOptions().apply {
@@ -363,6 +368,11 @@ class OnnxWakeWordDetector @Inject constructor(
 
             }
             Log.i(TAG, "WakeWordDetector: models loaded (embedding provider=$nnapiStatus; mel+classifier: CPU)")
+
+            AcousticJournalBridge.record(
+                type = AcousticEventType.DETECTOR_GENERATION_STARTED,
+                generationId = currentGenerationId,
+            )
 
 
             // Resolve ONNX node names once at startup.
@@ -456,6 +466,12 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (wasGated) {
                         embFramesAccumulated = 0
                         wasGated = false
+                        emittedStage3Ready = false
+                        wasPreviouslyGated = false
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
+                            generationId = currentGenerationId,
+                        )
                     }
                     silenceFrames = 0
                     voicedFrameStreak = 0
@@ -521,6 +537,13 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (silenceFrames > silenceHangoverFrames &&
                     chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
                     diagnostics?.recordSilenceGateSkip()
+                    if (!wasPreviouslyGated) {
+                        wasPreviouslyGated = true
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.SILENCE_GATE_ENTERED,
+                            generationId = currentGenerationId,
+                        )
+                    }
                     wasGated = true
                     continue  // wake word not expected — skip expensive Stage 2/3
                 }
@@ -551,6 +574,13 @@ class OnnxWakeWordDetector @Inject constructor(
                 embRingHead = (embRingHead + 1) % EMBEDDING_FRAMES
                 if (embFramesAccumulated < EMBEDDING_FRAMES) embFramesAccumulated++
                 if (embFramesAccumulated < EMBEDDING_FRAMES) continue
+                if (!emittedStage3Ready && embFramesAccumulated >= EMBEDDING_FRAMES) {
+                    emittedStage3Ready = true
+                    AcousticJournalBridge.record(
+                        type = AcousticEventType.STAGE3_READY,
+                        generationId = currentGenerationId,
+                    )
+                }
 
                 // ── Stage 3: classifier over the last 16 embedding frames ─────────────
                 // Input:  [1, 16, 96]
@@ -578,8 +608,18 @@ class OnnxWakeWordDetector @Inject constructor(
                     // High-confidence fast path — activate immediately.
                     confidence >= highThreshold -> {
                         Log.i(TAG, "WakeWordDetector: detected (high confidence=$confidence)")
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.ACTIVATION_CANDIDATE,
+                            generationId = currentGenerationId,
+                            metadata = mapOf("confidence" to confidence.toString(), "mode" to "high"),
+                        )
                         if (running.compareAndSet(true, false)) {
                             diagnostics?.recordHighConfidenceActivation()
+                            AcousticJournalBridge.record(
+                                type = AcousticEventType.VERIFIED_ACTIVATION,
+                                generationId = currentGenerationId,
+                                metadata = mapOf("mode" to "high"),
+                            )
                             onDetected()
                         }
                     }
@@ -587,6 +627,11 @@ class OnnxWakeWordDetector @Inject constructor(
                     // Secondary band — run STT verification if a verifier is wired.
                     verifyWindow != null && confidence >= lowThreshold -> {
                         Log.d(TAG, "WakeWordDetector: low-threshold crossing (confidence=$confidence) — verifying")
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.ACTIVATION_CANDIDATE,
+                            generationId = currentGenerationId,
+                            metadata = mapOf("confidence" to confidence.toString(), "mode" to "low"),
+                        )
                         val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
                         val verified = verifyWindow(snapshot)
                         diagnostics?.recordVerifierResult(verified)
@@ -594,6 +639,11 @@ class OnnxWakeWordDetector @Inject constructor(
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
                             if (running.compareAndSet(true, false)) {
                                 diagnostics?.recordVerifiedActivation()
+                                AcousticJournalBridge.record(
+                                    type = AcousticEventType.VERIFIED_ACTIVATION,
+                                    generationId = currentGenerationId,
+                                    metadata = mapOf("mode" to "low"),
+                                )
                                 onDetected()
                             }
                         } else {
@@ -608,6 +658,11 @@ class OnnxWakeWordDetector @Inject constructor(
             Thread.currentThread().interrupt()
         } catch (e: Exception) {
             Log.e(TAG, "WakeWordDetector: fatal error", e)
+            AcousticJournalBridge.record(
+                type = AcousticEventType.DETECTOR_ERROR,
+                generationId = currentGenerationId,
+                metadata = mapOf("error" to (e.message?.take(200) ?: "unknown")),
+            )
         } finally {
             activeAudioRecord = null
             runCatching { audioRecord.stop() }

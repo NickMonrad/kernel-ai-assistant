@@ -14,6 +14,8 @@ import android.widget.Toast
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
+import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -132,6 +134,22 @@ class WakeWordService : Service() {
                         Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
                         rearmDetector()
                     }
+
+                    is VoiceInputEvent.PartialTranscript -> {
+                        // Record partial presence without exposing transcript text.
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.STT_PARTIAL,
+                            metadata = mapOf("length" to event.text.length.toString()),
+                        )
+                    }
+
+                    is VoiceInputEvent.Error -> {
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.STT_ERROR,
+                            metadata = mapOf("error" to (event.message.take(200))),
+                        )
+                    }
+
                     else -> Unit
                 }
             }
@@ -154,12 +172,14 @@ class WakeWordService : Service() {
 
 
     private fun handleDetection() {
+        val sessionId = AcousticJournalBridge.allocateSessionId()
         serviceScope.launch {
             isHandlingDetection = true
+            AcousticJournalBridge.record(
+                type = AcousticEventType.VOICE_SESSION_STARTED,
+                sessionId = sessionId,
+            )
             try {
-                // Attempt STT up to twice (#790: 1 retry on silence/error after wake word).
-                // The observer's ListeningStopped handler is suppressed while isHandlingDetection
-                // is true, so re-arm is always done explicitly at the end of this function.
                 var transcript: String? = null
                 for (attempt in 1..2) {
                     val startupEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
@@ -177,6 +197,11 @@ class WakeWordService : Service() {
                                 || it is VoiceInputEvent.ListeningStopped
                         }
                     }
+                    AcousticJournalBridge.record(
+                        type = AcousticEventType.STT_START_REQUESTED,
+                        sessionId = sessionId,
+                        metadata = mapOf("attempt" to attempt.toString()),
+                    )
                     val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
                     if (startResult !is VoiceInputStartResult.Started) {
                         startupEventDeferred.cancel()
@@ -184,6 +209,11 @@ class WakeWordService : Service() {
                         Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
                         val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
                         if (!message.isNullOrBlank()) showWakeWordError(message)
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.SESSION_CANCELLED,
+                            sessionId = sessionId,
+                            metadata = mapOf("reason" to "stt_unavailable", "message" to (message?.take(200) ?: "")),
+                        )
                         break
                     }
 
@@ -192,19 +222,40 @@ class WakeWordService : Service() {
                     } catch (e: Exception) {
                         terminalEventDeferred.cancel()
                         Log.w(TAG, "WakeWordService: startup event collection failed (attempt $attempt)", e)
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.SESSION_CANCELLED,
+                            sessionId = sessionId,
+                            metadata = mapOf("reason" to "startup_collection_failed"),
+                        )
                         break
+                    }
+
+                    if (startupEvent is VoiceInputEvent.ListeningStarted) {
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.STT_READY,
+                            sessionId = sessionId,
+                        )
                     }
 
                     val terminalEvent = when (startupEvent) {
                         is VoiceInputEvent.ListeningStarted -> {
-                            // Play the cue only after the recognizer reports it is actually ready
-                            // for speech, so users can start speaking on the bloop without losing
-                            // the start of the command on slower devices.
-                            if (attempt == 1) cuePlayer.playCue(forceAudible = true)
+                            if (attempt == 1) {
+                                AcousticJournalBridge.record(
+                                    type = AcousticEventType.CUE_REQUESTED,
+                                    sessionId = sessionId,
+                                    metadata = mapOf("force_audible" to "true"),
+                                )
+                                cuePlayer.playCue(forceAudible = true)
+                            }
                             try {
                                 terminalEventDeferred.await()
                             } catch (e: Exception) {
                                 Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                                AcousticJournalBridge.record(
+                                    type = AcousticEventType.SESSION_CANCELLED,
+                                    sessionId = sessionId,
+                                    metadata = mapOf("reason" to "transcript_collection_failed"),
+                                )
                                 break
                             }
                         }
@@ -232,12 +283,14 @@ class WakeWordService : Service() {
                     routeTranscript(transcript)
                 }
             } finally {
-                // Always clear the flag and re-arm before returning. The observer is gated on
-                // isHandlingDetection so we are the sole caller of rearmDetector() here.
                 isHandlingDetection = false
                 rearmDetector()
             }
         }
+        AcousticJournalBridge.record(
+            type = AcousticEventType.SESSION_COMPLETED,
+            sessionId = sessionId,
+        )
     }
 
     private fun showWakeWordError(message: String) {
@@ -255,8 +308,15 @@ class WakeWordService : Service() {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
             return
         }
+        val generationId = AcousticJournalBridge.allocateGenerationId()
         wakeWordDetector.start(
-            onDetected = { handleDetection() },
+            onDetected = {
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.WAKE_CALLBACK_INVOKED,
+                    generationId = generationId,
+                )
+                handleDetection()
+            },
             verifyWindow = { pcm ->
                 try {
                     kotlinx.coroutines.runBlocking {
@@ -267,6 +327,10 @@ class WakeWordService : Service() {
                     false
                 }
             },
+        )
+        AcousticJournalBridge.record(
+            type = AcousticEventType.DETECTOR_REARMED,
+            generationId = generationId,
         )
     }
 
