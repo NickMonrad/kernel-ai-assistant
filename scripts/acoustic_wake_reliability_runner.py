@@ -665,6 +665,13 @@ def parse_source_cleanup_result(
             "source result playback_error_category must be a non-empty string when present"
         )
 
+    if data["evidence_persistence_failed"] is not False:
+        raise HarnessError("source evidence persistence failure flag is not false")
+    if data["cleanup_success"] is not True:
+        raise HarnessError("source cleanup did not succeed")
+    if data["exact_restoration_verified"] is not True:
+        raise HarnessError("source volume restoration was not verified")
+
     timed_out = data["timeout"]
     overlap_rejected = data["overlap_rejected"]
     if status == "completed":
@@ -682,22 +689,12 @@ def parse_source_cleanup_result(
         raise HarnessError("non-timeout source result must not claim timeout")
     if overlap_rejected != (status == "rejected" and error_category == "overlap_rejected"):
         raise HarnessError("source result has inconsistent overlap rejection evidence")
-    if status in {"cancelled", "timeout", "failed"}:
-        if playback_error_category != error_category:
-            raise HarnessError(
-                f"{status} source result has inconsistent playback error evidence"
-            )
-    elif playback_error_category is not None:
+    if playback_error_category is not None:
         raise HarnessError(
-            f"{status} source result must not claim a playback error category"
+            f"{status} source result must not claim a playback error category "
+            "after successful cleanup"
         )
 
-    if data["evidence_persistence_failed"] is not False:
-        raise HarnessError("source evidence persistence failure flag is not false")
-    if data["cleanup_success"] is not True:
-        raise HarnessError("source cleanup did not succeed")
-    if data["exact_restoration_verified"] is not True:
-        raise HarnessError("source volume restoration was not verified")
 
     events = data.get("events")
     if not isinstance(events, list):

@@ -137,7 +137,6 @@ def cancelled_source_result(
     result.update({
         "completion_status": "cancelled",
         "error_category": "operator_cancelled",
-        "playback_error_category": "operator_cancelled",
         "focus_result": "not_requested",
     })
     for field in (
@@ -357,24 +356,33 @@ class SourceAndCorrelationTests(unittest.TestCase):
             "rejected": ("overlap_rejected", False, True, False),
         }
         for status, (error, timed_out, overlap, has_events) in terminal_cases.items():
-            with self.subTest(status=status):
-                result = source_result(f"trial-{status}")
-                result["completion_status"] = status
-                result["error_category"] = error
-                result["timeout"] = timed_out
-                result["overlap_rejected"] = overlap
-                result["playback_error_category"] = None if status in {"rejected", "invalid"} else error
-                if not has_events:
-                    result["focus_result"] = "not_requested"
-                    result["events"] = []
-                parsed = runner.parse_source_cleanup_result(json.dumps(result))
-                self.assertEqual(parsed["completion_status"], status)
+            for explicit_null in (False, True):
+                with self.subTest(status=status, explicit_null=explicit_null):
+                    result = source_result(f"trial-{status}")
+                    result["completion_status"] = status
+                    if error is None:
+                        result.pop("error_category", None)
+                    else:
+                        result["error_category"] = error
+                    result["timeout"] = timed_out
+                    result["overlap_rejected"] = overlap
+                    if explicit_null:
+                        result["playback_error_category"] = None
+                    else:
+                        result.pop("playback_error_category", None)
+                    if not has_events:
+                        result["focus_result"] = "not_requested"
+                        result["events"] = []
+                    parsed = runner.parse_source_cleanup_result(json.dumps(result))
+                    self.assertEqual(parsed["completion_status"], status)
+                    if status != "completed":
+                        with self.assertRaises(runner.HarnessError):
+                            runner.parse_source_result(json.dumps(result))
 
     def test_cleanup_contract_rejects_inconsistent_status_and_cleanup_evidence(self) -> None:
         invalid_cases = []
         timed_out = source_result("trial-timeout")
         timed_out.update(completion_status="timeout", error_category="playback_timeout", timeout=False)
-        timed_out["playback_error_category"] = "playback_timeout"
         invalid_cases.append(timed_out)
         failed = source_result("trial-failed")
         failed.update(completion_status="failed", error_category=None)
@@ -398,6 +406,20 @@ class SourceAndCorrelationTests(unittest.TestCase):
         cancelled_with_mismatch = cancelled_source_result()
         cancelled_with_mismatch["playback_error_category"] = "playback_failed"
         invalid_cases.append(cancelled_with_mismatch)
+        cancelled_with_wrong_error = cancelled_source_result("trial-cancelled-error")
+        cancelled_with_wrong_error["error_category"] = "playback_failed"
+        invalid_cases.append(cancelled_with_wrong_error)
+        failed_with_timeout = source_result("trial-failed-timeout")
+        failed_with_timeout.update(
+            completion_status="failed",
+            error_category="playback_failed",
+            timeout=True,
+        )
+        failed_with_timeout.pop("playback_error_category", None)
+        invalid_cases.append(failed_with_timeout)
+        restoration_failed = source_result("trial-restoration")
+        restoration_failed["exact_restoration_verified"] = False
+        invalid_cases.append(restoration_failed)
         malformed_event = source_result("trial-malformed-event")
         malformed_event["events"][0]["unexpected"] = "field"
         invalid_cases.append(malformed_event)
@@ -408,6 +430,36 @@ class SourceAndCorrelationTests(unittest.TestCase):
         for result in invalid_cases:
             with self.subTest(trial_id=result["trial_id"]), self.assertRaises(runner.HarnessError):
                 runner.parse_source_cleanup_result(json.dumps(result))
+
+    def test_cleanup_contract_requires_requested_identities(self) -> None:
+        result = cancelled_source_result()
+        for expected in (
+            {"expected_trial_id": "another-trial"},
+            {"expected_fixture_id": "another-fixture"},
+        ):
+            with self.subTest(expected=expected), self.assertRaisesRegex(
+                runner.HarnessError,
+                "does not match request",
+            ):
+                runner.parse_source_cleanup_result(json.dumps(result), **expected)
+
+    def test_cleanup_error_preserves_playback_error_but_remains_invalid(self) -> None:
+        result = source_result("trial-cleanup-error")
+        result.update(
+            completion_status="invalid",
+            error_category="volume_restoration_failed",
+            playback_error_category="playback_timeout",
+            timeout=True,
+            cleanup_success=False,
+            exact_restoration_verified=False,
+        )
+        result["events"][-1].update(
+            cleanup_success=False,
+            exact_restoration_verified=False,
+            error_category="volume_restoration_failed",
+        )
+        with self.assertRaisesRegex(runner.HarnessError, "cleanup did not succeed"):
+            runner.parse_source_cleanup_result(json.dumps(result))
 
     def test_source_invocation_recovers_persisted_result_after_process_exit(self) -> None:
         harness = make_runner()
