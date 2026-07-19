@@ -43,6 +43,7 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import copy
 import dataclasses
 import hashlib
 import json
@@ -605,7 +606,7 @@ def parse_source_cleanup_result(
     expected_trial_id: str | None = None,
     expected_fixture_id: str | None = None,
 ) -> dict[str, Any]:
-    """Validate persisted helper cleanup evidence, including cancellation results."""
+    """Validate persisted cleanup evidence for every helper terminal status."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -623,6 +624,7 @@ def parse_source_cleanup_result(
         raise HarnessError(f"source result missing fields: {', '.join(missing)}")
     if data.get("schema_version") != 1:
         raise HarnessError("unsupported source result schema_version")
+
     trial_id = data.get("trial_id")
     fixture_id = data.get("fixture_id")
     if not isinstance(trial_id, str) or not trial_id:
@@ -633,24 +635,116 @@ def parse_source_cleanup_result(
         raise HarnessError("source result trial_id does not match request")
     if expected_fixture_id is not None and fixture_id != expected_fixture_id:
         raise HarnessError("source result fixture_id does not match request")
-    if data.get("completion_status") not in {"completed", "cancelled"}:
+    for field in ("request_wall_clock_ms", "request_monotonic_ms"):
+        value = data.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise HarnessError(f"source result {field} must be a non-negative integer")
+    if not isinstance(data.get("focus_result"), str) or not data["focus_result"]:
+        raise HarnessError("source result focus_result must be a non-empty string")
+    for field in (
+        "evidence_persistence_failed", "timeout", "overlap_rejected",
+        "cleanup_success", "exact_restoration_verified",
+    ):
+        if not isinstance(data.get(field), bool):
+            raise HarnessError(f"source result {field} must be a boolean")
+
+    status = data.get("completion_status")
+    supported_statuses = {"completed", "cancelled", "timeout", "rejected", "failed", "invalid"}
+    if status not in supported_statuses:
+        raise HarnessError(f"source cleanup result has unsupported status: {status}")
+    error_category = data.get("error_category")
+    if error_category is not None and (
+        not isinstance(error_category, str) or not error_category
+    ):
+        raise HarnessError("source result error_category must be a non-empty string when present")
+    playback_error_category = data.get("playback_error_category")
+    if playback_error_category is not None and (
+        not isinstance(playback_error_category, str) or not playback_error_category
+    ):
         raise HarnessError(
-            f"source cleanup result has unsupported status: {data.get('completion_status')}"
+            "source result playback_error_category must be a non-empty string when present"
         )
-    if data.get("completion_status") == "cancelled" and data.get("error_category") != "operator_cancelled":
-        raise HarnessError("cancelled source result is missing operator_cancelled evidence")
-    if data.get("evidence_persistence_failed") is not False:
+
+    timed_out = data["timeout"]
+    overlap_rejected = data["overlap_rejected"]
+    if status == "completed":
+        if error_category is not None:
+            raise HarnessError("completed source result must not contain an error category")
+    elif status == "cancelled":
+        if error_category != "operator_cancelled":
+            raise HarnessError("cancelled source result is missing operator_cancelled evidence")
+    elif status == "timeout":
+        if not timed_out or error_category != "playback_timeout":
+            raise HarnessError("timeout source result has inconsistent timeout evidence")
+    elif not isinstance(error_category, str):
+        raise HarnessError(f"{status} source result is missing an error category")
+    if status != "timeout" and timed_out:
+        raise HarnessError("non-timeout source result must not claim timeout")
+    if overlap_rejected != (status == "rejected" and error_category == "overlap_rejected"):
+        raise HarnessError("source result has inconsistent overlap rejection evidence")
+    if status in {"cancelled", "timeout", "failed"}:
+        if playback_error_category != error_category:
+            raise HarnessError(
+                f"{status} source result has inconsistent playback error evidence"
+            )
+    elif playback_error_category is not None:
+        raise HarnessError(
+            f"{status} source result must not claim a playback error category"
+        )
+
+    if data["evidence_persistence_failed"] is not False:
         raise HarnessError("source evidence persistence failure flag is not false")
-    if data.get("timeout") is not False:
-        raise HarnessError("source playback timeout flag is not false")
-    if data.get("overlap_rejected") is not False:
-        raise HarnessError("source playback overlap_rejected flag is not false")
-    if data.get("cleanup_success") is not True:
+    if data["cleanup_success"] is not True:
         raise HarnessError("source cleanup did not succeed")
-    if data.get("exact_restoration_verified") is not True:
+    if data["exact_restoration_verified"] is not True:
         raise HarnessError("source volume restoration was not verified")
-    if not isinstance(data.get("events"), list):
+
+    events = data.get("events")
+    if not isinstance(events, list):
         raise HarnessError("source result events must be a list")
+    allowed_event_fields = {
+        "name", "monotonic_ms", "wall_clock_ms", "cleanup_success",
+        "exact_restoration_verified", "error_category",
+    }
+    previous_monotonic_ms = -1
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            raise HarnessError(f"source result event {index} must be an object")
+        unexpected = sorted(set(event) - allowed_event_fields)
+        if unexpected:
+            raise HarnessError(
+                f"source result event {index} has unexpected fields: {', '.join(unexpected)}"
+            )
+        if not isinstance(event.get("name"), str) or not event["name"]:
+            raise HarnessError(f"source result event {index} has an invalid name")
+        for field in ("monotonic_ms", "wall_clock_ms"):
+            value = event.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise HarnessError(
+                    f"source result event {index} {field} must be a non-negative integer"
+                )
+        if event["monotonic_ms"] < previous_monotonic_ms:
+            raise HarnessError("source result event monotonic timestamps regressed")
+        previous_monotonic_ms = event["monotonic_ms"]
+        for field in ("cleanup_success", "exact_restoration_verified"):
+            if field in event and not isinstance(event[field], bool):
+                raise HarnessError(f"source result event {index} {field} must be a boolean")
+        if "error_category" in event and (
+            not isinstance(event["error_category"], str) or not event["error_category"]
+        ):
+            raise HarnessError(
+                f"source result event {index} error_category must be a non-empty string"
+            )
+    if events:
+        cleanup_event = events[-1]
+        if cleanup_event["name"] != "cleanup_completed":
+            raise HarnessError("source result events do not end with cleanup_completed")
+        if cleanup_event.get("cleanup_success") is not data["cleanup_success"]:
+            raise HarnessError("source cleanup event disagrees with cleanup_success")
+        if cleanup_event.get("exact_restoration_verified") is not data["exact_restoration_verified"]:
+            raise HarnessError("source cleanup event disagrees with exact restoration evidence")
+    elif status not in {"rejected", "invalid"}:
+        raise HarnessError("source result must contain cleanup events")
     return data
 
 
@@ -1800,14 +1894,24 @@ class AcousticWakeReliabilityRunner:
                 raise HarnessError(f"preflight target sequence failed: {sequence_data}")
             boundary = parse_journal_sequence(sequence_data)
             trial_id = f"preflight-{preflight_attempt:02d}"
-            result, events, envelope = self._invoke_source_with_armed_wait(
-                trial_id=trial_id,
-                fixture_id="natural_wake",
-                volume_index=current_volume,
+            result = self._invoke_source(
+                trial_id,
+                "natural_wake",
+                current_volume,
+            )
+            self._wait_for_target_events(
                 since_sequence=boundary,
                 event_type="CUE_REQUESTED",
                 timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
             )
+            snapshot_code, snapshot_data = self._call_target_provider(
+                TARGET_METHOD_GET_SNAPSHOT,
+                extras={TARGET_EXTRA_SINCE_SEQUENCE: boundary},
+            )
+            if snapshot_code != TARGET_RESULT_OK:
+                raise HarnessError(f"preflight target snapshot failed: {snapshot_data}")
+            envelope = parse_journal_snapshot(snapshot_data)
+            events = envelope["events"]
             parsed = parse_source_result(
                 json.dumps(result),
                 expected_trial_id=trial_id,
@@ -2042,10 +2146,12 @@ class AcousticWakeReliabilityRunner:
                 raise HarnessError(f"fixture {fixture_id!r} is absent from approved manifest")
             attempt.fixture_sha256 = expected_wake_hash
             attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
-            source_result, events, wake_envelope = self._invoke_source_with_armed_wait(
-                trial_id=trial_id,
-                fixture_id=fixture_id,
-                volume_index=volume,
+            source_result = self._invoke_source(
+                trial_id,
+                fixture_id,
+                volume,
+            )
+            events, wake_envelope = self._wait_for_target_events(
                 since_sequence=boundary_sequence,
                 event_type="STT_READY",
                 timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
@@ -2119,12 +2225,11 @@ class AcousticWakeReliabilityRunner:
                     command_trial_id = f"{trial_id}-cmd"
                     attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
                     command_source, command_events, command_envelope = (
-                        self._invoke_source_with_armed_wait(
+                        self._invoke_command_source_with_armed_wait(
                             trial_id=command_trial_id,
                             fixture_id=command_fixture_id,
                             volume_index=volume,
                             since_sequence=boundary_sequence,
-                            event_type="COMMAND_ROUTING_RESULT",
                             timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
                         )
                     )
@@ -2791,16 +2896,15 @@ class AcousticWakeReliabilityRunner:
             return []
         return [f"active source trial {trial_id} cleanup evidence unavailable: {last_error}"]
 
-    def _invoke_source_with_armed_wait(
+    def _invoke_command_source_with_armed_wait(
         self,
         trial_id: str,
         fixture_id: str,
         volume_index: int,
         since_sequence: int,
-        event_type: str,
         timeout_ms: int,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-        """Start source playback only after the provider confirms wait registration."""
+        """Arm only the post-wake command-result wait before command playback."""
         source_result: dict[str, Any] | None = None
 
         def invoke_source() -> None:
@@ -2809,7 +2913,7 @@ class AcousticWakeReliabilityRunner:
 
         events, envelope = self._wait_for_target_events(
             since_sequence=since_sequence,
-            event_type=event_type,
+            event_type="COMMAND_ROUTING_RESULT",
             timeout_ms=timeout_ms,
             on_armed=invoke_source,
         )
