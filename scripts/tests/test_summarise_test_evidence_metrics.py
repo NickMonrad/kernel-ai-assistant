@@ -217,6 +217,28 @@ class EvidenceMetricsTest(unittest.TestCase):
         self.assertFalse(valid)
         self.assertIn("device_unknown_id", issues)
 
+    def test_unsupported_schema_version_is_invalid(self) -> None:
+        record = evidence_record(schema_version="2.0")
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertTrue(
+            any(issue.startswith("schema:schema_version:") for issue in issues),
+            issues,
+        )
+
+    def test_artifact_path_traversal_is_invalid(self) -> None:
+        record = evidence_record(artifact_refs=["../private.log"])
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertTrue(
+            any(issue.startswith("schema:artifact_refs.0:") for issue in issues),
+            issues,
+        )
+
     def test_wake_fixture_reports_attempts_gates_and_completion(self) -> None:
         record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
 
