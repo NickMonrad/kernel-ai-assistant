@@ -4,7 +4,7 @@ After a clean reinstall, the required conversation model (Gemma 4 E-2B) must be 
 
 ## Target
 
-- **Device:** S21 over USB ADB (serial `R5CR605B71K`)
+- **Device:** S21 over USB ADB (configured selector; do not commit the hardware serial)
 - **Model tier:** Gemma 4 E-2B (S21 path — not S23U E4B)
 - **Model file:** `gemma-4-E2B-it.litertlm`
 
@@ -12,17 +12,17 @@ After a clean reinstall, the required conversation model (Gemma 4 E-2B) must be 
 
 Two equivalent ways:
 
-1. `ANDROID_SERIAL=R5CR605B71K` environment variable (preferred — works with any tool)
-2. `--serial R5CR605B71K` where supported
+1. `ANDROID_SERIAL=$JANDAL_S21_TARGET` environment variable (preferred — works with any tool)
+2. `--serial "$JANDAL_S21_TARGET"` where supported
 
 ## Integrated harness command (recommended)
 
 For full runs including model readiness preflight + ADB skill tests:
 
 ```bash
-ANDROID_SERIAL=R5CR605B71K python3 scripts/adb_skill_test.py \
+ANDROID_SERIAL="$JANDAL_S21_TARGET" python3 scripts/adb_skill_test.py \
   --model-readiness \
-  --serial R5CR605B71K \
+  --serial "$JANDAL_S21_TARGET" \
   --unlock-pin <PIN> \
   --timeout-download 480 \
   --timeout-engine 120 \
@@ -36,8 +36,8 @@ from product regression.
 ## Standalone preflight (diagnostic only)
 
 ```bash
-PYTHONPATH=scripts ANDROID_SERIAL=R5CR605B71K python3 -m adb_harness.model_readiness \
-  --serial R5CR605B71K \
+PYTHONPATH=scripts ANDROID_SERIAL="$JANDAL_S21_TARGET" python3 -m adb_harness.model_readiness \
+  --serial "$JANDAL_S21_TARGET" \
   --unlock-pin <PIN> \
   --timeout-download 480 \
   --timeout-engine 120 \
@@ -72,7 +72,8 @@ underlying device or network state before retrying.
 ## Required acceptance evidence
 
 Before merging PRs that touch model readiness logic, an agent must validate on
-a physical S21 (R5CR605B71K) over USB ADB and attach evidence showing:
+a physical S21 over USB ADB using the locally configured selector and attach
+evidence showing:
 
 - Device is S21 (not S23U default — gated-model path differs)
 - Selected model is Gemma 4 E-2B (not E4B)
@@ -86,7 +87,7 @@ a physical S21 (R5CR605B71K) over USB ADB and attach evidence showing:
 
 ```json
 {
-  "device_serial": "R5CR605B71K",
+  "device_serial": "<redacted-local-selector>",
   "required_model": "Gemma 4 E-2B",
   "model_file": "gemma-4-E2B-it.litertlm",
   "initial_state": "<state>",

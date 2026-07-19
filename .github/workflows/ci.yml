@@ -27,6 +27,10 @@ jobs:
       # ── Repository script tests ──────────────────────────────────────
       - name: Backlog hygiene checker tests
         run: python3 -m unittest scripts/tests/test_check_issue_hygiene.py
+      - name: Acoustic wake reliability runner tests
+        run: |
+          python3 -m py_compile scripts/acoustic_wake_reliability_runner.py
+          python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner
 
       # ── Android build ──────────────────────────────────────────────
       - name: Set up JDK 21

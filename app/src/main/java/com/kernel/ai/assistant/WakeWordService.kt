@@ -37,7 +37,20 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
+import java.security.MessageDigest
+import java.util.Locale
+
 import javax.inject.Inject
+
+internal fun transcriptEvidenceSha256(text: String): String {
+    val normalized = text
+        .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("\\s+"), " ")
+    return MessageDigest.getInstance("SHA-256")
+        .digest(normalized.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
 
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
@@ -283,7 +296,12 @@ class WakeWordService : Service() {
                         if (!text.isNullOrBlank()) {
                             journal.record(
                                 AcousticEventType.STT_FINAL,
-                                metadata = { mapOf("length" to text.length.toString()) },
+                                metadata = {
+                                    mapOf(
+                                        "length" to text.length.toString(),
+                                        "normalized_transcript_sha256" to transcriptEvidenceSha256(text),
+                                    )
+                                },
                             )
                             transcript = text
                             break

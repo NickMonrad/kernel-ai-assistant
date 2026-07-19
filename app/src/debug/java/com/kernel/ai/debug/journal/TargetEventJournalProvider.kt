@@ -34,6 +34,9 @@ class TargetEventJournalProvider : ContentProvider() {
                     TargetEventJournalContract.DEFAULT_TIMEOUT_MS,
                 ),
             )
+            TargetEventJournalContract.METHOD_GET_WAIT_STATUS -> TargetEventJournalEndpoint.waitStatus(
+                extras?.getString(TargetEventJournalContract.EXTRA_REQUEST_ID),
+            )
             TargetEventJournalContract.METHOD_CANCEL_WAIT -> TargetEventJournalEndpoint.cancelWait(
                 extras?.getString(TargetEventJournalContract.EXTRA_REQUEST_ID),
             )

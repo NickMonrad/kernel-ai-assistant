@@ -3,7 +3,7 @@
 **Issue:** #1403  
 **Parent investigation:** #1402  
 **Related optimisation work:** #1395, #1398, #1399  
-**Status:** Design approved; implementation and one short physical source-to-target feasibility session remain outstanding.
+**Status:** Runner, provider-journal integration, deterministic host tests and CI wiring are implemented; the bounded physical source-to-target feasibility session remains outstanding.
 
 ## 1. Purpose
 
@@ -150,6 +150,23 @@ Reject malformed IDs, unknown fixtures, traversal, arbitrary paths, missing/empt
 14. Write a private machine-readable result and final event.
 15. Finish the pending broadcast result.
 
+The host runner invokes the target journal through the debug `ContentProvider` at
+`content://com.kernel.ai.debug.target-event-journal`, never through a target
+broadcast receiver. It uses `GET_JOURNAL_SEQUENCE` for the idle boundary,
+`WAIT_FOR_JOURNAL_EVENT` with a unique request ID for one bounded wait, and
+`GET_JOURNAL_SNAPSHOT` for the final exact envelope. Provider cancellation uses
+`CANCEL_JOURNAL_WAIT` with the active request ID.
+
+The provider call returns Android's `Bundle[{result_code=..., result_data=...}]`
+envelope. The host parses the typed `content call --extra key:{s|l}:value`
+bindings, requires the exact journal snapshot envelope, rejects malformed or
+overflowed boundaries, and joins or cancels every wait worker before cleanup.
+
+The source result is accepted only when its trial/fixture IDs, hash, timing,
+volume, built-in-speaker route, granted focus, completion, cleanup and exact
+restoration fields all validate. Private raw result files remain on the source
+device and are never copied into public evidence.
+
 Longer fixtures must return an explicit result such as `fixture_duration_not_supported`. Future long-form or multi-round testing should use a more durable debug-only component rather than extending this receiver contract.
 
 A debug-only foreground service is a fallback only if device evidence proves the receiver lifecycle unreliable.
@@ -264,6 +281,19 @@ Record an approximate gap and placement notes. A mandatory 30 cm distance is not
 9. Record the approved volume index/max, route, placement, fixture hash and operator approval.
 10. Freeze the setup for the unattended matrix.
 
+The runner writes a canonical private preflight manifest containing the approved
+fixture hashes, source volume/route, placement notes, target boot identity and
+cue-policy version. Later diagnostic, feasibility and regression runs must
+consume and hash-verify this manifest; they do not recreate approval implicitly.
+
+Preflight schema version 5 also freezes exact source and target environment
+snapshots: Android user, microphone/camera privacy state, package UID and UID
+state, standby bucket, wake-service state, media volume/range, ringer/DND,
+Bluetooth route, target screen/charging state, uptime and boot ID. Missing,
+unparseable or changed fields invalidate a later run; they are never replaced
+with permissive defaults. Cleanup recaptures the same fields and fails closed on
+drift or capture errors.
+
 Do not use open-ended volume search, binary search, repeated maximum-volume ramps or automatic level changes after a failure.
 
 Recognition outcomes during preflight are evidence:
@@ -288,6 +318,13 @@ For each trial:
 7. Collect the complete target event snapshot after the trial.
 
 Material interaction, screen-on, reboot, service loss, charging-state violation or missing evidence marks the attempt invalid rather than failed.
+
+The journal snapshot is the exact object envelope
+`{lowestSequence, highestSequence, overflowed, events}`. Events use compact
+fields `s`, `m`, `w`, `t`, `g`, `i` and `d`; sequence order, event vocabulary,
+generation/session correlation and overflow boundaries are validated before
+classification. A boundary is invalid when sticky overflow proves that
+post-boundary events could have been evicted.
 
 ## 11. Target structured event journal
 
@@ -456,6 +493,21 @@ A run is not publishable evidence unless:
 - summaries reconcile with cases;
 - cleanup and exact restoration are verified;
 - public output passes privacy validation.
+
+The host scheduler assigns every frozen count an independent position ID
+`<idle-seconds>:<trial-type>:<ordinal>`. A valid failure completes its position
+and remains in the release evidence; only invalid attempts may be retried.
+Matrix completeness therefore differs from release-gate success: completeness
+requires one valid outcome per required position, while the release gate also
+requires every required S21 position to pass, preflight evidence to be present,
+and cleanup/restoration verification to succeed.
+
+Diagnostic and bounded smoke modes may complete with valid product failures and
+must report those failures without masquerading as a release-gate result. Only
+the S21 `regression` mode can return release-gate success, and it additionally
+requires verified commit/build provenance, the approved schema-5 preflight,
+cue-policy and audibility evidence, exact cleanup, and all required S21 slots
+passed. Fixed-delay feasibility output is explicitly non-gating.
 
 ## 15. Frozen valid-trial matrix
 

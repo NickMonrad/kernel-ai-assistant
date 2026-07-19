@@ -11,6 +11,18 @@ import org.junit.jupiter.api.Test
 
 class WakeSessionJournalTest {
     @Test
+    fun `transcript evidence is normalized and contains no plaintext`() {
+        val hash = transcriptEvidenceSha256("  What   TIME Is It?  ")
+
+        assertEquals(
+            "482bbb9128050f734a2e44f15c0bb1066848c6b18444a90c771061c030ff2534",
+            hash,
+        )
+        assertEquals(hash, transcriptEvidenceSha256("what time is it?"))
+        assertFalse(hash.contains("time"))
+    }
+
+    @Test
     fun `session emits one correlated ordered lifecycle`() {
         val events = mutableListOf<RecordedEvent>()
         val journal = journal(events)

@@ -116,6 +116,18 @@ internal object TargetEventJournalEndpoint {
         }
     }
 
+    fun waitStatus(requestId: String?): TargetEventJournalResponse {
+        TargetEventJournalContract.requestIdError(requestId)?.let {
+            return error(it)
+        }
+        val stableRequestId = requireNotNull(requestId)
+        return if (activeWaits.containsKey(stableRequestId)) {
+            success("active:$stableRequestId")
+        } else {
+            error(TargetEventJournalContract.ERROR_UNKNOWN_REQUEST_ID)
+        }
+    }
+
     fun cancelWait(requestId: String?): TargetEventJournalResponse {
         TargetEventJournalContract.requestIdError(requestId)?.let {
             return error(it)

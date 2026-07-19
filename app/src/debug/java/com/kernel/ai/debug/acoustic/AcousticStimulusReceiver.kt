@@ -27,14 +27,29 @@ class AcousticStimulusReceiver : BroadcastReceiver() {
         try {
             Handler(Looper.getMainLooper()).post {
                 try {
-                    val parsed = if (!isExplicitReceiverInvocation(appContext, intent)) {
-                        InvocationParseResult.Invalid(
-                            InvalidInvocation("explicit_component_required", null, null),
-                        )
-                    } else {
-                        InvocationParser.parse(intent)
+                    if (!isExplicitReceiverInvocation(appContext, intent)) {
+                        finishInvalid(pendingResult, "explicit_component_required")
+                        return@post
                     }
-                    createEngine(appContext).handle(parsed) { result ->
+                    if (intent.action == AcousticStimulusContract.ACTION_CANCEL) {
+                        when (val parsed = InvocationParser.parseCancellation(intent)) {
+                            is CancellationParseResult.Invalid ->
+                                finishInvalid(pendingResult, parsed.error.category)
+                            is CancellationParseResult.Valid -> {
+                                val cancelled = PlaybackGate.cancel(parsed.trialId)
+                                pendingResult.setResultCode(
+                                    if (cancelled) AcousticStimulusContract.RESULT_OK
+                                    else AcousticStimulusContract.RESULT_REJECTED,
+                                )
+                                pendingResult.setResultData(
+                                    if (cancelled) "cancelled" else "no_matching_active_trial",
+                                )
+                                pendingResult.finish()
+                            }
+                        }
+                        return@post
+                    }
+                    createEngine(appContext).handle(InvocationParser.parse(intent)) { result ->
                         pendingResult.setResultCode(acousticStimulusResultCode(result))
                         pendingResult.setResultData(result.errorCategory ?: result.completionStatus)
                         pendingResult.finish()
@@ -52,6 +67,12 @@ class AcousticStimulusReceiver : BroadcastReceiver() {
             pendingResult.setResultData("receiver_dispatch_failed")
             pendingResult.finish()
         }
+    }
+
+    private fun finishInvalid(pendingResult: PendingResult, category: String) {
+        pendingResult.setResultCode(AcousticStimulusContract.RESULT_REJECTED)
+        pendingResult.setResultData(category)
+        pendingResult.finish()
     }
 
     private fun isExplicitReceiverInvocation(context: Context, intent: Intent): Boolean =

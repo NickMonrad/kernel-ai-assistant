@@ -1,0 +1,5 @@
+{
+  "source_role": "s23u",
+  "target_role": "s21",
+  "aliases": {"s21": "s21", "s23u": "s23u"}
+}

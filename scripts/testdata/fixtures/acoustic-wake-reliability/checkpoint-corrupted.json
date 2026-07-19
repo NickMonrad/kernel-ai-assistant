@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "run_id": "smoke-2026-07-18T10-00-00Z",
+  "run_kind": "diagnostic_pre_fix",
+  "gate_mode": "diagnostic",
+  "matrix_id": null,
+  "matrix_version": null,
+  "preflight_hash": "",
+  "completed_trials": null,
+  "in_progress_trial": "trial-099",
+  "invalid_attempts": [
+    {
+      "trial_id": "trial-098",
+      "matrix_slot": null,
+      "status": "invalid",
+      "attempt": 9001
+    }
+  ]
+}

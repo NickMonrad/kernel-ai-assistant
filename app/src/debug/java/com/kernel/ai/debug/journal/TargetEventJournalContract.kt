@@ -15,10 +15,12 @@ import com.kernel.ai.core.voice.AcousticEventType
  * optional `since_sequence` and `timeout_ms`. `request_id` is 1–64 ASCII
  * letters, digits, `.`, `_`, or `-`, and must be unique among active waits.
  *
- * `CANCEL_JOURNAL_WAIT` requires the same `request_id`. A successful cancellation
- * and the cancelled wait both return code 3 with `cancelled:<request_id>`.
+ * `GET_JOURNAL_WAIT_STATUS` requires the same `request_id` and returns
+ * `active:<request_id>` only after the wait is registered. `CANCEL_JOURNAL_WAIT`
+ * requires the same `request_id`. A successful cancellation and the cancelled wait
+ * both return code 3 with `cancelled:<request_id>`.
  *
- * Result codes: 0 success/event found, 1 timeout, 2 deterministic argument or
+ * Result codes: 0 success/event found/active, 1 timeout, 2 deterministic argument or
  * endpoint error, 3 cancelled. Timeouts default to 15 000 ms and must be within
  * the inclusive 500–60 000 ms range. Waits use journal notifications, not polling.
  *
@@ -39,6 +41,7 @@ internal object TargetEventJournalContract {
     const val PROVIDER_URI = "content://$PROVIDER_AUTHORITY"
     const val METHOD_GET_SEQUENCE = "GET_JOURNAL_SEQUENCE"
     const val METHOD_WAIT_FOR_EVENT = "WAIT_FOR_JOURNAL_EVENT"
+    const val METHOD_GET_WAIT_STATUS = "GET_JOURNAL_WAIT_STATUS"
     const val METHOD_CANCEL_WAIT = "CANCEL_JOURNAL_WAIT"
     const val METHOD_GET_SNAPSHOT = "GET_JOURNAL_SNAPSHOT"
 
