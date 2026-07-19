@@ -9,7 +9,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
@@ -27,11 +28,13 @@ class FakeAdb:
     def __init__(self, serial: str) -> None:
         self.serial = serial
         self.commands: list[tuple[str, ...]] = []
+        self.checks: list[bool] = []
         self.responses: dict[str, str] = {}
         self.reachable_flag = True
 
     def run(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
         self.commands.append(args)
+        self.checks.append(check)
         key = " ".join(args)
         if key in self.responses:
             return self.responses[key]
@@ -125,6 +128,26 @@ def source_result(trial_id: str = "trial-1", fixture_id: str = "natural_wake") -
     result["command_transcript_sha256"] = None
     return result
 
+
+def cancelled_source_result(
+    trial_id: str = "trial-cancelled",
+    fixture_id: str = "natural_wake",
+) -> dict:
+    result = source_result(trial_id, fixture_id)
+    result.update({
+        "completion_status": "cancelled",
+        "error_category": "operator_cancelled",
+        "focus_result": "not_requested",
+    })
+    for field in (
+        "fixture_sha256", "fixture_duration_ms", "prepare_monotonic_ms",
+        "playback_start_monotonic_ms", "volume_before", "requested_volume",
+        "applied_volume", "maximum_volume", "restored_volume",
+        "output_route_before", "output_route_during",
+    ):
+        result.pop(field)
+    return result
+
 def preflight_manifest(**overrides) -> dict:
     manifest = {
         "schema_version": runner.PREFLIGHT_SCHEMA_VERSION,
@@ -187,6 +210,16 @@ class ProviderContractTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(data)["highestSequence"], 1)
+
+    def test_adb_nonthrowing_execution_preserves_broadcast_output(self) -> None:
+        completed = runner.subprocess.CompletedProcess(
+            ["adb"], 7, stdout='Broadcast completed: result=0, data="completed"',
+            stderr="receiver process exited",
+        )
+        client = runner.AdbClient("serial", runner=lambda *args, **kwargs: completed)
+        self.assertIn("result=0", client.run("shell", "am", "broadcast", check=False))
+        with self.assertRaises(runner.HarnessError):
+            client.run("shell", "am", "broadcast")
 
     def test_wait_result_codes_are_explicit(self) -> None:
         ev = event(3, "STT_READY")
@@ -302,21 +335,39 @@ class SourceAndCorrelationTests(unittest.TestCase):
         parsed = runner.parse_source_result(json.dumps(result))
         self.assertNotIn("error_category", parsed)
 
-    def test_source_invocation_requires_unique_ordered_result(self) -> None:
+    def test_cleanup_contract_accepts_cancelled_partial_result(self) -> None:
+        cancelled = cancelled_source_result()
+        parsed = runner.parse_source_cleanup_result(json.dumps(cancelled))
+        self.assertEqual(parsed["completion_status"], "cancelled")
+        with self.assertRaisesRegex(runner.HarnessError, "completed source result missing"):
+            runner.parse_source_result(json.dumps(cancelled))
+
+        cancelled["cleanup_success"] = False
+        with self.assertRaisesRegex(runner.HarnessError, "cleanup did not succeed"):
+            runner.parse_source_cleanup_result(json.dumps(cancelled))
+
+    def test_source_invocation_recovers_persisted_result_after_process_exit(self) -> None:
         harness = make_runner()
+        expected = source_result("trial-1")
         harness.source.responses["shell am broadcast"] = (
             'Broadcasting: Intent {...}\nBroadcast completed: result=0, data="completed"'
         )
-        expected = source_result("trial-1")
         with patch.object(harness, "_read_source_result", return_value=expected) as read_result:
             self.assertEqual(harness._invoke_source("trial-1", "natural_wake", 7), expected)
         read_result.assert_called_once_with("trial-1", "natural_wake")
+        self.assertFalse(harness.source.checks[-1])
 
         harness.source.responses["shell am broadcast"] = "Broadcasting: Intent {...}"
-        with patch.object(harness, "_read_source_result") as stale_result:
-            with self.assertRaisesRegex(runner.HarnessError, "unique terminal result"):
-                harness._invoke_source("trial-2", "natural_wake", 7)
-        stale_result.assert_not_called()
+        recovered = source_result("trial-2")
+        with patch.object(harness, "_read_source_result", return_value=recovered) as read_result:
+            self.assertEqual(harness._invoke_source("trial-2", "natural_wake", 7), recovered)
+        read_result.assert_called_once_with("trial-2", "natural_wake")
+
+        with patch.object(
+            harness, "_read_source_result",
+            side_effect=runner.HarnessError("failed to read source result"),
+        ), self.assertRaisesRegex(runner.HarnessError, "failed to read source result"):
+            harness._invoke_source("trial-3", "natural_wake", 7)
 
     def test_source_cancellation_is_trial_scoped(self) -> None:
         harness = make_runner()
@@ -329,6 +380,150 @@ class SourceAndCorrelationTests(unittest.TestCase):
         command = " ".join(harness.source.commands[-1])
         self.assertIn(runner.SOURCE_CANCEL_ACTION, command)
         self.assertIn("trial-1", command)
+
+    def test_cleanup_recovers_and_verifies_interrupted_source_result(self) -> None:
+        harness = make_runner()
+        harness._active_source_trial_id = "trial-interrupted"
+        harness._active_source_fixture_id = "natural_wake"
+        harness.source.responses["shell am broadcast"] = (
+            'Broadcast completed: result=0, data="cancelled"'
+        )
+        recovered = cancelled_source_result("trial-interrupted")
+        with patch.object(harness, "_read_source_result", return_value=recovered) as read_result:
+            harness.cleanup()
+        read_result.assert_called_once_with(
+            "trial-interrupted",
+            "natural_wake",
+            require_completed=False,
+        )
+        self.assertTrue(harness.cleanup_verified)
+        self.assertEqual(harness.source_results, [recovered])
+        self.assertIsNone(harness._active_source_trial_id)
+        self.assertIsNone(harness._active_source_fixture_id)
+
+    def test_preflight_mode_cleans_up_after_operator_interrupt(self) -> None:
+        harness = Mock()
+        harness.run_preflight.side_effect = KeyboardInterrupt
+        harness.run_dir = Path("/private/preflight")
+        harness.cleanup_verified = True
+        args = SimpleNamespace(
+            source_selector="source-serial",
+            target_selector="target-serial",
+            source="s23u",
+            target="s21",
+            fixture_dir=None,
+            fixture_set_id=None,
+            fixture_hashes=None,
+            cue_policy_version=None,
+        )
+        with patch.object(runner, "AdbClient", side_effect=[Mock(), Mock()]), \
+                patch.object(runner, "AcousticWakeReliabilityRunner", return_value=harness):
+            self.assertEqual(runner.preflight_mode(args), 1)
+        harness.cancel.assert_called_once_with()
+        harness.cleanup.assert_called_once_with()
+        harness.export_evidence.assert_called_once_with()
+
+    def test_source_playback_runs_only_from_armed_wait_callback(self) -> None:
+        harness = make_runner()
+        expected_result = source_result("trial-armed")
+        expected_events = [event(7, "STT_READY")]
+        expected_envelope = envelope(expected_events)
+        call_order: list[str] = []
+
+        def invoke_source(trial_id: str, fixture_id: str, volume_index: int) -> dict:
+            self.assertEqual(call_order, ["wait-entered"])
+            self.assertEqual((trial_id, fixture_id, volume_index),
+                             ("trial-armed", "natural_wake", 7))
+            call_order.append("source-playback")
+            return expected_result
+
+        def wait_for_events(**kwargs):
+            call_order.append("wait-entered")
+            self.assertEqual(kwargs["event_type"], "STT_READY")
+            kwargs["on_armed"]()
+            call_order.append("wait-returned")
+            return expected_events, expected_envelope
+
+        with patch.object(harness, "_invoke_source", side_effect=invoke_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=wait_for_events):
+            result, events, final_envelope = harness._invoke_source_with_armed_wait(
+                "trial-armed", "natural_wake", 7, 3, "STT_READY", 1_500,
+            )
+
+        self.assertEqual(call_order, ["wait-entered", "source-playback", "wait-returned"])
+        self.assertEqual(result, expected_result)
+        self.assertEqual(events, expected_events)
+        self.assertEqual(final_envelope, expected_envelope)
+
+    def test_command_wait_starts_only_after_wake_playback_completes(self) -> None:
+        harness = make_runner()
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {
+            "natural_wake": fixture_sha256,
+            "qwen_command": fixture_sha256,
+        }
+        harness.installed_command_transcript_hashes = {"qwen_command": "b" * 64}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        final_events = complete_events(runner.TrialType.WAKE_PLUS_COMMAND)
+        final_envelope = envelope(final_events)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        provider_snapshots = iter((boundary_envelope, final_envelope))
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(provider_snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        call_order = []
+
+        def source_with_wait(**kwargs):
+            if kwargs["event_type"] == "STT_READY":
+                call_order.extend(("wake-started", "wake-completed"))
+                wake_events = [event(11, "STT_READY")]
+                return source_result("trial-sequence"), wake_events, envelope(wake_events, lowest=11)
+            self.assertEqual(call_order, ["wake-started", "wake-completed"])
+            call_order.append("command-wait-started")
+            command_events = [event(15, "COMMAND_ROUTING_RESULT")]
+            command_result = source_result("trial-sequence-cmd", "qwen_command")
+            command_result["command_transcript_sha256"] = "b" * 64
+            return command_result, command_events, envelope(command_events, lowest=15)
+
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            waited = event(12 if event_type == "CUE_REQUESTED" else 18, event_type)
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source_with_armed_wait", side_effect=source_with_wait), \
+                patch.object(harness, "_wait_for_target_events", side_effect=target_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-sequence",
+                runner.MatrixSlot(idle_s=1, wake_only=False),
+                "natural_wake",
+                "qwen_command",
+            )
+
+        self.assertEqual(
+            call_order,
+            ["wake-started", "wake-completed", "command-wait-started"],
+        )
+        self.assertEqual(attempt.status, runner.AttemptStatus.PASSED, attempt.__dict__)
 
     def test_preflight_correlation_stops_at_cue_without_terminal(self) -> None:
         events = [
@@ -378,6 +573,19 @@ class SourceAndCorrelationTests(unittest.TestCase):
         self.assertEqual(status, runner.AttemptStatus.FAILED)
         self.assertEqual(classification, runner.FailureClassification.STT_READINESS_FAILURE)
         self.assertTrue(failures)
+
+    def test_command_result_requires_wake_generation_and_session(self) -> None:
+        valid = event(4, "COMMAND_ROUTING_RESULT", generation=7, session=11)
+        self.assertEqual(
+            runner.require_correlated_event([valid], "COMMAND_ROUTING_RESULT", 7, 11),
+            valid,
+        )
+        for generation, session in ((8, 11), (7, 12)):
+            with self.subTest(generation=generation, session=session):
+                with self.assertRaisesRegex(runner.HarnessError, "did not match"):
+                    runner.require_correlated_event(
+                        [valid], "COMMAND_ROUTING_RESULT", generation, session,
+                    )
 
 
 class MatrixAndEnvironmentTests(unittest.TestCase):
@@ -514,6 +722,38 @@ class EvidenceAndModeTests(unittest.TestCase):
         with self.assertRaises(runner.HarnessError):
             runner.assert_commit_safe({"path": "/private/fixtures/source.wav"}, ["/private/fixtures/source.wav"])
         self.assertEqual(runner.sanitise_text("serial=ABC123", ["ABC123"]), "[REDACTED]")
+
+    def test_public_environment_evidence_omits_private_state(self) -> None:
+        harness = make_runner()
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.run_environment_before = {
+            "source": {
+                "reachable": True,
+                "media_volume": 10,
+                "boot_id": "private-boot-id",
+                "capture_errors": ["private command output"],
+            },
+            "target": {
+                "reachable": True,
+                "screen_off": True,
+                "package_uid": 10123,
+            },
+        }
+        evidence = harness.export_evidence()
+        public_environment = evidence["wake_reliability"]["run_environment_before"]
+        self.assertEqual(
+            public_environment,
+            {
+                "source": {"reachable": True, "media_volume": 10},
+                "target": {"reachable": True, "screen_off": True},
+            },
+        )
+        self.assertNotIn("private-boot-id", json.dumps(evidence))
 
     def test_smoke_plan_is_bounded_to_one_position(self) -> None:
         harness = make_runner()

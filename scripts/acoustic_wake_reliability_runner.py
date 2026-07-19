@@ -337,18 +337,22 @@ class AdbClient:
         self.serial = serial
         self._runner = runner
 
-    def run(self, *args: str, timeout: float = 30.0) -> str:
+    def run(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
         result = self._runner(
             ["adb", "-s", self.serial, *args],
             text=True, capture_output=True, timeout=timeout,
             stdin=subprocess.DEVNULL,
         )
-        if result.returncode != 0:
-            raise HarnessError(f"ADB command failed ({result.returncode}): {args[0] if args else ''}")
+        if check and result.returncode != 0:
+            raise HarnessError(
+                f"ADB command failed ({result.returncode}): {args[0] if args else ''}"
+            )
         return result.stdout
 
-    def shell(self, *args: str, timeout: float = 30.0) -> str:
-        return self.run("shell", *args, timeout=timeout)
+    def shell(
+        self, *args: str, timeout: float = 30.0, check: bool = True,
+    ) -> str:
+        return self.run("shell", *args, timeout=timeout, check=check)
     def reachable(self) -> bool:
         try:
             return self.run("get-state").strip() == "device"
@@ -596,13 +600,12 @@ def parse_fixture_manifest(text: str) -> dict[str, str]:
     return parse_fixture_manifest_contract(text)[0]
 
 
-def parse_source_result(
+def parse_source_cleanup_result(
     text: str,
     expected_trial_id: str | None = None,
     expected_fixture_id: str | None = None,
-    expected_fixture_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Parse and validate ``AcousticStimulusResult.toJson()`` output."""
+    """Validate persisted helper cleanup evidence, including cancellation results."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -610,41 +613,16 @@ def parse_source_result(
     if not isinstance(data, dict):
         raise HarnessError("source result is not a JSON object")
     required_fields = {
-        "schema_version", "trial_id", "fixture_id", "fixture_sha256",
-        "fixture_duration_ms", "request_wall_clock_ms", "request_monotonic_ms",
-        "prepare_monotonic_ms", "playback_start_monotonic_ms",
-        "completion_monotonic_ms", "cleanup_monotonic_ms",
-        "volume_before", "requested_volume", "applied_volume", "maximum_volume",
-        "restored_volume", "output_route_before", "output_route_during",
-        "focus_result", "completion_status", "evidence_persistence_failed", "timeout",
-        "overlap_rejected", "cleanup_success", "exact_restoration_verified",
-        "events",
+        "schema_version", "trial_id", "fixture_id", "request_wall_clock_ms",
+        "request_monotonic_ms", "focus_result", "completion_status",
+        "evidence_persistence_failed", "timeout", "overlap_rejected",
+        "cleanup_success", "exact_restoration_verified", "events",
     }
     missing = sorted(required_fields - set(data))
     if missing:
         raise HarnessError(f"source result missing fields: {', '.join(missing)}")
     if data.get("schema_version") != 1:
         raise HarnessError("unsupported source result schema_version")
-    if data.get("completion_status") != "completed":
-        raise HarnessError(
-            f"source playback did not complete: "
-            f"status={data.get('completion_status')} "
-            f"error={data.get('error_category') or data.get('playback_error_category') or 'unknown'}"
-        )
-    if data.get("evidence_persistence_failed") is not False:
-        raise HarnessError("source evidence persistence failure flag is not false")
-    if data.get("timeout") is not False:
-        raise HarnessError("source playback timeout flag is not false")
-    if data.get("overlap_rejected") is not False:
-        raise HarnessError("source playback overlap_rejected flag is not false")
-    if data.get("cleanup_success") is not True:
-        raise HarnessError("source cleanup did not succeed")
-    if data.get("exact_restoration_verified") is not True:
-        raise HarnessError("source volume restoration was not verified")
-    if data.get("output_route_during") != "BUILT_IN_SPEAKER":
-        raise HarnessError("source output route was not BUILT_IN_SPEAKER")
-    if data.get("focus_result") != "granted":
-        raise HarnessError("source audio focus was not granted")
     trial_id = data.get("trial_id")
     fixture_id = data.get("fixture_id")
     if not isinstance(trial_id, str) or not trial_id:
@@ -655,13 +633,64 @@ def parse_source_result(
         raise HarnessError("source result trial_id does not match request")
     if expected_fixture_id is not None and fixture_id != expected_fixture_id:
         raise HarnessError("source result fixture_id does not match request")
+    if data.get("completion_status") not in {"completed", "cancelled"}:
+        raise HarnessError(
+            f"source cleanup result has unsupported status: {data.get('completion_status')}"
+        )
+    if data.get("completion_status") == "cancelled" and data.get("error_category") != "operator_cancelled":
+        raise HarnessError("cancelled source result is missing operator_cancelled evidence")
+    if data.get("evidence_persistence_failed") is not False:
+        raise HarnessError("source evidence persistence failure flag is not false")
+    if data.get("timeout") is not False:
+        raise HarnessError("source playback timeout flag is not false")
+    if data.get("overlap_rejected") is not False:
+        raise HarnessError("source playback overlap_rejected flag is not false")
+    if data.get("cleanup_success") is not True:
+        raise HarnessError("source cleanup did not succeed")
+    if data.get("exact_restoration_verified") is not True:
+        raise HarnessError("source volume restoration was not verified")
+    if not isinstance(data.get("events"), list):
+        raise HarnessError("source result events must be a list")
+    return data
+
+
+def parse_source_result(
+    text: str,
+    expected_trial_id: str | None = None,
+    expected_fixture_id: str | None = None,
+    expected_fixture_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Parse and validate a successfully completed source playback result."""
+    data = parse_source_cleanup_result(
+        text,
+        expected_trial_id=expected_trial_id,
+        expected_fixture_id=expected_fixture_id,
+    )
+    completed_fields = {
+        "fixture_sha256", "fixture_duration_ms", "prepare_monotonic_ms",
+        "playback_start_monotonic_ms", "completion_monotonic_ms",
+        "cleanup_monotonic_ms", "volume_before", "requested_volume",
+        "applied_volume", "maximum_volume", "restored_volume",
+        "output_route_before", "output_route_during",
+    }
+    missing = sorted(completed_fields - set(data))
+    if missing:
+        raise HarnessError(f"completed source result missing fields: {', '.join(missing)}")
+    if data.get("completion_status") != "completed":
+        raise HarnessError(
+            f"source playback did not complete: "
+            f"status={data.get('completion_status')} "
+            f"error={data.get('error_category') or data.get('playback_error_category') or 'unknown'}"
+        )
+    if data.get("output_route_during") != "BUILT_IN_SPEAKER":
+        raise HarnessError("source output route was not BUILT_IN_SPEAKER")
+    if data.get("focus_result") != "granted":
+        raise HarnessError("source audio focus was not granted")
     fixture_sha256 = data.get("fixture_sha256")
     if not isinstance(fixture_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", fixture_sha256):
         raise HarnessError("source result fixture_sha256 is invalid")
     if expected_fixture_sha256 is not None and fixture_sha256 != expected_fixture_sha256:
         raise HarnessError("source result fixture_sha256 does not match approved fixture")
-    if not isinstance(data.get("events"), list):
-        raise HarnessError("source result events must be a list")
     return data
 
 
@@ -876,6 +905,22 @@ def find_event(events: list[dict[str, Any]], event_type: str,
             continue
         return ev
     return None
+
+
+def require_correlated_event(
+    events: list[dict[str, Any]],
+    event_type: str,
+    generation: int,
+    session: int,
+) -> dict[str, Any]:
+    """Require an event from the trial's detector generation and voice session."""
+    correlated = find_event(events, event_type, generation, session)
+    if correlated is None:
+        raise HarnessError(
+            f"{event_type} did not match detector generation {generation} "
+            f"and voice session {session}"
+        )
+    return correlated
 
 
 # ── Classification ──────────────────────────────────────────────────────
@@ -1177,6 +1222,19 @@ def public_environment_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "bluetooth_route_active",
     }
     return {key: value for key, value in snapshot.items() if key in allowed}
+
+
+def public_run_environment(
+    environment: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]] | None:
+    """Project paired device state without private identifiers or raw errors."""
+    if environment is None:
+        return None
+    return {
+        role: public_environment_snapshot(snapshot)
+        for role, snapshot in environment.items()
+        if role in {"source", "target"} and isinstance(snapshot, dict)
+    }
 
 
 def render_evidence(
@@ -2060,13 +2118,21 @@ class AcousticWakeReliabilityRunner:
                 if cue_ready:
                     command_trial_id = f"{trial_id}-cmd"
                     attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
-                    command_source, _, command_envelope = self._invoke_source_with_armed_wait(
-                        trial_id=command_trial_id,
-                        fixture_id=command_fixture_id,
-                        volume_index=volume,
-                        since_sequence=boundary_sequence,
-                        event_type="COMMAND_ROUTING_RESULT",
-                        timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
+                    command_source, command_events, command_envelope = (
+                        self._invoke_source_with_armed_wait(
+                            trial_id=command_trial_id,
+                            fixture_id=command_fixture_id,
+                            volume_index=volume,
+                            since_sequence=boundary_sequence,
+                            event_type="COMMAND_ROUTING_RESULT",
+                            timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
+                        )
+                    )
+                    require_correlated_event(
+                        command_events,
+                        "COMMAND_ROUTING_RESULT",
+                        boundary_generation,
+                        correlated_session,
                     )
                     self._last_target_snapshot = command_envelope
                     parsed_command_source = parse_source_result(
@@ -2628,19 +2694,37 @@ class AcousticWakeReliabilityRunner:
         ]
         self._active_source_trial_id = trial_id
         self._active_source_fixture_id = fixture_id
-        broadcast_output = self.source.run(*broadcast_args, timeout=DEFAULT_SOURCE_TIMEOUT_S)
-        result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
-        if result_code not in (0, 1, 2):
-            raise HarnessError(
-                f"source broadcast returned unsupported result {result_code}: {result_data}"
-            )
+        broadcast_output = self.source.run(
+            *broadcast_args,
+            timeout=DEFAULT_SOURCE_TIMEOUT_S,
+            check=False,
+        )
+        if broadcast_output.strip():
+            try:
+                result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
+            except HarnessError:
+                # ADB may exit non-zero after the receiver has already persisted its
+                # authoritative result. Continue to the app-private result recovery.
+                pass
+            else:
+                if result_code not in (0, 1, 2):
+                    raise HarnessError(
+                        f"source broadcast returned unsupported result "
+                        f"{result_code}: {result_data}"
+                    )
         result = self._read_source_result(trial_id, fixture_id)
         self.source_results.append(result)
         self._active_source_trial_id = None
         self._active_source_fixture_id = None
         return result
 
-    def _read_source_result(self, trial_id: str, fixture_id: str) -> dict[str, Any]:
+    def _read_source_result(
+        self,
+        trial_id: str,
+        fixture_id: str,
+        *,
+        require_completed: bool = True,
+    ) -> dict[str, Any]:
         """Read, validate, and retain one private source result artifact."""
         try:
             result_file_text = self.source.shell(
@@ -2649,7 +2733,8 @@ class AcousticWakeReliabilityRunner:
             )
         except HarnessError as exc:
             raise HarnessError(f"failed to read source result: {exc}") from exc
-        result = parse_source_result(
+        parser = parse_source_result if require_completed else parse_source_cleanup_result
+        result = parser(
             result_file_text,
             expected_trial_id=trial_id,
             expected_fixture_id=fixture_id,
@@ -2691,7 +2776,11 @@ class AcousticWakeReliabilityRunner:
         last_error = "result unavailable"
         while time.monotonic() < deadline:
             try:
-                result = self._read_source_result(trial_id, fixture_id)
+                result = self._read_source_result(
+                    trial_id,
+                    fixture_id,
+                    require_completed=False,
+                )
             except HarnessError as exc:
                 last_error = str(exc)
                 time.sleep(0.25)
@@ -2886,7 +2975,7 @@ class AcousticWakeReliabilityRunner:
             return ["source ADB unreachable during cleanup verification"]
         for index, result in enumerate(self.source_results):
             try:
-                parse_source_result(json.dumps(result))
+                parse_source_cleanup_result(json.dumps(result))
             except HarnessError as exc:
                 failures.append(f"source result {index + 1}: {exc}")
         return failures
@@ -3019,8 +3108,12 @@ class AcousticWakeReliabilityRunner:
                 "preflight_manifest_sha256": (preflight or {}).get("manifest_sha256"),
                 "cue_policy_evidence_verified": self.cue_policy_evidence_verified,
                 "cue_audibility_evidence_verified": self.cue_audibility_evidence_verified,
-                "run_environment_before": self.run_environment_before,
-                "run_environment_after": self.run_environment_after,
+                "run_environment_before": public_run_environment(
+                    self.run_environment_before
+                ),
+                "run_environment_after": public_run_environment(
+                    self.run_environment_after
+                ),
                 "aborted": bool(self.abort_reason),
                 "abort_reason": (
                     sanitise_text(self.abort_reason, self.secrets)
@@ -3213,7 +3306,7 @@ def smoke_mode(args: argparse.Namespace) -> int:
 
 
 def preflight_mode(args: argparse.Namespace) -> int:
-    """Human-monitored preflight mode."""
+    """Human-monitored preflight mode with fail-closed helper cleanup."""
     source_client = AdbClient(args.source_selector)
     target_client = AdbClient(args.target_selector)
 
@@ -3227,19 +3320,29 @@ def preflight_mode(args: argparse.Namespace) -> int:
         interactive=True,
     )
     runner.secrets = [args.source_selector, args.target_selector]
-
+    completed = False
     try:
         runner.run_preflight(
             fixture_set_id=args.fixture_set_id or "v1-preflight",
             fixture_hashes=args.fixture_hashes or {},
             cue_policy_version=args.cue_policy_version,
         )
-    except HarnessError as e:
-        print(f"Preflight error: {e}")
-        return 1
+        completed = True
+    except HarnessError as exc:
+        runner.primary_failure = str(exc)
+        print(f"Preflight error: {exc}")
+    except KeyboardInterrupt:
+        runner.primary_failure = "preflight interrupted by operator"
+        print("\nInterrupted")
+        runner.cancel()
+    finally:
+        runner.cleanup()
+        runner.export_evidence()
 
-    print(f"\nPreflight manifest: {runner.run_dir / 'preflight-private.json'}")
-    return 0
+    if completed and runner.cleanup_verified:
+        print(f"\nPreflight manifest: {runner.run_dir / 'preflight-private.json'}")
+        return 0
+    return 1
 
 
 def diagnostic_mode(args: argparse.Namespace) -> int:
