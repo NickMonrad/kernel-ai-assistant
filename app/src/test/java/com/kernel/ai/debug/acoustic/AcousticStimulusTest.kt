@@ -269,6 +269,29 @@ class AcousticStimulusTest {
     }
 
     @Test
+    fun `cancellation is trial scoped and restores playback state`() {
+        val audio = FakeAudio()
+        val player = FakePlayer()
+        val logger = RecordingLogger()
+        var result: StimulusResult? = null
+        testEngine(audio, player, RecordingWriter(), logger)
+            .handle(InvocationParseResult.Valid(invocation("active"))) { result = it }
+
+        assertFalse(PlaybackGate.cancel("different"))
+        assertNull(result)
+        assertTrue(PlaybackGate.cancel("active"))
+        assertEquals("cancelled", result?.completionStatus)
+        assertEquals("operator_cancelled", result?.errorCategory)
+        assertEquals(4, result?.restoredVolume)
+        assertTrue(result?.exactRestorationVerified == true)
+        assertEquals(1, player.releaseCount)
+        assertEquals(1, audio.abandonCount)
+        assertEquals(listOf("error", "cleanup_completed"), logger.events.map { it.name })
+        assertTrue(PlaybackGate.tryAcquire())
+        PlaybackGate.release()
+    }
+
+    @Test
     fun `volume above device maximum is rejected before playback`() {
         val audio = FakeAudio()
         var result: StimulusResult? = null

@@ -275,6 +275,49 @@ class AcousticEventJournalTest {
     }
 
     @Test
+    fun `wait status exposes registration before source-side work can start`() {
+        val journal = AcousticEventJournal(journalCapacity = 16)
+        TargetEventJournalEndpoint.replaceJournalForTest(journal)
+        val response = AtomicReference<TargetEventJournalResponse>()
+        val waiter = Thread {
+            response.set(
+                TargetEventJournalEndpoint.waitForEvent(
+                    requestId = "arm-probe",
+                    sinceSequence = 0,
+                    eventType = "STT_READY",
+                    timeoutMs = 10_000,
+                ),
+            )
+        }
+        waiter.start()
+        val deadlineNanos = System.nanoTime() + 2_000_000_000L
+        while (TargetEventJournalEndpoint.activeWaitCountForTest() == 0 &&
+            System.nanoTime() < deadlineNanos
+        ) {
+            Thread.sleep(5)
+        }
+
+        assertEquals(
+            TargetEventJournalResponse(
+                TargetEventJournalContract.RESULT_OK,
+                "active:arm-probe",
+            ),
+            TargetEventJournalEndpoint.waitStatus("arm-probe"),
+        )
+        assertEquals(
+            TargetEventJournalContract.RESULT_CANCELLED,
+            TargetEventJournalEndpoint.cancelWait("arm-probe").code,
+        )
+        waiter.join(2_000)
+        assertFalse(waiter.isAlive)
+        assertEquals(TargetEventJournalContract.RESULT_CANCELLED, response.get().code)
+        assertEquals(
+            TargetEventJournalContract.ERROR_UNKNOWN_REQUEST_ID,
+            TargetEventJournalEndpoint.waitStatus("arm-probe").data,
+        )
+    }
+
+    @Test
     fun `concurrent record and snapshot preserve a coherent sequence envelope`() {
         val journal = AcousticEventJournal(journalCapacity = 512)
         val sequence = AtomicLong()

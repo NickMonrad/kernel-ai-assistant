@@ -6,6 +6,7 @@ import java.util.Locale
 
 internal object AcousticStimulusContract {
     const val ACTION_PLAY = "com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS"
+    const val ACTION_CANCEL = "com.kernel.ai.debug.action.CANCEL_ACOUSTIC_STIMULUS"
     const val EXTRA_TRIAL_ID = "trial_id"
     const val EXTRA_FIXTURE_ID = "fixture_id"
     const val EXTRA_VOLUME_INDEX = "volume_index"
@@ -48,6 +49,11 @@ sealed interface InvocationParseResult {
     data class Invalid(val error: InvalidInvocation) : InvocationParseResult
 }
 
+sealed interface CancellationParseResult {
+    data class Valid(val trialId: String) : CancellationParseResult
+    data class Invalid(val error: InvalidInvocation) : CancellationParseResult
+}
+
 internal object InvocationParser {
     private val trialIdPattern = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
     private val fixtureIdPattern = Regex("[a-z0-9][a-z0-9_-]{0,63}")
@@ -56,6 +62,24 @@ internal object InvocationParser {
         val extras = intent.extras
         val values = extras?.keySet()?.associateWith { extras.get(it) } ?: emptyMap()
         return parse(intent.action, values)
+    }
+
+    fun parseCancellation(intent: Intent): CancellationParseResult {
+        val extras = intent.extras
+        val values = extras?.keySet()?.associateWith { extras.get(it) } ?: emptyMap()
+        val trialId = values[AcousticStimulusContract.EXTRA_TRIAL_ID] as? String
+        if (intent.action != AcousticStimulusContract.ACTION_CANCEL) {
+            return CancellationParseResult.Invalid(InvalidInvocation("invalid_action", trialId, null))
+        }
+        if (values.keys != setOf(AcousticStimulusContract.EXTRA_TRIAL_ID)) {
+            return CancellationParseResult.Invalid(InvalidInvocation("unsupported_extra", trialId, null))
+        }
+        if (trialId == null || trialId.length !in 1..AcousticStimulusContract.MAX_TRIAL_ID_LENGTH ||
+            !trialIdPattern.matches(trialId)
+        ) {
+            return CancellationParseResult.Invalid(InvalidInvocation("malformed_trial_id", trialId, null))
+        }
+        return CancellationParseResult.Valid(trialId)
     }
 
     fun parse(action: String?, values: Map<String, Any?>): InvocationParseResult {

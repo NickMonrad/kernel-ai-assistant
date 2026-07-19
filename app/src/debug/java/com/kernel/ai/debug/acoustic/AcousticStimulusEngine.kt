@@ -185,11 +185,41 @@ internal fun interface StimulusEventLogger {
 }
 
 internal object PlaybackGate {
-    private val inProgress = AtomicBoolean(false)
+    private val lock = Any()
+    private var active = false
+    private var activeTrialId: String? = null
+    private var cancelAction: (() -> Unit)? = null
 
-    fun tryAcquire(): Boolean = inProgress.compareAndSet(false, true)
-    fun release() {
-        inProgress.set(false)
+    fun tryAcquire(trialId: String? = null): Boolean = synchronized(lock) {
+        if (active) {
+            false
+        } else {
+            active = true
+            activeTrialId = trialId
+            cancelAction = null
+            true
+        }
+    }
+
+    fun registerCancellation(trialId: String, action: () -> Unit) = synchronized(lock) {
+        check(active && activeTrialId == trialId) { "playback session is not active" }
+        cancelAction = action
+    }
+
+    fun cancel(trialId: String): Boolean {
+        val action = synchronized(lock) {
+            if (!active || activeTrialId != trialId) null else cancelAction
+        } ?: return false
+        action()
+        return true
+    }
+
+    fun release(trialId: String? = null) = synchronized(lock) {
+        if (trialId == null || activeTrialId == trialId) {
+            active = false
+            activeTrialId = null
+            cancelAction = null
+        }
     }
 }
 
@@ -252,7 +282,7 @@ internal class AcousticStimulusEngine(
         try {
             finish(externallyReturned)
         } finally {
-            if (releaseGate) PlaybackGate.release()
+            if (releaseGate) PlaybackGate.release(result.trialId)
         }
     }
 
@@ -262,7 +292,7 @@ internal class AcousticStimulusEngine(
         requestMonotonicMs: Long,
         finish: (StimulusResult) -> Unit,
     ) {
-        if (!PlaybackGate.tryAcquire()) {
+        if (!PlaybackGate.tryAcquire(invocation.trialId)) {
             val result = invalidResult(
                 trialId = invocation.trialId,
                 fixtureId = invocation.fixtureId,
@@ -275,6 +305,9 @@ internal class AcousticStimulusEngine(
             return
         }
         val state = SessionState(invocation, requestWallClockMs, requestMonotonicMs, finish)
+        PlaybackGate.registerCancellation(invocation.trialId) {
+            state.complete("cancelled", "operator_cancelled")
+        }
         try {
             state.timeout = scheduler.schedule(AcousticStimulusContract.HARD_TIMEOUT_MS) {
                 state.complete("timeout", "playback_timeout", timedOut = true)

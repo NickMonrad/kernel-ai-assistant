@@ -157,6 +157,11 @@ broadcast receiver. It uses `GET_JOURNAL_SEQUENCE` for the idle boundary,
 `GET_JOURNAL_SNAPSHOT` for the final exact envelope. Provider cancellation uses
 `CANCEL_JOURNAL_WAIT` with the active request ID.
 
+The provider call returns Android's `Bundle[{result_code=..., result_data=...}]`
+envelope. The host parses the typed `content call --extra key:{s|l}:value`
+bindings, requires the exact journal snapshot envelope, rejects malformed or
+overflowed boundaries, and joins or cancels every wait worker before cleanup.
+
 The source result is accepted only when its trial/fixture IDs, hash, timing,
 volume, built-in-speaker route, granted focus, completion, cleanup and exact
 restoration fields all validate. Private raw result files remain on the source
@@ -280,6 +285,14 @@ The runner writes a canonical private preflight manifest containing the approved
 fixture hashes, source volume/route, placement notes, target boot identity and
 cue-policy version. Later diagnostic, feasibility and regression runs must
 consume and hash-verify this manifest; they do not recreate approval implicitly.
+
+Preflight schema version 5 also freezes exact source and target environment
+snapshots: Android user, microphone/camera privacy state, package UID and UID
+state, standby bucket, wake-service state, media volume/range, ringer/DND,
+Bluetooth route, target screen/charging state, uptime and boot ID. Missing,
+unparseable or changed fields invalidate a later run; they are never replaced
+with permissive defaults. Cleanup recaptures the same fields and fails closed on
+drift or capture errors.
 
 Do not use open-ended volume search, binary search, repeated maximum-volume ramps or automatic level changes after a failure.
 
@@ -488,6 +501,13 @@ Matrix completeness therefore differs from release-gate success: completeness
 requires one valid outcome per required position, while the release gate also
 requires every required S21 position to pass, preflight evidence to be present,
 and cleanup/restoration verification to succeed.
+
+Diagnostic and bounded smoke modes may complete with valid product failures and
+must report those failures without masquerading as a release-gate result. Only
+the S21 `regression` mode can return release-gate success, and it additionally
+requires verified commit/build provenance, the approved schema-5 preflight,
+cue-policy and audibility evidence, exact cleanup, and all required S21 slots
+passed. Fixed-delay feasibility output is explicitly non-gating.
 
 ## 15. Frozen valid-trial matrix
 

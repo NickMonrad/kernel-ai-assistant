@@ -30,7 +30,7 @@ class FakeAdb:
         self.responses: dict[str, str] = {}
         self.reachable_flag = True
 
-    def run(self, *args: str, timeout: float = 30.0) -> str:
+    def run(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
         self.commands.append(args)
         key = " ".join(args)
         if key in self.responses:
@@ -40,11 +40,51 @@ class FakeAdb:
                 return response
         return ""
 
-    def shell(self, *args: str, timeout: float = 30.0) -> str:
-        return self.run("shell", *args, timeout=timeout)
+    def shell(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
+        return self.run("shell", *args, timeout=timeout, check=check)
 
     def reachable(self) -> bool:
         return self.reachable_flag
+
+
+def configure_environment(client: FakeAdb, *, target: bool) -> None:
+    package = runner.DEFAULT_PACKAGE
+    responses = {
+        "shell am get-current-user": "0",
+        "shell cmd sensor_privacy status 0 microphone": "disabled",
+        "shell cmd sensor_privacy status 0 camera": "disabled",
+        f"shell cmd package list packages -U {package}": f"package:{package} uid:10123",
+        "shell am get-uid-state 10123": "PROCESS_STATE_CACHED_EMPTY",
+        f"shell am get-standby-bucket {package}": "10",
+        f"shell pidof {package}": "1234" if target else "",
+        "shell media volume --stream 3 --get": "volume is 10 in range [0..25]",
+        "shell settings get global mode_ringer": "2",
+        "shell settings get global zen_mode": "0",
+        f"shell dumpsys activity services {package}": "WakeWordService" if target else "",
+        "shell dumpsys audio": "Audio routes: speaker active",
+    }
+    if target:
+        responses.update({
+            "shell dumpsys battery": "AC powered: false\nUSB powered: true",
+            "shell dumpsys power": "mScreenOn=false",
+            "shell cat /proc/uptime": "100.00 10.00",
+            "shell cat /proc/sys/kernel/random/boot_id": "boot-1",
+        })
+    client.responses.update(responses)
+
+
+def environment_state(alias: str, *, target: bool) -> dict:
+    client = FakeAdb(alias)
+    configure_environment(client, target=target)
+    harness = runner.AcousticWakeReliabilityRunner(
+        runner.RunKind.SMOKE,
+        "s23u",
+        "s21",
+        client if not target else FakeAdb("source"),
+        client if target else FakeAdb("target"),
+        private_root=Path(tempfile.mkdtemp()),
+    )
+    return harness._snapshot_android_state(client, alias, target=target)
 
 
 def event(seq: int, event_type: str, generation: int = 4, session: int = 9,
@@ -68,6 +108,8 @@ def complete_events(trial_type: runner.TrialType) -> list[dict]:
     for item in events:
         if item["t"] == "COMMAND_ROUTING_RESULT":
             item["d"] = {"outcome": "handed_off"}
+        if item["t"] == "STT_FINAL":
+            item["d"] = {"normalized_transcript_sha256": "b" * 64}
     return events
 
 
@@ -80,7 +122,31 @@ def source_result(trial_id: str = "trial-1", fixture_id: str = "natural_wake") -
     result = load_json("source-result-valid.json")
     result["trial_id"] = trial_id
     result["fixture_id"] = fixture_id
+    result["command_transcript_sha256"] = None
     return result
+
+def preflight_manifest(**overrides) -> dict:
+    manifest = {
+        "schema_version": runner.PREFLIGHT_SCHEMA_VERSION,
+        "matrix_id": runner.MATRIX_ID,
+        "matrix_version": runner.MATRIX_VERSION,
+        "source_helper_contract_version": runner.SOURCE_HELPER_CONTRACT_VERSION,
+        "target_journal_contract_version": runner.JOURNAL_CONTRACT_VERSION,
+        "fixture_set_id": "set-1",
+        "fixture_hashes": {"natural_wake": "a" * 64},
+        "command_transcript_hashes": {},
+        "cue_policy_version": "cue-v1",
+        "cue_policy_evidence_verified": True,
+        "cue_audibility_evidence_verified": True,
+        "source_environment_state": environment_state("s23u", target=False),
+        "target_environment_state": environment_state("s21", target=True),
+        "attempts": [{"attempt": 1, "approved": True}],
+        "operator_approved": True,
+    }
+    manifest.update(overrides)
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+    manifest["manifest_sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+    return manifest
 
 
 def make_runner(run_kind: runner.RunKind = runner.RunKind.SMOKE,
@@ -155,6 +221,31 @@ class ProviderContractTests(unittest.TestCase):
         request_ids = [value for value in wait_call if value.startswith("request_id:s:wait-")]
         self.assertEqual(len(request_ids), 1)
 
+    def test_cancel_tolerates_wait_that_completed_first(self) -> None:
+        harness = make_runner()
+        harness._active_wait_request_id = "wait-completed"
+        with patch.object(
+            harness,
+            "_call_target_provider",
+            return_value=(runner.TARGET_RESULT_ERROR, runner.TARGET_ERROR_UNKNOWN_REQUEST_ID),
+        ) as provider_call:
+            harness._cancel_active_wait()
+        provider_call.assert_called_once_with(
+            runner.TARGET_METHOD_CANCEL_WAIT,
+            extras={runner.TARGET_EXTRA_REQUEST_ID: "wait-completed"},
+            timeout=5.0,
+        )
+
+    def test_cancel_rejects_other_provider_errors(self) -> None:
+        harness = make_runner()
+        harness._active_wait_request_id = "wait-live"
+        with patch.object(
+            harness,
+            "_call_target_provider",
+            return_value=(runner.TARGET_RESULT_ERROR, "argument_error:bad_request"),
+        ), self.assertRaisesRegex(runner.HarnessError, "cancellation failed"):
+            harness._cancel_active_wait()
+
 
 class SnapshotContractTests(unittest.TestCase):
     def test_exact_object_envelope_is_required(self) -> None:
@@ -204,6 +295,56 @@ class SourceAndCorrelationTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(runner.HarnessError):
                 runner.parse_source_result(json.dumps(invalid))
 
+    def test_source_contract_accepts_omitted_nullable_error_fields(self) -> None:
+        result = source_result()
+        result.pop("error_category")
+        result.pop("playback_error_category")
+        parsed = runner.parse_source_result(json.dumps(result))
+        self.assertNotIn("error_category", parsed)
+
+    def test_source_invocation_requires_unique_ordered_result(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell am broadcast"] = (
+            'Broadcasting: Intent {...}\nBroadcast completed: result=0, data="completed"'
+        )
+        expected = source_result("trial-1")
+        with patch.object(harness, "_read_source_result", return_value=expected) as read_result:
+            self.assertEqual(harness._invoke_source("trial-1", "natural_wake", 7), expected)
+        read_result.assert_called_once_with("trial-1", "natural_wake")
+
+        harness.source.responses["shell am broadcast"] = "Broadcasting: Intent {...}"
+        with patch.object(harness, "_read_source_result") as stale_result:
+            with self.assertRaisesRegex(runner.HarnessError, "unique terminal result"):
+                harness._invoke_source("trial-2", "natural_wake", 7)
+        stale_result.assert_not_called()
+
+    def test_source_cancellation_is_trial_scoped(self) -> None:
+        harness = make_runner()
+        harness._active_source_trial_id = "trial-1"
+        harness._active_source_fixture_id = "natural_wake"
+        harness.source.responses["shell am broadcast"] = (
+            'Broadcast completed: result=0, data="cancelled"'
+        )
+        self.assertEqual(harness._cancel_active_source_playback(), [])
+        command = " ".join(harness.source.commands[-1])
+        self.assertIn(runner.SOURCE_CANCEL_ACTION, command)
+        self.assertIn("trial-1", command)
+
+    def test_preflight_correlation_stops_at_cue_without_terminal(self) -> None:
+        events = [
+            item for item in complete_events(runner.TrialType.WAKE_ONLY)
+            if item["t"] not in {"SESSION_COMPLETED", "DETECTOR_REARMED"}
+        ]
+        generation, session, path, failures = runner.correlate_event_path(
+            events,
+            runner.TrialType.WAKE_ONLY,
+            require_terminal=False,
+        )
+        self.assertEqual((generation, session), (4, 9))
+        self.assertIn("CUE_REQUESTED", path)
+        self.assertEqual(failures, [])
+
+
     def test_wake_and_command_paths_require_distinct_command_events(self) -> None:
         valid_source = source_result()
         wake = envelope(complete_events(runner.TrialType.WAKE_ONLY))
@@ -215,6 +356,7 @@ class SourceAndCorrelationTests(unittest.TestCase):
         command = envelope(complete_events(runner.TrialType.WAKE_PLUS_COMMAND))
         status, *_ = runner.classify_attempt(
             valid_source, command, runner.TrialType.WAKE_PLUS_COMMAND, None, None, True,
+            expected_command_transcript_sha256="b" * 64,
         )
         self.assertEqual(status, runner.AttemptStatus.PASSED)
         missing_final = copy.deepcopy(command)
@@ -222,8 +364,9 @@ class SourceAndCorrelationTests(unittest.TestCase):
         missing_final["highestSequence"] = missing_final["events"][-1]["s"]
         status, classification, _, _ = runner.classify_attempt(
             valid_source, missing_final, runner.TrialType.WAKE_PLUS_COMMAND, None, None, True,
+            expected_command_transcript_sha256="b" * 64,
         )
-        self.assertEqual(classification, runner.FailureClassification.ACTIVATION_HANDOFF_FAILURE)
+        self.assertEqual(classification, runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE)
 
     def test_unrelated_generation_is_not_accepted(self) -> None:
         events = complete_events(runner.TrialType.WAKE_ONLY)
@@ -262,6 +405,7 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         failures = runner.AcousticWakeReliabilityRunner._environment_failures(
             {"reachable": True, "boot_id": "a", "uptime_seconds": 20.0},
             {"reachable": True, "boot_id": "b", "uptime_seconds": 19.0},
+            {},
         )
         self.assertIn("target boot ID changed during trial", failures)
         self.assertIn("target uptime regressed during trial", failures)
@@ -276,7 +420,48 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertFalse(any("settings" in command and "put" in command for command in commands))
 
 
+    def test_exact_environment_capture_reads_privacy_process_power_and_audio(self) -> None:
+        harness = make_runner()
+        configure_environment(harness.source, target=False)
+        configure_environment(harness.target, target=True)
+        source = harness._snapshot_source_state()
+        target = harness._snapshot_target_state()
+        self.assertEqual(source["sensor_privacy"], {"microphone": "disabled", "camera": "disabled"})
+        self.assertEqual(source["package_uid"], 10123)
+        self.assertEqual(source["media_volume"], 10)
+        self.assertFalse(source["service_active"])
+        self.assertTrue(target["service_active"])
+        self.assertTrue(target["screen_off"])
+        self.assertTrue(target["charging"])
+        self.assertEqual(target["boot_id"], "boot-1")
+        self.assertEqual(target["capture_errors"], [])
+
+    def test_environment_capture_errors_fail_closed(self) -> None:
+        harness = make_runner()
+        snapshot = harness._snapshot_target_state()
+        self.assertTrue(snapshot["capture_errors"])
+        failures = harness._environment_failures(snapshot, snapshot, snapshot)
+        self.assertTrue(any("capture failed" in failure for failure in failures))
+
+    def test_cleanup_detects_environment_drift(self) -> None:
+        harness = make_runner()
+        configure_environment(harness.source, target=False)
+        configure_environment(harness.target, target=True)
+        harness.run_environment_before = {
+            "source": harness._snapshot_source_state(),
+            "target": harness._snapshot_target_state(),
+        }
+        harness.source.responses["shell settings get global mode_ringer"] = "1"
+        harness.cleanup()
+        self.assertFalse(harness.cleanup_verified)
+        self.assertTrue(any("source ringer mode changed" in failure for failure in harness.cleanup_failures))
+
 class EvidenceAndModeTests(unittest.TestCase):
+    def test_fixed_delay_is_feasibility_only(self) -> None:
+        with self.assertRaisesRegex(runner.HarnessError, "feasibility"):
+            make_runner(runner.RunKind.REGRESSION, fixed_command_delay_ms=500)
+        self.assertTrue(make_runner(runner.RunKind.FEASIBILITY, fixed_command_delay_ms=500).is_feasibility)
+
     def test_evidence_contains_every_required_position(self) -> None:
         manifest = runner.RunManifest(
             run_id="run-1", run_kind=runner.RunKind.FEASIBILITY, gate_mode=runner.GateMode.DIAGNOSTIC,
@@ -292,9 +477,7 @@ class EvidenceAndModeTests(unittest.TestCase):
 
     def test_manifest_hash_detects_tampering(self) -> None:
         harness = make_runner()
-        manifest = {"schema_version": 2, "fixture_set_id": "set-1", "fixture_hashes": {}, "cue_policy_version": "cue-v1"}
-        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
-        manifest["manifest_sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        manifest = preflight_manifest(fixture_hashes={})
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "preflight.json"
             path.write_text(json.dumps(manifest))
@@ -303,6 +486,29 @@ class EvidenceAndModeTests(unittest.TestCase):
             path.write_text(json.dumps(manifest))
             with self.assertRaises(runner.HarnessError):
                 harness.load_preflight_manifest(path)
+
+    def test_loaded_preflight_restores_release_evidence_flags(self) -> None:
+        harness = make_runner(runner.RunKind.REGRESSION)
+        manifest = preflight_manifest()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "preflight.json"
+            path.write_text(json.dumps(manifest))
+            harness.load_preflight_manifest(path)
+        self.assertTrue(harness.cue_policy_evidence_verified)
+        self.assertTrue(harness.cue_audibility_evidence_verified)
+
+    def test_release_provenance_requires_s21_target_and_full_commit(self) -> None:
+        harness = make_runner(runner.RunKind.REGRESSION)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness._release_provenance_verified())
+            harness.target_alias = "s23u"
+            self.assertFalse(harness._release_provenance_verified())
+        harness.target_alias = "s21"
+        with patch.dict("os.environ", {"GIT_COMMIT": "abc123"}, clear=False):
+            self.assertFalse(harness._release_provenance_verified())
 
     def test_sanitisation_rejects_private_paths_and_serials(self) -> None:
         with self.assertRaises(runner.HarnessError):
