@@ -68,8 +68,15 @@ DEFAULT_PACKAGE = "com.kernel.ai.debug"
 
 SOURCE_RECEIVER_CLS = "com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
 SOURCE_ACTION = "com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS"
-TARGET_PROVIDER_AUTH = "com.kernel.ai.debug.journal.TargetEventJournalProvider"
 
+# Target journal broadcast actions (TargetEventJournalContract)
+TARGET_PACKAGE = "com.kernel.ai.debug"
+TARGET_RECEIVER_CLS = "com.kernel.ai.debug.journal.TargetEventJournalReceiver"
+TARGET_ACTION_GET_SEQUENCE = "com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE"
+TARGET_ACTION_WAIT_FOR_EVENT = "com.kernel.ai.debug.action.WAIT_FOR_JOURNAL_EVENT"
+TARGET_ACTION_GET_SNAPSHOT = "com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT"
+TARGET_WAIT_DEFAULT_TIMEOUT_MS = 15_000
+TARGET_WAIT_MIN_TIMEOUT_MS = 500
 # Public aliases that may appear in sanitised output
 PUBLIC_ALIASES = ("s21", "s23u")
 
@@ -381,24 +388,44 @@ def matrix_slots_for_target(target_alias: str) -> list[MatrixSlot]:
 # ── Source contract parsing ────────────────────────────────────────────
 
 def parse_source_result(text: str) -> dict[str, Any]:
-    """Parse a private source playback result from the app's files directory."""
+    """Parse a source playback result JSON (AcousticStimulusResult.toJson())."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         raise HarnessError(f"source result is not valid JSON: {e}")
 
-    required = {"trial_id", "fixture_id", "volume_applied", "player_completed",
-                "cleanup_completed", "cleanup_verified"}
-    missing = required - set(data)
-    if missing:
-        raise HarnessError(f"source result missing required fields: {missing}")
+    if not isinstance(data, dict):
+        raise HarnessError("source result is not a JSON object")
 
-    if not data.get("player_completed"):
-        raise HarnessError(f"source playback did not complete: {data.get('completion_error', 'unknown')}")
-    if not data.get("cleanup_verified"):
-        raise HarnessError("source cleanup not verified")
-    if data.get("route") and data["route"] != "builtin_speaker":
-        raise HarnessError(f"source output route is not builtin_speaker: {data['route']}")
+    # The source helper always writes a schema_version.
+    # Validate playback completed cleanly.
+    status = data.get("completion_status")
+    if status != "completed":
+        err = data.get("error_category") or data.get("playback_error_category") or "unknown"
+        raise HarnessError(f"source playback did not complete: status={status} error={err}")
+
+    if data.get("timeout", False):
+        raise HarnessError("source playback timed out")
+
+    if data.get("overlap_rejected", False):
+        raise HarnessError("source playback rejected due to overlap")
+
+    if not data.get("cleanup_success", False):
+        raise HarnessError("source cleanup did not succeed")
+
+    if not data.get("exact_restoration_verified", False):
+        raise HarnessError("source volume restoration not verified")
+
+    route = data.get("output_route_during")
+    if route and route != "BUILT_IN_SPEAKER":
+        raise HarnessError(f"source output route is not BUILT_IN_SPEAKER: {route}")
+
+    # Must have trial and fixture identity
+    if not data.get("trial_id"):
+        raise HarnessError("source result missing trial_id")
+
+    if not data.get("fixture_id"):
+        raise HarnessError("source result missing fixture_id")
 
     return data
 
@@ -408,38 +435,110 @@ def parse_source_result(text: str) -> dict[str, Any]:
 JOURNAL_CONTRACT_VERSION = "1.0.0"
 VALID_EVENT_TYPES: set[str] = {
     "DETECTOR_GENERATION_STARTED", "SILENCE_GATE_ENTERED",
-    "VOICED_FRAME_AFTER_SILENCE", "STAGE2_RESUMED", "STAGE3_READY",
+    "VOICED_FRAME_AFTER_SILENCE", "STAGE3_READY",
     "ACTIVATION_CANDIDATE", "VERIFIED_ACTIVATION",
     "WAKE_CALLBACK_INVOKED", "VOICE_SESSION_STARTED",
     "STT_START_REQUESTED", "STT_READY", "CUE_REQUESTED",
-    "STT_PARTIAL", "STT_ERROR", "STT_FINAL_RESULT",
+    "STT_SPEECH_DETECTED", "STT_PARTIAL", "STT_ERROR",
     "SESSION_COMPLETED", "SESSION_CANCELLED",
-    "DETECTOR_REARMED", "DETECTOR_ERROR",
+    "DETECTOR_REARMED", "DETECTOR_ERROR", "SERVICE_ERROR",
 }
 
 
-def parse_target_bundle(result_code: int, result_data: str) -> dict[str, Any]:
-    """Parse a ContentProvider Bundle response into a structured dict.
+def parse_journal_snapshot(result_data: str) -> dict[str, Any]:
+    """Parse a GET_JOURNAL_SNAPSHOT result_data (JSON array, one event per line).
 
-    Returns:
-      For result_code 0: the parsed JSON envelope as dict.
-      For result_code 1 (timeout): {'timeout': True, 'data': result_data}
-      For result_code 2 (error): {'error': True, 'data': result_data}
-      For result_code 3 (cancelled): {'cancelled': True, 'data': result_data}
+    The receiver serialises events as compact JSON, one object per line between
+    ``[`` and ``]``. Each event uses short keys:
+      s = sequence, m = monotonicMs, w = wallClockMs,
+      t = type, g = generationId, i = sessionId, d = metadata dict.
+
+    We canonicalise to long keys and add an empty metadata dict when absent.
     """
-    if result_code == 0:
-        try:
-            return json.loads(result_data)
-        except json.JSONDecodeError as e:
-            raise HarnessError(f"target snapshot is not valid JSON: {e}")
-    elif result_code == 1:
-        return {"timeout": True, "data": result_data}
-    elif result_code == 2:
-        return {"error": True, "data": result_data}
-    elif result_code == 3:
-        return {"cancelled": True, "data": result_data}
+    if not result_data:
+        return {"events": []}
+
+    raw = result_data.strip()
+    if raw == "[]":
+        return {"events": []}
+
+    if not (raw.startswith("[") and raw.endswith("]")):
+        # Not a JSON array — likely a timeout/error message
+        raise HarnessError(f"snapshot is not a JSON array: {result_data[:200]}")
+
+    inner = raw[1:-1].strip()
+    if not inner:
+        return {"events": []}
+
+    # Split on newlines between event objects. Each line is one event.
+    # Some shells collapse the newlines into a single line; fall back to
+    # full-JSON-array parsing.
+    lines = [ln.strip() for ln in inner.split("\n") if ln.strip()]
+    if lines:
+        events_raw = lines
     else:
+        # Single-line case — parse as JSON array
+        try:
+            arr = json.loads(raw)
+            return {"events": [_canonicalise_event(e) for e in arr]}
+        except (json.JSONDecodeError, TypeError) as e:
+            raise HarnessError(f"snapshot is not valid JSON: {e}")
+
+    events = []
+    for ln in events_raw:
+        try:
+            ev = json.loads(ln.rstrip(","))
+        except json.JSONDecodeError as e:
+            raise HarnessError(f"snapshot event is not valid JSON: {e} — line: {ln[:200]}")
+        events.append(_canonicalise_event(ev))
+
+    return {"events": events}
+
+
+def _canonicalise_event(ev: dict[str, Any]) -> dict[str, Any]:
+    """Canonicalise compact event keys to consistent dict."""
+    canon: dict[str, Any] = {}
+    canon["s"] = ev.get("s", 0)
+    canon["m"] = ev.get("m", 0)
+    canon["w"] = ev.get("w", 0)
+    canon["t"] = ev.get("t", "")
+    canon["g"] = ev.get("g", 0)
+    canon["i"] = ev.get("i", 0)
+    canon["d"] = ev.get("d") or {}
+    return canon
+
+
+def parse_journal_wait_result(result_code: int, result_data: str) -> dict[str, Any] | None:
+    """Parse a WAIT_FOR_JOURNAL_EVENT result.
+
+    Returns the event dict if found (code 0), None on timeout (code 1),
+    or raises HarnessError on error (code 2).
+    """
+    if result_code == 1:
+        return None  # Timeout
+    elif result_code == 2:
+        raise HarnessError(f"target wait error: {result_data}")
+    elif result_code != 0:
         raise HarnessError(f"unknown target result code: {result_code}")
+
+    # Code 0 — event found. result_data is a JSON event object.
+    try:
+        ev = json.loads(result_data)
+    except json.JSONDecodeError as e:
+        raise HarnessError(f"wait event not valid JSON: {e}")
+
+    if not isinstance(ev, dict) or "t" not in ev:
+        raise HarnessError(f"wait event missing type field: {result_data[:200]}")
+
+    return _canonicalise_event(ev)
+
+
+def parse_journal_sequence(result_data: str) -> int:
+    """Parse a GET_JOURNAL_SEQUENCE result_data (plain integer string)."""
+    try:
+        return int(result_data.strip())
+    except (ValueError, AttributeError) as e:
+        raise HarnessError(f"sequence is not a valid integer: {result_data[:100]}")
 
 
 def validate_snapshot_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -503,16 +602,30 @@ def classify_attempt(source_result: dict[str, Any] | None,
     if source_result is None:
         return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, ["no source result available"])
 
-    if not source_result.get("player_completed"):
-        failures.append(f"source playback incomplete: {source_result.get('completion_error', 'unknown')}")
+    if source_result.get("completion_status") != "completed":
+        err = source_result.get("error_category") or source_result.get("playback_error_category") or "unknown"
+        failures.append(f"source playback not completed: status={source_result.get('completion_status')} error={err}")
         return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
 
-    if not source_result.get("cleanup_verified"):
-        failures.append("source cleanup not verified")
+    if source_result.get("timeout", False):
+        failures.append("source playback timed out")
         return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
 
-    if source_result.get("route") and source_result["route"] != "builtin_speaker":
-        failures.append(f"source route: {source_result['route']}")
+    if source_result.get("overlap_rejected", False):
+        failures.append("source playback rejected due to overlap")
+        return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
+
+    if not source_result.get("cleanup_success", False):
+        failures.append("source cleanup did not succeed")
+        return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
+
+    if not source_result.get("exact_restoration_verified", False):
+        failures.append("source volume restoration not verified")
+        return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
+
+    route = source_result.get("output_route_during")
+    if route and route != "BUILT_IN_SPEAKER":
+        failures.append(f"source route: {route}")
         return (AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, failures)
 
     # 2. Invalid — device/environment/evidence
@@ -534,12 +647,9 @@ def classify_attempt(source_result: dict[str, Any] | None,
         if isinstance(lowest, int) and isinstance(boundary_seq, int) and lowest > boundary_seq + 1:
             failures.append(f"post-boundary events may be evicted (lowest={lowest}, boundary={boundary_seq})")
             return (AttemptStatus.INVALID, None, InvalidReason.EVIDENCE_BOUNDARY_LOST, failures)
-
-    # 3. Classify valid failures
     has_gate_activity = (
         find_event(events, "SILENCE_GATE_ENTERED") is not None
         or find_event(events, "VOICED_FRAME_AFTER_SILENCE") is not None
-        or find_event(events, "STAGE2_RESUMED") is not None
     )
     has_activation = (
         find_event(events, "ACTIVATION_CANDIDATE") is not None
@@ -554,7 +664,7 @@ def classify_attempt(source_result: dict[str, Any] | None,
         or find_event(events, "SESSION_CANCELLED", session=session_id) is not None
     )
     has_rearm = find_event(events, "DETECTOR_REARMED") is not None
-    has_command_result = find_event(events, "STT_FINAL_RESULT") is not None
+    has_command_result = find_event(events, "STT_SPEECH_DETECTED") is not None
 
     if not has_gate_activity:
         return (AttemptStatus.FAILED, FailureClassification.ACOUSTIC_OR_GATE_MISS, None, ["no gate or voiced activity after stimulus"])
@@ -578,7 +688,7 @@ def classify_attempt(source_result: dict[str, Any] | None,
     # Command-only checks
     if trial_type == TrialType.WAKE_PLUS_COMMAND:
         if not has_command_result:
-            return (AttemptStatus.FAILED, FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE, None, ["no STT_FINAL_RESULT for command trial"])
+            return (AttemptStatus.FAILED, FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE, None, ["no STT_SPEECH_DETECTED for command trial"])
 
     if not has_terminal:
         return (AttemptStatus.FAILED, FailureClassification.UNCLASSIFIED, None, ["no terminal session event"])
@@ -1075,15 +1185,22 @@ class AcousticWakeReliabilityRunner:
             fixture_id="natural_wake",
             volume_index=current_volume,
         )
-        preflight_data["attempts"][-1]["source_completed"] = result.get("player_completed")
+        preflight_data["attempts"][-1]["source_completed"] = result.get("completion_status") == "completed"
 
         # Check for target gate evidence
-        target_snapshot_text, _ = self._call_target_provider("GET_JOURNAL_SNAPSHOT", {"since_sequence": 0})
+        code, snap_data = self._call_target_broadcast(
+            TARGET_ACTION_GET_SNAPSHOT,
+            extras={"since_sequence": 0},
+        )
         try:
-            snapshot = json.loads(target_snapshot_text) if target_snapshot_text else {}
+            if code == 0 and snap_data:
+                snap_parsed = parse_journal_snapshot(snap_data)
+                events = snap_parsed.get("events", [])
+            else:
+                events = []
             has_gate = any(
-                e.get("t") in ("SILENCE_GATE_ENTERED", "VOICED_FRAME_AFTER_SILENCE", "STAGE2_RESUMED")
-                for e in snapshot.get("events", [])
+                e.get("t") in ("SILENCE_GATE_ENTERED", "VOICED_FRAME_AFTER_SILENCE", "STAGE3_READY")
+                for e in events
             )
             preflight_data["attempts"][-1]["target_gate_evidence"] = has_gate
         except (json.JSONDecodeError, HarnessError):
@@ -1112,20 +1229,15 @@ class AcousticWakeReliabilityRunner:
         )
         host_start = monotonic_ms()
         attempt.host_start_ms = host_start
-
-
         try:
-            # 1. Verify source/target state before idle boundary
-            if not self.source.reachable():
-                raise HarnessError(f"{self.source_alias}: ADB lost before idle")
-            if not self.target.reachable():
-                raise HarnessError(f"{self.target_alias}: ADB lost before idle")
-
             # 2. Target boundary snapshot and sequence
-            target_seq_text, _ = self._call_target_provider("GET_JOURNAL_SEQUENCE", {})
-            boundary_sequence = int(target_seq_text) if target_seq_text else 0
-            target_snapshot_text, _ = self._call_target_provider(
-                "GET_JOURNAL_SNAPSHOT", {"since_sequence": 0}
+            seq_code, seq_data = self._call_target_broadcast(
+                TARGET_ACTION_GET_SEQUENCE,
+            )
+            boundary_sequence = parse_journal_sequence(seq_data) if seq_code == 0 and seq_data else 0
+            snap_code, snap_data_before = self._call_target_broadcast(
+                TARGET_ACTION_GET_SNAPSHOT,
+                extras={"since_sequence": 0},
             )
             self.checkpoint("pre-idle")
 
@@ -1198,17 +1310,17 @@ class AcousticWakeReliabilityRunner:
 
             # 9. Final target snapshot
             self.checkpoint("post-playback")
-            final_snapshot_text, final_code = self._call_target_provider(
-                "GET_JOURNAL_SNAPSHOT", {"since_sequence": boundary_sequence}
+            final_code, final_data = self._call_target_broadcast(
+                TARGET_ACTION_GET_SNAPSHOT,
+                extras={"since_sequence": boundary_sequence},
             )
             self.checkpoint("post-snapshot")
 
             # 10. Parse and validate
             snapshot: dict[str, Any] = {"events": events}
-            if final_snapshot_text:
+            if final_code == 0 and final_data:
                 try:
-                    snapshot = parse_target_bundle(final_code, final_snapshot_text)
-                    snapshot = validate_snapshot_envelope(snapshot)
+                    snapshot = parse_journal_snapshot(final_data)
                 except HarnessError:
                     pass  # Use pre-wait events as fallback
 
@@ -1461,82 +1573,102 @@ class AcousticWakeReliabilityRunner:
 
         return result
 
-    def _call_target_provider(self, method: str, extras: dict[str, Any]) -> tuple[str, int]:
-        """Call a method on the target journal ContentProvider via content call."""
-        uri = f"content://{TARGET_PROVIDER_AUTH}/journal"
-        extras_json = json.dumps(extras)
-        output = self.target.shell(
-            "appops", "get", self.package, "android:read_device_identifiers"
-        )  # Not used directly; actual call uses content
+    def _call_target_broadcast(self, action: str, extras: dict[str, Any] | None = None,
+                                timeout: float = 15.0) -> tuple[int, str]:
+        """Send an ordered broadcast to the target journal receiver.
 
-        # Use content call via am instrument or raw binder call
-        # The runner uses adb shell content call which maps to ContentProvider
+        Returns (result_code, result_data). The broadcast blocks up to
+        *timeout* seconds. For WAIT_FOR_JOURNAL_EVENT the receiver waits
+        the requested duration internally so *timeout* should account for
+        that.
+        """
         args = [
-            "shell", "content", "call",
-            "--uri", uri,
-            "--method", method,
+            "shell", "am", "broadcast",
+            "-n", f"{self.package}/{TARGET_RECEIVER_CLS}",
+            "-a", action,
         ]
-        for key, value in extras.items():
-            if isinstance(value, bool):
-                args.extend(["--ez", key, str(value).lower()])
-            elif isinstance(value, int):
-                args.extend(["--el", key, str(value)])
-            else:
-                args.extend(["--es", key, str(value)])
+        if extras:
+            for key, value in extras.items():
+                if isinstance(value, bool):
+                    args.extend(["--ez", key, str(value).lower()])
+                elif isinstance(value, int):
+                    args.extend(["--el", key, str(value)])
+                else:
+                    args.extend(["--es", key, str(value)])
 
-        try:
-            output = self.target.run(*args, timeout=15.0)
-        except HarnessError as e:
-            return "", 2
+        raw = self.target.run(*args, timeout=timeout)
+        return self._parse_broadcast_result(raw)
 
-        # Parse Bundle output
-        code_match = re.search(r"result_code=(\d+)", output)
-        data_match = re.search(r"result_data=(.+)", output, re.DOTALL)
+    @staticmethod
+    def _parse_broadcast_result(output: str) -> tuple[int, str]:
+        """Parse result_code and result_data from ``am broadcast`` output.
+
+        Handles both ``result=0, data="..."`` (older am) and
+        ``result_code=0, result_data="..."`` formats.  The result_data may
+        contain characters that interact with shell quoting — we take
+        everything after the first ``"`` following the ``=`` to the end,
+        then strip trailing ``"`` and whitespace.
+        """
+        code_match = re.search(r"(?:result_code|result)\s*=\s*(\d+)", output)
         code = int(code_match.group(1)) if code_match else 2
-        data = data_match.group(1).strip() if data_match else ""
-        return data, code
+
+        # Find data= or result_data= and grab the quoted value
+        data_match = re.search(
+            r"(?:result_data|data)\s*=\s*\"(.+)$",
+            output, re.DOTALL,
+        )
+        if data_match:
+            raw_data = data_match.group(1)
+            # Strip trailing " that closes the shell-quoted value
+            if raw_data.endswith('"'):
+                raw_data = raw_data[:-1]
+            data = raw_data.strip()
+        else:
+            data = ""
+
+        return code, data
 
     def _wait_for_target_events(
         self, since_sequence: int, event_type: str, timeout_ms: int,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Wait for event via WAIT_FOR_JOURNAL_EVENT, then get full snapshot."""
-        data, code = self._call_target_provider("WAIT_FOR_JOURNAL_EVENT", {
-            "since_sequence": since_sequence,
-            "event_type": event_type,
-            "timeout_ms": timeout_ms,
-        })
+        broadcast_timeout = max(timeout_ms / 1000 + 2.0, 20.0)
+        code, data = self._call_target_broadcast(
+            TARGET_ACTION_WAIT_FOR_EVENT,
+            extras={"since_sequence": since_sequence,
+                    "event_type": event_type,
+                    "timeout_ms": timeout_ms},
+            timeout=broadcast_timeout,
+        )
 
-        if code == 1:  # Timeout
-            return [], {"timeout": True}
-        elif code == 2:  # Error
-            raise HarnessError(f"target wait error: {data}")
-        elif code == 3:  # Cancelled
-            return [], {"cancelled": True}
+        try:
+            event = parse_journal_wait_result(code, data)
+        except HarnessError:
+            event = None
 
-        # Parse the returned event
-        envelope = {"events": []}
-        if data:
-            try:
-                parsed = json.loads(data)
-                if isinstance(parsed, dict) and "t" in parsed:
-                    envelope["events"] = [parsed]
-                elif isinstance(parsed, dict) and "events" in parsed:
-                    envelope = parsed
-            except json.JSONDecodeError:
-                pass
+        if event is None and code != 0:
+            # Timeout or non-recoverable error — no event
+            pass
 
         # Get full snapshot
-        snapshot_data, snapshot_code = self._call_target_provider(
-            "GET_JOURNAL_SNAPSHOT", {"since_sequence": since_sequence}
+        snap_code, snap_data = self._call_target_broadcast(
+            TARGET_ACTION_GET_SNAPSHOT,
+            extras={"since_sequence": since_sequence},
         )
-        if snapshot_data and snapshot_code == 0:
+
+        snapshot_events: list[dict[str, Any]] = []
+        if snap_code == 0 and snap_data:
             try:
-                full_envelope = parse_target_bundle(snapshot_code, snapshot_data)
-                return full_envelope.get("events", []), full_envelope
+                parsed = parse_journal_snapshot(snap_data)
+                snapshot_events = parsed.get("events", [])
             except HarnessError:
                 pass
 
-        return envelope.get("events", []), envelope
+        if event is not None and event not in snapshot_events:
+            snapshot_events.insert(0, event)
+
+        envelope: dict[str, Any] = {"events": snapshot_events}
+        return snapshot_events, envelope
 
     def _verify_source_restoration(self) -> None:
         """Verify source media volume was restored to pre-playback level."""
@@ -1555,21 +1687,17 @@ class AcousticWakeReliabilityRunner:
             pass
 
     # ── Cleanup ──────────────────────────────────────────────────────
-
     def cleanup(self) -> None:
         """Clean up after run completion or failure."""
+
         cleanup_failures: list[str] = []
 
-        try:
-            # Cancel active target waits
-            try:
-                self._call_target_provider("CANCEL_WAIT", {"request_id": "runner-cleanup"})
-            except HarnessError:
-                pass  # Best-effort
-        except Exception as e:
-            cleanup_failures.append(f"wait cancellation: {e}")
+        # The target journal has no active-wait cancellation mechanism.
+        # An in-flight WAIT_FOR_JOURNAL_EVENT broadcast will complete
+        # naturally with its timeout; there is no separate cancel action.
 
         # Restore source volume
+
         if self.source and self.source.reachable():
             try:
                 if self.preflight_approval:

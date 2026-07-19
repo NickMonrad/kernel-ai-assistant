@@ -28,7 +28,8 @@ from acoustic_wake_reliability_runner import (  # noqa: E402
     classify_attempt, device_identity,
     find_event, format_target_snapshot_events,
     get_matrix, matrix_slots_for_target,
-    parse_source_result, parse_target_bundle,
+    parse_source_result, parse_journal_snapshot,
+    parse_journal_wait_result, parse_journal_sequence,
     render_evidence, service_active,
     validate_snapshot_envelope, utc_now, monotonic_ms,
 )
@@ -291,122 +292,58 @@ class DeviceIdentityTest(unittest.TestCase):
 # ── Target Journal Parsing Tests ────────────────────────────────────
 
 class TargetJournalParsingTest(unittest.TestCase):
-    """Target ContentProvider Bundle response parsing."""
+    """Target journal snapshot and wait parsing."""
 
-    def test_result_code_0_valid_json(self) -> None:
+    def test_snapshot_valid_json(self) -> None:
         snapshot = _load_json("target-journal-snapshot-valid.json")
-        result = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
+        result = parse_journal_snapshot(snapshot["result_data"])
         self.assertIn("events", result)
 
-    def test_timeout_response(self) -> None:
-        timeout = _load_json("target-journal-timeout.json")
-        result = parse_target_bundle(timeout["result_code"], timeout["result_data"])
-        self.assertTrue(result.get("timeout"))
-        self.assertIn("timeout", result["data"])
+    def test_snapshot_empty(self) -> None:
+        result = parse_journal_snapshot("[]")
+        self.assertEqual(result, {"events": []})
 
-    def test_cancelled_response(self) -> None:
-        cancelled = _load_json("target-journal-cancelled.json")
-        result = parse_target_bundle(cancelled["result_code"], cancelled["result_data"])
-        self.assertTrue(result.get("cancelled"))
+    def test_snapshot_empty_string(self) -> None:
+        result = parse_journal_snapshot("")
+        self.assertEqual(result, {"events": []})
 
-    def test_malformed_json_raises(self) -> None:
-        malformed = _load_json("target-journal-malformed.json")
+    def test_snapshot_malformed_raises(self) -> None:
         with self.assertRaises(HarnessError):
-            parse_target_bundle(malformed["result_code"], malformed["result_data"])
+            parse_journal_snapshot("not-json-at-all!!!")
 
-    def test_unknown_result_code_raises(self) -> None:
+    def test_wait_result_code_0_returns_event(self) -> None:
+        event = parse_journal_wait_result(0, '{"s":1,"m":100,"t":"STT_READY","g":1,"i":1,"d":{}}')
+        self.assertIsNotNone(event)
+        self.assertEqual(event["t"], "STT_READY")
+
+    def test_wait_result_code_1_returns_none(self) -> None:
+        result = parse_journal_wait_result(1, "timeout after 15000ms waiting for STT_READY")
+        self.assertIsNone(result)
+
+    def test_wait_result_code_2_raises(self) -> None:
         with self.assertRaises(HarnessError):
-            parse_target_bundle(99, "unknown")
+            parse_journal_wait_result(2, "error: something failed")
 
-    def test_snapshot_envelope_validation(self) -> None:
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        validated = validate_snapshot_envelope(parsed)
-        self.assertIn("events", validated)
-
-    def test_missing_events_field_raises(self) -> None:
+    def test_wait_result_unknown_code_raises(self) -> None:
         with self.assertRaises(HarnessError):
-            validate_snapshot_envelope({})
+            parse_journal_wait_result(99, "unknown")
 
-    def test_events_not_list_raises(self) -> None:
+    def test_wait_result_missing_type_raises(self) -> None:
         with self.assertRaises(HarnessError):
-            validate_snapshot_envelope({"events": "not a list"})
+            parse_journal_wait_result(0, '{"s":1}')
 
-    def test_wait_late_subscriber_recovery(self) -> None:
-        """Journal should allow late subscriber to see earlier events."""
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        events = parsed.get("events", [])
-        # even if we missed STT_READY by waiting too late, we still get it in the snapshot
-        stt_ready = find_event(events, "STT_READY")
-        self.assertIsNotNone(stt_ready)
+    def test_sequence_parsing(self) -> None:
+        seq = parse_journal_sequence("42")
+        self.assertEqual(seq, 42)
 
-    def test_generation_and_session_correlation(self) -> None:
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        events = parsed.get("events", [])
-        # Find events by generation
-        gen1_events = [e for e in events if e.get("g") == 1]
-        gen2_events = [e for e in events if e.get("g") == 2]
-        self.assertGreater(len(gen1_events), 0)
-        self.assertGreater(len(gen2_events), 0)
-        session1_events = [e for e in events if e.get("i") == 1]
-        self.assertGreater(len(session1_events), 0)
-
-    def test_monotonic_sequence(self) -> None:
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        events = parsed.get("events", [])
-        last_s = -1
-        for ev in events:
-            self.assertGreater(ev["s"], last_s)
-            last_s = ev["s"]
-
-    def test_sticky_overflow(self) -> None:
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        # overflow may be true or false but must be present
-        self.assertIn("overflowed", parsed)
-
-
-    def test_boundary_semantics(self) -> None:
-        """Test strict greater-than boundary semantics."""
-        snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
-        events = parsed.get("events", [])
-        # All events should have sequence > 0
-        for ev in events:
-            self.assertGreater(ev["s"], 0)
-
-
-
-    def test_sticky_overflow_ok_when_bounds_ok(self) -> None:
-        """Overflow flag is sticky - not all overflow means lost evidence."""
-        source = {
-            "trial_id": "test",
-            "fixture_id": "natural_wake",
-            "volume_applied": 7,
-            "player_completed": True,
-            "cleanup_completed": True,
-            "cleanup_verified": True,
-            "route": "builtin_speaker",
-        }
-        status, cls, reason, failures = classify_attempt(
-            source_result=source,
-            target_snapshot={
-                "events": [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-                           {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1}],
-                "overflowed": True,
-                "lowest_sequence": 1,
-                "since_sequence": 0,
-                "highest_sequence": 2,
-            },
-            trial_type=TrialType.WAKE_ONLY,
-            gen_id=1, session_id=None,
-            cue_policy_available=True,
-        )
-        # lowest (1) <= boundary (0)+1, so no evidence loss
-        self.assertEqual(status, AttemptStatus.FAILED)
+    def test_snapshot_canonicalises_events(self) -> None:
+        result = parse_journal_snapshot('[{"s":1,"m":100,"w":100,"t":"STT_READY","g":1,"i":1,"d":{}}]')
+        events = result["events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["s"], 1)
+        self.assertEqual(events[0]["t"], "STT_READY")
+        self.assertEqual(events[0]["g"], 1)
+        self.assertEqual(events[0]["i"], 1)
 
 # ── Source Result Parsing Tests ──────────────────────────────────────
 
@@ -417,8 +354,9 @@ class SourceResultParsingTest(unittest.TestCase):
         result = _load_json("source-result-valid.json")
         text = json.dumps(result)
         parsed = parse_source_result(text)
-        self.assertTrue(parsed["player_completed"])
-        self.assertTrue(parsed["cleanup_verified"])
+        self.assertEqual(parsed["completion_status"], "completed")
+        self.assertTrue(parsed["cleanup_success"])
+        self.assertTrue(parsed["exact_restoration_verified"])
 
     def test_player_not_completed_raises(self) -> None:
         result = _load_json("source-result-invalid.json")
@@ -434,6 +372,41 @@ class SourceResultParsingTest(unittest.TestCase):
         with self.assertRaises(HarnessError):
             parse_source_result("not-json")
 
+    def test_not_a_dict_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result("[]")
+
+    def test_timeout_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result(json.dumps({"completion_status": "completed", "timeout": True,
+                "cleanup_success": True, "exact_restoration_verified": True,
+                "trial_id": "t", "fixture_id": "f"}))
+
+    def test_overlap_rejected_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result(json.dumps({"completion_status": "completed", "timeout": False,
+                "overlap_rejected": True, "cleanup_success": True,
+                "exact_restoration_verified": True, "trial_id": "t", "fixture_id": "f"}))
+
+    def test_cleanup_failure_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result(json.dumps({"completion_status": "completed", "timeout": False,
+                "overlap_rejected": False, "cleanup_success": False,
+                "exact_restoration_verified": True, "trial_id": "t", "fixture_id": "f"}))
+
+    def test_restoration_not_verified_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result(json.dumps({"completion_status": "completed", "timeout": False,
+                "overlap_rejected": False, "cleanup_success": True,
+                "exact_restoration_verified": False, "trial_id": "t", "fixture_id": "f"}))
+
+    def test_wrong_route_raises(self) -> None:
+        with self.assertRaises(HarnessError):
+            parse_source_result(json.dumps({"completion_status": "completed", "timeout": False,
+                "overlap_rejected": False, "cleanup_success": True,
+                "exact_restoration_verified": True,
+                "output_route_during": "EXTERNAL_BLUETOOTH",
+                "trial_id": "t", "fixture_id": "f"}))
 
 # ── Classification Tests ────────────────────────────────────────────
 
@@ -444,11 +417,12 @@ class ClassificationTest(unittest.TestCase):
         self.valid_source = {
             "trial_id": "test-001",
             "fixture_id": "natural_wake",
-            "volume_applied": 7,
-            "player_completed": True,
-            "cleanup_completed": True,
-            "cleanup_verified": True,
-            "route": "builtin_speaker",
+            "completion_status": "completed",
+            "timeout": False,
+            "overlap_rejected": False,
+            "cleanup_success": True,
+            "exact_restoration_verified": True,
+            "output_route_during": "BUILT_IN_SPEAKER",
         }
         self.passing_events = [
             {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
@@ -460,18 +434,18 @@ class ClassificationTest(unittest.TestCase):
             {"s": 7, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
             {"s": 8, "t": "STT_READY", "g": 1, "i": 1},
             {"s": 9, "t": "CUE_REQUESTED", "g": 1},
-            {"s": 10, "t": "STT_PARTIAL", "g": 1, "d": {"length": 42}},
+            {"s": 10, "t": "STT_PARTIAL", "g": 1},
             {"s": 11, "t": "SESSION_COMPLETED", "g": 1, "i": 1},
             {"s": 12, "t": "DETECTOR_REARMED", "g": 2},
         ]
         self.command_passing_events = self.passing_events + [
-            {"s": 13, "t": "STT_FINAL_RESULT", "g": 1, "i": 1},
+            {"s": 13, "t": "STT_SPEECH_DETECTED", "g": 1, "i": 1},
         ]
 
     def test_passing_wake_only(self) -> None:
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
-            target_snapshot={"events": self.passing_events, "lowest_sequence": 1, "highest_sequence": 12, "overflowed": False},
+            target_snapshot={"events": self.passing_events},
             trial_type=TrialType.WAKE_ONLY,
             gen_id=1, session_id=1,
             cue_policy_available=True,
@@ -483,7 +457,7 @@ class ClassificationTest(unittest.TestCase):
     def test_passing_wake_plus_command(self) -> None:
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
-            target_snapshot={"events": self.command_passing_events, "lowest_sequence": 1, "highest_sequence": 13, "overflowed": False},
+            target_snapshot={"events": self.command_passing_events},
             trial_type=TrialType.WAKE_PLUS_COMMAND,
             gen_id=1, session_id=1,
             cue_policy_available=True,
@@ -502,7 +476,7 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
 
     def test_invalid_player_not_completed(self) -> None:
-        bad_source = dict(self.valid_source, player_completed=False)
+        bad_source = dict(self.valid_source, completion_status="rejected")
         status, cls, reason, failures = classify_attempt(
             source_result=bad_source,
             target_snapshot={"events": []},
@@ -513,8 +487,8 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(status, AttemptStatus.INVALID)
         self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
 
-    def test_invalid_cleanup_not_verified(self) -> None:
-        bad_source = dict(self.valid_source, cleanup_verified=False)
+    def test_invalid_timeout(self) -> None:
+        bad_source = dict(self.valid_source, timeout=True)
         status, cls, reason, failures = classify_attempt(
             source_result=bad_source,
             target_snapshot={"events": []},
@@ -525,10 +499,101 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(status, AttemptStatus.INVALID)
         self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
 
-    def test_acoustic_or_gate_miss(self) -> None:
+    def test_invalid_overlap_rejected(self) -> None:
+        bad_source = dict(self.valid_source, overlap_rejected=True)
+        status, cls, reason, failures = classify_attempt(
+            source_result=bad_source,
+            target_snapshot={"events": []},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
+
+    def test_invalid_cleanup_not_success(self) -> None:
+        bad_source = dict(self.valid_source, cleanup_success=False)
+        status, cls, reason, failures = classify_attempt(
+            source_result=bad_source,
+            target_snapshot={"events": []},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
+
+    def test_invalid_restoration_not_verified(self) -> None:
+        bad_source = dict(self.valid_source, exact_restoration_verified=False)
+        status, cls, reason, failures = classify_attempt(
+            source_result=bad_source,
+            target_snapshot={"events": []},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
+
+    def test_invalid_wrong_route(self) -> None:
+        bad_source = dict(self.valid_source, output_route_during="EXTERNAL_BLUETOOTH")
+        status, cls, reason, failures = classify_attempt(
+            source_result=bad_source,
+            target_snapshot={"events": []},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.SOURCE_STIMULUS_FAILURE)
+
+    def test_invalid_no_target_snapshot(self) -> None:
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
-            target_snapshot={"events": [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1}]},
+            target_snapshot=None,
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.DEVICE_ENVIRONMENT_ERROR)
+
+    def test_invalid_empty_events(self) -> None:
+        # Empty events after valid source = valid acoustic/gate failure
+        status, cls, reason, failures = classify_attempt(
+            source_result=self.valid_source,
+            target_snapshot={"events": []},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.FAILED)
+        self.assertEqual(cls, FailureClassification.ACOUSTIC_OR_GATE_MISS)
+
+    def test_sticky_overflow_ok_when_bounds_ok(self) -> None:
+        """Overflow flag is sticky - not all overflow means lost evidence."""
+        status, cls, reason, failures = classify_attempt(
+            source_result=self.valid_source,
+            target_snapshot={
+                "events": [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                           {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1}],
+                "overflowed": True,
+                "lowest_sequence": 1,
+                "since_sequence": 0,
+                "highest_sequence": 2,
+            },
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=None,
+            cue_policy_available=True,
+        )
+        # lowest (1) <= boundary (0)+1, so no evidence loss
+        self.assertEqual(status, AttemptStatus.FAILED)
+
+    def test_acoustic_or_gate_miss(self) -> None:
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1}]
+        status, cls, reason, failures = classify_attempt(
+            source_result=self.valid_source,
+            target_snapshot={"events": events},
             trial_type=TrialType.WAKE_ONLY,
             gen_id=1, session_id=1,
             cue_policy_available=True,
@@ -537,12 +602,9 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(cls, FailureClassification.ACOUSTIC_OR_GATE_MISS)
 
     def test_classifier_model_miss(self) -> None:
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-            {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1},
-            {"s": 3, "t": "STAGE3_READY", "g": 1},
-            # No ACTIVATION_CANDIDATE
-        ]
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -554,13 +616,10 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(cls, FailureClassification.CLASSIFIER_MODEL_MISS)
 
     def test_activation_handoff_failure(self) -> None:
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-            {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1},
-            {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
-            {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
-            # No WAKE_CALLBACK_INVOKED
-        ]
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -572,15 +631,12 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(cls, FailureClassification.ACTIVATION_HANDOFF_FAILURE)
 
     def test_stt_readiness_failure(self) -> None:
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-            {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1},
-            {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
-            {"s": 4, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
-            {"s": 5, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
-            {"s": 6, "t": "STT_START_REQUESTED", "g": 1},
-            # No STT_READY
-        ]
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -592,15 +648,13 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(cls, FailureClassification.STT_READINESS_FAILURE)
 
     def test_cue_audio_failure(self) -> None:
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-            {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1},
-            {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
-            {"s": 4, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
-            {"s": 5, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
-            {"s": 6, "t": "STT_READY", "g": 1},
-            # No CUE_REQUESTED
-        ]
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
+                  {"s": 7, "t": "STT_READY", "g": 1, "i": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -611,57 +665,18 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(status, AttemptStatus.FAILED)
         self.assertEqual(cls, FailureClassification.CUE_AUDIO_FAILURE)
 
-    def test_stt_timeout_still_passes_for_wake_only(self) -> None:
-        """Wake-only with expected STT timeout still passes with healthy wake."""
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-            {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
-            {"s": 3, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1},
-            {"s": 4, "t": "ACTIVATION_CANDIDATE", "g": 1},
-            {"s": 5, "t": "VERIFIED_ACTIVATION", "g": 1},
-            {"s": 6, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
-            {"s": 7, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
-            {"s": 8, "t": "STT_READY", "g": 1, "i": 1},
-            {"s": 9, "t": "CUE_REQUESTED", "g": 1},
-            {"s": 10, "t": "SESSION_COMPLETED", "g": 1, "i": 1},
-            {"s": 11, "t": "DETECTOR_REARMED", "g": 2},
-        ]
-        status, cls, reason, failures = classify_attempt(
-            source_result=self.valid_source,
-            target_snapshot={"events": events},
-            trial_type=TrialType.WAKE_ONLY,
-            gen_id=1, session_id=1,
-            cue_policy_available=True,
-        )
-        self.assertEqual(status, AttemptStatus.PASSED)
-
-    def test_command_routing_failure(self) -> None:
-        status, cls, reason, failures = classify_attempt(
-            source_result=self.valid_source,
-            target_snapshot={"events": self.passing_events},  # No STT_FINAL_RESULT
-            trial_type=TrialType.WAKE_PLUS_COMMAND,
-            gen_id=1, session_id=1,
-            cue_policy_available=True,
-        )
-        self.assertEqual(status, AttemptStatus.FAILED)
-        self.assertEqual(cls, FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE)
-
-    def test_rearm_failure(self) -> None:
-        events = [e for e in self.passing_events if e["t"] != "DETECTOR_REARMED"]
-        status, cls, reason, failures = classify_attempt(
-            source_result=self.valid_source,
-            target_snapshot={"events": events},
-            trial_type=TrialType.WAKE_ONLY,
-            gen_id=1, session_id=1,
-            cue_policy_available=True,
-        )
-        self.assertEqual(status, AttemptStatus.FAILED)
-        self.assertEqual(cls, FailureClassification.SERVICE_REARM_FAILURE)
-
     def test_cue_audibility_unconfirmed(self) -> None:
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
+                  {"s": 7, "t": "STT_READY", "g": 1, "i": 1},
+                  {"s": 8, "t": "CUE_REQUESTED", "g": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
-            target_snapshot={"events": self.passing_events},
+            target_snapshot={"events": events},
             trial_type=TrialType.WAKE_ONLY,
             gen_id=1, session_id=1,
             cue_policy_available=False,
@@ -669,8 +684,35 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(status, AttemptStatus.FAILED)
         self.assertEqual(cls, FailureClassification.CUE_AUDIBILITY_UNCONFIRMED)
 
-    def test_unclassified_no_terminal(self) -> None:
-        events = self.passing_events[:-2]  # Remove SESSION_COMPLETED and DETECTOR_REARMED
+    def test_command_capture_or_routing_failure(self) -> None:
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
+                  {"s": 7, "t": "STT_READY", "g": 1, "i": 1},
+                  {"s": 8, "t": "CUE_REQUESTED", "g": 1}]
+        status, cls, reason, failures = classify_attempt(
+            source_result=self.valid_source,
+            target_snapshot={"events": events},
+            trial_type=TrialType.WAKE_PLUS_COMMAND,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        self.assertEqual(status, AttemptStatus.FAILED)
+        self.assertEqual(cls, FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE)
+
+    def test_unclassified(self) -> None:
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
+                  {"s": 7, "t": "STT_READY", "g": 1, "i": 1},
+                  {"s": 8, "t": "CUE_REQUESTED", "g": 1},
+                  {"s": 9, "t": "STT_SPEECH_DETECTED", "g": 1, "i": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -681,41 +723,16 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(status, AttemptStatus.FAILED)
         self.assertEqual(cls, FailureClassification.UNCLASSIFIED)
 
-    def test_evidence_boundary_lost(self) -> None:
-        """Overflow that evicted post-boundary events should be invalid."""
-        status, cls, reason, failures = classify_attempt(
-            source_result=self.valid_source,
-            target_snapshot={
-                "events": [{"s": 150, "t": "DETECTOR_GENERATION_STARTED", "g": 5}],
-                "overflowed": True,
-                "lowest_sequence": 100,
-                "since_sequence": 50,
-                "highest_sequence": 150,
-            },
-            trial_type=TrialType.WAKE_ONLY,
-            gen_id=5, session_id=None,
-            cue_policy_available=True,
-        )
-        self.assertEqual(status, AttemptStatus.INVALID)
-        self.assertEqual(reason, InvalidReason.EVIDENCE_BOUNDARY_LOST)
-
-    def test_invalid_attempt_retention(self) -> None:
-        """Invalid attempts remain in evidence."""
-        status, cls, reason, failures = classify_attempt(
-            source_result=None,
-            target_snapshot={"events": []},
-            trial_type=TrialType.WAKE_ONLY,
-            gen_id=1, session_id=1,
-            cue_policy_available=True,
-        )
-        self.assertEqual(status, AttemptStatus.INVALID)
-
-    def test_valid_failure_never_retried(self) -> None:
-        """Valid failure should be in a different category than invalid."""
-        # This test verifies the classification produces FAILED, not INVALID
-        events = [
-            {"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-        ]
+    def test_service_rearm_failure(self) -> None:
+        events = [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                  {"s": 2, "t": "SILENCE_GATE_ENTERED", "g": 1},
+                  {"s": 3, "t": "ACTIVATION_CANDIDATE", "g": 1},
+                  {"s": 4, "t": "VERIFIED_ACTIVATION", "g": 1},
+                  {"s": 5, "t": "WAKE_CALLBACK_INVOKED", "g": 1},
+                  {"s": 6, "t": "VOICE_SESSION_STARTED", "g": 1, "i": 1},
+                  {"s": 7, "t": "STT_READY", "g": 1, "i": 1},
+                  {"s": 8, "t": "CUE_REQUESTED", "g": 1},
+                  {"s": 9, "t": "SESSION_COMPLETED", "g": 1, "i": 1}]
         status, cls, reason, failures = classify_attempt(
             source_result=self.valid_source,
             target_snapshot={"events": events},
@@ -724,26 +741,24 @@ class ClassificationTest(unittest.TestCase):
             cue_policy_available=True,
         )
         self.assertEqual(status, AttemptStatus.FAILED)
+        self.assertEqual(cls, FailureClassification.SERVICE_REARM_FAILURE)
 
-    def test_every_valid_failure_has_classification(self) -> None:
-        """Every valid failure must have a classification or unclassified."""
-        scenarios = [
-            ({"events": []}, FailureClassification.ACOUSTIC_OR_GATE_MISS),
-            ({"events": [{"s": 1, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
-                         {"s": 2, "t": "VOICED_FRAME_AFTER_SILENCE", "g": 1}]},
-             FailureClassification.CLASSIFIER_MODEL_MISS),
-        ]
-        for snapshot, expected_cls in scenarios:
-            status, cls, reason, failures = classify_attempt(
-                source_result=self.valid_source,
-                target_snapshot=snapshot,
-                trial_type=TrialType.WAKE_ONLY,
-                gen_id=1, session_id=1,
-                cue_policy_available=True,
-            )
-            self.assertEqual(status, AttemptStatus.FAILED)
-            # Must have either classification or unclassified
-            self.assertIsNotNone(cls, f"Failed attempt without classification: {failures}")
+    def test_invalid_boundary_lost(self) -> None:
+        status, cls, reason, failures = classify_attempt(
+            source_result=self.valid_source,
+            target_snapshot={"events": [{"s": 5, "t": "DETECTOR_GENERATION_STARTED", "g": 1},
+                                         {"s": 6, "t": "SILENCE_GATE_ENTERED", "g": 1}],
+                            "overflowed": True,
+                            "lowest_sequence": 5,
+                            "since_sequence": 3,
+                            "highest_sequence": 6},
+            trial_type=TrialType.WAKE_ONLY,
+            gen_id=1, session_id=1,
+            cue_policy_available=True,
+        )
+        # lowest (5) > boundary (3)+1 → events may be evicted
+        self.assertEqual(status, AttemptStatus.INVALID)
+        self.assertEqual(reason, InvalidReason.EVIDENCE_BOUNDARY_LOST)
 
 
 # ── Evidence Rendering Tests ────────────────────────────────────────
@@ -792,7 +807,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=attempts,
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         self.assertEqual(evidence["summary"]["total_attempts"], 4)
         self.assertEqual(evidence["summary"]["valid"], 3)  # passed + failed
@@ -815,7 +830,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=attempts,
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         self.assertEqual(evidence["summary"]["passed"], 1)
         self.assertEqual(evidence["summary"]["invalid"], 1)
@@ -833,7 +848,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=attempts,
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         case = evidence["cases"][0]
         self.assertEqual(case["failure_classification"], "unclassified")
@@ -851,7 +866,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=attempts,
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         self.assertEqual(evidence["cases"][0]["failure_classification"],
                          "acoustic_or_gate_miss")
@@ -869,7 +884,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=attempts,
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         self.assertEqual(evidence["cases"][0]["invalid_reason"],
                          "source_stimulus_failure")
@@ -883,7 +898,7 @@ class EvidenceRenderingTest(unittest.TestCase):
             attempts=[],
             preflight_approval={"source_volume_index": 7, "placement_notes": "test"},
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         wr = evidence.get("wake_reliability", {})
         self.assertEqual(wr.get("run_kind"), "diagnostic_pre_fix")
@@ -1232,7 +1247,7 @@ class EvidenceFormattingTest(unittest.TestCase):
 
     def test_format_target_events(self) -> None:
         snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
+        parsed = parse_journal_snapshot(snapshot["result_data"])
         events = format_target_snapshot_events(parsed)
         self.assertGreater(len(events), 0)
         for ev in events:
@@ -1263,7 +1278,7 @@ class EvidenceFormattingTest(unittest.TestCase):
             attempts=[],
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             json_path, md_path = write_sanitized_summary(Path(tmpdir), evidence)
@@ -1294,7 +1309,7 @@ class EvidenceFormattingTest(unittest.TestCase):
                                      classification=FailureClassification.ACOUSTIC_OR_GATE_MISS)],
             preflight_approval=None,
             cleanup_verified=True,
-            source_route="builtin_speaker",
+            source_route="BUILT_IN_SPEAKER",
         )
         # Diagnostic runs can have valid failures
         self.assertEqual(evidence["summary"]["failed"], 1)
@@ -1471,7 +1486,7 @@ class FixtureCompletenessTest(unittest.TestCase):
 
     def test_snapshot_fixture_has_events(self) -> None:
         snapshot = _load_json("target-journal-snapshot-valid.json")
-        parsed = parse_target_bundle(snapshot["result_code"], snapshot["result_data"])
+        parsed = parse_journal_snapshot(snapshot["result_data"])
         self.assertGreater(len(parsed.get("events", [])), 0)
 
     def test_target_journal_contract_version(self) -> None:

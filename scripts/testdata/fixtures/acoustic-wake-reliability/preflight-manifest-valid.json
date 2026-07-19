@@ -11,7 +11,7 @@
   },
   "source_volume_index": 7,
   "source_volume_max": 25,
-  "source_route": "builtin_speaker",
+  "source_route": "BUILT_IN_SPEAKER",
   "placement_notes": "side by side, ~20cm gap",
   "operator_approved": true
 }
