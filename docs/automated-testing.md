@@ -14,6 +14,8 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Permission scenario runner | `adb` + Python | Physical-device permission journeys with step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
 | Permission report publisher | Python + `gh` | Explicitly publish an existing permission report bundle to `test-results` and one sticky PR comment | `python3 scripts/publish_permission_scenario_report.py --report-dir … --pr … --commit … --device-id s21-exynos` |
 | Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
+| Acoustic wake reliability runner | `adb` + Python `unittest` | Paired source-to-target journal waits, strict source/snapshot contracts, independent matrix positions, environment invalidation and sanitised evidence semantics | `python3 scripts/acoustic_wake_reliability_runner.py fixture` / `python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner` |
+
 
 ## Permission scenario runner
 
