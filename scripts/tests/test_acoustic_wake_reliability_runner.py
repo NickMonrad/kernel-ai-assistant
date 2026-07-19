@@ -875,6 +875,9 @@ class EvidenceAndModeTests(unittest.TestCase):
         harness.target_identity = runner.DeviceIdentity(
             "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
         )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
         with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
             self.assertTrue(harness._release_provenance_verified())
             harness.target_alias = "s23u"

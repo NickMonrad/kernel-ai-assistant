@@ -188,6 +188,7 @@ def sample_evidence(commit: str = "a" * 40, pr: int | None = None) -> dict:
                 "failures": [],
             }
         ],
+        "artifact_refs": [],
     }
 
 

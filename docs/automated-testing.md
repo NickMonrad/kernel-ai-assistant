@@ -353,7 +353,7 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 |--------|-----|-----|-------------------|------|
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Reference device — primary target |
 | Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic 8 Pro | Snapdragon 8 Elite | 12 GB | NPU | Future tracked / reference candidate |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Experimental reference candidate (Android API 36) |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and

@@ -13,20 +13,18 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-# Try to import the metrics summariser (optional — dashboard works without it)
-try:
-    from summarise_test_evidence_metrics import (  # type: ignore[import-untyped]
-        summarise,
-        discover_evidence,
-    )
-    _METRICS_AVAILABLE = True
-except ImportError:
-    _METRICS_AVAILABLE = False
+from summarise_test_evidence_metrics import (  # type: ignore[import-untyped]
+    DEVICE_REGISTRY,
+    discover_evidence,
+    summarise,
+    validate_record,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -34,18 +32,12 @@ except ImportError:
 
 HERE = Path(__file__).resolve().parent
 
-REQUIRED_EVIDENCE_FIELDS = frozenset({
-    "schema_version", "source", "suite", "timestamp", "repo",
-    "branch", "commit", "pr", "release", "run_id",
-    "device", "model", "summary", "cases",
-})
 
 CI_LABEL = "CI / static runner"
 ON_DEVICE_LABEL = "On-device / physical"
 
 SOURCE_LABELS = {"ci": CI_LABEL, "on_device": ON_DEVICE_LABEL}
 
-DEVICE_REFERENCE = HERE.parent / "scripts" / "testdata" / "devices.yaml"
 
 # Passthrough fields preserved in data exports
 PASSTHROUGH = {"source", "suite", "timestamp", "commit", "pr", "release", "run_id"}
@@ -68,17 +60,12 @@ def _load_evidence(path: Path) -> dict | None:
         print(f"[WARN] {path}: not a JSON object", file=sys.stderr)
         return None
 
-    missing = REQUIRED_EVIDENCE_FIELDS - set(raw)
-    if missing:
+    valid, issues = validate_record(raw, [])
+    if not valid:
         print(
-            f"[WARN] {path}: missing required fields: {', '.join(sorted(missing))}",
+            f"[WARN] {path}: schema validation failed: {'; '.join(issues)}",
             file=sys.stderr,
         )
-        return None
-
-    src = raw.get("source")
-    if src not in SOURCE_LABELS:
-        print(f"[WARN] {path}: unknown source {src!r}", file=sys.stderr)
         return None
 
     return raw
@@ -118,11 +105,13 @@ def _pr_label(pr_val: int | None) -> str:
 
 
 def _device_id(rec: dict) -> str:
-    """Extract device id, falling back to a safe default."""
+    """Extract and canonicalise the device id using the public registry aliases."""
     device = rec.get("device")
-    if isinstance(device, dict):
-        return str(device.get("id", "unknown"))
-    return "unknown"
+    if not isinstance(device, dict):
+        return "unknown"
+    raw_id = str(device.get("id", "unknown"))
+    reference = DEVICE_REGISTRY.get(raw_id.lower())
+    return str(reference.get("id", raw_id)) if reference else raw_id
 
 
 def _suite_name(rec: dict) -> str:
@@ -221,6 +210,15 @@ def _scope_sort_key(scope_type: str, scope_value: int | str | None, scope_label:
     if scope_type == "release":
         return (1, 0, scope_label)
     return (2, 0, scope_label)
+
+def _artifact_href(results_url_base: str, source_path: str, artifact_path: str) -> str:
+    """Resolve an artifact path relative to its evidence record directory."""
+    source_parent = PurePosixPath(source_path).parent if source_path else PurePosixPath()
+    relative_path = source_parent / PurePosixPath(artifact_path)
+    if results_url_base:
+        return f"{results_url_base.rstrip('/')}/{relative_path.as_posix()}"
+    return relative_path.as_posix()
+
 def _source_links(results_url_base: str, latest_relpath: str, all_relpaths: list[str], record_count: int) -> str:
     """Render source evidence file links for a suite/scope row.
 
@@ -378,7 +376,9 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
         ), x[0]),
     )
     for did, recs in sorted_devices:
-        dev_info = recs[0].get("device", {})
+        recorded_info = recs[0].get("device", {})
+        reference_info = DEVICE_REGISTRY.get(did.lower(), {})
+        dev_info = {**recorded_info, **reference_info}
         latest_rec = max(recs, key=lambda r: r.get("timestamp", ""))
         merge = _merge_summaries(recs)
         suites = sorted({_suite_name(r) for r in recs})
@@ -500,7 +500,7 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
     # Compute metrics via the optional summariser module
     # (only when not already provided — caller may pass metrics that include
     #  invalid evidence from discover_evidence())
-    if metrics is None and _METRICS_AVAILABLE and evidence:
+    if metrics is None and evidence:
         metrics_records = [
             (Path(r.get("_source_relpath", "unknown.json")), r, [])
             for r in evidence
@@ -652,7 +652,7 @@ def _page(title: str, body: str, extra_head: str = "") -> str:
 
 
 
-def _render_metrics_section(data: dict) -> str:
+def _render_metrics_section(data: dict, results_url_base: str = "") -> str:
     """Render a compact reviewer-focused metrics section for the overview."""
     metrics = data.get("metrics")
     if not metrics or not isinstance(metrics, dict):
@@ -747,16 +747,21 @@ def _render_metrics_section(data: dict) -> str:
     # ── Artifact links ──
     artifacts = metrics.get("artifacts", [])
     if artifacts:
-        art_rows = "".join(
-            f"<tr>"
-            f"<td>{a.get('suite') or '—'}</td>"
-            f"<td>{a.get('device_id') or '—'}</td>"
-            f"<td>{a.get('case') or '—'}</td>"
-            f"<td><code>{a.get('field')}</code></td>"
-            f"<td><code>{a.get('path')}</code></td>"
-            f"</tr>\n"
-            for a in artifacts[:20]
-        )
+        art_rows = ""
+        for artifact in artifacts[:20]:
+            artifact_path = str(artifact.get("path") or "")
+            source_path = str(artifact.get("source_path") or "")
+            href = _artifact_href(results_url_base, source_path, artifact_path)
+            path_html = f'<a href="{html.escape(href)}"><code>{html.escape(artifact_path)}</code></a>'
+            art_rows += (
+                "<tr>"
+                f"<td>{html.escape(str(artifact.get('suite') or '—'))}</td>"
+                f"<td>{html.escape(str(artifact.get('device_id') or '—'))}</td>"
+                f"<td>{html.escape(str(artifact.get('case') or '—'))}</td>"
+                f"<td><code>{html.escape(str(artifact.get('field') or '—'))}</code></td>"
+                f"<td>{path_html}</td>"
+                "</tr>\n"
+            )
         art_note = ""
         if len(artifacts) > 20:
             art_note = f'<div class="table-note">Showing first 20 of {len(artifacts)} artifacts</div>'
@@ -795,9 +800,137 @@ def _render_metrics_section(data: dict) -> str:
 {device_artifacts}
 </div>"""
     return body
+def _render_wake_metrics_section(data: dict) -> str:
+    """Render wake reliability counts, gates, classifications, and clock-safe timelines."""
+    metrics = data.get("metrics")
+    wake = metrics.get("wake_reliability") if isinstance(metrics, dict) else None
+    if not isinstance(wake, dict):
+        return ""
+    overall = wake.get("overall", {})
+    if _safe_int(overall.get("attempts")) == 0:
+        return ""
+
+    def esc(value: object) -> str:
+        return html.escape(str(value))
+
+    release = wake.get("release_gate", {})
+    completion = wake.get("completion", {})
+    release_ok = (
+        _safe_int(release.get("failed")) == 0
+        and _safe_int(release.get("successful")) > 0
+    )
+    release_class = "pass" if release_ok else "fail"
+    release_label = "PASS" if release_ok else "NOT RELEASE-READY"
+
+    def bucket_rows(raw: object) -> str:
+        if not isinstance(raw, dict):
+            return ""
+        return "".join(
+            "<tr>"
+            f"<td><code>{esc(key)}</code></td>"
+            f"<td>{_safe_int(value.get('attempts'))}</td>"
+            f"<td>{_safe_int(value.get('valid'))}</td>"
+            f"<td>{_safe_int(value.get('passed'))}</td>"
+            f"<td>{_safe_int(value.get('failed'))}</td>"
+            f"<td>{_safe_int(value.get('invalid'))}</td>"
+            f"<td>{_safe_float(value.get('pass_rate')):.1%}</td>"
+            "</tr>"
+            for key, value in raw.items()
+            if isinstance(value, dict)
+        )
+
+    classification_rows = "".join(
+        f"<tr><td><code>{esc(name)}</code></td><td>{_safe_int(count)}</td></tr>"
+        for name, count in wake.get("failure_classifications", {}).items()
+    ) or '<tr><td colspan="2">No classified failures</td></tr>'
+    invalid_rows = "".join(
+        f"<tr><td><code>{esc(name)}</code></td><td>{_safe_int(count)}</td></tr>"
+        for name, count in wake.get("invalid_reasons", {}).items()
+    ) or '<tr><td colspan="2">No invalid attempts</td></tr>'
+
+    attempt_rows: list[str] = []
+    timeline_rows: list[str] = []
+    for record in data.get("history", []):
+        if record.get("suite") != "wake_word_acoustic_reliability":
+            continue
+        extension = record.get("wake_reliability", {})
+        run_kind = extension.get("run_kind", "unknown") if isinstance(extension, dict) else "unknown"
+        gate_mode = extension.get("gate_mode", "unknown") if isinstance(extension, dict) else "unknown"
+        device_id = _device_id(record)
+        for case in record.get("cases", []):
+            if not isinstance(case, dict):
+                continue
+            environment = case.get("environment_summary", {})
+            stable = environment.get("stable") if isinstance(environment, dict) else None
+            classification = case.get("failure_classification") or case.get("invalid_reason") or "—"
+            attempt_rows.append(
+                "<tr>"
+                f"<td>{esc(device_id)}</td><td>{esc(run_kind)}</td><td>{esc(gate_mode)}</td>"
+                f"<td>{esc(case.get('required_position_id', case.get('name', '—')))}</td>"
+                f"<td>{esc(case.get('attempt', '—'))}</td><td>{esc(case.get('status', '—'))}</td>"
+                f"<td>{esc(classification)}</td><td>{esc(stable if stable is not None else '—')}</td>"
+                "</tr>"
+            )
+            for timing_name, default_clock in (
+                ("source_timing", "source_device_elapsed_realtime"),
+                ("target_timing", "target_device_elapsed_realtime"),
+            ):
+                timing = case.get(timing_name)
+                if not isinstance(timing, dict):
+                    continue
+                clock = timing.get("clock_domain", default_clock)
+                for milestone, value in timing.items():
+                    if milestone == "clock_domain" or not milestone.endswith("_monotonic_ms"):
+                        continue
+                    timeline_rows.append(
+                        "<tr>"
+                        f"<td>{esc(case.get('name', '—'))}</td><td>{esc(timing_name)}</td>"
+                        f"<td>{esc(milestone)}</td><td>{esc(value)}</td><td>{esc(clock)}</td>"
+                        "</tr>"
+                    )
+
+    return f"""<div class="section">
+<h2>Acoustic Wake Reliability</h2>
+<div class="summary-grid">
+  <div class="card"><div class="label">Attempts</div>
+    <div class="value">{_safe_int(overall.get('attempts'))}</div>
+    <div class="meta">{_safe_int(overall.get('valid'))} valid · {_safe_int(overall.get('invalid'))} invalid · {_safe_float(overall.get('pass_rate')):.1%} valid pass rate</div>
+  </div>
+  <div class="card"><div class="label">Release Gate</div>
+    <div class="value {release_class}">{release_label}</div>
+    <div class="meta">{_safe_int(release.get('successful'))} successful · {_safe_int(release.get('failed'))} failed · {_safe_int(release.get('provenance_unverified'))} provenance-unverified · {_safe_int(release.get('feasibility_only'))} feasibility-only</div>
+  </div>
+  <div class="card"><div class="label">Matrix Completion</div>
+    <div class="value">{_safe_int(completion.get('completed'))}/{_safe_int(completion.get('total_required'))}</div>
+    <div class="meta">{_safe_int(completion.get('missing'))} required positions missing</div>
+  </div>
+</div>
+<h3>By Device</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Attempts</th><th>Valid</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Valid pass rate</th></tr></thead>
+<tbody>{bucket_rows(wake.get('by_device'))}</tbody></table></div>
+<h3>By Run Kind</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Run kind</th><th>Attempts</th><th>Valid</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Valid pass rate</th></tr></thead>
+<tbody>{bucket_rows(wake.get('by_run_kind'))}</tbody></table></div>
+<h3>By Gate Mode</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Gate mode</th><th>Attempts</th><th>Valid</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Valid pass rate</th></tr></thead>
+<tbody>{bucket_rows(wake.get('by_gate_mode'))}</tbody></table></div>
+<div class="summary-grid">
+  <div class="card"><div class="label">Failure Classifications</div><table><tbody>{classification_rows}</tbody></table></div>
+  <div class="card"><div class="label">Invalid Reasons</div><table><tbody>{invalid_rows}</tbody></table></div>
+</div>
+<h3>Attempt Drill-down</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Run</th><th>Gate</th><th>Position</th><th>Attempt</th><th>Status</th><th>Classification</th><th>Environment stable</th></tr></thead>
+<tbody>{''.join(attempt_rows)}</tbody></table></div>
+<details><summary>Clock-domain event timeline</summary>
+<p class="table-note">Times remain in their source or target device elapsed-realtime domain; no cross-device subtraction is performed.</p>
+<div class="pr-table-wrap"><table><thead><tr><th>Attempt</th><th>Timing source</th><th>Milestone</th><th>Monotonic ms</th><th>Clock domain</th></tr></thead>
+<tbody>{''.join(timeline_rows) or '<tr><td colspan="5">No timing milestones recorded</td></tr>'}</tbody></table></div></details>
+</div>"""
 
 
-def _render_overview(data: dict) -> str:
+
+
+def _render_overview(data: dict, results_url_base: str) -> str:
     # Latest cards
     latest = data["latest_by_source"]
     cards = ""
@@ -872,7 +1005,8 @@ def _render_overview(data: dict) -> str:
     if not dev_rows:
         dev_rows = '<tr><td colspan="5" class="empty">No device evidence yet</td></tr>'
 
-    metrics_section = _render_metrics_section(data)
+    metrics_section = _render_metrics_section(data, results_url_base)
+    wake_metrics_section = _render_wake_metrics_section(data)
 
     body = f"""<h1>Test Evidence Dashboard</h1>
 
@@ -880,6 +1014,7 @@ def _render_overview(data: dict) -> str:
 <div class="summary-grid">{cards}</div>
 
 {metrics_section}
+{wake_metrics_section}
 
 <div class="section">
 <h2>Recent Pull Requests</h2>
@@ -1265,16 +1400,15 @@ def main() -> None:
     # Compute metrics via discover_evidence (preserves invalid/malformed records
     # for validity reporting — unlike _discover_results which filters them out)
     metrics: dict | None = None
-    if _METRICS_AVAILABLE:
-        metrics_records = discover_evidence(results_dir)
-        if metrics_records:
-            metrics = summarise(metrics_records)
-            valid = metrics.get("validity", {}).get("valid_records", 0)
-            invalid = metrics.get("validity", {}).get("invalid_records", 0)
-            if invalid:
-                print(f"Metrics: {valid} valid / {invalid} invalid record(s)")
-            else:
-                print(f"Metrics: {valid} valid record(s)")
+    metrics_records = discover_evidence(results_dir)
+    if metrics_records:
+        metrics = summarise(metrics_records)
+        valid = metrics.get("validity", {}).get("valid_records", 0)
+        invalid = metrics.get("validity", {}).get("invalid_records", 0)
+        if invalid:
+            print(f"Metrics: {valid} valid / {invalid} invalid record(s)")
+        else:
+            print(f"Metrics: {valid} valid record(s)")
 
     # Derive results URL base for source file links
     if args.results_url:
@@ -1298,7 +1432,7 @@ def main() -> None:
 
     # Write HTML pages
     html_pages: dict[str, str] = {
-        "index.html": _render_overview(aggregates),
+        "index.html": _render_overview(aggregates, args.results_url),
         "prs.html": _render_prs(aggregates),
         "devices.html": _render_devices(aggregates),
         "releases.html": _render_releases(aggregates),

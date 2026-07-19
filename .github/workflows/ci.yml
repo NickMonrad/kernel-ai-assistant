@@ -25,6 +25,8 @@ jobs:
           echo "Repo structure OK"
 
       # ── Repository script tests ──────────────────────────────────────
+      - name: Install test evidence dependencies
+        run: python3 -m pip install --requirement scripts/requirements-test-evidence.txt
       - name: Backlog hygiene checker tests
         run: python3 -m unittest scripts/tests/test_check_issue_hygiene.py
       - name: Acoustic wake reliability runner tests

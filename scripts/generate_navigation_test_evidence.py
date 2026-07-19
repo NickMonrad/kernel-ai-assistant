@@ -121,46 +121,17 @@ NAVIGATION_CASES: list[dict[str, Any]] = [
 
 
 def _load_devices() -> dict:
-    """Load device metadata from scripts/testdata/devices.yaml.
-
-    Reuses the minimal YAML loader from summarise_test_report.py to avoid
-    adding a PyYAML dependency to the default Python environment.
-    """
+    """Load canonical device metadata from the versioned registry."""
     from summarise_test_report import load_devices as _load_devices_impl
+
     return _load_devices_impl()
 
 
 def _resolve_device(device_id: str) -> dict:
-    """Build the device object for a known device ID from the registry.
+    """Build a canonical device object; unknown IDs fail closed."""
+    from summarise_test_report import build_device_obj
 
-    Falls back to a minimal object if the ID is not found.
-    """
-    devices = _load_devices()
-    if device_id in devices:
-        entry = devices[device_id]
-        return {
-            "id": device_id,
-            "serial": None,  # filled from ADB later if available
-            "label": entry.get("label", device_id),
-            "manufacturer": entry.get("manufacturer", ""),
-            "model": entry.get("model", ""),
-            "soc": entry.get("soc", ""),
-            "tier": entry.get("tier", "tracked"),
-            "android_api": entry.get("android_api"),
-            "execution": entry.get("execution", "physical"),
-        }
-    # Fallback
-    return {
-        "id": device_id,
-        "serial": None,
-        "label": device_id,
-        "manufacturer": "Unknown",
-        "model": "Unknown",
-        "soc": "Unknown",
-        "tier": "tracked",
-        "android_api": None,
-        "execution": "physical",
-    }
+    return build_device_obj(device_id, _load_devices())
 
 
 # ── JUnit XML result parsing ──────────────────────────────────────────────
@@ -546,23 +517,16 @@ def _validate_schema_compliance(normalised: dict) -> list[str]:
 
 
 def _validate_against_schema(data: dict, schema_path: Path) -> list[str]:
-    """Validate the same schema-compatible evidence shape that will be written."""
-    errors: list[str] = []
+    """Validate the exact schema-compatible evidence shape that will be written."""
+    from jsonschema import Draft7Validator, FormatChecker
+
     schema_data = to_schema_evidence(data)
-    try:
-        import jsonschema  # type: ignore[import-untyped]
-        with open(schema_path) as f:
-            schema = json.load(f)
-        validator = jsonschema.Draft7Validator(schema)
-        for ve in validator.iter_errors(schema_data):
-            errors.append(f"schema: {'/'.join(str(p) for p in ve.path)}: {ve.message}")
-        return errors
-    except ImportError:
-        print("  (jsonschema not installed — using built-in schema-shape validation)", file=sys.stderr)
-        return _validate_schema_compliance(schema_data)
-    except Exception as e:
-        print(f"  (schema validation error: {e})", file=sys.stderr)
-        return _validate_schema_compliance(schema_data)
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    return [
+        f"schema: {'/'.join(str(p) for p in error.path)}: {error.message}"
+        for error in validator.iter_errors(schema_data)
+    ]
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
@@ -676,6 +640,7 @@ def main() -> None:
             "pass_rate": pass_rate,
         },
         "cases": cases,
+        "artifact_refs": [],
     }
 
     # ── Validate ──
@@ -685,7 +650,7 @@ def main() -> None:
         print(f"VALIDATION ERRORS ({len(validation_errors)}):", file=sys.stderr)
         for err in validation_errors:
             print(f"  - {err}", file=sys.stderr)
-        print("Continuing with output generation despite validation errors.", file=sys.stderr)
+        sys.exit(1)
 
     # ── Write outputs ──
     suite_slug = args.suite
@@ -699,8 +664,6 @@ def main() -> None:
     print(f"\nOutput directory: {out_dir}")
     print(f"Summary: {passed}/{total} passed ({pass_rate:.1%})")
 
-    if validation_errors:
-        sys.exit(1)
 
 
 if __name__ == "__main__":

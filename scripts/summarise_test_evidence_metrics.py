@@ -14,6 +14,19 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+from jsonschema import Draft7Validator, FormatChecker
+
+from summarise_test_report import build_device_registry_index
+
+
+SCHEMA_PATH = Path(__file__).resolve().parent / "testdata" / "test_evidence.schema.json"
+EVIDENCE_SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+EVIDENCE_VALIDATOR = Draft7Validator(EVIDENCE_SCHEMA, format_checker=FormatChecker())
+
+
+DEVICE_REGISTRY = build_device_registry_index()
+
+
 
 REQUIRED_EVIDENCE_FIELDS = frozenset({
     "schema_version",
@@ -30,6 +43,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "model",
     "summary",
     "cases",
+    "artifact_refs",
 })
 
 ARTIFACT_FIELDS = (
@@ -90,21 +104,25 @@ def discover_evidence(input_path: Path) -> list[tuple[Path, dict[str, Any] | Non
 
 def _device_id(record: dict[str, Any]) -> str:
     device = record.get("device")
-    if isinstance(device, dict):
-        return str(device.get("id") or "unknown")
-    return "unknown"
+    if not isinstance(device, dict):
+        return "unknown"
+    raw_id = str(device.get("id") or "unknown")
+    reference = DEVICE_REGISTRY.get(raw_id.lower())
+    return str(reference.get("id", raw_id)) if reference else raw_id
 
 
 def _device_context(record: dict[str, Any]) -> dict[str, Any]:
     device = record.get("device") if isinstance(record.get("device"), dict) else {}
     assert isinstance(device, dict)
+    reference = DEVICE_REGISTRY.get(str(device.get("id") or "").lower(), {})
+    merged = {**device, **reference}
     return {
-        "id": str(device.get("id") or "unknown"),
-        "label": device.get("label"),
-        "model": device.get("model"),
-        "tier": device.get("tier"),
-        "android_api": device.get("android_api"),
-        "execution": device.get("execution"),
+        "id": _device_id(record),
+        "label": merged.get("label"),
+        "model": merged.get("model"),
+        "tier": merged.get("tier"),
+        "android_api": merged.get("android_api"),
+        "execution": merged.get("execution"),
         "source": record.get("source"),
     }
 
@@ -141,7 +159,21 @@ def _case_artifacts(case: dict[str, Any], record: dict[str, Any]) -> list[dict[s
             value = source.get(field)
             if isinstance(value, str) and value:
                 artifacts.append({"field": field, "path": value})
+        refs = source.get("artifact_refs")
+        if isinstance(refs, list):
+            for value in refs:
+                if isinstance(value, str) and value:
+                    artifacts.append({"field": "artifact_ref", "path": value})
     return artifacts
+
+
+def _schema_issues(record: dict[str, Any]) -> list[str]:
+    """Return deterministic, path-qualified full-schema diagnostics."""
+    issues: list[str] = []
+    for error in sorted(EVIDENCE_VALIDATOR.iter_errors(record), key=lambda item: list(item.path)):
+        path = ".".join(str(part) for part in error.absolute_path) or "$"
+        issues.append(f"schema:{path}: {error.message}")
+    return issues
 
 
 def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tuple[bool, list[str]]:
@@ -150,6 +182,8 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
     if record is None:
         return False, issues or ["missing_record"]
 
+    schema_record = {key: value for key, value in record.items() if not key.startswith("_")}
+    issues.extend(_schema_issues(schema_record))
     missing = sorted(REQUIRED_EVIDENCE_FIELDS - set(record))
     issues.extend(f"missing:{field}" for field in missing)
 
@@ -189,6 +223,22 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
             issues.append("device_missing_id")
         if not (device.get("label") or device.get("model") or device.get("execution")):
             issues.append("device_context_sparse")
+        raw_device_id = str(device.get("id") or "")
+        reference = DEVICE_REGISTRY.get(raw_device_id.lower())
+        if reference is None:
+            issues.append("device_unknown_id")
+        else:
+            for field in (
+                "label",
+                "manufacturer",
+                "model",
+                "soc",
+                "tier",
+                "android_api",
+                "execution",
+            ):
+                if device.get(field) != reference.get(field):
+                    issues.append(f"device_registry_mismatch:{field}")
 
     if not record.get("commit"):
         issues.append("missing_commit")
@@ -205,6 +255,31 @@ def _increment_status(bucket: dict[str, Any], status: str) -> None:
 
 def _empty_status_bucket() -> dict[str, Any]:
     return {"total": 0, "passed": 0, "failed": 0, "xfail": 0}
+
+def _empty_wake_bucket() -> dict[str, int | float]:
+    return {
+        "attempts": 0,
+        "passed": 0,
+        "failed": 0,
+        "invalid": 0,
+        "valid": 0,
+        "pass_rate": 0.0,
+    }
+
+
+def _increment_wake_bucket(bucket: dict[str, int | float], status: str) -> None:
+    bucket["attempts"] = int(bucket["attempts"]) + 1
+    if status in {"passed", "failed", "invalid"}:
+        bucket[status] = int(bucket[status]) + 1
+    if status in {"passed", "failed"}:
+        bucket["valid"] = int(bucket["valid"]) + 1
+
+
+def _finalise_wake_bucket(bucket: dict[str, int | float]) -> dict[str, int | float]:
+    valid = int(bucket["valid"])
+    bucket["pass_rate"] = round(int(bucket["passed"]) / valid, 4) if valid else 0.0
+    return bucket
+
 
 
 def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> dict[str, Any]:
@@ -231,6 +306,21 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
     slot_fill = Counter({"slot_fill_seen": 0, "stale_carryover_suspect": 0})
     wrong_actual_to_expected: dict[str, set[str]] = defaultdict(set)
     artifacts: list[dict[str, Any]] = []
+    wake_overall = _empty_wake_bucket()
+    wake_by_device: dict[str, dict[str, int | float]] = defaultdict(_empty_wake_bucket)
+    wake_by_run_kind: dict[str, dict[str, int | float]] = defaultdict(_empty_wake_bucket)
+    wake_by_gate_mode: dict[str, dict[str, int | float]] = defaultdict(_empty_wake_bucket)
+    wake_failure_classifications: Counter[str] = Counter()
+    wake_invalid_reasons: Counter[str] = Counter()
+    wake_release_gate = Counter({
+        "records": 0,
+        "successful": 0,
+        "failed": 0,
+        "incomplete": 0,
+        "provenance_unverified": 0,
+        "feasibility_only": 0,
+    })
+    wake_completion = Counter({"total_required": 0, "completed": 0, "missing": 0})
 
     for path, record, load_errors in records:
         is_valid, issues = validate_record(record, load_errors)
@@ -253,6 +343,24 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             by_device[device_id] = {**_empty_status_bucket(), **_device_context(record)}
 
         cases = record.get("cases") if isinstance(record.get("cases"), list) else []
+        wake = record.get("wake_reliability") if suite == "wake_word_acoustic_reliability" else None
+        wake = wake if isinstance(wake, dict) else None
+        if wake is not None:
+            wake_release_gate["records"] += 1
+            if wake.get("release_gate_success") is True:
+                wake_release_gate["successful"] += 1
+            else:
+                wake_release_gate["failed"] += 1
+            if wake.get("complete") is not True:
+                wake_release_gate["incomplete"] += 1
+            if wake.get("release_provenance_verified") is not True:
+                wake_release_gate["provenance_unverified"] += 1
+            if wake.get("feasibility_only") is True:
+                wake_release_gate["feasibility_only"] += 1
+            completion = wake.get("completion")
+            if isinstance(completion, dict):
+                for key in ("total_required", "completed", "missing"):
+                    wake_completion[key] += _safe_int(completion.get(key))
         for raw_case in cases:
             if not isinstance(raw_case, dict):
                 continue
@@ -260,6 +368,23 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             _increment_status(totals, status)
             _increment_status(by_suite[suite], status)
             _increment_status(by_device[device_id], status)
+            if wake is not None:
+                wake_status = str(raw_case.get("status") or ("passed" if raw_case.get("passed") else "failed"))
+                run_kind = str(wake.get("run_kind") or "unknown")
+                gate_mode = str(wake.get("gate_mode") or "unknown")
+                for bucket in (
+                    wake_overall,
+                    wake_by_device[device_id],
+                    wake_by_run_kind[run_kind],
+                    wake_by_gate_mode[gate_mode],
+                ):
+                    _increment_wake_bucket(bucket, wake_status)
+                classification = raw_case.get("failure_classification")
+                if classification:
+                    wake_failure_classifications[str(classification)] += 1
+                invalid_reason = raw_case.get("invalid_reason")
+                if invalid_reason:
+                    wake_invalid_reasons[str(invalid_reason)] += 1
 
             category = raw_case.get("failure_category")
             category_str = str(category) if category else "<none>"
@@ -297,7 +422,28 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
                     "device_id": device_id,
                     "case": raw_case.get("name"),
                     **artifact,
+                    "source_path": relpath,
                 })
+
+    wake_metrics = {
+        "overall": _finalise_wake_bucket(wake_overall),
+        "by_device": {
+            key: _finalise_wake_bucket(value)
+            for key, value in sorted(wake_by_device.items())
+        },
+        "by_run_kind": {
+            key: _finalise_wake_bucket(value)
+            for key, value in sorted(wake_by_run_kind.items())
+        },
+        "by_gate_mode": {
+            key: _finalise_wake_bucket(value)
+            for key, value in sorted(wake_by_gate_mode.items())
+        },
+        "failure_classifications": dict(wake_failure_classifications.most_common()),
+        "invalid_reasons": dict(wake_invalid_reasons.most_common()),
+        "release_gate": dict(wake_release_gate),
+        "completion": dict(wake_completion),
+    }
 
     stuck_mode = []
     for actual_tool, expected_tools in sorted(wrong_actual_to_expected.items()):
@@ -323,6 +469,7 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         "retry_timeout_harness": dict(retry_timeout_harness),
         "slot_fill": dict(slot_fill),
         "stuck_mode": stuck_mode,
+        "wake_reliability": wake_metrics,
         "artifacts": artifacts,
     }
 

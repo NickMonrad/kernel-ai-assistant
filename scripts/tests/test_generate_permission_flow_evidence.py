@@ -95,10 +95,11 @@ class PermissionFlowEvidenceTest(unittest.TestCase):
             "pr": 1157,
             "release": None,
             "run_id": "on_device-2026-06-20T00:00:00Z-s21-exynos",
-            "device": {"id": "s21-exynos", "execution": "physical"},
+            "device": permission_evidence.resolve_device("s21-exynos"),
             "model": {"name": "not_applicable", "runtime": "not_applicable", "backend": "not_applicable"},
             "summary": {"total": 1, "passed": 1, "failed": 0, "pass_rate": 1.0},
             "cases": [case],
+            "artifact_refs": [],
         }
 
         errors = permission_evidence.validate_against_schema(normalised)

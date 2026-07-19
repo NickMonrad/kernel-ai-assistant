@@ -33,6 +33,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from jsonschema import Draft7Validator, FormatChecker
 
 HERE = Path(__file__).resolve().parent
 REPO = "NickMonrad/kernel-ai-assistant"
@@ -132,50 +133,10 @@ def parse_reports(flags: list[str]) -> dict[str, int | None]:
 
 
 def _resolve_device() -> dict:
-    """Build the device object for the CI runner.
+    """Build the canonical GitHub-hosted runner device object."""
+    from summarise_test_report import build_device_obj, load_devices
 
-    Reads the device registry for ubuntu-latest if available; otherwise
-    falls back to hard-coded defaults.
-    """
-    fallback = {
-        "id": DEVICE_ID,
-        "serial": None,
-        "label": "ubuntu-latest",
-        "manufacturer": "GitHub",
-        "model": "Actions runner",
-        "soc": "x86_64",
-        "tier": "ci",
-        "android_api": None,
-        "execution": "github_hosted_runner",
-    }
-    devices_path = HERE / "testdata" / "devices.yaml"
-    if not devices_path.exists():
-        return fallback
-
-    try:
-        from summarise_test_report import _yaml_load  # type: ignore[import-untyped]
-    except ImportError:
-        return fallback
-
-    try:
-        source = devices_path.read_text()
-        data = _yaml_load(source)
-        devices = data.get("devices", {})
-        dev = devices.get(DEVICE_ID, {})
-    except Exception:
-        return fallback
-
-    return {
-        "id": DEVICE_ID,
-        "serial": None,
-        "label": dev.get("label", fallback["label"]),
-        "manufacturer": dev.get("manufacturer", fallback["manufacturer"]),
-        "model": dev.get("model", fallback["model"]),
-        "soc": dev.get("soc", fallback["soc"]),
-        "tier": "ci",
-        "android_api": None,
-        "execution": "github_hosted_runner",
-    }
+    return build_device_obj(DEVICE_ID, load_devices())
 
 
 # ── Case construction ──────────────────────────────────────────────────
@@ -342,62 +303,13 @@ def _validate_invariants(normalised: dict) -> list[str]:
 
 
 def _validate_against_schema(data: dict, schema_path: Path) -> list[str]:
-    """Validate a normalised evidence dict against the JSON Schema document.
-
-    Covers the full schema contract used in test_evidence.schema.json:
-    required fields, type/null unions, enum, pattern, conditional (if/then),
-    and additionalProperties constraints.  No external JSON Schema lib needed.
-    """
-    try:
-        schema = json.loads(schema_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        return [f"Cannot load schema: {e}"]
-
-    errors: list[str] = []
-    props = schema.get("properties", {})
-    reqd = set(schema.get("required", []))
-
-    # ── Required top-level fields ──
-    for field in sorted(reqd):
-        if field not in data:
-            errors.append(f"schema: missing required field '{field}'")
-
-    # ── Per-field validation ──
-    for field, value in data.items():
-        if field not in props:
-            if schema.get("additionalProperties") is False:
-                errors.append(f"schema: unexpected field '{field}'")
-            continue
-
-        ps = props[field]
-        field_errors = _check_value(field, value, ps, f"schema.{field}")
-        errors.extend(field_errors)
-
-    # ── Conditional: source=ci → device.execution/c.tier + null model ──
-    source = data.get("source")
-    for cond in schema.get("allOf", []):
-        if_block = cond.get("if", {})
-        then_block = cond.get("then", {})
-        if not if_block or not then_block:
-            continue
-        const_val = _if_source_const(if_block)
-        if const_val is None:
-            continue
-        if source != const_val:
-            continue
-        then_props = then_block.get("properties", {})
-        for t_field, t_schema in then_props.items():
-            actual = data.get(t_field)
-            sub = t_schema.get("properties", {})
-            for sub_field, sub_schema in sub.items():
-                sub_actual = actual.get(sub_field) if isinstance(actual, dict) else None
-                sub_errs = _check_value(
-                    f"{t_field}.{sub_field}", sub_actual, sub_schema,
-                    f"schema.{t_field}.{sub_field} (condition: source={const_val})",
-                )
-                errors.extend(sub_errs)
-
-    return errors
+    """Validate the exact normalised evidence record against the full schema."""
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    return [
+        f"schema: {'/'.join(str(part) for part in error.path)}: {error.message}"
+        for error in validator.iter_errors(data)
+    ]
 
 
 def _if_source_const(if_block: dict) -> str | None:
@@ -583,6 +495,7 @@ def main() -> None:
         "model": model_obj,
         "summary": summary,
         "cases": all_cases,
+        "artifact_refs": [],
     }
 
     # ── Validate ─────────────────────────────────────────────────────────
@@ -594,6 +507,7 @@ def main() -> None:
     if all_errors:
         for e in all_errors:
             print(f"  [SCHEMA ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
 
     # ── Write outputs ────────────────────────────────────────────────────
     _write_json(normalised, out_dir / "ci_evidence.json")

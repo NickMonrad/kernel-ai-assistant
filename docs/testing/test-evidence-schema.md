@@ -4,7 +4,7 @@ Status: **Authoritative schema contract for normalised test evidence**
 Parent: #1113 — GitHub-native test evidence dashboard for CI and on-device results
 Implements: #1115 — Define normalised test result schema and device registry
 
-> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers and consumers should remain backward-compatible when optional fields are missing.
+> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers must emit the full required schema. Consumers tolerate only absent optional fields and must surface malformed records as invalid rather than silently repairing them.
 >
 > **Current run commands:** [`../automated-testing.md`](../automated-testing.md)
 >
@@ -31,7 +31,9 @@ These two must never be conflated. CI can validate build/static/dry-run results 
 
 ## 3. Device registry
 
-Device metadata is defined in `scripts/testdata/devices.yaml`. Keyed by short device ID (`s23-ultra`, `s21-exynos`, `ubuntu-latest`, etc.).
+Device metadata is defined in the versioned `scripts/testdata/devices.yaml` registry. It is keyed by canonical device ID (`s23-ultra`, `s21-exynos`, `ubuntu-latest`, etc.) and lists accepted aliases. Producers resolve metadata from this registry; consumers canonicalise aliases against it. Unregistered IDs or conflicting `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, or `execution` values make an evidence record invalid.
+
+Every supported physical-device entry must provide an unambiguous manufacturer, exact model, exact SoC, evidence tier, Android API compatibility, and `execution: physical`. Placeholder values such as `Unknown` or `latest Snapdragon` are not valid registry metadata.
 
 Tiers:
 
@@ -83,6 +85,8 @@ Fields: `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, `executi
 | `model` | object | yes | Model/runtime metadata. See §4.2. |
 | `summary` | object | yes | Pass/fail counts. See §4.3. |
 | `cases` | array | yes | Per-case results. See §4.4. |
+| `wake_reliability` | object | no | Acoustic wake-word reliability extension. Required for `suite == "wake_word_acoustic_reliability"`; see §4.5. |
+| `artifact_refs` | array of strings | no | Run-level paths relative to the evidence record. |
 
 ### 4.1 `device` object
 
@@ -133,6 +137,8 @@ Fields: `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, `executi
 | `tier` | string | yes | `reference`, `tracked`, `experimental`, or `ci`. |
 | `android_api` | number or null | yes | API level or null for non-Android environments. |
 | `execution` | string | yes | `physical` for real devices, `github_hosted_runner` for CI. |
+
+Device producers MAY emit a public alias such as `s21` or `s23u`. Consumers MUST resolve aliases through `scripts/testdata/devices.yaml` before aggregation so one physical device cannot split into multiple dashboard identities. The dashboard stores and groups by the registry's canonical `id`; raw ADB serials remain evidence metadata and are never aggregation keys.
 
 ### 4.2 `model` object
 
@@ -247,6 +253,21 @@ For CI runs that do not execute any model, set to:
 | `slot_fill_seen` | boolean | yes | Whether a slot-fill UI interaction was detected instead of a direct tool call. |
 | `failure_category` | string or null | yes | Standardised category for failed cases (see §5). `null` on pass. |
 | `failures` | array of strings | yes | Raw failure messages from the harness. Empty on pass. |
+| `artifact_refs` | array of strings | no | Case-level paths relative to the evidence record. |
+
+### 4.5 `wake_reliability` object
+
+The optional `wake_reliability` extension carries reviewer-grade acoustic wake evidence without weakening the stable top-level schema. It is REQUIRED when `suite` is `wake_word_acoustic_reliability` and SHOULD NOT be emitted by unrelated suites.
+
+Required run metadata includes `run_kind`, `gate_mode`, `matrix_id`, `matrix_version`, `fixture_set_id`, `fixture_hashes`, `preflight_manifest_sha256`, `cue_policy_version`, `cue_policy_evidence_verified`, `approved_source_volume`, `approved_source_volume_max`, `approved_source_route`, `placement_notes`, `monitoring_started_before`, `run_environment_before`, `cleanup_verified`, `complete`, `complete_valid_matrix`, `all_required_passed`, `release_provenance_verified`, `release_gate_success`, `feasibility_only`, `abort_reason`, and `completion`.
+
+Each required matrix position in `cases[]` carries `required_position_id`, `matrix_slot`, `trial_type`, `fixture`, `attempt`, `status`, `passed`, independent `source_outcome` and `target_timing`, environment snapshots, and runner-relative `artifact_refs`. Attempt statuses are `passed`, `failed`, or `invalid`; invalid attempts do not consume a required valid matrix position. `invalid_reason` and `failure_classification` use the runner's documented enums.
+
+Timing fields preserve their originating clock domains. `source_timing.clock_domain` is `source_device_elapsed_realtime`; `target_timing.clock_domain` is `target_device_elapsed_realtime`. Consumers MUST NOT subtract source monotonic timestamps from target monotonic timestamps. Wall-clock timestamps are correlation aids, not duration clocks.
+
+Release-gate success is fail-closed: it requires a complete valid frozen matrix, every required position passing, verified cue/preflight evidence, verified cleanup, verified release provenance, and `feasibility_only == false`. Diagnostic, smoke, preflight, interrupted, and fixed-delay feasibility runs may remain useful evidence but cannot pass the release gate.
+
+`artifact_refs` are relative paths beneath the evidence record. They MUST NOT contain absolute host paths, raw ADB serials, credentials, tokens, or unsanitised logs. Consumers preserve these paths and may render links relative to the published evidence directory.
 
 ## 5. Failure categories
 

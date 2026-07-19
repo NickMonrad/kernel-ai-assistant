@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,14 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import summarise_test_evidence_metrics as metrics
 
+WAKE_FIXTURE = (
+    SCRIPT_DIR
+    / "testdata"
+    / "fixtures"
+    / "acoustic-wake-reliability"
+    / "evidence-normalized-sample.json"
+)
+
 
 def evidence_record(**overrides):
     base = {
@@ -23,14 +32,16 @@ def evidence_record(**overrides):
         "timestamp": "2026-06-14T00:00:00Z",
         "repo": "NickMonrad/kernel-ai-assistant",
         "branch": "feature/example",
-        "commit": "abcdef1234567890",
+        "commit": "abcdef1234567890abcdef1234567890abcdef12",
         "pr": 1224,
         "release": None,
         "run_id": "on-device-1",
         "device": {
             "id": "s21-exynos",
             "label": "S21",
+            "manufacturer": "Samsung",
             "model": "SM-G991B",
+            "soc": "Exynos 2100",
             "tier": "tracked",
             "android_api": 35,
             "execution": "physical",
@@ -48,6 +59,9 @@ def evidence_record(**overrides):
                 "retry_seen": False,
                 "slot_fill_seen": False,
                 "failure_category": None,
+                "chip_present": True,
+                "skill_result_present": True,
+                "message_saved": True,
                 "failures": [],
             },
             {
@@ -60,10 +74,14 @@ def evidence_record(**overrides):
                 "retry_seen": True,
                 "slot_fill_seen": False,
                 "failure_category": "wrong_tool",
+                "chip_present": True,
+                "skill_result_present": True,
+                "message_saved": True,
                 "failures": ["expected create_reminder"],
-                "screenshot_path": "screenshots/wrong-tool.png",
+                "artifact_refs": ["screenshots/wrong-tool.png"],
             },
         ],
+        "artifact_refs": [],
     }
     base.update(overrides)
     return base
@@ -100,12 +118,16 @@ class EvidenceMetricsTest(unittest.TestCase):
         self.assertEqual(summary["retry_timeout_harness"]["retry_seen"], 1)
 
     def test_artifact_paths_are_collected(self) -> None:
-        record = evidence_record(log_path="logs/run.log")
+        record = evidence_record(artifact_refs=["logs/run.log"])
         summary = metrics.summarise([(Path("evidence.json"), record, [])])
 
         artifact_paths = {item["path"] for item in summary["artifacts"]}
         self.assertIn("logs/run.log", artifact_paths)
         self.assertIn("screenshots/wrong-tool.png", artifact_paths)
+        self.assertEqual(
+            {item["source_path"] for item in summary["artifacts"]},
+            {"evidence.json"},
+        )
 
     def test_invalid_record_reports_issue_buckets(self) -> None:
         record = evidence_record()
@@ -162,6 +184,76 @@ class EvidenceMetricsTest(unittest.TestCase):
         self.assertIn("Failure buckets", markdown)
         self.assertIn("wrong_tool", markdown)
         self.assertIn("Validity: 1 valid / 0 invalid", markdown)
+
+    def test_device_alias_resolves_to_canonical_public_device(self) -> None:
+        record = evidence_record(
+            device={
+                "id": "s21",
+                "execution": "physical",
+            }
+        )
+
+        summary = metrics.summarise([(Path("evidence.json"), record, [])])
+
+        self.assertIn("s21-exynos", summary["by_device"])
+        self.assertEqual(summary["by_device"]["s21-exynos"]["label"], "S21")
+        self.assertEqual(summary["by_device"]["s21-exynos"]["android_api"], 35)
+
+    def test_known_device_metadata_must_match_registry(self) -> None:
+        record = evidence_record()
+        record["device"]["model"] = "ambiguous-model"
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertIn("device_registry_mismatch:model", issues)
+
+    def test_unknown_device_id_is_invalid(self) -> None:
+        record = evidence_record()
+        record["device"]["id"] = "unregistered-phone"
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertIn("device_unknown_id", issues)
+
+    def test_wake_fixture_reports_attempts_gates_and_completion(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+
+        summary = metrics.summarise([(WAKE_FIXTURE, record, [])])
+        wake = summary["wake_reliability"]
+
+        self.assertEqual(
+            wake["overall"],
+            {
+                "attempts": 3,
+                "passed": 1,
+                "failed": 1,
+                "invalid": 1,
+                "valid": 2,
+                "pass_rate": 0.5,
+            },
+        )
+        self.assertEqual(wake["by_device"]["s21-exynos"]["attempts"], 3)
+        self.assertEqual(wake["by_run_kind"]["regression_post_fix"]["failed"], 1)
+        self.assertEqual(wake["by_gate_mode"]["release_gate"]["invalid"], 1)
+        self.assertEqual(wake["failure_classifications"], {"stt_readiness_failure": 1})
+        self.assertEqual(wake["invalid_reasons"], {"device_environment_error": 1})
+        self.assertEqual(wake["completion"], {"total_required": 24, "completed": 3, "missing": 21})
+        self.assertEqual(wake["release_gate"]["failed"], 1)
+        self.assertEqual(wake["release_gate"]["provenance_unverified"], 0)
+        self.assertEqual(wake["release_gate"]["feasibility_only"], 0)
+
+        artifact_paths = {item["path"] for item in summary["artifacts"]}
+        self.assertIn("trials/trial-pass/attempt-1/target-events.json", artifact_paths)
+        self.assertIn("trials/trial-fail/attempt-1/command-source-result.json", artifact_paths)
+
+    def test_wake_fixture_satisfies_schema(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertTrue(valid, issues)
 
 
 if __name__ == "__main__":

@@ -61,6 +61,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
+from summarise_test_report import schema_validation_errors
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -126,6 +127,11 @@ MATRIX_S23U: tuple[tuple[int, int, int], ...] = (
 EXPECTED_DEVICES: dict[str, dict[str, str]] = {
     "s21": {"manufacturer": "samsung", "model": "SM-G991B"},
     "s23u": {"manufacturer": "samsung", "model": "SM-S918B"},
+}
+
+EVIDENCE_DEVICE_IDS = {
+    "s21": "s21-exynos",
+    "s23u": "s23-ultra",
 }
 
 # Private-identifier patterns for sanitisation
@@ -315,6 +321,30 @@ def assert_commit_safe(value: Any, secrets: Iterable[str] = ()) -> None:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def git_metadata() -> tuple[str | None, str | None]:
+    """Resolve branch and full commit, with explicit environment overrides."""
+    branch = os.environ.get("GIT_BRANCH")
+    commit = os.environ.get("GIT_COMMIT")
+    if branch is None:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        branch = result.stdout.strip() or None if result.returncode == 0 else None
+    if commit is None:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        commit = result.stdout.strip() or None if result.returncode == 0 else None
+    return branch, commit
 
 
 def monotonic_ms() -> int:
@@ -1328,6 +1358,22 @@ def public_run_environment(
     }
 
 
+def evidence_device_profile(alias: str, identity: DeviceIdentity) -> dict[str, Any]:
+    """Resolve and verify a canonical dashboard profile from the device registry."""
+    canonical_id = EVIDENCE_DEVICE_IDS.get(alias)
+    if canonical_id is None:
+        raise HarnessError(f"unsupported evidence device alias: {alias}")
+
+    from summarise_test_report import build_device_obj, load_devices
+
+    profile = build_device_obj(canonical_id, load_devices())
+    if identity.model != profile["model"]:
+        raise HarnessError(
+            f"target alias {alias!r} expected model {profile['model']!r}, got {identity.model!r}"
+        )
+    return profile
+
+
 def render_evidence(
     run_manifest: RunManifest,
     target_identity: DeviceIdentity,
@@ -1345,6 +1391,28 @@ def render_evidence(
     failed = sum(1 for a in attempts if a.status == AttemptStatus.FAILED)
     invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
     valid = passed + failed
+    branch, commit = git_metadata()
+    required_positions = {
+        slot.position_id for slot in matrix_slots_for_target(run_manifest.target_alias)
+    }
+    valid_counts = {
+        position: sum(
+            1
+            for attempt in attempts
+            if attempt.required_position_id == position
+            and attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        )
+        for position in required_positions
+    }
+    complete_valid_matrix = all(count == 1 for count in valid_counts.values())
+    all_required_passed = complete_valid_matrix and all(
+        any(
+            attempt.required_position_id == position
+            and attempt.status == AttemptStatus.PASSED
+            for attempt in attempts
+        )
+        for position in required_positions
+    )
 
     evidence: dict[str, Any] = {
         "schema_version": "1.0",
@@ -1352,14 +1420,17 @@ def render_evidence(
         "suite": "wake_word_acoustic_reliability",
         "timestamp": run_manifest.created_utc,
         "repo": "NickMonrad/kernel-ai-assistant",
-        "branch": os.environ.get("GIT_BRANCH", None),
-        "commit": os.environ.get("GIT_COMMIT", None),
+        "branch": branch,
+        "commit": commit,
         "pr": int(os.environ["GIT_PR"]) if "GIT_PR" in os.environ else None,
         "release": None,
         "run_id": run_manifest.run_id,
-        "device": target_identity.public(),
-        "model": {"name": "wake_word", "runtime": "ONNX", "backend": "NPU"},
+        "device": evidence_device_profile(run_manifest.target_alias, target_identity),
+        # The current runner cannot prove the exact accelerator used by the
+        # wake-word runtime. Do not publish an inferred NPU claim.
+        "model": {"name": "wake_word", "runtime": "ONNX", "backend": None},
         "summary": {
+            "total": total,
             "total_attempts": total,
             "valid": valid,
             "passed": passed,
@@ -1368,6 +1439,7 @@ def render_evidence(
             "pass_rate": round(passed / valid, 4) if valid > 0 else 0.0,
         },
         "cases": [],
+        "artifact_refs": [],
         "wake_reliability": {
             "run_kind": run_manifest.run_kind.value,
             "gate_mode": run_manifest.gate_mode.value,
@@ -1392,6 +1464,17 @@ def render_evidence(
                 for slot in matrix_slots_for_target(run_manifest.target_alias)
             },
             "cleanup_verified": cleanup_verified,
+            "release_gate_success": False,
+            "complete": False,
+            "complete_valid_matrix": complete_valid_matrix,
+            "all_required_passed": all_required_passed,
+            "release_provenance_verified": False,
+            "feasibility_only": run_manifest.run_kind == RunKind.FEASIBILITY,
+            "run_environment_before": None,
+            "run_environment_after": None,
+            "cleanup_failures": [],
+            "abort_reason": None,
+            "completion": {"status": "rendered"},
         },
     }
 
@@ -1446,6 +1529,14 @@ def render_evidence(
             case["failures"] = attempt.failures
         evidence["cases"].append(case)
 
+    evidence["artifact_refs"] = [
+        {"path": path, "type": "other"}
+        for path in sorted({
+            path
+            for case in evidence["cases"]
+            for path in case.get("artifact_refs", [])
+        })
+    ]
     assert_commit_safe(evidence, secrets)
     return evidence
 
@@ -1454,6 +1545,9 @@ def write_sanitized_summary(output_dir: Path, evidence: dict[str, Any],
                              secrets: Iterable[str] = ()) -> tuple[Path, Path]:
     """Write JSON evidence and Markdown summary, returning (json_path, md_path)."""
     assert_commit_safe(evidence, secrets)
+    schema_errors = schema_validation_errors(evidence)
+    if schema_errors:
+        raise HarnessError("Schema validation failed: " + "; ".join(schema_errors))
 
     json_path = output_dir / "evidence.json"
     json_path.write_text(json.dumps(evidence, indent=2) + "\n")
@@ -2083,9 +2177,9 @@ class AcousticWakeReliabilityRunner:
         attempt.fixture_id = fixture_id
         attempt.command_fixture_id = command_fixture_id
         attempt.artifact_refs = [
-            f"artifact://{trial_id}/source-playback",
-            f"artifact://{trial_id}/target-boundary",
-            f"artifact://{trial_id}/target-final",
+            f"trials/{trial_id}/source/result.json",
+            f"trials/{trial_id}/target/boundary-snapshot.json",
+            f"trials/{trial_id}/target/final-snapshot.json",
         ]
         try:
             attempt.invalid_reason = InvalidReason.DEVICE_ENVIRONMENT_ERROR
@@ -3111,23 +3205,49 @@ class AcousticWakeReliabilityRunner:
         self.cleanup_verified = not failures
 
     def is_matrix_complete(self) -> bool:
-        """Return true when every required position has a valid outcome."""
-        for slot in matrix_slots_for_target(self.target_alias):
-            if not any(
-                attempt.required_position_id == slot.position_id
-                and attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
-                for attempt in self.attempts
-            ):
-                return False
-        return True
+        """Return true only when each required position has one valid outcome."""
+        required = {
+            slot.position_id for slot in matrix_slots_for_target(self.target_alias)
+        }
+        valid_attempts = [
+            attempt
+            for attempt in self.attempts
+            if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        ]
+        return (
+            all(
+                sum(
+                    attempt.required_position_id == position
+                    for attempt in valid_attempts
+                ) == 1
+                for position in required
+            )
+            and all(
+                attempt.required_position_id in required
+                for attempt in valid_attempts
+            )
+        )
+
+    def all_required_passed(self) -> bool:
+        """Return true when the complete valid matrix contains only passes."""
+        return self.is_matrix_complete() and all(
+            attempt.status != AttemptStatus.FAILED
+            for attempt in self.attempts
+            if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        )
 
     def _release_provenance_verified(self) -> bool:
-        commit = os.environ.get("GIT_COMMIT", "")
+        _, commit = git_metadata()
+        source = self.source_identity
         target = self.target_identity
         expected = EXPECTED_DEVICES["s21"]
         return (
-            re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) is not None
+            commit is not None
+            and re.fullmatch(r"[0-9a-f]{40}", commit) is not None
             and self.target_alias == "s21"
+            and source is not None
+            and source.package_version is not None
+            and source.package_version_code is not None
             and target is not None
             and target.manufacturer.lower() == expected["manufacturer"]
             and target.model == expected["model"]
@@ -3137,19 +3257,12 @@ class AcousticWakeReliabilityRunner:
 
     def release_gate_success(self) -> bool:
         """Return true only for the S21 all-passed regression launch gate."""
-        required = {slot.position_id for slot in matrix_slots_for_target(self.target_alias)}
-        passed = {
-            attempt.required_position_id
-            for attempt in self.attempts
-            if attempt.status == AttemptStatus.PASSED
-        }
         preflight = self.preflight_approval or {}
         return (
             self.gate_mode == GateMode.RELEASE
             and self.run_kind == RunKind.REGRESSION
             and self._release_provenance_verified()
-            and self.is_matrix_complete()
-            and passed == required
+            and self.all_required_passed()
             and self.cleanup_verified
             and preflight.get("operator_approved") is True
             and preflight.get("cue_audibility_evidence_verified") is True
@@ -3157,6 +3270,17 @@ class AcousticWakeReliabilityRunner:
             and self.cue_policy_evidence_verified
             and self.manifest is not None
             and self.manifest.cue_policy_version is not None
+            and isinstance(self.preflight_manifest_hash, str)
+            and re.fullmatch(r"[0-9a-f]{64}", self.preflight_manifest_hash) is not None
+            and isinstance(preflight.get("fixture_set_id"), str)
+            and bool(preflight["fixture_set_id"])
+            and isinstance(preflight.get("fixture_hashes"), dict)
+            and bool(preflight["fixture_hashes"])
+            and all(
+                isinstance(value, str)
+                and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+                for value in preflight["fixture_hashes"].values()
+            )
             and not self.primary_failure
             and self.abort_reason is None
         )
@@ -3196,17 +3320,29 @@ class AcousticWakeReliabilityRunner:
             source_route=(preflight or {}).get("source_route"),
             secrets=self.secrets,
         )
-        required_positions = [slot.position_id for slot in matrix_slots_for_target(self.target_alias)]
+        complete_valid_matrix = self.is_matrix_complete()
+        all_required_passed = self.all_required_passed()
+        release_provenance_verified = self._release_provenance_verified()
+        release_gate_success = self.release_gate_success()
+        complete = self.abort_reason is None and self.primary_failure is None
+        abort_reason = (
+            sanitise_text(self.abort_reason, self.secrets)
+            if self.abort_reason else None
+        )
+        primary_failure = (
+            sanitise_text(self.primary_failure, self.secrets)
+            if self.primary_failure else None
+        )
         reliability = evidence["wake_reliability"]
         reliability.update(
             {
-                "required_matrix_positions": required_positions,
-                "matrix_complete": self.is_matrix_complete(),
-                "release_gate_success": self.release_gate_success(),
-                "cleanup_failures": self.cleanup_failures,
-                "fixture_provenance_verified": bool(fixture_set_id and fixture_hashes),
-                "build_provenance_verified": bool(self.source_identity.package_version),
-                "preflight_manifest_sha256": (preflight or {}).get("manifest_sha256"),
+                "release_gate_success": release_gate_success,
+                "complete": complete,
+                "complete_valid_matrix": complete_valid_matrix,
+                "all_required_passed": all_required_passed,
+                "release_provenance_verified": release_provenance_verified,
+                "feasibility_only": self.is_feasibility,
+                "preflight_manifest_sha256": self.preflight_manifest_hash,
                 "cue_policy_evidence_verified": self.cue_policy_evidence_verified,
                 "cue_audibility_evidence_verified": self.cue_audibility_evidence_verified,
                 "run_environment_before": public_run_environment(
@@ -3215,33 +3351,18 @@ class AcousticWakeReliabilityRunner:
                 "run_environment_after": public_run_environment(
                     self.run_environment_after
                 ),
-                "aborted": bool(self.abort_reason),
-                "abort_reason": (
-                    sanitise_text(self.abort_reason, self.secrets)
-                    if self.abort_reason else None
-                ),
-                "primary_failure": (
-                    sanitise_text(self.primary_failure, self.secrets)
-                    if self.primary_failure else None
-                ),
+                "cleanup_failures": [
+                    sanitise_text(failure, self.secrets)
+                    for failure in self.cleanup_failures
+                ],
+                "abort_reason": abort_reason,
+                "completion": {
+                    "status": "completed" if complete else "aborted",
+                    "primary_failure": primary_failure,
+                    "cleanup_verified": self.cleanup_verified,
+                },
             }
         )
-        reliability["expected_valid_counts"] = {position: 1 for position in required_positions}
-        evidence["summary"]["matrix_complete"] = self.is_matrix_complete()
-        evidence["summary"]["release_gate_success"] = self.release_gate_success()
-        if self.abort_reason:
-            evidence["summary"]["aborted"] = True
-            evidence["summary"]["abort_reason"] = sanitise_text(
-                self.abort_reason, self.secrets
-            )
-            evidence["summary"]["note"] = "ABORTED — evidence is incomplete and not publishable"
-        if not self.abort_reason and self.is_feasibility:
-            evidence["non_evidentiary"] = True
-            evidence["summary"]["note"] = (
-                "NON-EVIDENTIARY — feasibility fixed-delay mode"
-            )
-        elif not self.abort_reason and self.gate_mode == GateMode.RELEASE and not self.release_gate_success():
-            evidence["summary"]["note"] = "RELEASE GATE FAILED — evidence is not publishable"
         assert_commit_safe(evidence, self.secrets)
         self.sanitized_dir.mkdir(parents=True, exist_ok=True)
         write_sanitized_summary(self.sanitized_dir, evidence, self.secrets)
