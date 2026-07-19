@@ -870,6 +870,25 @@ class EvidenceAndModeTests(unittest.TestCase):
         self.assertTrue(harness.cue_policy_evidence_verified)
         self.assertTrue(harness.cue_audibility_evidence_verified)
 
+    def test_git_metadata_uses_ci_branch_and_commit(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"GITHUB_HEAD_REF": "feature/1408-evidence", "GITHUB_SHA": "a" * 40},
+            clear=True,
+        ):
+            self.assertEqual(
+                runner.git_metadata(),
+                ("feature/1408-evidence", "a" * 40),
+            )
+
+    def test_git_metadata_labels_detached_checkout(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout="")
+        with (
+            patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=True),
+            patch.object(runner.subprocess, "run", return_value=completed),
+        ):
+            self.assertEqual(runner.git_metadata(), ("detached", "a" * 40))
+
     def test_release_provenance_requires_s21_target_and_full_commit(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         harness.target_identity = runner.DeviceIdentity(

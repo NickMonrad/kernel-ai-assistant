@@ -323,9 +323,13 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 def git_metadata() -> tuple[str | None, str | None]:
-    """Resolve branch and full commit, with explicit environment overrides."""
-    branch = os.environ.get("GIT_BRANCH")
-    commit = os.environ.get("GIT_COMMIT")
+    """Resolve branch and full commit, with explicit and CI environment overrides."""
+    branch = (
+        os.environ.get("GIT_BRANCH")
+        or os.environ.get("GITHUB_HEAD_REF")
+        or os.environ.get("GITHUB_REF_NAME")
+    )
+    commit = os.environ.get("GIT_COMMIT") or os.environ.get("GITHUB_SHA")
     if branch is None:
         result = subprocess.run(
             ["git", "branch", "--show-current"],
@@ -334,7 +338,7 @@ def git_metadata() -> tuple[str | None, str | None]:
             text=True,
             check=False,
         )
-        branch = result.stdout.strip() or None if result.returncode == 0 else None
+        branch = (result.stdout.strip() if result.returncode == 0 else "") or "detached"
     if commit is None:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -343,7 +347,7 @@ def git_metadata() -> tuple[str | None, str | None]:
             text=True,
             check=False,
         )
-        commit = result.stdout.strip() or None if result.returncode == 0 else None
+        commit = (result.stdout.strip() if result.returncode == 0 else "") or None
     return branch, commit
 
 
