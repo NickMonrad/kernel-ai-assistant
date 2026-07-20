@@ -262,37 +262,62 @@ class WakeWordService : Service() {
                         if (startupEvent is VoiceInputEvent.ListeningStarted) {
                             journal.record(AcousticEventType.STT_READY)
                         }
-
                         val terminalEvent = when (startupEvent) {
                             is VoiceInputEvent.ListeningStarted -> {
                                 journal.record(
                                     AcousticEventType.CUE_REQUESTED,
-                                    metadata = { mapOf("context" to "wake_word") },
+                                    metadata = {
+                                        mapOf(
+                                            "context" to "wake_word",
+                                            "policy_version" to "2026-07-cue-v1",
+                                        )
+                                    },
                                 )
                                 val cueResult = cuePlayer.playCue(StartListeningCueContext.WAKE_WORD)
                                 if (cueResult.started) {
                                     journal.record(
                                         AcousticEventType.CUE_PLAYBACK_STARTED,
-                                        metadata = { mapOf("context" to "wake_word") },
+                                        metadata = {
+                                            val m = mutableMapOf(
+                                                "context" to "wake_word",
+                                                "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
+                                                "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),
+                                                "max_volume" to (cueResult.maxVolume?.toString() ?: "unknown"),
+                                                "route" to (cueResult.routeClassification ?: "unknown"),
+                                            )
+                                            m.toMap()
+                                        },
                                     )
                                 } else {
                                     journal.record(
                                         AcousticEventType.CUE_PLAYBACK_ERROR,
-                                        metadata = { mapOf("category" to (cueResult.failureCategory ?: "unknown")) },
+                                        metadata = {
+                                            val m = mutableMapOf(
+                                                "context" to "wake_word",
+                                                "category" to (cueResult.failureCategory ?: "unknown"),
+                                                "policy_version" to "2026-07-cue-v1",
+                                            )
+                                            cueResult.selectedStream?.let { m["stream"] = it.toString() }
+                                            cueResult.currentVolume?.let { m["current_volume"] = it.toString() }
+                                            cueResult.maxVolume?.let { m["max_volume"] = it.toString() }
+                                            m.toMap()
+                                        },
                                     )
                                 }
                                 try {
-                                    terminalEventDeferred.await()
+                                    awaitAttemptEvent {
+                                        it is VoiceInputEvent.Transcript ||
+                                            it is VoiceInputEvent.Error ||
+                                            it is VoiceInputEvent.ListeningStopped
+                                    }
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
+                                    cancellationCategory = "transcript_collection_failed"
                                     Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
-                                    journal.record(
-                                        AcousticEventType.SESSION_CANCELLED,
-                                        metadata = { mapOf("reason" to "transcript_collection_failed") },
-                                    )
                                     break
                                 }
+                            }
                             else -> startupEvent
                         }
 

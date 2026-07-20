@@ -576,9 +576,12 @@ class ClockAlertService : Service() {
         if (!isVoiceListening) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
-                currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
-                startListeningCuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
-                refreshForeground()
+                // Only handle owned AlertCommand readiness events
+                if (event.mode == VoiceCaptureMode.AlertCommand) {
+                    currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
+                    startListeningCuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
+                    refreshForeground()
+                }
             }
             is VoiceInputEvent.SpeechDetected -> Unit
             is VoiceInputEvent.PartialTranscript -> Unit
