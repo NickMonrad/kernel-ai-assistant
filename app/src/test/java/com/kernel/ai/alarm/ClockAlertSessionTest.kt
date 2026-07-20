@@ -12,7 +12,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -23,52 +23,71 @@ import org.junit.jupiter.api.Test
 class ClockAlertSessionTest {
 
     @Test
-    fun `CaptureStartResult stores session and events`() {
-        val event = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L)
-        val result = CaptureStartResult(captureSessionId = 42L, ownedStartEvents = listOf(event))
-        assertEquals(42L, result.captureSessionId)
-        assertEquals(1, result.ownedStartEvents.size)
-        assertTrue(result.ownedStartEvents[0] is VoiceInputEvent.ListeningStarted)
-    }
-
-    @Test
-    fun `no buffered events when channel is empty`() = runTest {
-        val channel = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
+    fun `buffered start returns result with empty owned events`() = runTest {
         val controller = mockk<VoiceInputController>()
-        every { controller.events } returns channel.consumeAsFlow()
+        every { controller.events } returns Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED).receiveAsFlow()
         coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(42L)
 
         val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
-
         assertNotNull(result)
-        assertEquals(0, result!!.ownedStartEvents.size)
+        assertEquals(42L, result!!.captureSessionId)
+        assertTrue(result.ownedStartEvents.isEmpty(), "async delivery is the norm — no sync buffer")
     }
 
     @Test
-    fun `buffered event triggers clock-alert cue through handler`() {
+    fun `async ListeningStarted triggers cue through production handler`() = runTest {
+        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
         val sessionId = 42L
-        val event = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId)
-        val cuePlayer = mockk<StartListeningCuePlayer>(relaxUnitFun = true)
+        val controller = mockk<VoiceInputController>()
+        every { controller.events } returns events.receiveAsFlow()
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+
+        val cuePlayer = mockk<StartListeningCuePlayer>()
         every { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) } returns StartListeningCueResult(
             started = true, context = StartListeningCueContext.CLOCK_ALERT,
         )
 
-        assertTrue(isOwnedAlertEvent(event, sessionId, true))
-        if (event.mode == VoiceCaptureMode.AlertCommand) {
+        val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
+        assertNotNull(result)
+
+        val asyncEvent = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId)
+        val owned = isOwnedAlertEvent(asyncEvent, result!!.captureSessionId, true)
+            && asyncEvent is VoiceInputEvent.ListeningStarted
+            && asyncEvent.mode == VoiceCaptureMode.AlertCommand
+        if (owned) {
             cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
         }
         verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) }
     }
 
     @Test
-    fun `owned AlertCommand readiness accepted`() {
+    fun `asynchronous readiness returns no buffered event and is owned later`() = runTest {
+        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
+        val sessionId = 42L
+        val controller = mockk<VoiceInputController>()
+        every { controller.events } returns events.receiveAsFlow()
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+
+        // No event emitted during startListening — async readiness
+        val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
+        assertNotNull(result)
+        assertEquals(0, result!!.ownedStartEvents.size)
+
+        // Event delivered later is accepted by production ownership check
+        val later = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId)
+        assertTrue(isOwnedAlertEvent(later, sessionId, true))
+    }
+
+    @Test
+    fun `owned AlertCommand readiness is accepted by production path`() {
+        val sessionId = 42L
         assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L), 42L, true,
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId), sessionId, true,
         ))
     }
 
     @Test
-    fun `other modes pass ownership filter`() {
+    fun `Command and SlotReply modes pass ownership filter`() {
         assertTrue(isOwnedAlertEvent(
             VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 42L), 42L, true,
         ))
@@ -78,7 +97,7 @@ class ClockAlertSessionTest {
     }
 
     @Test
-    fun `foreign session filtered`() {
+    fun `foreign session events are filtered`() {
         assertTrue(isOwnedAlertEvent(
             VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 99L), 42L, true,
         ).not())
@@ -87,13 +106,13 @@ class ClockAlertSessionTest {
     @Test
     fun `unavailable startup returns null`() = runTest {
         val controller = mockk<VoiceInputController>()
-        every { controller.events } returns Channel<VoiceInputEvent>().consumeAsFlow()
+        every { controller.events } returns Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED).receiveAsFlow()
         coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Unavailable("reason")
         assertNull(bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand))
     }
 
     @Test
-    fun `foreign terminal events filtered`() {
+    fun `foreign terminal events filtered by ownership`() {
         assertTrue(isOwnedAlertEvent(
             VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop", captureSessionId = 99L), 42L, true,
         ).not())

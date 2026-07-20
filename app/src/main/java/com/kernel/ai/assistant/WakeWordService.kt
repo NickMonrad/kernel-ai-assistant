@@ -36,6 +36,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
@@ -102,6 +105,126 @@ internal fun playWakeCue(
         )
     }
     return cueResult
+}
+
+/** Outcome of one bounded wake STT attempt. */
+internal sealed interface WakeAttemptOutcome {
+    /** Recognised and returned a transcript. */
+    data class GotTranscript(val text: String) : WakeAttemptOutcome
+    /** Recogniser started but produced no useful result. */
+    data class NoTranscript(val category: String) : WakeAttemptOutcome
+    /** STT could not be started. */
+    data object Unavailable : WakeAttemptOutcome
+}
+
+/**
+ * Execute one bounded wake-word STT attempt.
+ *
+ * Creates a temporary buffered collector before calling [startListening] so
+ * events emitted synchronously before the call returns are not lost.
+ * Plays the cue only after [VoiceInputEvent.ListeningStarted].
+ * The collector and channel are always cleaned up in [finally].
+ * [onError] is called for non-fatal user-facing messages.
+ */
+internal suspend fun runWakeAttempt(
+    voiceInputController: VoiceInputController,
+    journal: WakeSessionJournal,
+    cuePlayer: StartListeningCuePlayer,
+    attempt: Int,
+    onError: (String) -> Unit = {},
+): WakeAttemptOutcome {
+    val attemptEvents = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
+    val collectorJob = Job()
+    val collectorScope = CoroutineScope(coroutineContext + collectorJob)
+    collectorScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        voiceInputController.events.collect(attemptEvents::send)
+    }
+    return try {
+        journal.record(
+            AcousticEventType.STT_START_REQUESTED,
+            metadata = { mapOf("attempt" to attempt.toString()) },
+        )
+        val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+        if (startResult !is VoiceInputStartResult.Started) {
+            journal.record(
+                AcousticEventType.STT_ERROR,
+                metadata = { mapOf("category" to "stt_unavailable") },
+            )
+            (startResult as? VoiceInputStartResult.Unavailable)?.message?.let { msg ->
+                if (msg.isNotBlank()) onError(msg)
+            }
+            return WakeAttemptOutcome.Unavailable
+        }
+
+        val captureSessionId = startResult.captureSessionId
+        suspend fun awaitEvent(
+            isTerminal: (VoiceInputEvent) -> Boolean,
+        ): VoiceInputEvent {
+            while (true) {
+                val event = attemptEvents.receive()
+                if (!event.isWakeSessionEvent(captureSessionId)) continue
+                when (event) {
+                    is VoiceInputEvent.SpeechDetected -> journal.record(
+                        AcousticEventType.STT_SPEECH_DETECTED,
+                    )
+                    is VoiceInputEvent.PartialTranscript -> journal.record(
+                        AcousticEventType.STT_PARTIAL,
+                        metadata = { mapOf("length" to event.text.length.toString()) },
+                    )
+                    else -> Unit
+                }
+                if (isTerminal(event)) return event
+            }
+        }
+
+        val startupEvent = awaitEvent {
+            it is VoiceInputEvent.ListeningStarted ||
+                it is VoiceInputEvent.Transcript ||
+                it is VoiceInputEvent.Error ||
+                it is VoiceInputEvent.ListeningStopped
+        }
+
+        if (startupEvent is VoiceInputEvent.ListeningStarted) {
+            journal.record(AcousticEventType.STT_READY)
+        }
+
+        val terminalEvent = when (startupEvent) {
+            is VoiceInputEvent.ListeningStarted -> {
+                playWakeCue(journal, cuePlayer)
+                awaitEvent {
+                    it is VoiceInputEvent.Transcript ||
+                        it is VoiceInputEvent.Error ||
+                        it is VoiceInputEvent.ListeningStopped
+                }
+            }
+            else -> startupEvent
+        }
+
+        val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
+        if (!text.isNullOrBlank()) {
+            journal.record(
+                AcousticEventType.STT_FINAL,
+                metadata = {
+                    mapOf(
+                        "length" to text.length.toString(),
+                        "normalized_transcript_sha256" to transcriptEvidenceSha256(text),
+                    )
+                },
+            )
+            WakeAttemptOutcome.GotTranscript(text)
+        } else if (terminalEvent is VoiceInputEvent.Error) {
+            journal.record(
+                AcousticEventType.STT_ERROR,
+                metadata = { mapOf("category" to "stt_recognition_failed") },
+            )
+            WakeAttemptOutcome.NoTranscript("stt_recognition_failed")
+        } else {
+            WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
+        }
+    } finally {
+        collectorJob.cancel()
+        attemptEvents.cancel()
+    }
 }
 
 private const val TAG = "KernelAI"
@@ -244,130 +367,41 @@ class WakeWordService : Service() {
             try {
                 var transcript: String? = null
                 for (attempt in 1..2) {
-                    val attemptEvents = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
-                    val attemptCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                        voiceInputController.events.collect(attemptEvents::send)
+                    val outcome = try {
+                        runWakeAttempt(
+                            voiceInputController = voiceInputController,
+                            journal = journal,
+                            cuePlayer = cuePlayer,
+                            attempt = attempt,
+                            onError = { msg ->
+                                if (msg.isNotBlank()) showWakeWordError(msg)
+                            },
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        cancellationCategory = "startup_collection_failed"
+                        Log.w(TAG, "WakeWordService: startup event collection failed (attempt $attempt)", e)
+                        break
                     }
-                    try {
-                        journal.record(
-                            AcousticEventType.STT_START_REQUESTED,
-                            metadata = { mapOf("attempt" to attempt.toString()) },
-                        )
-                        val startResult = voiceInputController.startListening(
-                            VoiceCaptureMode.AlertCommand,
-                        )
-                        if (startResult !is VoiceInputStartResult.Started) {
-                            cancellationCategory = "stt_unavailable"
-                            journal.record(
-                                AcousticEventType.STT_ERROR,
-                                metadata = { mapOf("category" to "stt_unavailable") },
-                            )
-                            Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
-                            val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
-                            if (!message.isNullOrBlank()) showWakeWordError(message)
+
+                    when (outcome) {
+                        is WakeAttemptOutcome.GotTranscript -> {
+                            transcript = outcome.text
                             break
                         }
-
-                        val captureSessionId = startResult.captureSessionId
-                        suspend fun awaitAttemptEvent(
-                            isTerminal: (VoiceInputEvent) -> Boolean,
-                        ): VoiceInputEvent {
-                            while (true) {
-                                val event = attemptEvents.receive()
-                                if (!event.isWakeSessionEvent(captureSessionId)) continue
-                                when (event) {
-                                    is VoiceInputEvent.SpeechDetected -> journal.record(
-                                        AcousticEventType.STT_SPEECH_DETECTED,
-                                    )
-                                    is VoiceInputEvent.PartialTranscript -> journal.record(
-                                        AcousticEventType.STT_PARTIAL,
-                                        metadata = {
-                                            mapOf("length" to event.text.length.toString())
-                                        },
-                                    )
-                                    else -> Unit
-                                }
-                                if (isTerminal(event)) return event
-                            }
-                        }
-
-                        val startupEvent = try {
-                            awaitAttemptEvent {
-                                it is VoiceInputEvent.ListeningStarted ||
-                                    it is VoiceInputEvent.Transcript ||
-                                    it is VoiceInputEvent.Error ||
-                                    it is VoiceInputEvent.ListeningStopped
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            cancellationCategory = "startup_collection_failed"
+                        is WakeAttemptOutcome.NoTranscript -> {
+                            cancellationCategory = outcome.category
                             Log.w(
                                 TAG,
-                                "WakeWordService: startup event collection failed (attempt $attempt)",
-                                e,
+                                "WakeWordService: no transcript on attempt $attempt ($outcome)" +
+                                    if (attempt < 2) " — retrying" else "",
                             )
+                        }
+                        is WakeAttemptOutcome.Unavailable -> {
+                            cancellationCategory = "stt_unavailable"
                             break
                         }
-
-                        if (startupEvent is VoiceInputEvent.ListeningStarted) {
-                            journal.record(AcousticEventType.STT_READY)
-                        }
-                        val terminalEvent = when (startupEvent) {
-                            is VoiceInputEvent.ListeningStarted -> {
-                                playWakeCue(journal, cuePlayer)
-                                try {
-                                    awaitAttemptEvent {
-                                        it is VoiceInputEvent.Transcript ||
-                                            it is VoiceInputEvent.Error ||
-                                            it is VoiceInputEvent.ListeningStopped
-                                    }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    cancellationCategory = "transcript_collection_failed"
-                                    Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
-                                    break
-                                }
-                            }
-                            else -> startupEvent
-                        }
-
-                        val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
-                        if (!text.isNullOrBlank()) {
-                            journal.record(
-                                AcousticEventType.STT_FINAL,
-                                metadata = {
-                                    mapOf(
-                                        "length" to text.length.toString(),
-                                        "normalized_transcript_sha256" to transcriptEvidenceSha256(text),
-                                    )
-                                },
-                            )
-                            transcript = text
-                            break
-                        }
-
-                        if (terminalEvent is VoiceInputEvent.Error) {
-                            journal.record(
-                                AcousticEventType.STT_ERROR,
-                                metadata = { mapOf("category" to "stt_recognition_failed") },
-                            )
-                            if (attempt == 2 && terminalEvent.message.isNotBlank()) {
-                                showWakeWordError(terminalEvent.message)
-                            }
-                            cancellationCategory = "stt_recognition_failed"
-                        } else {
-                            cancellationCategory = "stt_stopped_without_result"
-                        }
-                        Log.w(
-                            TAG,
-                            "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
-                                if (attempt < 2) " — retrying" else "",
-                        )
-                    } finally {
-                        attemptCollector.cancel()
-                        attemptEvents.cancel()
                     }
                 }
 

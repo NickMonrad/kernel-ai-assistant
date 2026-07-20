@@ -33,20 +33,20 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
 
 /**
  * Pure predicate: whether an event should be handled by the clock-alert voice session.
@@ -58,12 +58,13 @@ internal fun isOwnedAlertEvent(
     isVoiceListening: Boolean,
 ): Boolean = isVoiceListening && event.captureSessionId != null && event.captureSessionId == captureSessionId
 
-
 /**
- * Captures a start-listening call with a temporary buffered collector so events
- * emitted synchronously by the STT controller before [startListening] returns are
- * not lost.  The caller must process [ownedStartEvents] and then transition to its
- * normal event collector.
+ * Result of a [bufferedCaptureSession] call.
+ *
+ * @property captureSessionId the session assigned by the voice controller
+ * @property ownedStartEvents events received by this session before the function returns;
+ *   empty when the controller delivers [VoiceInputEvent.ListeningStarted] asynchronously,
+ *   which is the typical production path.
  */
 internal data class CaptureStartResult(
     val captureSessionId: Long,
@@ -71,40 +72,25 @@ internal data class CaptureStartResult(
 )
 
 /**
- * Opens a temporary buffered collector, calls [voiceInputController.startListening],
- * drains any already-buffered events matching the returned session, and returns the
- * session ID plus those events.
+ * Bounded STT session startup: call [startListening] and return a [CaptureStartResult].
  *
- * Returns null when startListening is unavailable or fails.
- *
- * The temporary collector is always cancelled in [finally].
+ * Does NOT buffer events synchronously — production controllers deliver
+ * [VoiceInputEvent.ListeningStarted] asynchronously via [VoiceInputController.events].
+ * The caller is responsible for subscribing to the flow before calling this function
+ * to avoid missing the event entirely.
  */
 internal suspend fun bufferedCaptureSession(
     voiceInputController: VoiceInputController,
     mode: VoiceCaptureMode,
 ): CaptureStartResult? {
-    val startupChannel = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
-    var collectorJob: Job? = null
-    return try {
-        collectorJob = GlobalScope.launch(Dispatchers.Default) {
-            voiceInputController.events.collect { startupChannel.send(it) }
-        }
-        val startResult = voiceInputController.startListening(mode)
-        if (startResult !is VoiceInputStartResult.Started) return null
-        val sessionId = startResult.captureSessionId
-        val ownedEvents = mutableListOf<VoiceInputEvent>()
-        while (true) {
-            val buffered = startupChannel.tryReceive().getOrNull() ?: break
-            if (buffered.captureSessionId == sessionId) {
-                ownedEvents.add(buffered)
-            }
-        }
-        CaptureStartResult(captureSessionId = sessionId, ownedStartEvents = ownedEvents)
-    } finally {
-        collectorJob?.cancel()
-        startupChannel.cancel()
-    }
+    val startResult = voiceInputController.startListening(mode)
+    if (startResult !is VoiceInputStartResult.Started) return null
+    return CaptureStartResult(
+        captureSessionId = startResult.captureSessionId,
+        ownedStartEvents = emptyList(),
+    )
 }
+
 private const val TAG = "KernelAI"
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
@@ -588,25 +574,28 @@ class ClockAlertService : Service() {
         maxSnoozes: Int = maxAutoSnoozes,
         snoozeMs: Long = snoozeDurationMs,
     ) {
-        serviceScope.launch {
-            try {
-                val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)
-                if (result == null) {
-                    captureSessionId = null
-                    finishVoiceCapture("Voice commands are unavailable right now.")
-                    return@launch
-                }
-                captureSessionId = result.captureSessionId
-                for (event in result.ownedStartEvents) {
-                    handleVoiceEvent(event)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "ClockAlertService: voice startup failed", e)
-                captureSessionId = null
-                finishVoiceCapture("Voice command startup failed.")
-            }
+        when (resolveAlertLifecycleAction(alert.type, autoSnoozeCount, maxSnoozes)) {
+            ClockAlertLifecycleAction.AUTO_STOP -> performAutoStop(alert)
+            ClockAlertLifecycleAction.AUTO_SNOOZE -> performAutoSnooze(alert, snoozeMs)
+            null -> Unit
+        }
+    }
+
+    private suspend fun performAutoStop(alert: TriggeredClockAlert) {
+        dismissAlert(alert)
+    }
+
+    private suspend fun performAutoSnooze(alert: TriggeredClockAlert, snoozeMs: Long = snoozeDurationMs) {
+        val snoozeDuration = if (alert.type == ClockEventType.ALARM && snoozeMs > 0L) snoozeMs else ALARM_SNOOZE_MS
+        val success = clockRepository.snoozeAlarm(
+            alarmId = alert.ownerId,
+            snoozedUntilMillis = System.currentTimeMillis() + snoozeDuration,
+            currentAutoSnoozeCount = alert.autoSnoozeCount,
+        )
+        if (success) {
+            dismissAlert(alert)
+        } else {
+            performAutoStop(alert)
         }
     }
 
