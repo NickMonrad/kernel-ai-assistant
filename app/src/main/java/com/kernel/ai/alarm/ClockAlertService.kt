@@ -12,6 +12,7 @@ import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
+import android.util.Log
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -33,6 +34,9 @@ import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -79,6 +83,11 @@ class ClockAlertService : Service() {
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
     private var captureSessionId: Long? = null
+
+    private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var voiceEventsJob: Job? = null
+    private var voicePreferencesJob: Job? = null
 
     private val notificationManager: NotificationManager
         get() = getSystemService(NotificationManager::class.java)
@@ -554,6 +563,14 @@ class ClockAlertService : Service() {
             performAutoStop(alert)
         }
     }
+
+    private suspend fun performAutoStop(alert: TriggeredClockAlert) {
+        dismissAlert(alert)
+    }
+
+    /**
+     * Start voice control for the current alert.
+     */
     private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
         isVoiceListening = true
         handledVoiceTranscript = false
@@ -562,19 +579,44 @@ class ClockAlertService : Service() {
         duckPlaybackForVoiceControl()
         refreshForeground()
         serviceScope.launch {
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
-                is VoiceInputStartResult.Started -> {
-                    captureSessionId = result.captureSessionId
-                }
-                is VoiceInputStartResult.Unavailable -> {
+            val startupChannel = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
+            val startupCollector = launch {
+                voiceInputController.events.collect { startupChannel.send(it) }
+            }
+            try {
+                val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                if (startResult !is VoiceInputStartResult.Started) {
                     captureSessionId = null
+                    startupCollector.cancel()
+                    startupChannel.cancel()
                     finishVoiceCapture(
-                        result.message.ifBlank { "Voice commands are unavailable right now." },
+                        (startResult as? VoiceInputStartResult.Unavailable)?.message
+                            ?.ifBlank { "Voice commands are unavailable right now." }
+                            ?: "Voice commands are unavailable right now.",
                     )
+                    return@launch
                 }
+                captureSessionId = startResult.captureSessionId
+                // Drain the startup buffer for any events already emitted synchronously
+                while (true) {
+                    val buffered = startupChannel.tryReceive().getOrNull() ?: break
+                    if (buffered.captureSessionId == captureSessionId) {
+                        handleVoiceEvent(buffered)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "ClockAlertService: voice startup failed", e)
+                captureSessionId = null
+                finishVoiceCapture("Voice command startup failed.")
+            } finally {
+                startupCollector.cancel()
+                startupChannel.cancel()
             }
         }
     }
+
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
         if (!isVoiceListening) return
         // Only handle events belonging to the owned capture session
@@ -609,7 +651,6 @@ class ClockAlertService : Service() {
             }
         }
     }
-
     private suspend fun handleVoiceTranscript(alert: TriggeredClockAlert, transcript: String) {
         isVoiceListening = false
         val command = parseClockAlertVoiceCommand(transcript)

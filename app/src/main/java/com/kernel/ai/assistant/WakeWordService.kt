@@ -264,6 +264,20 @@ class WakeWordService : Service() {
                         }
                         val terminalEvent = when (startupEvent) {
                             is VoiceInputEvent.ListeningStarted -> {
+                                fun cueMetadata(prefix: String, cueResult: StartListeningCueResult): Map<String, String> {
+                                    val m = mutableMapOf(
+                                        "context" to "wake_word",
+                                        "policy_version" to cueResult.policyVersion,
+                                        "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
+                                        "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),
+                                        "max_volume" to (cueResult.maxVolume?.toString() ?: "unknown"),
+                                        "route" to (cueResult.routeClassification ?: "unknown"),
+                                    )
+                                    if (prefix == "error") {
+                                        m["category"] = cueResult.failureCategory ?: "unknown"
+                                    }
+                                    return m
+                                }
                                 journal.record(
                                     AcousticEventType.CUE_REQUESTED,
                                     metadata = {
@@ -277,31 +291,12 @@ class WakeWordService : Service() {
                                 if (cueResult.started) {
                                     journal.record(
                                         AcousticEventType.CUE_PLAYBACK_STARTED,
-                                        metadata = {
-                                            val m = mutableMapOf(
-                                                "context" to "wake_word",
-                                                "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
-                                                "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),
-                                                "max_volume" to (cueResult.maxVolume?.toString() ?: "unknown"),
-                                                "route" to (cueResult.routeClassification ?: "unknown"),
-                                            )
-                                            m.toMap()
-                                        },
+                                        metadata = { cueMetadata("started", cueResult) },
                                     )
                                 } else {
                                     journal.record(
                                         AcousticEventType.CUE_PLAYBACK_ERROR,
-                                        metadata = {
-                                            val m = mutableMapOf(
-                                                "context" to "wake_word",
-                                                "category" to (cueResult.failureCategory ?: "unknown"),
-                                                "policy_version" to "2026-07-cue-v1",
-                                            )
-                                            cueResult.selectedStream?.let { m["stream"] = it.toString() }
-                                            cueResult.currentVolume?.let { m["current_volume"] = it.toString() }
-                                            cueResult.maxVolume?.let { m["max_volume"] = it.toString() }
-                                            m.toMap()
-                                        },
+                                        metadata = { cueMetadata("error", cueResult) },
                                     )
                                 }
                                 try {
