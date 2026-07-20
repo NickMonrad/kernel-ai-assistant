@@ -254,11 +254,43 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
         record["_source_relpath"] = "pr/1408/on_device/evidence.json"
 
         aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+        metrics["wake_reliability"]["completion_by_condition"] = [
+            {
+                "device_id": "s21-exynos",
+                "idle_seconds": 5,
+                "trial_type": "wake_only",
+                "required_positions": 5,
+                "attempted_positions": 5,
+                "passed": 4,
+                "failed": 1,
+                "invalid": 0,
+                "missing_positions": 0,
+            }
+        ]
+        metrics["wake_reliability"]["timing"] = {
+            "aggregates": [
+                {
+                    "device_id": "s21-exynos",
+                    "metric": "activation_to_callback_ms",
+                    "clock_domain": "target_device_elapsed_realtime",
+                    "sample_count": 4,
+                    "min_ms": 42,
+                    "p50_ms": 51,
+                    "p95_ms": 61,
+                    "max_ms": 61,
+                }
+            ],
+            "samples": [],
+        }
+        aggregates["metrics"] = metrics
+        
         wake_html = _render_wake_metrics_section(aggregates)
         metrics_html = _render_metrics_section(
             aggregates,
             "https://nickmonrad.github.io/kernel-ai-assistant/test-results/results",
         )
+
 
         self.assertIn("Acoustic Wake Reliability", wake_html)
         self.assertIn("2 valid · 1 invalid", wake_html)
@@ -269,6 +301,10 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
         self.assertIn("device_environment_error", wake_html)
         self.assertIn("source_device_elapsed_realtime", wake_html)
         self.assertIn("target_device_elapsed_realtime", wake_html)
+        self.assertIn("Matrix Completion by Condition", wake_html)
+        self.assertIn("5/5", wake_html)
+        self.assertIn("activation_to_callback_ms", wake_html)
+        self.assertIn(">51<", wake_html)
         self.assertIn(
             'href="https://nickmonrad.github.io/kernel-ai-assistant/test-results/results/pr/1408/on_device/trials/trial-pass/attempt-1/target-events.json"',
             metrics_html,

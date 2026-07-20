@@ -228,6 +228,17 @@ class EvidenceMetricsTest(unittest.TestCase):
             issues,
         )
 
+    def test_schema_1_1_is_restricted_to_wake_reliability_suite(self) -> None:
+        record = evidence_record(schema_version="1.1")
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertTrue(
+            any(issue.startswith("schema:") for issue in issues),
+            issues,
+        )
+
     def test_artifact_path_traversal_is_invalid(self) -> None:
         record = evidence_record(artifact_refs=["../private.log"])
 
@@ -269,6 +280,53 @@ class EvidenceMetricsTest(unittest.TestCase):
         artifact_paths = {item["path"] for item in summary["artifacts"]}
         self.assertIn("trials/trial-pass/attempt-1/target-events.json", artifact_paths)
         self.assertIn("trials/trial-fail/attempt-1/command-source-result.json", artifact_paths)
+
+    def test_wake_metrics_group_conditions_and_same_clock_event_latency(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+        record["cases"][0]["target_timing"] = {
+            "clock_domain": "target_device_elapsed_realtime",
+            "events": [
+                {"t": "STAGE3_READY", "m": 1000},
+                {"t": "VERIFIED_ACTIVATION", "m": 1125},
+                {"t": "WAKE_CALLBACK_INVOKED", "m": 1180},
+            ],
+        }
+
+        wake = metrics.summarise([(WAKE_FIXTURE, record, [])])["wake_reliability"]
+        conditions = {
+            (item["idle_seconds"], item["trial_type"]): item
+            for item in wake["completion_by_condition"]
+            if item["device_id"] == "s21-exynos"
+        }
+        self.assertEqual(conditions[(10, "wake_only")]["required_positions"], 5)
+        self.assertEqual(conditions[(10, "wake_only")]["missing_positions"], 5)
+        self.assertEqual(conditions[(5, "wake_only")]["attempted_positions"], 1)
+        self.assertEqual(conditions[(5, "wake_only")]["passed"], 1)
+
+        samples = wake["timing"]["samples"]
+        self.assertEqual(
+            [(sample["metric"], sample["duration_ms"]) for sample in samples],
+            [
+                ("detector_ready_to_activation_ms", 125),
+                ("activation_to_callback_ms", 55),
+            ],
+        )
+        self.assertTrue(all(
+            sample["clock_domain"] == "target_device_elapsed_realtime"
+            for sample in samples
+        ))
+
+    def test_wake_timing_does_not_subtract_different_clock_domains(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+        record["cases"][0]["target_timing"] = {
+            "clock_domain": "source_device_elapsed_realtime",
+            "events": [
+                {"t": "STAGE3_READY", "m": 1000},
+                {"t": "VERIFIED_ACTIVATION", "m": 1100},
+            ],
+        }
+        wake = metrics.summarise([(WAKE_FIXTURE, record, [])])["wake_reliability"]
+        self.assertEqual(wake["timing"], {"samples": [], "aggregates": []})
 
     def test_wake_fixture_satisfies_schema(self) -> None:
         record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))

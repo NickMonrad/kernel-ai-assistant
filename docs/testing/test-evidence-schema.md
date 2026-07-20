@@ -249,25 +249,42 @@ For CI runs that do not execute any model, set to:
 | `chip_present` | boolean | yes | Whether the tool chip marker was found in the UI stream. |
 | `skill_result_present` | boolean | yes | Whether the skill result marker appeared. |
 | `message_saved` | boolean | yes | Whether a `message_saved_marker` was emitted. |
-| `retry_seen` | boolean | yes | Whether the retry marker was detected. |
-| `slot_fill_seen` | boolean | yes | Whether a slot-fill UI interaction was detected instead of a direct tool call. |
-| `failure_category` | string or null | yes | Standardised category for failed cases (see §5). `null` on pass. |
-| `failures` | array of strings | yes | Raw failure messages from the harness. Empty on pass. |
-| `artifact_refs` | array of strings | no | Case-level paths relative to the evidence record. |
+### 4.5 Acoustic wake reliability extension (`schema_version: "1.1"`)
 
-### 4.5 `wake_reliability` object
+The paired acoustic wake runner emits normalised evidence directly. Its records use
+`schema_version: "1.1"` and `suite: "wake_word_acoustic_reliability"`; the canonical
+`1.0` contracts remain unchanged for every other suite. Each acoustic record retains
+the common top-level context, device, summary, cases, and artifact-reference fields,
+then adds a required top-level `wake_reliability` object.
 
-The optional `wake_reliability` extension carries reviewer-grade acoustic wake evidence without weakening the stable top-level schema. It is REQUIRED when `suite` is `wake_word_acoustic_reliability` and SHOULD NOT be emitted by unrelated suites.
+The extension is intentionally strict:
 
-Required run metadata includes `run_kind`, `gate_mode`, `matrix_id`, `matrix_version`, `fixture_set_id`, `fixture_hashes`, `preflight_manifest_sha256`, `cue_policy_version`, `cue_policy_evidence_verified`, `approved_source_volume`, `approved_source_volume_max`, `approved_source_route`, `placement_notes`, `monitoring_started_before`, `run_environment_before`, `cleanup_verified`, `complete`, `complete_valid_matrix`, `all_required_passed`, `release_provenance_verified`, `release_gate_success`, `feasibility_only`, `abort_reason`, and `completion`.
+- `cases` contain one object per attempted matrix position, identified by
+  `required_position_id` and the independent `{idle_s, trial_type, ordinal}`
+  `matrix_slot`; retries increment `attempt` without changing that identity.
+- Each case records `status` (`passed`, `failed`, or `invalid`), source and target
+  timing, pre/post environment snapshots for both devices, fixture identity, source
+  outcomes, failures, and optional classification/invalid-reason fields.
+- Target journal events preserve their target-device elapsed-realtime samples under
+  `target_timing`; source playback timing remains in the source device's monotonic
+  clock domain. Cross-device subtraction is forbidden.
+- `wake_reliability` records run/gate mode, matrix and source-helper provenance,
+  preflight approval and cue-policy evidence, required valid counts, cleanup state,
+  matrix completion, feasibility-only state, and release-gate outcome.
+- `complete_valid_matrix`, `all_required_passed`, and `release_gate_success` are
+  separate signals. A complete matrix can fail the behavioural gate, and diagnostic
+  or fixed-delay feasibility evidence cannot be labelled release-ready.
+- `artifact_refs` are safe paths relative to the evidence record. Every referenced
+  artifact is copied into the publishable evidence tree, recursively sanitised, and
+  rejected if the path is absolute, escapes the run root, is a symlink, has a blocked
+  raw/private extension, or names an unreferenced private artifact.
 
-Each required matrix position in `cases[]` carries `required_position_id`, `matrix_slot`, `trial_type`, `fixture`, `attempt`, `status`, `passed`, independent `source_outcome` and `target_timing`, environment snapshots, and runner-relative `artifact_refs`. Attempt statuses are `passed`, `failed`, or `invalid`; invalid attempts do not consume a required valid matrix position. `invalid_reason` and `failure_classification` use the runner's documented enums.
+The runner must rebuild the complete record after cleanup before serialisation, then
+validate it against `scripts/testdata/test_evidence.schema.json`. Consumers must mark
+malformed `1.1` records invalid; they must not infer missing release or matrix fields.
 
-Timing fields preserve their originating clock domains. `source_timing.clock_domain` is `source_device_elapsed_realtime`; `target_timing.clock_domain` is `target_device_elapsed_realtime`. Consumers MUST NOT subtract source monotonic timestamps from target monotonic timestamps. Wall-clock timestamps are correlation aids, not duration clocks.
-
-Release-gate success is fail-closed: it requires a complete valid frozen matrix, every required position passing, verified cue/preflight evidence, verified cleanup, verified release provenance, and `feasibility_only == false`. Diagnostic, smoke, preflight, interrupted, and fixed-delay feasibility runs may remain useful evidence but cannot pass the release gate.
-
-`artifact_refs` are relative paths beneath the evidence record. They MUST NOT contain absolute host paths, raw ADB serials, credentials, tokens, or unsanitised logs. Consumers preserve these paths and may render links relative to the published evidence directory.
+The full field-level contract is the `wake_word_acoustic_reliability` branch in
+[`scripts/testdata/test_evidence.schema.json`](../../scripts/testdata/test_evidence.schema.json).
 
 ## 5. Failure categories
 

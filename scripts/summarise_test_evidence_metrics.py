@@ -282,6 +282,71 @@ def _finalise_wake_bucket(bucket: dict[str, int | float]) -> dict[str, int | flo
 
 
 
+def _wake_condition_key(device_id: str, idle_s: int, trial_type: str) -> tuple[str, int, str]:
+    return device_id, idle_s, trial_type
+
+
+def _wake_timing_samples(raw_case: dict[str, Any], device_id: str) -> list[dict[str, Any]]:
+    target_timing = raw_case.get("target_timing")
+    if not isinstance(target_timing, dict):
+        return []
+    if target_timing.get("clock_domain") != "target_device_elapsed_realtime":
+        return []
+    events = target_timing.get("events")
+    if not isinstance(events, list):
+        return []
+    by_type = {
+        str(event.get("t")): event
+        for event in events
+        if isinstance(event, dict) and isinstance(event.get("m"), int)
+    }
+    metrics = (
+        ("detector_ready_to_activation_ms", "STAGE3_READY", "VERIFIED_ACTIVATION"),
+        ("activation_to_callback_ms", "VERIFIED_ACTIVATION", "WAKE_CALLBACK_INVOKED"),
+    )
+    samples: list[dict[str, Any]] = []
+    for metric, start_type, end_type in metrics:
+        start = by_type.get(start_type)
+        end = by_type.get(end_type)
+        if start is None or end is None:
+            continue
+        duration_ms = int(end["m"]) - int(start["m"])
+        if duration_ms < 0:
+            continue
+        samples.append({
+            "device_id": device_id,
+            "trial_id": raw_case.get("trial_id") or raw_case.get("name"),
+            "idle_seconds": _safe_int(raw_case.get("idle_seconds")),
+            "trial_type": str(raw_case.get("trial_type") or "unknown"),
+            "metric": metric,
+            "duration_ms": duration_ms,
+            "clock_domain": "target_device_elapsed_realtime",
+        })
+    return samples
+
+
+def _finalise_timing(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for sample in samples:
+        grouped[(str(sample["device_id"]), str(sample["metric"]))].append(
+            int(sample["duration_ms"])
+        )
+    aggregates = []
+    for (device_id, metric), durations in sorted(grouped.items()):
+        values = sorted(durations)
+        aggregates.append({
+            "device_id": device_id,
+            "metric": metric,
+            "clock_domain": "target_device_elapsed_realtime",
+            "sample_count": len(values),
+            "min_ms": values[0],
+            "p50_ms": values[(len(values) - 1) // 2],
+            "p95_ms": values[max(0, (len(values) * 95 + 99) // 100 - 1)],
+            "max_ms": values[-1],
+        })
+    return {"samples": samples, "aggregates": aggregates}
+
+
 def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> dict[str, Any]:
     totals = _empty_status_bucket()
     totals["records"] = len(records)
@@ -321,6 +386,16 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         "feasibility_only": 0,
     })
     wake_completion = Counter({"total_required": 0, "completed": 0, "missing": 0})
+    wake_conditions: dict[tuple[str, int, str], Counter[str]] = defaultdict(
+        lambda: Counter({
+            "required_positions": 0,
+            "attempted_positions": 0,
+            "passed": 0,
+            "failed": 0,
+            "invalid": 0,
+        })
+    )
+    wake_timing_samples: list[dict[str, Any]] = []
 
     for path, record, load_errors in records:
         is_valid, issues = validate_record(record, load_errors)
@@ -361,6 +436,20 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             if isinstance(completion, dict):
                 for key in ("total_required", "completed", "missing"):
                     wake_completion[key] += _safe_int(completion.get(key))
+            expected_counts = wake.get("expected_valid_counts")
+            if isinstance(expected_counts, dict):
+                for position_id, required_count in expected_counts.items():
+                    parts = str(position_id).split(":")
+                    if len(parts) != 3:
+                        continue
+                    try:
+                        idle_s = int(parts[0])
+                    except ValueError:
+                        continue
+                    condition = wake_conditions[
+                        _wake_condition_key(device_id, idle_s, parts[1])
+                    ]
+                    condition["required_positions"] += _safe_int(required_count)
         for raw_case in cases:
             if not isinstance(raw_case, dict):
                 continue
@@ -385,6 +474,17 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
                 invalid_reason = raw_case.get("invalid_reason")
                 if invalid_reason:
                     wake_invalid_reasons[str(invalid_reason)] += 1
+                matrix_slot = raw_case.get("matrix_slot")
+                if isinstance(matrix_slot, dict):
+                    condition = wake_conditions[_wake_condition_key(
+                        device_id,
+                        _safe_int(matrix_slot.get("idle_s")),
+                        str(matrix_slot.get("trial_type") or raw_case.get("trial_type") or "unknown"),
+                    )]
+                    condition["attempted_positions"] += 1
+                    if wake_status in {"passed", "failed", "invalid"}:
+                        condition[wake_status] += 1
+                wake_timing_samples.extend(_wake_timing_samples(raw_case, device_id))
 
             category = raw_case.get("failure_category")
             category_str = str(category) if category else "<none>"
@@ -425,6 +525,20 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
                     "source_path": relpath,
                 })
 
+    completion_by_condition = []
+    for (condition_device, idle_s, trial_type), counts in sorted(wake_conditions.items()):
+        required = counts["required_positions"]
+        attempted = counts["attempted_positions"]
+        completion_by_condition.append({
+            "device_id": condition_device,
+            "idle_seconds": idle_s,
+            "trial_type": trial_type,
+            **dict(counts),
+            "missing_positions": max(0, required - attempted),
+            "complete": required > 0 and attempted >= required,
+        })
+
+
     wake_metrics = {
         "overall": _finalise_wake_bucket(wake_overall),
         "by_device": {
@@ -443,6 +557,8 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         "invalid_reasons": dict(wake_invalid_reasons.most_common()),
         "release_gate": dict(wake_release_gate),
         "completion": dict(wake_completion),
+        "completion_by_condition": completion_by_condition,
+        "timing": _finalise_timing(wake_timing_samples),
     }
 
     stuck_mode = []

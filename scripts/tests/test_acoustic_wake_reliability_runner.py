@@ -16,6 +16,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 import acoustic_wake_reliability_runner as runner  # noqa: E402
+import summarise_test_evidence_metrics as evidence_metrics  # noqa: E402
 
 FIXTURES = SCRIPTS / "testdata" / "fixtures" / "acoustic-wake-reliability"
 
@@ -909,6 +910,108 @@ class EvidenceAndModeTests(unittest.TestCase):
         with self.assertRaises(runner.HarnessError):
             runner.assert_commit_safe({"path": "/private/fixtures/source.wav"}, ["/private/fixtures/source.wav"])
         self.assertEqual(runner.sanitise_text("serial=ABC123", ["ABC123"]), "[REDACTED]")
+
+    def test_sanitized_summary_copies_only_referenced_public_artifacts(self) -> None:
+        evidence = {
+            "cases": [
+                {
+                    "artifact_refs": [
+                        "trials/trial-1/attempt-1/target-events.json",
+                        "trials/trial-1/attempt-1/source/result.json",
+                    ]
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "private"
+            output = Path(tmp) / "public"
+            first = root / "trials/trial-1/attempt-1/target-events.json"
+            second = root / "trials/trial-1/attempt-1/source/result.json"
+            unreferenced = root / "trials/trial-1/attempt-1/private-debug.json"
+            for path, content in (
+                (first, '{"serial":"ABC123"}'),
+                (second, '{"path":"/private/device/file"}'),
+                (unreferenced, '{"must":"not publish"}'),
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+
+            runner._copy_sanitised_artifacts(output, evidence, root, ["ABC123", "/private/device"])
+
+            first_payload = json.loads(
+                (output / "trials/trial-1/attempt-1/target-events.json").read_text()
+            )
+            second_payload = json.loads(
+                (output / "trials/trial-1/attempt-1/source/result.json").read_text()
+            )
+            self.assertNotIn("ABC123", json.dumps(first_payload))
+            self.assertNotIn("/private/device", json.dumps(second_payload))
+            self.assertFalse((output / "trials/trial-1/attempt-1/private-debug.json").exists())
+
+    def test_sanitized_artifact_reference_rejects_path_traversal(self) -> None:
+        evidence = {"cases": [{"artifact_refs": ["../private.json"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(runner.HarnessError, "unsafe artifact reference"):
+                runner._copy_sanitised_artifacts(Path(tmp) / "out", evidence, Path(tmp), [])
+
+
+    def test_target_event_evidence_preserves_same_clock_samples(self) -> None:
+        events = runner.format_target_snapshot_events(
+            {
+                "events": [
+                    {"s": 8, "m": 1000, "t": "STAGE3_READY", "g": 4, "i": 2, "d": {}},
+                    {"s": 9, "m": 1120, "t": "VERIFIED_ACTIVATION", "g": 4, "i": 2, "d": {}},
+                    {"s": 10, "m": 1170, "t": "WAKE_CALLBACK_INVOKED", "g": 4, "i": 2, "d": {}},
+                ]
+            }
+        )
+        attempt = runner.MatrixAttempt(
+            trial_id="trial-1",
+            matrix_slot=runner.matrix_slots_for_target("s21")[0],
+            attempt=1,
+            status=runner.AttemptStatus.PASSED,
+            target_timing={
+                "clock_domain": "target_device_elapsed_realtime",
+                "events": events,
+            },
+            artifact_refs=["trials/trial-1/attempt-1/target-events.json"],
+        )
+        manifest = runner.RunManifest(
+            run_id="run-1",
+            run_kind=runner.RunKind.SMOKE,
+            gate_mode=runner.GateMode.DIAGNOSTIC,
+            matrix_id=runner.MATRIX_ID,
+            matrix_version=runner.MATRIX_VERSION,
+            created_utc="2026-01-01T00:00:00+00:00",
+            source_alias="s23u",
+            target_alias="s21",
+            fixture_set_id="set-1",
+            fixture_hashes={},
+            cue_policy_version=None,
+            preflight_hash=None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1", [attempt], None, False, "BUILT_IN_SPEAKER",
+        )
+        rendered = evidence["cases"][0]
+        self.assertEqual(rendered["target_timing"]["clock_domain"], "target_device_elapsed_realtime")
+        self.assertEqual(rendered["target_timing"]["events"][1]["m"], 1120)
+        self.assertEqual(
+            rendered["artifact_refs"],
+            ["trials/trial-1/attempt-1/target-events.json"],
+        )
+        self.assertEqual(
+            evidence["artifact_refs"],
+            [{"path": "trials/trial-1/attempt-1/target-events.json", "type": "other"}],
+        )
+        metrics = evidence_metrics.summarise([(Path("evidence.json"), evidence, [])])
+        timing = metrics["wake_reliability"]["timing"]
+        self.assertEqual(
+            [(sample["metric"], sample["duration_ms"]) for sample in timing["samples"]],
+            [("detector_ready_to_activation_ms", 120), ("activation_to_callback_ms", 50)],
+        )
 
     def test_public_environment_evidence_omits_private_state(self) -> None:
         harness = make_runner()

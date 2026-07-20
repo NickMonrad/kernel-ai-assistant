@@ -25,8 +25,7 @@
     "device",
     "model",
     "summary",
-    "cases",
-    "artifact_refs"
+    "cases"
   ],
   "allOf": [
     {
@@ -142,6 +141,9 @@
           "wake_reliability"
         ],
         "properties": {
+          "schema_version": {
+            "const": "1.1"
+          },
           "source": {
             "const": "on_device"
           },
@@ -182,6 +184,11 @@
         }
       },
       "else": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        },
         "not": {
           "required": [
             "wake_reliability"
@@ -192,8 +199,11 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0",
-      "description": "Exact supported schema version. Consumers reject all other versions."
+      "enum": [
+        "1.0",
+        "1.1"
+      ],
+      "description": "Generic records use schema 1.0; additive acoustic wake records use schema 1.1. Other versions are rejected."
     },
     "source": {
       "type": "string",

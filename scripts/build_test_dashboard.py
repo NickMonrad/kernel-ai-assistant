@@ -848,6 +848,50 @@ def _render_wake_metrics_section(data: dict) -> str:
         for name, count in wake.get("invalid_reasons", {}).items()
     ) or '<tr><td colspan="2">No invalid attempts</td></tr>'
 
+    condition_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('device_id', '—'))}</td>"
+        f"<td>{_safe_int(item.get('idle_seconds'))}</td>"
+        f"<td><code>{esc(item.get('trial_type', '—'))}</code></td>"
+        f"<td>{_safe_int(item.get('attempted_positions'))}/{_safe_int(item.get('required_positions'))}</td>"
+        f"<td>{_safe_int(item.get('passed'))}</td>"
+        f"<td>{_safe_int(item.get('failed'))}</td>"
+        f"<td>{_safe_int(item.get('invalid'))}</td>"
+        f"<td>{_safe_int(item.get('missing_positions'))}</td>"
+        "</tr>"
+        for item in wake.get("completion_by_condition", [])
+        if isinstance(item, dict)
+    ) or '<tr><td colspan="8">No matrix condition data recorded</td></tr>'
+    timing = wake.get("timing", {})
+    timing = timing if isinstance(timing, dict) else {}
+    timing_aggregate_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('device_id', '—'))}</td>"
+        f"<td><code>{esc(item.get('metric', '—'))}</code></td>"
+        f"<td>{_safe_int(item.get('sample_count'))}</td>"
+        f"<td>{_safe_int(item.get('min_ms'))}</td>"
+        f"<td>{_safe_int(item.get('p50_ms'))}</td>"
+        f"<td>{_safe_int(item.get('p95_ms'))}</td>"
+        f"<td>{_safe_int(item.get('max_ms'))}</td>"
+        f"<td><code>{esc(item.get('clock_domain', '—'))}</code></td>"
+        "</tr>"
+        for item in timing.get("aggregates", [])
+        if isinstance(item, dict)
+    ) or '<tr><td colspan="8">No same-domain latency samples recorded</td></tr>'
+    timing_sample_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('device_id', '—'))}</td>"
+        f"<td>{esc(item.get('trial_id', '—'))}</td>"
+        f"<td>{_safe_int(item.get('idle_seconds'))}</td>"
+        f"<td><code>{esc(item.get('trial_type', '—'))}</code></td>"
+        f"<td><code>{esc(item.get('metric', '—'))}</code></td>"
+        f"<td>{_safe_int(item.get('duration_ms'))}</td>"
+        f"<td><code>{esc(item.get('clock_domain', '—'))}</code></td>"
+        "</tr>"
+        for item in timing.get("samples", [])
+        if isinstance(item, dict)
+    ) or '<tr><td colspan="7">No same-domain latency samples recorded</td></tr>'
+
     attempt_rows: list[str] = []
     timeline_rows: list[str] = []
     for record in data.get("history", []):
@@ -905,6 +949,15 @@ def _render_wake_metrics_section(data: dict) -> str:
     <div class="meta">{_safe_int(completion.get('missing'))} required positions missing</div>
   </div>
 </div>
+<h3>Matrix Completion by Condition</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Idle (s)</th><th>Trial type</th><th>Attempted / required</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Missing</th></tr></thead>
+<tbody>{condition_rows}</tbody></table></div>
+<h3>Same-domain Event Latency</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Metric</th><th>Samples</th><th>Min ms</th><th>P50 ms</th><th>P95 ms</th><th>Max ms</th><th>Clock domain</th></tr></thead>
+<tbody>{timing_aggregate_rows}</tbody></table></div>
+<details><summary>Per-attempt event latency</summary><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Trial</th><th>Idle (s)</th><th>Trial type</th><th>Metric</th><th>Duration ms</th><th>Clock domain</th></tr></thead>
+<tbody>{timing_sample_rows}</tbody></table></div></details>
 <h3>By Device</h3><div class="pr-table-wrap"><table>
 <thead><tr><th>Device</th><th>Attempts</th><th>Valid</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Valid pass rate</th></tr></thead>
 <tbody>{bucket_rows(wake.get('by_device'))}</tbody></table></div>

@@ -308,6 +308,21 @@ def sanitise_text(text: str, secrets: Iterable[str] = ()) -> str:
         sanitized = pattern.sub("[REDACTED]", sanitized)
     return sanitized
 
+def sanitise_evidence(value: Any, secrets: Iterable[str] = ()) -> Any:
+    """Recursively redact private strings without changing evidence structure."""
+    if isinstance(value, dict):
+        return {
+            sanitise_text(str(key), secrets): sanitise_evidence(item, secrets)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitise_evidence(item, secrets) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitise_evidence(item, secrets) for item in value)
+    if isinstance(value, str):
+        return sanitise_text(value, secrets)
+    return value
+
 
 def assert_commit_safe(value: Any, secrets: Iterable[str] = ()) -> None:
     """Fail closed if JSON-safe output still contains private artifact indicators."""
@@ -1419,7 +1434,7 @@ def render_evidence(
     )
 
     evidence: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "source": "on_device",
         "suite": "wake_word_acoustic_reliability",
         "timestamp": run_manifest.created_utc,
@@ -1545,22 +1560,90 @@ def render_evidence(
     return evidence
 
 
-def write_sanitized_summary(output_dir: Path, evidence: dict[str, Any],
-                             secrets: Iterable[str] = ()) -> tuple[Path, Path]:
-    """Write JSON evidence and Markdown summary, returning (json_path, md_path)."""
+def _referenced_artifact_paths(evidence: dict[str, Any]) -> list[str]:
+    """Return the deduplicated allow-list of artifacts named by evidence."""
+    references: set[str] = set()
+    for owner in [evidence, *evidence.get("cases", [])]:
+        if not isinstance(owner, dict):
+            continue
+        values = owner.get("artifact_refs", [])
+        if not isinstance(values, list):
+            raise HarnessError("artifact_refs must be a list")
+        for value in values:
+            if not isinstance(value, str) or not value:
+                raise HarnessError("artifact_refs entries must be non-empty strings")
+            references.add(value)
+    return sorted(references)
+
+
+def _copy_sanitised_artifacts(
+    output_dir: Path,
+    evidence: dict[str, Any],
+    private_run_dir: Path,
+    secrets: Iterable[str],
+) -> None:
+    """Copy only explicitly referenced, text-safe artifacts into the public tree."""
+    private_root = private_run_dir.resolve()
+    allowed_suffixes = {".csv", ".json", ".log", ".md", ".txt"}
+    for reference in _referenced_artifact_paths(evidence):
+        relative = Path(reference)
+        if relative.is_absolute() or ".." in relative.parts or relative == Path("."):
+            raise HarnessError(f"unsafe artifact reference: {reference}")
+        if relative.suffix.lower() not in allowed_suffixes:
+            raise HarnessError(f"unsupported public artifact type: {reference}")
+
+        source = private_run_dir / relative
+        if not source.is_file() or source.is_symlink():
+            raise HarnessError(f"referenced artifact is missing or unsafe: {reference}")
+        resolved_source = source.resolve()
+        try:
+            resolved_source.relative_to(private_root)
+        except ValueError as exc:
+            raise HarnessError(f"artifact escapes private run root: {reference}") from exc
+        current = source.parent
+        while current != private_run_dir:
+            if current.is_symlink():
+                raise HarnessError(f"artifact traverses a symlink: {reference}")
+            current = current.parent
+
+        destination = output_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if relative.suffix.lower() == ".json":
+            try:
+                payload = json.loads(source.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                raise HarnessError(f"invalid referenced JSON artifact {reference}: {exc}") from exc
+            content = json.dumps(sanitise_evidence(payload, secrets), indent=2) + "\n"
+        else:
+            try:
+                content = sanitise_text(source.read_text(encoding="utf-8"), secrets)
+            except OSError as exc:
+                raise HarnessError(f"cannot read referenced artifact {reference}: {exc}") from exc
+        destination.write_text(content, encoding="utf-8")
+
+
+def write_sanitized_summary(
+    output_dir: Path,
+    evidence: dict[str, Any],
+    secrets: Iterable[str] = (),
+    private_run_dir: Path | None = None,
+) -> tuple[Path, Path]:
     assert_commit_safe(evidence, secrets)
     schema_errors = schema_validation_errors(evidence)
     if schema_errors:
         raise HarnessError("Schema validation failed: " + "; ".join(schema_errors))
 
+    safe = sanitise_evidence(evidence, secrets)
+    output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "evidence.json"
-    json_path.write_text(json.dumps(evidence, indent=2) + "\n")
+    json_path.write_text(json.dumps(safe, indent=2) + "\n", encoding="utf-8")
+    if private_run_dir is not None:
+        _copy_sanitised_artifacts(output_dir, safe, private_run_dir, secrets)
 
     md_lines = [
         "# Acoustic Wake Reliability Report",
         "",
-        f"**Run ID:** {evidence.get('run_id', 'unknown')}",
-        f"**Kind:** {evidence.get('wake_reliability', {}).get('run_kind', 'unknown')}",
+        f"**Kind:** {safe.get('wake_reliability', {}).get('run_kind', 'unknown')}",
         f"**Gate:** {evidence.get('wake_reliability', {}).get('gate_mode', 'unknown')}",
         f"**Matrix:** {evidence.get('wake_reliability', {}).get('matrix_id', 'unknown')} v{evidence.get('wake_reliability', {}).get('matrix_version', '?')}",
         f"**Target:** {evidence.get('device', {}).get('alias', 'unknown')}",
@@ -2180,11 +2263,7 @@ class AcousticWakeReliabilityRunner:
         command_source: dict[str, Any] | None = None
         attempt.fixture_id = fixture_id
         attempt.command_fixture_id = command_fixture_id
-        attempt.artifact_refs = [
-            f"trials/{trial_id}/source/result.json",
-            f"trials/{trial_id}/target/boundary-snapshot.json",
-            f"trials/{trial_id}/target/final-snapshot.json",
-        ]
+        attempt.artifact_refs = []
         try:
             attempt.invalid_reason = InvalidReason.DEVICE_ENVIRONMENT_ERROR
             attempt.environment_before = self._snapshot_target_state()
@@ -2216,6 +2295,9 @@ class AcousticWakeReliabilityRunner:
                 "boundary-snapshot.json",
                 json.dumps(boundary_snapshot, indent=2),
             )
+            attempt.artifact_refs.append(
+                f"trials/{trial_id}/target/boundary-snapshot.json"
+            )
             if boundary_generation is None:
                 raise HarnessError("target detector generation is unavailable at trial boundary")
             self._last_boundary_sequence = boundary_sequence
@@ -2246,6 +2328,7 @@ class AcousticWakeReliabilityRunner:
                 fixture_id,
                 volume,
             )
+            attempt.artifact_refs.append(f"trials/{trial_id}/source/result.json")
             events, wake_envelope = self._wait_for_target_events(
                 since_sequence=boundary_sequence,
                 event_type="STT_READY",
@@ -2328,6 +2411,9 @@ class AcousticWakeReliabilityRunner:
                             timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
                         )
                     )
+                    attempt.artifact_refs.append(
+                        f"trials/{command_trial_id}/source/result.json"
+                    )
                     require_correlated_event(
                         command_events,
                         "COMMAND_ROUTING_RESULT",
@@ -2369,6 +2455,9 @@ class AcousticWakeReliabilityRunner:
                 f"trials/{trial_id}/target",
                 "final-snapshot.json",
                 json.dumps(snapshot, indent=2),
+            )
+            attempt.artifact_refs.append(
+                f"trials/{trial_id}/target/final-snapshot.json"
             )
             self._last_target_snapshot = snapshot
             final_generation, final_session, final_path, correlation_failures = correlate_event_path(
@@ -3369,7 +3458,12 @@ class AcousticWakeReliabilityRunner:
         )
         assert_commit_safe(evidence, self.secrets)
         self.sanitized_dir.mkdir(parents=True, exist_ok=True)
-        write_sanitized_summary(self.sanitized_dir, evidence, self.secrets)
+        write_sanitized_summary(
+            self.sanitized_dir,
+            evidence,
+            self.secrets,
+            private_run_dir=self.run_dir,
+        )
         return evidence
 
     # ─── Cancellation ────────────────────────────────────────────────
