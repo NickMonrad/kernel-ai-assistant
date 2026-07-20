@@ -20,8 +20,8 @@ from build_test_dashboard import (
     _build_aggregates,
     _build_json_data,
     _build_metrics_json,
-    _METRICS_AVAILABLE,
     _render_metrics_section,
+    _render_wake_metrics_section,
 )
 
 
@@ -40,8 +40,10 @@ def _make_record(**overrides: object) -> dict:
         "run_id": "on-device-1",
         "device": {
             "id": "s21-exynos",
-            "label": "S21 Exynos",
+            "label": "S21",
             "model": "SM-G991B",
+            "manufacturer": "Samsung",
+            "soc": "Exynos 2100",
             "tier": "tracked",
             "android_api": 35,
             "execution": "physical",
@@ -56,6 +58,9 @@ def _make_record(**overrides: object) -> dict:
                 "actual_tool": "tool_a",
                 "expected_result_mode": "success",
                 "actual_result_mode": "success",
+                "chip_present": True,
+                "skill_result_present": True,
+                "message_saved": True,
                 "retry_seen": False,
                 "slot_fill_seen": False,
                 "failure_category": None,
@@ -68,13 +73,17 @@ def _make_record(**overrides: object) -> dict:
                 "actual_tool": "tool_c",
                 "expected_result_mode": "success",
                 "actual_result_mode": "success",
+                "chip_present": True,
+                "skill_result_present": True,
+                "message_saved": True,
                 "retry_seen": False,
                 "slot_fill_seen": False,
                 "failure_category": "wrong_tool",
                 "failures": ["expected tool_b, got tool_c"],
-                "screenshot_path": "screenshots/fail_case.png",
+                "artifact_refs": ["screenshots/fail_case.png"],
             },
         ],
+        "artifact_refs": [],
         "_source_relpath": "pr/1224/on_device/evidence.json",
     }
     base.update(overrides)
@@ -83,11 +92,28 @@ def _make_record(**overrides: object) -> dict:
 
 class DashboardMetricsIntegrationTest(unittest.TestCase):
     """Tests for the metrics block in build_test_dashboard.py."""
+    def test_device_latest_run_is_separate_from_historical_aggregate(self) -> None:
+        old = _make_record(
+            timestamp="2026-06-13T00:00:00Z",
+            run_id="old-pass",
+            summary={"total": 2, "passed": 2, "failed": 0, "pass_rate": 1.0},
+        )
+        latest = _make_record(
+            timestamp="2026-06-14T00:00:00Z",
+            run_id="latest-fail",
+            summary={"total": 1, "passed": 0, "failed": 1, "pass_rate": 0.0},
+        )
+
+        data = _build_aggregates([old, latest])
+        device = data["devices"][0]
+
+        self.assertEqual(device["latest_summary"]["total"], 1)
+        self.assertEqual(device["latest_summary"]["passed"], 0)
+        self.assertEqual(device["total"], 3)
+        self.assertEqual(device["passed"], 2)
 
     def test_metrics_block_present_in_aggregates(self) -> None:
         """metrics block exists when evidence is present."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         agg = _build_aggregates([_make_record()])
         self.assertIn("metrics", agg)
         self.assertIsNotNone(agg["metrics"])
@@ -100,8 +126,6 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
     def test_metrics_json_builder(self) -> None:
         """_build_metrics_json returns the metrics dict from aggregates."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         agg = _build_aggregates([_make_record()])
         metrics = _build_metrics_json(agg)
         self.assertIsNotNone(metrics)
@@ -132,6 +156,9 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
                     "actual_tool": "tool",
                     "expected_result_mode": "success",
                     "actual_result_mode": "success",
+                    "chip_present": True,
+                    "skill_result_present": True,
+                    "message_saved": True,
                     "retry_seen": False,
                     "slot_fill_seen": False,
                     "failure_category": None,
@@ -143,14 +170,11 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
         agg = _build_aggregates([old])
         self.assertIn("metrics", agg)
         # Rendering must not raise
-        if _METRICS_AVAILABLE:
-            html = _render_metrics_section(agg)
-            self.assertIsInstance(html, str)
+        html = _render_metrics_section(agg)
+        self.assertIsInstance(html, str)
 
     def test_invalid_evidence_validity_warnings(self) -> None:
         """Invalid evidence produces validity issues but does not crash."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         broken = {
             "source": "on_device",
             "suite": "broken",
@@ -167,8 +191,6 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
     def test_failure_buckets_in_metrics(self) -> None:
         """Failure buckets appear in metrics output."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         agg = _build_aggregates([_make_record()])
         fb = agg["metrics"]["failure_buckets"]  # type: ignore[index]
         self.assertIn("wrong_tool", fb)
@@ -179,8 +201,6 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
     def test_stuck_mode_with_two_expected_tools(self) -> None:
         """Stuck-mode suspect appears when same actual tool maps to multiple expected tools."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         rec1 = _make_record(run_id="run-1", _source_relpath="run1.json")
         rec2 = _make_record(
             run_id="run-2",
@@ -193,6 +213,9 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
                     "actual_tool": "tool_c",
                     "expected_result_mode": "success",
                     "actual_result_mode": "success",
+                    "chip_present": True,
+                    "skill_result_present": True,
+                    "message_saved": True,
                     "retry_seen": False,
                     "slot_fill_seen": False,
                     "failure_category": "wrong_tool",
@@ -213,8 +236,6 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
     def test_no_stuck_mode_for_single_wrong_tool(self) -> None:
         """No stuck-mode warning for a single wrong-tool case."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         agg = _build_aggregates([_make_record()])
         stuck = agg["metrics"]["stuck_mode"]  # type: ignore[index]
         self.assertEqual(len(stuck), 0)
@@ -224,8 +245,6 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
     def test_artifact_paths_preserved(self) -> None:
         """Artifact paths appear in metrics when present in evidence."""
-        if not _METRICS_AVAILABLE:
-            self.skipTest("Metrics module not available")
         agg = _build_aggregates([_make_record()])
         artifacts = agg["metrics"]["artifacts"]  # type: ignore[index]
         paths = {a["path"] for a in artifacts}
@@ -233,6 +252,88 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
         # HTML should show the artifact table
         html = _render_metrics_section(agg)
         self.assertIn("screenshots/fail_case.png", html)
+        linked_html = _render_metrics_section(
+            agg,
+            "https://nickmonrad.github.io/kernel-ai-assistant/test-results/results",
+        )
+        self.assertIn(
+            'href="https://nickmonrad.github.io/kernel-ai-assistant/test-results/results/pr/1224/on_device/screenshots/fail_case.png"',
+            linked_html,
+        )
+
+    def test_wake_metrics_render_counts_gates_timelines_and_artifacts(self) -> None:
+        fixture_path = (
+            SCRIPT_DIR
+            / "testdata"
+            / "fixtures"
+            / "acoustic-wake-reliability"
+            / "evidence-normalized-sample.json"
+        )
+        record = json.loads(fixture_path.read_text(encoding="utf-8"))
+        record["_source_relpath"] = "pr/1408/on_device/evidence.json"
+
+        aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+        metrics["wake_reliability"]["completion_by_condition"] = [
+            {
+                "device_id": "s21-exynos",
+                "idle_seconds": 5,
+                "trial_type": "wake_only",
+                "required_positions": 5,
+                "attempted_positions": 5,
+                "completed_positions": 5,
+                "attempts": 6,
+                "retry_attempts": 1,
+                "valid_attempts": 5,
+                "passed_attempts": 4,
+                "failed_attempts": 1,
+                "invalid_attempts": 1,
+                "duplicate_valid_positions": 0,
+                "missing_positions": 0,
+            }
+        ]
+        metrics["wake_reliability"]["timing"] = {
+            "aggregates": [
+                {
+                    "device_id": "s21-exynos",
+                    "metric": "activation_to_callback_ms",
+                    "clock_domain": "target_device_elapsed_realtime",
+                    "sample_count": 4,
+                    "min_ms": 42,
+                    "p50_ms": 51,
+                    "p95_ms": 61,
+                    "max_ms": 61,
+                }
+            ],
+            "samples": [],
+        }
+        aggregates["metrics"] = metrics
+        
+        wake_html = _render_wake_metrics_section(aggregates)
+        metrics_html = _render_metrics_section(
+            aggregates,
+            "https://nickmonrad.github.io/kernel-ai-assistant/test-results/results",
+        )
+
+
+        self.assertIn("Acoustic Wake Reliability", wake_html)
+        self.assertIn("2 valid · 1 invalid", wake_html)
+        self.assertIn("Latest release-gate record", wake_html)
+        self.assertIn("LATEST NOT RELEASE-READY", wake_html)
+        self.assertIn("1/27", wake_html)
+        self.assertIn("stt_readiness_failure", wake_html)
+        self.assertIn("device_environment_error", wake_html)
+        self.assertIn("source_device_elapsed_realtime", wake_html)
+        self.assertIn("target_device_elapsed_realtime", wake_html)
+        self.assertIn("Valid Matrix Coverage by Condition", wake_html)
+        self.assertIn("5/5", wake_html)
+        self.assertIn("Retry attempts", wake_html)
+        self.assertIn("activation_to_callback_ms", wake_html)
+        self.assertIn(">51<", wake_html)
+        self.assertIn(
+            'href="https://nickmonrad.github.io/kernel-ai-assistant/test-results/results/pr/1408/on_device/trials/trial-pass/attempt-1/target-events.json"',
+            metrics_html,
+        )
 
     # ------------------------------------------------------------------ #
     # Full dashboard build path tests
@@ -255,10 +356,8 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
             evidence_list = _discover_results(results_dir)
 
-            metrics: dict | None = None
-            if _METRICS_AVAILABLE:
-                raw = metrics_mod.discover_evidence(results_dir)
-                metrics = metrics_mod.summarise(raw) if raw else None
+            raw = metrics_mod.discover_evidence(results_dir)
+            metrics = metrics_mod.summarise(raw) if raw else None
 
             aggregates = _build_aggregates(evidence_list, metrics=metrics)
             json_data = _build_json_data(aggregates)
@@ -380,6 +479,69 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
                 data = json.loads((data_dir / name).read_text())
                 self.assertIsNotNone(data)
 
+
+    def test_dashboard_shows_invalid_acoustic_excluded_from_generic(self) -> None:
+        """Finding 1: invalid acoustic attempts excluded from PR/device generic totals."""
+        fixture_path = (
+            SCRIPT_DIR / "testdata" / "fixtures" / "acoustic-wake-reliability"
+            / "evidence-normalized-sample.json"
+        )
+        record = json.loads(fixture_path.read_text(encoding="utf-8"))
+        record["_source_relpath"] = "evidence.json"
+        record["pr"] = 1408
+
+        aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+
+        # Generic totals exclude the invalid attempt
+        self.assertEqual(metrics["totals"]["total"], 2)
+        self.assertEqual(metrics["totals"]["passed"], 1)
+        self.assertEqual(metrics["totals"]["failed"], 1)
+
+        # PR on-device status shows 1/2, not 1/3
+        pr_data = aggregates["prs"][0]
+        self.assertEqual(pr_data["pr"], 1408)
+        self.assertEqual(pr_data["on_device"]["total"], 2)
+        self.assertEqual(pr_data["on_device"]["passed"], 1)
+        self.assertEqual(pr_data["on_device"]["failed"], 1)
+
+        # Latest device summary shows 1/2
+        device = aggregates["devices"][0]
+        self.assertEqual(device["latest_summary"]["total"], 2)
+        self.assertEqual(device["latest_summary"]["passed"], 1)
+        self.assertEqual(device["latest_summary"]["failed"], 1)
+
+        # Historical device aggregate also uses 1/2
+        self.assertEqual(device["total"], 2)
+        self.assertEqual(device["passed"], 1)
+        self.assertEqual(device["failed"], 1)
+
+        # Wake-specific rendering still shows three attempts with one invalid
+        wake = metrics["wake_reliability"]["overall"]
+        self.assertEqual(wake["attempts"], 3)
+        self.assertEqual(wake["invalid"], 1)
+
+    def test_wake_render_shows_producer_completion(self) -> None:
+        """Finding 2: dashboard renders completion counts from producer, not 0/0."""
+        fixture_path = (
+            SCRIPT_DIR / "testdata" / "fixtures" / "acoustic-wake-reliability"
+            / "evidence-normalized-sample.json"
+        )
+        record = json.loads(fixture_path.read_text(encoding="utf-8"))
+        record["_source_relpath"] = "evidence.json"
+
+        aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+        completion = metrics["wake_reliability"]["completion"]
+        wake_html = _render_wake_metrics_section(aggregates)
+
+        # Completion values must be non-zero and correct (fixture has 1/27)
+        self.assertGreater(completion["total_required"], 0)
+        self.assertEqual(completion["total_required"], 27)
+        self.assertEqual(completion["completed"], 1)
+        self.assertEqual(completion["missing"], 26)
+        # Dashboard renders the correct completion rather than 0/0
+        self.assertIn("26 required positions missing", wake_html)
 
 if __name__ == "__main__":
     unittest.main()

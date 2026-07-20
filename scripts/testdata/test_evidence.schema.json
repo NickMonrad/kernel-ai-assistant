@@ -4,71 +4,214 @@
   "title": "Normalised Test Evidence",
   "description": "Normalised schema for test evidence from CI and on-device runs. See docs/testing/test-evidence-schema.md for documentation.",
   "type": "object",
+  "definitions": {
+    "safeRelativeArtifactPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)[^\\u0000]+$"
+    }
+  },
   "required": [
-    "schema_version", "source", "suite", "timestamp", "repo",
-    "branch", "commit", "pr", "release", "run_id",
-    "device", "model", "summary", "cases"
+    "schema_version",
+    "source",
+    "suite",
+    "timestamp",
+    "repo",
+    "branch",
+    "commit",
+    "pr",
+    "release",
+    "run_id",
+    "device",
+    "model",
+    "summary",
+    "cases"
   ],
   "allOf": [
     {
       "description": "CI source must use CI-only device shape and null model",
       "if": {
-        "properties": { "source": { "const": "ci" } },
-        "required": ["source"]
+        "properties": {
+          "source": {
+            "const": "ci"
+          }
+        },
+        "required": [
+          "source"
+        ]
       },
       "then": {
         "properties": {
           "device": {
             "properties": {
-              "execution": { "enum": ["github_hosted_runner"] },
-              "tier": { "enum": ["ci"] }
+              "execution": {
+                "enum": [
+                  "github_hosted_runner"
+                ]
+              },
+              "tier": {
+                "enum": [
+                  "ci"
+                ]
+              }
             }
           },
           "model": {
             "properties": {
-              "name": { "type": "null" },
-              "runtime": { "type": "null" },
-              "backend": { "type": "null" }
+              "name": {
+                "type": "null"
+              },
+              "runtime": {
+                "type": "null"
+              },
+              "backend": {
+                "type": "null"
+              }
             }
           }
         }
       }
     },
     {
-      "description": "on_device source must use physical device shape with non-null model and non-ci tier",
+      "description": "Generic on-device evidence uses physical device metadata and a fully identified model backend.",
       "if": {
-        "properties": { "source": { "const": "on_device" } },
-        "required": ["source"]
+        "properties": {
+          "source": {
+            "const": "on_device"
+          },
+          "suite": {
+            "not": {
+              "const": "wake_word_acoustic_reliability"
+            }
+          }
+        },
+        "required": [
+          "source",
+          "suite"
+        ]
       },
       "then": {
         "properties": {
           "device": {
             "properties": {
-              "execution": { "enum": ["physical"] },
-              "tier": { "enum": ["reference", "tracked", "experimental"] }
+              "execution": {
+                "enum": [
+                  "physical"
+                ]
+              },
+              "tier": {
+                "enum": [
+                  "reference",
+                  "tracked",
+                  "experimental"
+                ]
+              }
             }
           },
           "model": {
             "properties": {
-              "name": { "type": "string" },
-              "runtime": { "type": "string" },
-              "backend": { "type": "string" }
+              "name": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "backend": {
+                "type": "string"
+              }
             }
           }
+        }
+      }
+    },
+    {
+      "description": "Acoustic wake evidence requires its extension and permits an unverified accelerator only as null.",
+      "if": {
+        "properties": {
+          "suite": {
+            "const": "wake_word_acoustic_reliability"
+          }
+        },
+        "required": [
+          "suite"
+        ]
+      },
+      "then": {
+        "required": [
+          "wake_reliability"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.1"
+          },
+          "source": {
+            "const": "on_device"
+          },
+          "device": {
+            "properties": {
+              "execution": {
+                "const": "physical"
+              },
+              "tier": {
+                "enum": [
+                  "reference",
+                  "tracked",
+                  "experimental"
+                ]
+              }
+            }
+          },
+          "model": {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "backend": {
+                "oneOf": [
+                  {
+                    "const": "NPU"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        },
+        "not": {
+          "required": [
+            "wake_reliability"
+          ]
         }
       }
     }
   ],
   "properties": {
     "schema_version": {
-      "type": "string",
-      "description": "Semver for the schema. '1.0' initially.",
-      "pattern": "^\\d+\\.\\d+$"
+      "enum": [
+        "1.0",
+        "1.1"
+      ],
+      "description": "Generic records use schema 1.0; additive acoustic wake records use schema 1.1. Other versions are rejected."
     },
     "source": {
       "type": "string",
       "description": "Test evidence source type.",
-      "enum": ["on_device", "ci"]
+      "enum": [
+        "on_device",
+        "ci"
+      ]
     },
     "suite": {
       "type": "string",
@@ -95,15 +238,24 @@
     },
     "pr": {
       "oneOf": [
-        { "type": "integer", "minimum": 1 },
-        { "type": "null" }
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "PR number, or null for non-PR runs."
     },
     "release": {
       "oneOf": [
-        { "type": "string" },
-        { "type": "null" }
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "Release tag, or null."
     },
@@ -111,106 +263,925 @@
       "type": "string",
       "description": "Unique run identifier. Convention: '<source>-<timestamp>-<device-id>'."
     },
+    "artifact_refs": {
+      "type": "array",
+      "description": "Paths relative to the evidence record for run-level logs or media.",
+      "items": {
+        "$ref": "#/definitions/safeRelativeArtifactPath"
+      }
+    },
     "device": {
       "type": "object",
       "description": "Device or CI runner metadata.",
-      "required": ["id", "label", "manufacturer", "model", "soc", "tier", "android_api", "execution"],
+      "required": [
+        "id",
+        "label",
+        "manufacturer",
+        "model",
+        "soc",
+        "tier",
+        "android_api",
+        "execution"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "serial": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
-        "label": { "type": "string" },
-        "manufacturer": { "type": "string" },
-        "model": { "type": "string" },
-        "soc": { "type": "string" },
-        "tier": { "type": "string", "enum": ["reference", "tracked", "experimental", "ci"] },
-        "android_api": { "oneOf": [{ "type": "integer" }, { "type": "null" }] },
-        "execution": { "type": "string", "enum": ["physical", "github_hosted_runner"] }
+        "id": {
+          "type": "string"
+        },
+        "serial": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "manufacturer": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "soc": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "reference",
+            "tracked",
+            "experimental",
+            "ci"
+          ]
+        },
+        "android_api": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "execution": {
+          "type": "string",
+          "enum": [
+            "physical",
+            "github_hosted_runner"
+          ]
+        }
       },
       "additionalProperties": false
     },
     "model": {
       "type": "object",
       "description": "Model/runtime metadata.",
-      "required": ["name", "runtime", "backend"],
+      "required": [
+        "name",
+        "runtime",
+        "backend"
+      ],
       "properties": {
-        "name": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
-        "runtime": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
-        "backend": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+        "name": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backend": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
       },
       "additionalProperties": false
     },
     "summary": {
-      "type": "object",
-      "description": "Pass/fail summary counts.",
-      "required": ["total", "passed", "failed", "pass_rate"],
-      "properties": {
-        "total": { "type": "integer", "minimum": 0 },
-        "passed": { "type": "integer", "minimum": 0 },
-        "failed": { "type": "integer", "minimum": 0 },
-        "pass_rate": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
-      },
-      "additionalProperties": false
+      "description": "Suite-specific pass/fail summary.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Pass/fail summary counts.",
+          "required": [
+            "total",
+            "passed",
+            "failed",
+            "pass_rate"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pass_rate": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "total",
+            "total_attempts",
+            "valid",
+            "passed",
+            "failed",
+            "invalid",
+            "pass_rate"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_attempts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "valid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pass_rate": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "cases": {
       "type": "array",
-      "description": "Per-case results.",
+      "description": "Suite-specific per-case results.",
       "items": {
-        "type": "object",
-        "required": [
-          "name", "passed",
-          "expected_tool", "actual_tool",
-          "expected_result_mode", "actual_result_mode",
-          "chip_present", "skill_result_present", "message_saved",
-          "retry_seen", "slot_fill_seen",
-          "failure_category", "failures"
-        ],
-        "properties": {
-          "name": { "type": "string" },
-          "phase": { "type": "string", "description": "Test phase/group from the raw harness (e.g. alarm_timer, weather)" },
-          "passed": { "type": "boolean" },
-          "expected_tool": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
-          "actual_tool": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
-          "expected_result_mode": {
-            "type": "string",
-            "enum": ["success", "direct_reply"]
-          },
-          "actual_result_mode": {
-            "type": "string",
-            "enum": ["success", "direct_reply", "unknown"]
-          },
-          "chip_present": { "type": "boolean" },
-          "skill_result_present": { "type": "boolean" },
-          "message_saved": { "type": "boolean" },
-          "retry_seen": { "type": "boolean" },
-          "slot_fill_seen": { "type": "boolean" },
-          "failure_category": {
-            "oneOf": [
-              {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "passed",
+              "expected_tool",
+              "actual_tool",
+              "expected_result_mode",
+              "actual_result_mode",
+              "chip_present",
+              "skill_result_present",
+              "message_saved",
+              "retry_seen",
+              "slot_fill_seen",
+              "failure_category",
+              "failures"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "phase": {
                 "type": "string",
-                "enum": [
-                  "harness_error",
-                  "missing_marker",
-                  "model_tool_generation_miss",
-                  "wrong_tool",
-                  "wrong_result_mode",
-                  "field_mismatch",
-                  "conversational_fallback",
-                  "retry_seen",
-                  "slot_fill_seen",
-                  "device_environment_error",
-                  "timeout"
+                "description": "Test phase/group from the raw harness (e.g. alarm_timer, weather)"
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "expected_tool": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
-              { "type": "null" }
-            ]
+              "actual_tool": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expected_result_mode": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "direct_reply"
+                ]
+              },
+              "actual_result_mode": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "direct_reply",
+                  "unknown"
+                ]
+              },
+              "chip_present": {
+                "type": "boolean"
+              },
+              "skill_result_present": {
+                "type": "boolean"
+              },
+              "message_saved": {
+                "type": "boolean"
+              },
+              "retry_seen": {
+                "type": "boolean"
+              },
+              "slot_fill_seen": {
+                "type": "boolean"
+              },
+              "failure_category": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "harness_error",
+                      "missing_marker",
+                      "model_tool_generation_miss",
+                      "wrong_tool",
+                      "wrong_result_mode",
+                      "field_mismatch",
+                      "conversational_fallback",
+                      "retry_seen",
+                      "slot_fill_seen",
+                      "device_environment_error",
+                      "timeout"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "failures": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "artifact_refs": {
+                "type": "array",
+                "description": "Paths relative to the evidence record for case-level logs or media.",
+                "items": {
+                  "$ref": "#/definitions/safeRelativeArtifactPath"
+                }
+              }
+            },
+            "additionalProperties": false
           },
-          "failures": {
-            "type": "array",
-            "items": { "type": "string" }
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "trial_id",
+              "required_position_id",
+              "matrix_slot",
+              "passed",
+              "status",
+              "idle_seconds",
+              "trial_type",
+              "attempt",
+              "source_timing",
+              "target_timing",
+              "environment_before",
+              "environment_after",
+              "source_environment_before",
+              "source_environment_after",
+              "environment_summary",
+              "fixture",
+              "source_outcome",
+              "artifact_refs"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "trial_id": {
+                "type": "string"
+              },
+              "required_position_id": {
+                "type": "string"
+              },
+              "matrix_slot": {
+                "type": "object",
+                "required": [
+                  "idle_s",
+                  "trial_type",
+                  "ordinal"
+                ],
+                "properties": {
+                  "idle_s": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "trial_type": {
+                    "enum": [
+                      "wake_only",
+                      "wake_plus_command"
+                    ]
+                  },
+                  "ordinal": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "invalid"
+                ]
+              },
+              "idle_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "trial_type": {
+                "enum": [
+                  "wake_only",
+                  "wake_plus_command"
+                ]
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "source_timing": {
+                "type": "object"
+              },
+              "target_timing": {
+                "type": "object"
+              },
+              "environment_before": {
+                "type": "object",
+                "properties": {
+                  "reachable": {
+                    "type": "boolean"
+                  },
+                  "uptime_seconds": {
+                    "type": "integer"
+                  },
+                  "screen_off": {
+                    "type": "boolean"
+                  },
+                  "charging": {
+                    "type": "boolean"
+                  },
+                  "service_active": {
+                    "type": "boolean"
+                  },
+                  "media_volume": {
+                    "type": "integer"
+                  },
+                  "ringer_mode": {
+                    "type": "string"
+                  },
+                  "dnd_mode": {
+                    "type": "string"
+                  },
+                  "bluetooth_route_active": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "environment_after": {
+                "type": "object",
+                "properties": {
+                  "reachable": {
+                    "type": "boolean"
+                  },
+                  "uptime_seconds": {
+                    "type": "integer"
+                  },
+                  "screen_off": {
+                    "type": "boolean"
+                  },
+                  "charging": {
+                    "type": "boolean"
+                  },
+                  "service_active": {
+                    "type": "boolean"
+                  },
+                  "media_volume": {
+                    "type": "integer"
+                  },
+                  "ringer_mode": {
+                    "type": "string"
+                  },
+                  "dnd_mode": {
+                    "type": "string"
+                  },
+                  "bluetooth_route_active": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "source_environment_before": {
+                "type": "object",
+                "properties": {
+                  "reachable": {
+                    "type": "boolean"
+                  },
+                  "uptime_seconds": {
+                    "type": "integer"
+                  },
+                  "screen_off": {
+                    "type": "boolean"
+                  },
+                  "charging": {
+                    "type": "boolean"
+                  },
+                  "service_active": {
+                    "type": "boolean"
+                  },
+                  "media_volume": {
+                    "type": "integer"
+                  },
+                  "ringer_mode": {
+                    "type": "string"
+                  },
+                  "dnd_mode": {
+                    "type": "string"
+                  },
+                  "bluetooth_route_active": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "source_environment_after": {
+                "type": "object",
+                "properties": {
+                  "reachable": {
+                    "type": "boolean"
+                  },
+                  "uptime_seconds": {
+                    "type": "integer"
+                  },
+                  "screen_off": {
+                    "type": "boolean"
+                  },
+                  "charging": {
+                    "type": "boolean"
+                  },
+                  "service_active": {
+                    "type": "boolean"
+                  },
+                  "media_volume": {
+                    "type": "integer"
+                  },
+                  "ringer_mode": {
+                    "type": "string"
+                  },
+                  "dnd_mode": {
+                    "type": "string"
+                  },
+                  "bluetooth_route_active": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "environment_summary": {
+                "type": "object"
+              },
+              "fixture": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "sha256"
+                ],
+                "properties": {
+                  "id": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sha256": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "source_outcome": {
+                "type": "object"
+              },
+              "artifact_refs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/safeRelativeArtifactPath"
+                }
+              },
+              "command_fixture": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "sha256"
+                ],
+                "properties": {
+                  "id": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sha256": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "command_source_outcome": {
+                "type": "object"
+              },
+              "failure_classification": {
+                "enum": [
+                  "acoustic_or_gate_miss",
+                  "classifier_model_miss",
+                  "activation_handoff_failure",
+                  "stt_readiness_failure",
+                  "cue_audio_failure",
+                  "cue_audibility_unconfirmed",
+                  "command_capture_or_routing_failure",
+                  "service_rearm_failure",
+                  "unclassified"
+                ]
+              },
+              "invalid_reason": {
+                "enum": [
+                  "same_source_and_target_device",
+                  "source_stimulus_failure",
+                  "device_environment_error",
+                  "source_wake_service_active",
+                  "target_wake_service_inactive",
+                  "unexpected_manufacturer",
+                  "unexpected_model",
+                  "adb_connection_lost",
+                  "required_post_boundary_events_evicted",
+                  "cleanup_or_restoration_unverified",
+                  "operator_cancellation",
+                  "matrix_incomplete",
+                  "missing_cue_policy_evidence",
+                  "build_provenance_failure",
+                  "unknown"
+                ]
+              },
+              "failures": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "wake_reliability": {
+      "type": "object",
+      "required": [
+        "run_kind",
+        "gate_mode",
+        "matrix_id",
+        "matrix_version",
+        "source",
+        "source_helper_version",
+        "fixture_set_id",
+        "fixture_hashes",
+        "preflight_approval",
+        "approved_source_volume",
+        "approved_source_volume_max",
+        "approved_source_route",
+        "placement_notes",
+        "cue_policy_version",
+        "monitored_acoustic_check",
+        "cue_policy_evidence_verified",
+        "cue_audibility_evidence_verified",
+        "preflight_manifest_sha256",
+        "expected_valid_counts",
+        "cleanup_verified",
+        "release_gate_success",
+        "complete",
+        "complete_valid_matrix",
+        "all_required_passed",
+        "release_provenance_verified",
+        "feasibility_only",
+        "run_environment_before",
+        "run_environment_after",
+        "cleanup_failures",
+        "abort_reason",
+        "completion"
+      ],
+      "properties": {
+        "run_kind": {
+          "enum": ["fixture", "preflight", "smoke", "diagnostic_pre_fix", "regression_post_fix", "feasibility"]
+        },
+        "gate_mode": {
+          "enum": ["diagnostic", "release_gate"]
+        },
+        "matrix_id": {
+          "type": "string"
+        },
+        "matrix_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "alias",
+            "manufacturer",
+            "model",
+            "android_release",
+            "android_api",
+            "package_version",
+            "package_version_code"
+          ],
+          "properties": {
+            "alias": {
+              "type": "string"
+            },
+            "manufacturer": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "android_release": {
+              "type": "string"
+            },
+            "android_api": {
+              "type": "string"
+            },
+            "package_version": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "package_version_code": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "source_helper_version": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fixture_set_id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "fixture_hashes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           }
         },
-        "additionalProperties": false
-      }
+        "preflight_approval": {
+          "type": "object"
+        },
+        "approved_source_volume": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approved_source_volume_max": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approved_source_route": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "placement_notes": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cue_policy_version": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "monitored_acoustic_check": {
+          "type": "boolean"
+        },
+        "cue_policy_evidence_verified": {
+          "type": "boolean"
+        },
+        "cue_audibility_evidence_verified": {
+          "type": "boolean"
+        },
+        "preflight_manifest_sha256": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_valid_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "cleanup_verified": {
+          "type": "boolean"
+        },
+        "release_gate_success": {
+          "type": "boolean"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "complete_valid_matrix": {
+          "type": "boolean"
+        },
+        "all_required_passed": {
+          "type": "boolean"
+        },
+        "release_provenance_verified": {
+          "type": "boolean"
+        },
+        "feasibility_only": {
+          "type": "boolean"
+        },
+        "run_environment_before": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_environment_after": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cleanup_failures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "abort_reason": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completion": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

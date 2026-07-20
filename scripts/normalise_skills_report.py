@@ -45,6 +45,7 @@ from summarise_test_report import (
     load_devices,
     normalise_timestamp,
     validate_invariants,
+    schema_validation_errors,
     build_run_id,
     write_csv,
     write_markdown,
@@ -332,10 +333,17 @@ def main() -> None:
         "model": model_obj,
         "summary": summary,
         "cases": cases,
+        "artifact_refs": [],
     }
 
     # ── Validate invariants ───────────────────────────────────────────────
     validate_invariants(normalised)
+    schema_errors = schema_validation_errors(normalised)
+    if schema_errors:
+        print("Schema validation failed:", file=sys.stderr)
+        for error in schema_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
 
     # ── Write outputs ─────────────────────────────────────────────────────
     out_dir = Path(args.out_dir)

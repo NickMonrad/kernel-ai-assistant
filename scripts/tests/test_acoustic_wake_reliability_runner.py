@@ -16,6 +16,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 import acoustic_wake_reliability_runner as runner  # noqa: E402
+import summarise_test_evidence_metrics as evidence_metrics  # noqa: E402
 
 FIXTURES = SCRIPTS / "testdata" / "fixtures" / "acoustic-wake-reliability"
 
@@ -54,22 +55,21 @@ def configure_environment(client: FakeAdb, *, target: bool) -> None:
     package = runner.DEFAULT_PACKAGE
     responses = {
         "shell am get-current-user": "0",
-        "shell cmd sensor_privacy status 0 microphone": "disabled",
-        "shell cmd sensor_privacy status 0 camera": "disabled",
+        "shell dumpsys sensor_privacy": "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\n",
         f"shell cmd package list packages -U {package}": f"package:{package} uid:10123",
         "shell am get-uid-state 10123": "PROCESS_STATE_CACHED_EMPTY",
         f"shell am get-standby-bucket {package}": "10",
         f"shell pidof {package}": "1234" if target else "",
-        "shell media volume --stream 3 --get": "volume is 10 in range [0..25]",
+        "shell cmd media_session volume --get --stream 3": "volume is 10 in range [0..25]",
         "shell settings get global mode_ringer": "2",
         "shell settings get global zen_mode": "0",
         f"shell dumpsys activity services {package}": "WakeWordService" if target else "",
-        "shell dumpsys audio": "Audio routes: speaker active",
+        "shell dumpsys audio": "Audio routes:\n  mMainType=0x0\n  mBluetoothName=null",
     }
     if target:
         responses.update({
             "shell dumpsys battery": "AC powered: false\nUSB powered: true",
-            "shell dumpsys power": "mScreenOn=false",
+            "shell dumpsys power": "mWakefulness=Dozing",
             "shell cat /proc/uptime": "100.00 10.00",
             "shell cat /proc/sys/kernel/random/boot_id": "boot-1",
         })
@@ -516,6 +516,32 @@ class SourceAndCorrelationTests(unittest.TestCase):
         self.assertIsNone(harness._active_source_trial_id)
         self.assertIsNone(harness._active_source_fixture_id)
 
+    def test_bluetooth_route_uses_current_state_not_dumpsys_history(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = """Audio routes:
+  mMainType=0x0
+  mBluetoothName=null
+
+Events log: wired/A2DP/hearing aid device connection
+BluetoothActiveDeviceChanged for A2DP, device update null -> XX:XX
+setBluetoothActiveDevice active bt_a2dp routed
+"""
+        self.assertFalse(harness._has_active_bluetooth_route(harness.source))
+
+    def test_bluetooth_route_reports_current_named_route(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = """Audio routes:
+  mMainType=0x0
+  mBluetoothName=Galaxy Buds
+"""
+        self.assertTrue(harness._has_active_bluetooth_route(harness.source))
+
+    def test_bluetooth_route_fails_closed_when_current_state_is_missing(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = "Events log: A2DP active"
+        with self.assertRaisesRegex(runner.HarnessError, "omitted current Audio routes state"):
+            harness._has_active_bluetooth_route(harness.source)
+
     def test_preflight_mode_cleans_up_after_operator_interrupt(self) -> None:
         harness = Mock()
         harness.run_preflight.side_effect = KeyboardInterrupt
@@ -793,6 +819,46 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertFalse(any("settings" in command and "put" in command for command in commands))
 
 
+    def test_sensor_privacy_dump_defaults_absent_sensor_state_to_disabled(self) -> None:
+        parsed = runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+            "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\n",
+            0,
+        )
+        self.assertEqual(parsed, {"microphone": "disabled", "camera": "disabled"})
+
+    def test_sensor_privacy_dump_aggregates_enabled_toggle_for_current_user(self) -> None:
+        parsed = runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+            "\n".join((
+                "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)",
+                "user_id=0", "sensor=1", "toggle_type=1", "state_type=2",
+                "toggle_type=2", "state_type=1",
+                "sensor=2", "toggle_type=1", "state_type=2",
+                "user_id=10", "sensor=2", "toggle_type=1", "state_type=1",
+            )),
+            0,
+        )
+        self.assertEqual(parsed, {"microphone": "enabled", "camera": "disabled"})
+
+    def test_sensor_privacy_dump_rejects_unknown_state_type(self) -> None:
+        with self.assertRaisesRegex(runner.HarnessError, "state type: 7"):
+            runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+                "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\nuser_id=0\nsensor=1\nstate_type=7\n",
+                0,
+            )
+
+    def test_screen_state_accepts_asleep_and_dozing_as_off(self) -> None:
+        self.assertTrue(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Asleep"))
+        self.assertTrue(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Dozing"))
+
+    def test_screen_state_reports_awake_as_on(self) -> None:
+        self.assertFalse(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Awake"))
+
+    def test_screen_state_rejects_missing_or_unknown_wakefulness(self) -> None:
+        with self.assertRaisesRegex(runner.HarnessError, "omitted mWakefulness"):
+            runner.AcousticWakeReliabilityRunner._parse_screen_off("mScreenOn=false")
+        with self.assertRaisesRegex(runner.HarnessError, "unrecognised Android wakefulness"):
+            runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Dreaming")
+
     def test_exact_environment_capture_reads_privacy_process_power_and_audio(self) -> None:
         harness = make_runner()
         configure_environment(harness.source, target=False)
@@ -830,6 +896,17 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertTrue(any("source ringer mode changed" in failure for failure in harness.cleanup_failures))
 
 class EvidenceAndModeTests(unittest.TestCase):
+    def test_finalize_evidence_captures_cleanup_before_export(self) -> None:
+        order: list[str] = []
+        harness = Mock()
+        harness.cleanup.side_effect = lambda: order.append("cleanup")
+        harness.export_evidence.side_effect = lambda: order.append("export") or {"ok": True}
+
+        evidence = runner.finalize_evidence(harness)
+
+        self.assertEqual(order, ["cleanup", "export"])
+        self.assertEqual(evidence, {"ok": True})
+
     def test_fixed_delay_is_feasibility_only(self) -> None:
         with self.assertRaisesRegex(runner.HarnessError, "feasibility"):
             make_runner(runner.RunKind.REGRESSION, fixed_command_delay_ms=500)
@@ -870,10 +947,32 @@ class EvidenceAndModeTests(unittest.TestCase):
         self.assertTrue(harness.cue_policy_evidence_verified)
         self.assertTrue(harness.cue_audibility_evidence_verified)
 
+    def test_git_metadata_uses_ci_branch_and_commit(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"GITHUB_HEAD_REF": "feature/1408-evidence", "GITHUB_SHA": "a" * 40},
+            clear=True,
+        ):
+            self.assertEqual(
+                runner.git_metadata(),
+                ("feature/1408-evidence", "a" * 40),
+            )
+
+    def test_git_metadata_labels_detached_checkout(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout="")
+        with (
+            patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=True),
+            patch.object(runner.subprocess, "run", return_value=completed),
+        ):
+            self.assertEqual(runner.git_metadata(), ("detached", "a" * 40))
+
     def test_release_provenance_requires_s21_target_and_full_commit(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         harness.target_identity = runner.DeviceIdentity(
             "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
         )
         with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
             self.assertTrue(harness._release_provenance_verified())
@@ -887,6 +986,108 @@ class EvidenceAndModeTests(unittest.TestCase):
         with self.assertRaises(runner.HarnessError):
             runner.assert_commit_safe({"path": "/private/fixtures/source.wav"}, ["/private/fixtures/source.wav"])
         self.assertEqual(runner.sanitise_text("serial=ABC123", ["ABC123"]), "[REDACTED]")
+
+    def test_sanitized_summary_copies_only_referenced_public_artifacts(self) -> None:
+        evidence = {
+            "cases": [
+                {
+                    "artifact_refs": [
+                        "trials/trial-1/attempt-1/target-events.json",
+                        "trials/trial-1/attempt-1/source/result.json",
+                    ]
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "private"
+            output = Path(tmp) / "public"
+            first = root / "trials/trial-1/attempt-1/target-events.json"
+            second = root / "trials/trial-1/attempt-1/source/result.json"
+            unreferenced = root / "trials/trial-1/attempt-1/private-debug.json"
+            for path, content in (
+                (first, '{"serial":"ABC123"}'),
+                (second, '{"path":"/private/device/file"}'),
+                (unreferenced, '{"must":"not publish"}'),
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+
+            runner._copy_sanitised_artifacts(output, evidence, root, ["ABC123", "/private/device"])
+
+            first_payload = json.loads(
+                (output / "trials/trial-1/attempt-1/target-events.json").read_text()
+            )
+            second_payload = json.loads(
+                (output / "trials/trial-1/attempt-1/source/result.json").read_text()
+            )
+            self.assertNotIn("ABC123", json.dumps(first_payload))
+            self.assertNotIn("/private/device", json.dumps(second_payload))
+            self.assertFalse((output / "trials/trial-1/attempt-1/private-debug.json").exists())
+
+    def test_sanitized_artifact_reference_rejects_path_traversal(self) -> None:
+        evidence = {"cases": [{"artifact_refs": ["../private.json"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(runner.HarnessError, "unsafe artifact reference"):
+                runner._copy_sanitised_artifacts(Path(tmp) / "out", evidence, Path(tmp), [])
+
+
+    def test_target_event_evidence_preserves_same_clock_samples(self) -> None:
+        events = runner.format_target_snapshot_events(
+            {
+                "events": [
+                    {"s": 8, "m": 1000, "t": "STAGE3_READY", "g": 4, "i": 2, "d": {}},
+                    {"s": 9, "m": 1120, "t": "VERIFIED_ACTIVATION", "g": 4, "i": 2, "d": {}},
+                    {"s": 10, "m": 1170, "t": "WAKE_CALLBACK_INVOKED", "g": 4, "i": 2, "d": {}},
+                ]
+            }
+        )
+        attempt = runner.MatrixAttempt(
+            trial_id="trial-1",
+            matrix_slot=runner.matrix_slots_for_target("s21")[0],
+            attempt=1,
+            status=runner.AttemptStatus.PASSED,
+            target_timing={
+                "clock_domain": "target_device_elapsed_realtime",
+                "events": events,
+            },
+            artifact_refs=["trials/trial-1/attempt-1/target-events.json"],
+        )
+        manifest = runner.RunManifest(
+            run_id="run-1",
+            run_kind=runner.RunKind.SMOKE,
+            gate_mode=runner.GateMode.DIAGNOSTIC,
+            matrix_id=runner.MATRIX_ID,
+            matrix_version=runner.MATRIX_VERSION,
+            created_utc="2026-01-01T00:00:00+00:00",
+            source_alias="s23u",
+            target_alias="s21",
+            fixture_set_id="set-1",
+            fixture_hashes={},
+            cue_policy_version=None,
+            preflight_hash=None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1", [attempt], None, False, "BUILT_IN_SPEAKER",
+        )
+        rendered = evidence["cases"][0]
+        self.assertEqual(rendered["target_timing"]["clock_domain"], "target_device_elapsed_realtime")
+        self.assertEqual(rendered["target_timing"]["events"][1]["m"], 1120)
+        self.assertEqual(
+            rendered["artifact_refs"],
+            ["trials/trial-1/attempt-1/target-events.json"],
+        )
+        self.assertEqual(
+            evidence["artifact_refs"],
+            ["trials/trial-1/attempt-1/target-events.json"],
+        )
+        metrics = evidence_metrics.summarise([(Path("evidence.json"), evidence, [])])
+        timing = metrics["wake_reliability"]["timing"]
+        self.assertEqual(
+            [(sample["metric"], sample["duration_ms"]) for sample in timing["samples"]],
+            [("detector_ready_to_activation_ms", 120), ("activation_to_callback_ms", 50)],
+        )
 
     def test_public_environment_evidence_omits_private_state(self) -> None:
         harness = make_runner()
@@ -935,6 +1136,145 @@ class EvidenceAndModeTests(unittest.TestCase):
             harness.run_smoke()
             self.assertEqual(run_trial.call_count, 1)
 
+    def test_export_evidence_summary_excludes_invalid_from_generic_total(self) -> None:
+        """Finding 1: producer summary.total must equal valid, not all attempts."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+        ]
+        evidence = harness.export_evidence()
+        summary = evidence["summary"]
+        self.assertEqual(summary["total_attempts"], 3)
+        self.assertEqual(summary["valid"], 2)
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["passed"], 1)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["invalid"], 1)
+        self.assertEqual(summary["pass_rate"], 0.5)
+
+    def test_export_evidence_completion_counts(self) -> None:
+        """Finding 2: completion fields in exported evidence are authoritative."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        total_required = len(slots)
+        off_slot = runner.MatrixSlot(idle_s=999, wake_only=False, ordinal=1)
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+            runner.MatrixAttempt("pass-1-retry", slots[0], 2, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("off-matrix", off_slot, 1, runner.AttemptStatus.PASSED),
+        ]
+        evidence = harness.export_evidence()
+        completion = evidence["wake_reliability"]["completion"]
+
+        self.assertIn("total_required", completion)
+        self.assertEqual(completion["total_required"], total_required)
+        # slots[1] has exactly one valid outcome (failed) = completed
+        # slots[0] has two valid outcomes = not cleanly completed
+        # slots[2] has zero valid outcomes (invalid only) = not completed
+        # remaining 24 slots have zero outcomes = not completed
+        self.assertEqual(completion["completed"], 1)
+        self.assertEqual(completion["missing"], total_required - 1)
+        self.assertEqual(completion["passed"], 0)
+        self.assertEqual(completion["failed"], 1)
+        self.assertEqual(completion["invalid"], 1)
+        self.assertEqual(completion["duplicate_valid_positions"], 1)
+        # Schema validation
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
+    def test_export_evidence_end_to_end(self) -> None:
+        """Finding 2: producer, summariser, and dashboard completion agree with retry present."""
+        import build_test_dashboard as dashboard
+
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        off_slot = runner.MatrixSlot(idle_s=999, wake_only=False, ordinal=1)
+        # One passed, one failed, one invalid, one retry on the passed position,
+        # one off-matrix valid attempt.
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS,
+                                 failures=["STT readiness event absent"]),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+            runner.MatrixAttempt("pass-1-retry", slots[0], 2, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("off-matrix", off_slot, 1, runner.AttemptStatus.PASSED),
+        ]
+        evidence = harness.export_evidence()
+        producer_completion = evidence["wake_reliability"]["completion"]
+        # Producer semantics: passed position with retry has 2 outcomes → not completed,
+        # failed position has 1 outcome → completed, invalid position → missing,
+        # off-matrix → ignored.  So completed=1, missing=26, duplicates=1.
+        self.assertEqual(producer_completion["completed"], 1)
+        self.assertEqual(producer_completion["missing"], producer_completion["total_required"] - 1)
+        self.assertEqual(producer_completion["duplicate_valid_positions"], 1)
+
+        # 1. Through summariser — must agree with producer
+        summary = evidence_metrics.summarise([("evidence.json", evidence, [])])
+        summariser_completion = summary["wake_reliability"]["completion"]
+        for key in ("total_required", "completed", "missing", "duplicate_valid_positions"):
+            self.assertEqual(
+                summariser_completion[key], producer_completion[key],
+                f"summariser {key} ({summariser_completion[key]}) != producer {key} ({producer_completion[key]})",
+            )
+
+        # 2. Through dashboard aggregation — must agree with producer
+        aggregates = dashboard._build_aggregates([evidence], metrics=summary)
+        dash_completion = aggregates["metrics"]["wake_reliability"]["completion"]
+        for key in ("total_required", "completed", "missing", "duplicate_valid_positions"):
+            self.assertEqual(
+                dash_completion[key], producer_completion[key],
+                f"dashboard {key} ({dash_completion[key]}) != producer {key} ({producer_completion[key]})",
+            )
+
+        # 3. Wake metrics rendering — same fraction as producer
+        wake_html = dashboard._render_wake_metrics_section(aggregates)
+        expected_fraction = f"{producer_completion['completed']}/{producer_completion['total_required']}"
+        self.assertIn(expected_fraction, wake_html,
+                      "dashboard must display the same completed/required fraction as producer")
 
 if __name__ == "__main__":
     unittest.main()

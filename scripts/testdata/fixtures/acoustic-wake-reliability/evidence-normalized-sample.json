@@ -1,0 +1,427 @@
+{
+  "artifact_refs": [],
+  "branch": "feature/1408-acoustic-wake-evidence-dashboard",
+  "cases": [
+    {
+      "artifact_refs": [
+        "trials/trial-pass/attempt-1/source-result.json",
+        "trials/trial-pass/attempt-1/target-events.json"
+      ],
+      "attempt": 1,
+      "environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      },
+      "environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      },
+      "environment_summary": {
+        "stable": true
+      },
+      "fixture": {
+        "id": "wake",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "idle_seconds": 5,
+      "matrix_slot": {
+        "idle_s": 5,
+        "ordinal": 1,
+        "trial_type": "wake_only"
+      },
+      "name": "trial-pass",
+      "passed": true,
+      "required_position_id": "5:wake_only:1",
+      "source_environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_outcome": {
+        "completion_status": "completed"
+      },
+      "source_timing": {
+        "playback_start_monotonic_ms": 1000
+      },
+      "status": "passed",
+      "target_timing": {
+        "activation_monotonic_ms": 1200
+      },
+      "trial_id": "trial-pass",
+      "trial_type": "wake_only"
+    },
+    {
+      "artifact_refs": [
+        "trials/trial-fail/attempt-1/source-result.json",
+        "trials/trial-fail/attempt-1/command-source-result.json",
+        "trials/trial-fail/attempt-1/target-events.json"
+      ],
+      "attempt": 1,
+      "command_fixture": {
+        "id": "command",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "command_source_outcome": {
+        "completion_status": "completed"
+      },
+      "environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      },
+      "environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      },
+      "environment_summary": {
+        "stable": true
+      },
+      "failure_classification": "stt_readiness_failure",
+      "failures": [
+        "STT readiness event absent"
+      ],
+      "fixture": {
+        "id": "wake",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "idle_seconds": 10,
+      "matrix_slot": {
+        "idle_s": 10,
+        "ordinal": 1,
+        "trial_type": "wake_plus_command"
+      },
+      "name": "trial-fail",
+      "passed": false,
+      "required_position_id": "10:wake_plus_command:1",
+      "source_environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_outcome": {
+        "completion_status": "completed"
+      },
+      "source_timing": {
+        "playback_start_monotonic_ms": 2000
+      },
+      "status": "failed",
+      "target_timing": {
+        "verified_activation_monotonic_ms": 2200
+      },
+      "trial_id": "trial-fail",
+      "trial_type": "wake_plus_command"
+    },
+    {
+      "artifact_refs": [
+        "trials/trial-invalid/attempt-1/attempt.json"
+      ],
+      "attempt": 1,
+      "environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "environment_summary": {
+        "stable": false
+      },
+      "failures": [
+        "target service inactive"
+      ],
+      "fixture": {
+        "id": "wake",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "idle_seconds": 20,
+      "invalid_reason": "device_environment_error",
+      "matrix_slot": {
+        "idle_s": 20,
+        "ordinal": 1,
+        "trial_type": "wake_only"
+      },
+      "name": "trial-invalid",
+      "passed": false,
+      "required_position_id": "20:wake_only:1",
+      "source_environment_after": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_environment_before": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "source_outcome": {},
+      "source_timing": {},
+      "status": "invalid",
+      "target_timing": {},
+      "trial_id": "trial-invalid",
+      "trial_type": "wake_only"
+    }
+  ],
+  "commit": "dddddddddddddddddddddddddddddddddddddddd",
+  "device": {
+    "android_api": 35,
+    "execution": "physical",
+    "id": "s21-exynos",
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "SM-G991B",
+    "soc": "Exynos 2100",
+    "tier": "tracked"
+  },
+  "model": {
+    "backend": null,
+    "name": "wake_word",
+    "runtime": "ONNX"
+  },
+  "pr": 1408,
+  "release": null,
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "run_id": "acoustic-regression-fixture-s21",
+  "schema_version": "1.1",
+  "source": "on_device",
+  "suite": "wake_word_acoustic_reliability",
+  "summary": {
+    "failed": 1,
+    "invalid": 1,
+    "pass_rate": 0.5,
+    "passed": 1,
+    "total": 2,
+    "total_attempts": 3,
+    "valid": 2
+  },
+  "timestamp": "2026-07-19T12:00:00+00:00",
+  "wake_reliability": {
+    "abort_reason": null,
+    "all_required_passed": false,
+    "approved_source_route": "BUILT_IN_SPEAKER",
+    "approved_source_volume": 7,
+    "approved_source_volume_max": 25,
+    "cleanup_failures": [],
+    "cleanup_verified": true,
+    "complete": false,
+    "complete_valid_matrix": false,
+    "completion": {
+      "completed": 1,
+      "duplicate_valid_positions": 0,
+      "failed": 1,
+      "invalid": 1,
+      "missing": 26,
+      "passed": 0,
+      "total_required": 27
+    },
+    "cue_audibility_evidence_verified": true,
+    "cue_policy_evidence_verified": true,
+    "cue_policy_version": "1",
+    "expected_valid_counts": {
+      "10:wake_only:1": 1,
+      "10:wake_only:2": 1,
+      "10:wake_only:3": 1,
+      "10:wake_only:4": 1,
+      "10:wake_only:5": 1,
+      "10:wake_plus_command:1": 1,
+      "10:wake_plus_command:2": 1,
+      "10:wake_plus_command:3": 1,
+      "120:wake_only:1": 1,
+      "120:wake_only:2": 1,
+      "120:wake_only:3": 1,
+      "120:wake_only:4": 1,
+      "120:wake_only:5": 1,
+      "120:wake_plus_command:1": 1,
+      "120:wake_plus_command:2": 1,
+      "120:wake_plus_command:3": 1,
+      "1800:wake_only:1": 1,
+      "1800:wake_only:2": 1,
+      "1800:wake_plus_command:1": 1,
+      "1800:wake_plus_command:2": 1,
+      "30:wake_only:1": 1,
+      "30:wake_only:2": 1,
+      "30:wake_only:3": 1,
+      "30:wake_only:4": 1,
+      "30:wake_only:5": 1,
+      "900:wake_only:1": 1,
+      "900:wake_only:2": 1
+    },
+    "feasibility_only": false,
+    "fixture_hashes": {
+      "command": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "wake": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "fixture_set_id": "acoustic-wake-v1",
+    "gate_mode": "release_gate",
+    "matrix_id": "AWVR-001",
+    "matrix_version": 1,
+    "monitored_acoustic_check": true,
+    "placement_notes": "paired acoustic fixture",
+    "preflight_approval": {
+      "approved_at": "2026-07-19T11:59:00+00:00",
+      "cue_audibility_evidence_verified": true,
+      "fixture_hashes": {
+        "command": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "wake": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "fixture_set_id": "acoustic-wake-v1",
+      "manifest_schema_version": 1,
+      "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "operator_approved": true,
+      "placement_notes": "paired acoustic fixture",
+      "route_policy_approved": true,
+      "source_route": "BUILT_IN_SPEAKER",
+      "source_volume_index": 7,
+      "source_volume_max": 25
+    },
+    "preflight_manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "release_gate_success": false,
+    "release_provenance_verified": true,
+    "run_environment_after": {
+      "source": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "target": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      }
+    },
+    "run_environment_before": {
+      "source": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": false,
+        "uptime_seconds": 1000
+      },
+      "target": {
+        "bluetooth_route_active": false,
+        "charging": false,
+        "dnd_mode": "off",
+        "media_volume": 5,
+        "reachable": true,
+        "ringer_mode": "normal",
+        "screen_off": true,
+        "service_active": true,
+        "uptime_seconds": 1000
+      }
+    },
+    "run_kind": "regression_post_fix",
+    "source": {
+      "alias": "s23u",
+      "android_api": "35",
+      "android_release": "15",
+      "manufacturer": "samsung",
+      "model": "SM-S918B",
+      "package_version": "1.0",
+      "package_version_code": 1
+    },
+    "source_helper_version": "1.0"
+  }
+}

@@ -70,31 +70,9 @@ def load_devices() -> dict[str, dict[str, Any]]:
 
 
 def resolve_device(device_id: str) -> dict[str, Any]:
-    devices = load_devices()
-    if device_id in devices:
-        entry = devices[device_id]
-        return {
-            "id": device_id,
-            "serial": None,
-            "label": entry.get("label", device_id),
-            "manufacturer": entry.get("manufacturer", ""),
-            "model": entry.get("model", ""),
-            "soc": entry.get("soc", ""),
-            "tier": entry.get("tier", "tracked"),
-            "android_api": entry.get("android_api"),
-            "execution": entry.get("execution", "physical"),
-        }
-    return {
-        "id": device_id,
-        "serial": None,
-        "label": device_id,
-        "manufacturer": "Unknown",
-        "model": "Unknown",
-        "soc": "Unknown",
-        "tier": "tracked",
-        "android_api": None,
-        "execution": "physical",
-    }
+    from summarise_test_report import build_device_obj
+
+    return build_device_obj(device_id, load_devices())
 
 
 def find_test_result_xmls(results_dir: Path) -> list[Path]:
@@ -211,15 +189,13 @@ def to_schema_evidence(normalised: dict[str, Any]) -> dict[str, Any]:
 def validate_against_schema(normalised: dict[str, Any]) -> list[str]:
     schema_path = HERE / "testdata" / "test_evidence.schema.json"
     schema_data = to_schema_evidence(normalised)
-    try:
-        import jsonschema  # type: ignore[import-untyped]
-    except ImportError:
-        return []
-    with open(schema_path) as f:
-        schema = json.load(f)
+    from jsonschema import Draft7Validator, FormatChecker
+
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
     return [
         f"schema: {'/'.join(str(p) for p in err.path)}: {err.message}"
-        for err in jsonschema.Draft7Validator(schema).iter_errors(schema_data)
+        for err in validator.iter_errors(schema_data)
     ]
 
 
@@ -337,6 +313,7 @@ def main(argv: list[str] | None = None) -> None:
         "model": {"name": "not_applicable", "runtime": "not_applicable", "backend": "not_applicable"},
         "summary": {"total": total, "passed": passed, "failed": failed, "pass_rate": pass_rate},
         "cases": cases,
+        "artifact_refs": [],
     }
 
     errors = validate_against_schema(normalised)
@@ -344,6 +321,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"VALIDATION ERRORS ({len(errors)}):", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
 
     base = args.out_dir / f"{timestamp}_{args.device_id}_{args.suite}"
     write_json(normalised, base.with_suffix(".json"))
@@ -351,8 +329,6 @@ def main(argv: list[str] | None = None) -> None:
     write_markdown(normalised, base.with_suffix(".md"))
     print(f"\nOutput directory: {args.out_dir}")
     print(f"Summary: {passed}/{total} passed ({pass_rate:.1%})")
-    if errors:
-        sys.exit(1)
 
 
 if __name__ == "__main__":

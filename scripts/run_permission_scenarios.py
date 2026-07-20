@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from permission_scenario_defs import DEFAULT_UX_THRESHOLDS, FIXTURES, SCENARIOS
+from summarise_test_report import schema_validation_errors
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
@@ -890,16 +891,16 @@ def resolve_device(device_id: str, serial: str | None) -> dict[str, Any]:
         known = ", ".join(sorted(devices))
         raise RunnerError(f"Unknown --device-id {device_id!r}; valid IDs: {known}")
     entry = dict(devices[device_id])
+    required = ("label", "manufacturer", "model", "soc", "tier", "android_api", "execution")
+    missing = [field for field in required if field not in entry]
+    if missing:
+        raise RunnerError(
+            f"Device registry entry {device_id!r} is missing required fields: {', '.join(missing)}"
+        )
     return {
         "id": device_id,
         "serial": serial,
-        "label": entry.get("label", device_id),
-        "manufacturer": entry.get("manufacturer", "Unknown"),
-        "model": entry.get("model", "Unknown"),
-        "soc": entry.get("soc", "Unknown"),
-        "tier": entry.get("tier", "tracked"),
-        "android_api": entry.get("android_api"),
-        "execution": entry.get("execution", "physical"),
+        **{field: entry[field] for field in required},
     }
 
 
@@ -1168,6 +1169,11 @@ def to_evidence(run_result: RunResult) -> dict[str, Any]:
             "pass_rate": round((passed / len(cases)) if cases else 0.0, 3),
         },
         "cases": cases,
+        "artifact_refs": [
+            {"path": path, "type": "other"}
+            for key in ("raw_json", "summary", "logcat")
+            if (path := run_result.artifacts.get(key))
+        ],
     }
 
 
@@ -1458,8 +1464,12 @@ def main(argv: list[str] | None = None) -> int:
         thresholds=dict(DEFAULT_UX_THRESHOLDS),
         scenarios=scenarios,
     )
+    evidence = to_evidence(run_result)
+    schema_errors = schema_validation_errors(evidence)
+    if schema_errors:
+        raise RunnerError("Schema validation failed: " + "; ".join(schema_errors))
     write_json(run_dir / "result.json", asdict(run_result))
-    write_json(run_dir / "evidence.json", to_evidence(run_result))
+    write_json(run_dir / "evidence.json", evidence)
     write_summary(run_result, run_dir / "summary.md")
     print(f"Permission scenario report: {run_dir}")
     return 0

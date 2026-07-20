@@ -14,7 +14,7 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Permission scenario runner | `adb` + Python | Physical-device permission journeys with step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
 | Permission report publisher | Python + `gh` | Explicitly publish an existing permission report bundle to `test-results` and one sticky PR comment | `python3 scripts/publish_permission_scenario_report.py --report-dir … --pr … --commit … --device-id s21-exynos` |
 | Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
-| Acoustic wake reliability runner | `adb` + Python `unittest` | Paired source-to-target journal waits, strict source/snapshot contracts, independent matrix positions, environment invalidation and sanitised evidence semantics | `python3 scripts/acoustic_wake_reliability_runner.py fixture` / `python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner` |
+| Acoustic wake reliability runner | `adb` + Python `unittest` | Paired source-to-target journal waits, strict source/snapshot contracts, independent matrix positions, environment invalidation, normalised evidence, and sanitised artifact export | `python3 scripts/acoustic_wake_reliability_runner.py fixture` / `python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner` |
 
 
 ## Permission scenario runner
@@ -353,7 +353,7 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 |--------|-----|-----|-------------------|------|
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Reference device — primary target |
 | Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic 8 Pro | Snapdragon 8 Elite | 12 GB | NPU | Future tracked / reference candidate |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Experimental reference candidate (Android API 36) |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
@@ -404,6 +404,48 @@ in issues, not by relaxing harness assertions.
 Evidence normalisation and a dashboard view (combining CI and on-device runs, tracking
 pass-rate trends per device) are tracked in [#1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113).
 
+
+### Acoustic wake reliability evidence
+
+The runner writes private state beneath `scripts/private-acoustic-runs/<run-id>/` and
+exports a publishable bundle beneath its `sanitized/` directory only after cleanup.
+The bundle contains `evidence-<target>.json`, `run-summary.md`, and only the artifacts
+explicitly referenced by the evidence record. Raw ADB selectors, private paths, device
+boot IDs, credentials, and unreferenced raw artifacts must not enter this tree.
+
+Local contract checks:
+
+```bash
+python3 -m py_compile scripts/acoustic_wake_reliability_runner.py
+python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner
+python3 scripts/acoustic_wake_reliability_runner.py fixture
+```
+
+Physical modes require distinct `--source-selector` and `--target-selector` values.
+Run `preflight` first; later `smoke`, `diagnostic`, `regression`, and `feasibility`
+modes consume its hash-verified `--preflight-manifest`. `smoke` is one bounded
+wake-only position. `diagnostic` preserves valid failures. `feasibility` is always
+non-gating. Only a complete, provenance-verified S21 `regression` run can report
+`release_gate_success: true`.
+
+The runner emits the authoritative normalised record directly; do not pass it through
+a lossy ad-hoc converter. Validate the generated `evidence-<target>.json` against
+`scripts/testdata/test_evidence.schema.json`, then publish only when explicitly
+instructed, using the normal publisher and the actual Pull Request number:
+
+```bash
+python3 scripts/publish_test_evidence.py \
+  --input-dir scripts/private-acoustic-runs/<run-id>/sanitized \
+  --source on_device \
+  --pr <pull-request-number> \
+  --commit <tested-commit-sha>
+```
+
+The evidence schema keeps matrix completeness, behavioural success, and release-gate
+success separate. Dashboard and metric consumers render required-position completion,
+valid pass/fail/invalid counts, target-device clock-domain latencies, failure buckets,
+cleanup/provenance status, and referenced artifacts without changing existing `1.0`
+suite behaviour.
 
 ## Evidence lifecycle
 

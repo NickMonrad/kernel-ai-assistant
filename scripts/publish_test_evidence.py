@@ -492,28 +492,42 @@ def _collect_input_files(args: argparse.Namespace) -> list[Path]:
         if not in_dir.is_dir():
             print(f"ERROR: input directory not found: {in_dir}", file=sys.stderr)
             sys.exit(1)
-        all_entries = sorted(in_dir.iterdir())
+        all_entries = sorted(in_dir.rglob("*"))
         if not all_entries:
             print(f"ERROR: input directory is empty: {in_dir}", file=sys.stderr)
             sys.exit(1)
-        # Filter: keep allowed extensions, skip blocked ones
+        evidence_file = in_dir / "evidence.json"
+        if not evidence_file.is_file() or evidence_file.is_symlink():
+            print(f"ERROR: input directory must contain a regular evidence.json: {in_dir}", file=sys.stderr)
+            sys.exit(1)
         allowed: list[Path] = []
-        for f in all_entries:
-            if f.suffix in BLOCKED_EXTENSIONS:
-                print(f"SKIP: blocked extension ({f.suffix}): {f.name}")
+        for entry in all_entries:
+            if entry.is_symlink():
+                print(f"ERROR: symlinks are not allowed in input directories: {entry}", file=sys.stderr)
+                sys.exit(1)
+            if not entry.is_file():
                 continue
-            if f.suffix in ALLOWED_EXTENSIONS:
-                if f.is_file():
-                    allowed.append(f)
+            if entry.suffix in BLOCKED_EXTENSIONS:
+                print(
+                    f"ERROR: blocked extension ({entry.suffix}): {entry.relative_to(in_dir)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if entry.suffix not in ALLOWED_EXTENSIONS:
+                print(
+                    f"ERROR: unsupported extension ({entry.suffix}): {entry.relative_to(in_dir)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            allowed.append(entry)
         if not allowed:
-            print(f"ERROR: no publishable files in {in_dir}", file=sys.stderr)
+            print(f"ERROR: no publishable files found in {in_dir}", file=sys.stderr)
             sys.exit(1)
         return allowed
 
-    # --input (single file)
-    in_path = Path(args.input)
-    if not in_path.is_file():
-        print(f"ERROR: input file not found: {in_path}", file=sys.stderr)
+    in_path = Path(args.input_file)
+    if not in_path.is_file() or in_path.is_symlink():
+        print(f"ERROR: input file not found or unsafe: {in_path}", file=sys.stderr)
         sys.exit(1)
     if in_path.suffix not in ALLOWED_EXTENSIONS:
         print(f"ERROR: input file must be .json, .csv, or .md: {in_path}", file=sys.stderr)
@@ -597,8 +611,13 @@ def _build_output_paths(files: list[Path], args: argparse.Namespace, data: dict 
     mapping: dict[Path, str] = {}
     for f in files:
         if args.input_dir:
-            # Directory mode: preserve original filename with __ prefix
-            dest_name = f"__{f.name}"
+            input_root = Path(args.input_dir)
+            try:
+                relative = f.relative_to(input_root)
+            except ValueError:
+                print(f"ERROR: input file escapes input directory: {f}", file=sys.stderr)
+                sys.exit(1)
+            dest_name = relative.as_posix()
         else:
             # Single input file: derive a descriptive name from evidence metadata
             if data and args.source == "on_device":
@@ -729,14 +748,16 @@ def main() -> None:
     # Collect and validate input files
     files = _collect_input_files(args)
 
-    # Find JSON evidence files for validation
-    json_files: list[Path] = [f for f in files if f.suffix == ".json"]
+    if args.input_dir:
+        evidence_files = [Path(args.input_dir) / "evidence.json"]
+    else:
+        evidence_files = [f for f in files if f.suffix == ".json"]
     data: dict | None = None
     evidence_prs: set[int | None] = set()
-    for json_file in json_files:
-        ev_data = _validate_evidence_file(json_file, args)
+    for evidence_file in evidence_files:
+        ev_data = _validate_evidence_file(evidence_file, args)
         evidence_prs.add(ev_data.get("pr") if ev_data else None)
-        data = ev_data  # Keep last for output path building
+        data = ev_data
 
     # Validate PR number consistency (guard against issue vs PR number confusion)
     _validate_pr_number(

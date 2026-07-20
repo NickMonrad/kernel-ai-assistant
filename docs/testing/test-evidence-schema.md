@@ -4,7 +4,7 @@ Status: **Authoritative schema contract for normalised test evidence**
 Parent: #1113 — GitHub-native test evidence dashboard for CI and on-device results
 Implements: #1115 — Define normalised test result schema and device registry
 
-> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers and consumers should remain backward-compatible when optional fields are missing.
+> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers must emit the full required schema. Consumers tolerate only absent optional fields and must surface malformed records as invalid rather than silently repairing them.
 >
 > **Current run commands:** [`../automated-testing.md`](../automated-testing.md)
 >
@@ -31,7 +31,9 @@ These two must never be conflated. CI can validate build/static/dry-run results 
 
 ## 3. Device registry
 
-Device metadata is defined in `scripts/testdata/devices.yaml`. Keyed by short device ID (`s23-ultra`, `s21-exynos`, `ubuntu-latest`, etc.).
+Device metadata is defined in the versioned `scripts/testdata/devices.yaml` registry. It is keyed by canonical device ID (`s23-ultra`, `s21-exynos`, `ubuntu-latest`, etc.) and lists accepted aliases. Producers resolve metadata from this registry; consumers canonicalise aliases against it. Unregistered IDs or conflicting `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, or `execution` values make an evidence record invalid.
+
+Every supported physical-device entry must provide an unambiguous manufacturer, exact model, exact SoC, evidence tier, Android API compatibility, and `execution: physical`. Placeholder values such as `Unknown` or `latest Snapdragon` are not valid registry metadata.
 
 Tiers:
 
@@ -83,6 +85,8 @@ Fields: `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, `executi
 | `model` | object | yes | Model/runtime metadata. See §4.2. |
 | `summary` | object | yes | Pass/fail counts. See §4.3. |
 | `cases` | array | yes | Per-case results. See §4.4. |
+| `wake_reliability` | object | no | Acoustic wake-word reliability extension. Required for `suite == "wake_word_acoustic_reliability"`; see §4.5. |
+| `artifact_refs` | array of strings | no | Run-level paths relative to the evidence record. |
 
 ### 4.1 `device` object
 
@@ -133,6 +137,8 @@ Fields: `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, `executi
 | `tier` | string | yes | `reference`, `tracked`, `experimental`, or `ci`. |
 | `android_api` | number or null | yes | API level or null for non-Android environments. |
 | `execution` | string | yes | `physical` for real devices, `github_hosted_runner` for CI. |
+
+Device producers MAY emit a public alias such as `s21` or `s23u`. Consumers MUST resolve aliases through `scripts/testdata/devices.yaml` before aggregation so one physical device cannot split into multiple dashboard identities. The dashboard stores and groups by the registry's canonical `id`; raw ADB serials remain evidence metadata and are never aggregation keys.
 
 ### 4.2 `model` object
 
@@ -243,10 +249,42 @@ For CI runs that do not execute any model, set to:
 | `chip_present` | boolean | yes | Whether the tool chip marker was found in the UI stream. |
 | `skill_result_present` | boolean | yes | Whether the skill result marker appeared. |
 | `message_saved` | boolean | yes | Whether a `message_saved_marker` was emitted. |
-| `retry_seen` | boolean | yes | Whether the retry marker was detected. |
-| `slot_fill_seen` | boolean | yes | Whether a slot-fill UI interaction was detected instead of a direct tool call. |
-| `failure_category` | string or null | yes | Standardised category for failed cases (see §5). `null` on pass. |
-| `failures` | array of strings | yes | Raw failure messages from the harness. Empty on pass. |
+### 4.5 Acoustic wake reliability extension (`schema_version: "1.1"`)
+
+The paired acoustic wake runner emits normalised evidence directly. Its records use
+`schema_version: "1.1"` and `suite: "wake_word_acoustic_reliability"`; the canonical
+`1.0` contracts remain unchanged for every other suite. Each acoustic record retains
+the common top-level context, device, summary, cases, and artifact-reference fields,
+then adds a required top-level `wake_reliability` object.
+
+The extension is intentionally strict:
+
+- `cases` contain one object per attempted matrix position, identified by
+  `required_position_id` and the independent `{idle_s, trial_type, ordinal}`
+  `matrix_slot`; retries increment `attempt` without changing that identity.
+- Each case records `status` (`passed`, `failed`, or `invalid`), source and target
+  timing, pre/post environment snapshots for both devices, fixture identity, source
+  outcomes, failures, and optional classification/invalid-reason fields.
+- Target journal events preserve their target-device elapsed-realtime samples under
+  `target_timing`; source playback timing remains in the source device's monotonic
+  clock domain. Cross-device subtraction is forbidden.
+- `wake_reliability` records run/gate mode, matrix and source-helper provenance,
+  preflight approval and cue-policy evidence, required valid counts, cleanup state,
+  matrix completion, feasibility-only state, and release-gate outcome.
+- `complete_valid_matrix`, `all_required_passed`, and `release_gate_success` are
+  separate signals. A complete matrix can fail the behavioural gate, and diagnostic
+  or fixed-delay feasibility evidence cannot be labelled release-ready.
+- `artifact_refs` are safe paths relative to the evidence record. Every referenced
+  artifact is copied into the publishable evidence tree, recursively sanitised, and
+  rejected if the path is absolute, escapes the run root, is a symlink, has a blocked
+  raw/private extension, or names an unreferenced private artifact.
+
+The runner must rebuild the complete record after cleanup before serialisation, then
+validate it against `scripts/testdata/test_evidence.schema.json`. Consumers must mark
+malformed `1.1` records invalid; they must not infer missing release or matrix fields.
+
+The full field-level contract is the `wake_word_acoustic_reliability` branch in
+[`scripts/testdata/test_evidence.schema.json`](../../scripts/testdata/test_evidence.schema.json).
 
 ## 5. Failure categories
 

@@ -30,11 +30,26 @@ import json
 import re
 import sys
 from pathlib import Path
+from jsonschema import Draft7Validator, FormatChecker
 
 SCHEMA_VERSION = "1.0"
 REPO = "NickMonrad/kernel-ai-assistant"
 HERE = Path(__file__).resolve().parent
 DEVICES_PATH = HERE / "testdata" / "devices.yaml"
+DEVICE_REGISTRY_SCHEMA_VERSION = "1.0"
+EVIDENCE_SCHEMA_PATH = HERE / "testdata" / "test_evidence.schema.json"
+DEVICE_REQUIRED_FIELDS = (
+    "label",
+    "manufacturer",
+    "model",
+    "soc",
+    "tier",
+    "android_api",
+    "execution",
+)
+DEVICE_TIERS = {"reference", "tracked", "experimental", "ci"}
+DEVICE_EXECUTIONS = {"physical", "github_hosted_runner"}
+AMBIGUOUS_DEVICE_VALUES = {"", "unknown", "n/a", "na", "unspecified", "latest snapdragon"}
 
 # Known case-name → expected_result_mode mapping for legacy raw reports
 # that do not carry per-case expected_result_mode.
@@ -61,9 +76,16 @@ def normalise_timestamp(ts: str) -> str:
 
 
 def _parse_yaml_scalar(value: str):
-    """Convert YAML scalar to Python type — null → None, integers → int."""
+    """Convert the registry's constrained YAML scalar subset."""
     if value == "null":
         return None
+    if value.startswith("[") and value.endswith("]"):
+        body = value[1:-1].strip()
+        if not body:
+            return []
+        return [item.strip().strip("\"'") for item in body.split(",")]
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
     if re.fullmatch(r"-?\d+", value):
         return int(value)
     return value
@@ -106,37 +128,93 @@ def _yaml_load(source: str) -> dict:
 
 # ── Device registry ──────────────────────────────────────────────────────────
 
-def load_devices() -> dict:
-    """Load device registry from YAML.  Returns {device_id: {…}}."""
-    source = DEVICES_PATH.read_text()
+def load_devices() -> dict[str, dict]:
+    """Load and validate the canonical, versioned device registry."""
+    source = DEVICES_PATH.read_text(encoding="utf-8")
     data = _yaml_load(source)
-    return data.get("devices", {})
-def resolve_device(device_id: str, devices: dict) -> dict:
-    """Look up a device by ID; exit with clear error on unknown ID."""
-    if device_id not in devices:
-        known = sorted(devices.keys())
-        print(
-            f"Error: unknown --device-id '{device_id}'.\n"
-            f"Valid IDs: {', '.join(known)}",
-            file=sys.stderr,
+    if data.get("schema_version") != DEVICE_REGISTRY_SCHEMA_VERSION:
+        raise ValueError(
+            "device registry schema_version must be "
+            f"{DEVICE_REGISTRY_SCHEMA_VERSION!r}"
         )
-        sys.exit(1)
-    return devices[device_id]
+    devices = data.get("devices")
+    if not isinstance(devices, dict) or not devices:
+        raise ValueError("device registry must contain a non-empty devices mapping")
+
+    claimed_names: dict[str, str] = {}
+    for canonical_id, raw in devices.items():
+        if not isinstance(raw, dict):
+            raise ValueError(f"device registry entry {canonical_id!r} must be an object")
+        missing = [field for field in DEVICE_REQUIRED_FIELDS if field not in raw]
+        if missing:
+            raise ValueError(
+                f"device registry entry {canonical_id!r} is missing: {', '.join(missing)}"
+            )
+        for field in ("label", "manufacturer", "model", "soc"):
+            value = raw[field]
+            if not isinstance(value, str) or value.strip().lower() in AMBIGUOUS_DEVICE_VALUES:
+                raise ValueError(
+                    f"device registry entry {canonical_id!r} has ambiguous {field}: {value!r}"
+                )
+        if raw["tier"] not in DEVICE_TIERS:
+            raise ValueError(f"device registry entry {canonical_id!r} has invalid tier")
+        if raw["execution"] not in DEVICE_EXECUTIONS:
+            raise ValueError(f"device registry entry {canonical_id!r} has invalid execution")
+        android_api = raw["android_api"]
+        if android_api is not None and not isinstance(android_api, int):
+            raise ValueError(f"device registry entry {canonical_id!r} has invalid android_api")
+        aliases = raw.get("aliases", [])
+        if not isinstance(aliases, list) or not all(isinstance(alias, str) and alias for alias in aliases):
+            raise ValueError(f"device registry entry {canonical_id!r} has invalid aliases")
+        for name in (canonical_id, *aliases):
+            key = name.lower()
+            owner = claimed_names.get(key)
+            if owner is not None and owner != canonical_id:
+                raise ValueError(f"device registry alias {name!r} is claimed by multiple devices")
+            claimed_names[key] = canonical_id
+    return devices
+
+def build_device_registry_index(
+    devices: dict[str, dict] | None = None,
+) -> dict[str, dict]:
+    """Index canonical device metadata by ID and documented aliases."""
+    loaded = devices if devices is not None else load_devices()
+    registry: dict[str, dict] = {}
+    for canonical_id, raw in loaded.items():
+        entry = {"id": canonical_id, **raw}
+        for name in (canonical_id, *raw.get("aliases", [])):
+            registry[str(name).lower()] = entry
+    return registry
 
 
-def build_device_obj(device_id: str, devices: dict) -> dict:
-    """Build the device object for the normalised report."""
-    dev = resolve_device(device_id, devices)
+def canonical_device_id(device_id: str, devices: dict[str, dict]) -> str:
+    """Resolve a canonical device ID from a canonical ID or accepted alias."""
+    lookup = device_id.lower()
+    for canonical_id, device in devices.items():
+        names = (canonical_id, *device.get("aliases", []))
+        if any(lookup == str(name).lower() for name in names):
+            return canonical_id
+    known = sorted(devices.keys())
+    print(
+        f"Error: unknown --device-id '{device_id}'.\nValid IDs: {', '.join(known)}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def resolve_device(device_id: str, devices: dict[str, dict]) -> dict:
+    """Look up a device by canonical ID or accepted alias."""
+    return devices[canonical_device_id(device_id, devices)]
+
+
+def build_device_obj(device_id: str, devices: dict[str, dict]) -> dict:
+    """Build a canonical device object for a normalised report."""
+    canonical_id = canonical_device_id(device_id, devices)
+    dev = devices[canonical_id]
     return {
-        "id": device_id,
-        "serial": dev.get("serial"),  # optional, not in YAML yet
-        "label": dev["label"],
-        "manufacturer": dev["manufacturer"],
-        "model": dev["model"],
-        "soc": dev["soc"],
-        "tier": dev["tier"],
-        "android_api": dev.get("android_api"),
-        "execution": dev["execution"],
+        "id": canonical_id,
+        "serial": dev.get("serial"),
+        **{field: dev[field] for field in DEVICE_REQUIRED_FIELDS},
     }
 
 
@@ -243,6 +321,16 @@ def normalise_case(r: dict, expected_mode: str) -> dict:
 
 
 # ── Invariant validation ─────────────────────────────────────────────────────
+
+def schema_validation_errors(normalised: dict) -> list[str]:
+    """Return deterministic full-schema errors for an evidence record."""
+    schema = json.loads(EVIDENCE_SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    return [
+        f"schema:{'.'.join(str(part) for part in error.absolute_path) or '$'}: {error.message}"
+        for error in sorted(validator.iter_errors(normalised), key=lambda item: list(item.path))
+    ]
+
 
 def validate_invariants(normalised: dict) -> None:
     """Check semantic invariants from schema §7.  Exits on violation."""
@@ -551,6 +639,7 @@ def main() -> None:
         "schema_version": SCHEMA_VERSION,
         "source": args.source,
         "suite": args.suite,
+
         "timestamp": timestamp,
         "repo": REPO,
         "branch": args.branch,
@@ -562,10 +651,17 @@ def main() -> None:
         "model": model_obj,
         "summary": summary,
         "cases": cases,
+        "artifact_refs": [],
     }
 
     # ── Validate invariants ───────────────────────────────────────────────
     validate_invariants(normalised)
+    schema_errors = schema_validation_errors(normalised)
+    if schema_errors:
+        print("Schema validation failed:", file=sys.stderr)
+        for error in schema_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
 
     # ── Write outputs ─────────────────────────────────────────────────────
     out_dir = Path(args.out_dir)

@@ -52,15 +52,16 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
+from summarise_test_report import schema_validation_errors
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -126,6 +127,11 @@ MATRIX_S23U: tuple[tuple[int, int, int], ...] = (
 EXPECTED_DEVICES: dict[str, dict[str, str]] = {
     "s21": {"manufacturer": "samsung", "model": "SM-G991B"},
     "s23u": {"manufacturer": "samsung", "model": "SM-S918B"},
+}
+
+EVIDENCE_DEVICE_IDS = {
+    "s21": "s21-exynos",
+    "s23u": "s23-ultra",
 }
 
 # Private-identifier patterns for sanitisation
@@ -302,6 +308,21 @@ def sanitise_text(text: str, secrets: Iterable[str] = ()) -> str:
         sanitized = pattern.sub("[REDACTED]", sanitized)
     return sanitized
 
+def sanitise_evidence(value: Any, secrets: Iterable[str] = ()) -> Any:
+    """Recursively redact private strings without changing evidence structure."""
+    if isinstance(value, dict):
+        return {
+            sanitise_text(str(key), secrets): sanitise_evidence(item, secrets)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitise_evidence(item, secrets) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitise_evidence(item, secrets) for item in value)
+    if isinstance(value, str):
+        return sanitise_text(value, secrets)
+    return value
+
 
 def assert_commit_safe(value: Any, secrets: Iterable[str] = ()) -> None:
     """Fail closed if JSON-safe output still contains private artifact indicators."""
@@ -315,6 +336,34 @@ def assert_commit_safe(value: Any, secrets: Iterable[str] = ()) -> None:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def git_metadata() -> tuple[str | None, str | None]:
+    """Resolve branch and full commit, with explicit and CI environment overrides."""
+    branch = (
+        os.environ.get("GIT_BRANCH")
+        or os.environ.get("GITHUB_HEAD_REF")
+        or os.environ.get("GITHUB_REF_NAME")
+    )
+    commit = os.environ.get("GIT_COMMIT") or os.environ.get("GITHUB_SHA")
+    if branch is None:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        branch = (result.stdout.strip() if result.returncode == 0 else "") or "detached"
+    if commit is None:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        commit = (result.stdout.strip() if result.returncode == 0 else "") or None
+    return branch, commit
 
 
 def monotonic_ms() -> int:
@@ -1328,6 +1377,22 @@ def public_run_environment(
     }
 
 
+def evidence_device_profile(alias: str, identity: DeviceIdentity) -> dict[str, Any]:
+    """Resolve and verify a canonical dashboard profile from the device registry."""
+    canonical_id = EVIDENCE_DEVICE_IDS.get(alias)
+    if canonical_id is None:
+        raise HarnessError(f"unsupported evidence device alias: {alias}")
+
+    from summarise_test_report import build_device_obj, load_devices
+
+    profile = build_device_obj(canonical_id, load_devices())
+    if identity.model != profile["model"]:
+        raise HarnessError(
+            f"target alias {alias!r} expected model {profile['model']!r}, got {identity.model!r}"
+        )
+    return profile
+
+
 def render_evidence(
     run_manifest: RunManifest,
     target_identity: DeviceIdentity,
@@ -1340,26 +1405,51 @@ def render_evidence(
     secrets: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Build the normalised evidence record per target device."""
-    total = len(attempts)
+    invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
     passed = sum(1 for a in attempts if a.status == AttemptStatus.PASSED)
     failed = sum(1 for a in attempts if a.status == AttemptStatus.FAILED)
-    invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
+    total = len(attempts)
     valid = passed + failed
+    branch, commit = git_metadata()
+    required_positions = {
+        slot.position_id for slot in matrix_slots_for_target(run_manifest.target_alias)
+    }
+    valid_counts = {
+        position: sum(
+            1
+            for attempt in attempts
+            if attempt.required_position_id == position
+            and attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        )
+        for position in required_positions
+    }
+    complete_valid_matrix = all(count == 1 for count in valid_counts.values())
+    all_required_passed = complete_valid_matrix and all(
+        any(
+            attempt.required_position_id == position
+            and attempt.status == AttemptStatus.PASSED
+            for attempt in attempts
+        )
+        for position in required_positions
+    )
 
     evidence: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "source": "on_device",
         "suite": "wake_word_acoustic_reliability",
         "timestamp": run_manifest.created_utc,
         "repo": "NickMonrad/kernel-ai-assistant",
-        "branch": os.environ.get("GIT_BRANCH", None),
-        "commit": os.environ.get("GIT_COMMIT", None),
+        "branch": branch,
+        "commit": commit,
         "pr": int(os.environ["GIT_PR"]) if "GIT_PR" in os.environ else None,
         "release": None,
         "run_id": run_manifest.run_id,
-        "device": target_identity.public(),
-        "model": {"name": "wake_word", "runtime": "ONNX", "backend": "NPU"},
+        "device": evidence_device_profile(run_manifest.target_alias, target_identity),
+        # The current runner cannot prove the exact accelerator used by the
+        # wake-word runtime. Do not publish an inferred NPU claim.
+        "model": {"name": "wake_word", "runtime": "ONNX", "backend": None},
         "summary": {
+            "total": valid,
             "total_attempts": total,
             "valid": valid,
             "passed": passed,
@@ -1368,6 +1458,7 @@ def render_evidence(
             "pass_rate": round(passed / valid, 4) if valid > 0 else 0.0,
         },
         "cases": [],
+        "artifact_refs": [],
         "wake_reliability": {
             "run_kind": run_manifest.run_kind.value,
             "gate_mode": run_manifest.gate_mode.value,
@@ -1392,6 +1483,17 @@ def render_evidence(
                 for slot in matrix_slots_for_target(run_manifest.target_alias)
             },
             "cleanup_verified": cleanup_verified,
+            "release_gate_success": False,
+            "complete": False,
+            "complete_valid_matrix": complete_valid_matrix,
+            "all_required_passed": all_required_passed,
+            "release_provenance_verified": False,
+            "feasibility_only": run_manifest.run_kind == RunKind.FEASIBILITY,
+            "run_environment_before": None,
+            "run_environment_after": None,
+            "cleanup_failures": [],
+            "abort_reason": None,
+            "completion": {"status": "rendered"},
         },
     }
 
@@ -1446,23 +1548,99 @@ def render_evidence(
             case["failures"] = attempt.failures
         evidence["cases"].append(case)
 
+    evidence["artifact_refs"] = sorted({
+        path
+        for case in evidence["cases"]
+        for path in case.get("artifact_refs", [])
+    })
     assert_commit_safe(evidence, secrets)
     return evidence
 
 
-def write_sanitized_summary(output_dir: Path, evidence: dict[str, Any],
-                             secrets: Iterable[str] = ()) -> tuple[Path, Path]:
-    """Write JSON evidence and Markdown summary, returning (json_path, md_path)."""
-    assert_commit_safe(evidence, secrets)
+def _referenced_artifact_paths(evidence: dict[str, Any]) -> list[str]:
+    """Return the deduplicated allow-list of artifacts named by evidence."""
+    references: set[str] = set()
+    for owner in [evidence, *evidence.get("cases", [])]:
+        if not isinstance(owner, dict):
+            continue
+        values = owner.get("artifact_refs", [])
+        if not isinstance(values, list):
+            raise HarnessError("artifact_refs must be a list")
+        for value in values:
+            if not isinstance(value, str) or not value:
+                raise HarnessError("artifact_refs entries must be non-empty strings")
+            references.add(value)
+    return sorted(references)
 
+
+def _copy_sanitised_artifacts(
+    output_dir: Path,
+    evidence: dict[str, Any],
+    private_run_dir: Path,
+    secrets: Iterable[str],
+) -> None:
+    """Copy only explicitly referenced, text-safe artifacts into the public tree."""
+    private_root = private_run_dir.resolve()
+    allowed_suffixes = {".csv", ".json", ".log", ".md", ".txt"}
+    for reference in _referenced_artifact_paths(evidence):
+        relative = Path(reference)
+        if relative.is_absolute() or ".." in relative.parts or relative == Path("."):
+            raise HarnessError(f"unsafe artifact reference: {reference}")
+        if relative.suffix.lower() not in allowed_suffixes:
+            raise HarnessError(f"unsupported public artifact type: {reference}")
+
+        source = private_run_dir / relative
+        if not source.is_file() or source.is_symlink():
+            raise HarnessError(f"referenced artifact is missing or unsafe: {reference}")
+        resolved_source = source.resolve()
+        try:
+            resolved_source.relative_to(private_root)
+        except ValueError as exc:
+            raise HarnessError(f"artifact escapes private run root: {reference}") from exc
+        current = source.parent
+        while current != private_run_dir:
+            if current.is_symlink():
+                raise HarnessError(f"artifact traverses a symlink: {reference}")
+            current = current.parent
+
+        destination = output_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if relative.suffix.lower() == ".json":
+            try:
+                payload = json.loads(source.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                raise HarnessError(f"invalid referenced JSON artifact {reference}: {exc}") from exc
+            content = json.dumps(sanitise_evidence(payload, secrets), indent=2) + "\n"
+        else:
+            try:
+                content = sanitise_text(source.read_text(encoding="utf-8"), secrets)
+            except OSError as exc:
+                raise HarnessError(f"cannot read referenced artifact {reference}: {exc}") from exc
+        destination.write_text(content, encoding="utf-8")
+
+
+def write_sanitized_summary(
+    output_dir: Path,
+    evidence: dict[str, Any],
+    secrets: Iterable[str] = (),
+    private_run_dir: Path | None = None,
+) -> tuple[Path, Path]:
+    assert_commit_safe(evidence, secrets)
+    schema_errors = schema_validation_errors(evidence)
+    if schema_errors:
+        raise HarnessError("Schema validation failed: " + "; ".join(schema_errors))
+
+    safe = sanitise_evidence(evidence, secrets)
+    output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "evidence.json"
-    json_path.write_text(json.dumps(evidence, indent=2) + "\n")
+    json_path.write_text(json.dumps(safe, indent=2) + "\n", encoding="utf-8")
+    if private_run_dir is not None:
+        _copy_sanitised_artifacts(output_dir, safe, private_run_dir, secrets)
 
     md_lines = [
         "# Acoustic Wake Reliability Report",
         "",
-        f"**Run ID:** {evidence.get('run_id', 'unknown')}",
-        f"**Kind:** {evidence.get('wake_reliability', {}).get('run_kind', 'unknown')}",
+        f"**Kind:** {safe.get('wake_reliability', {}).get('run_kind', 'unknown')}",
         f"**Gate:** {evidence.get('wake_reliability', {}).get('gate_mode', 'unknown')}",
         f"**Matrix:** {evidence.get('wake_reliability', {}).get('matrix_id', 'unknown')} v{evidence.get('wake_reliability', {}).get('matrix_version', '?')}",
         f"**Target:** {evidence.get('device', {}).get('alias', 'unknown')}",
@@ -2082,11 +2260,7 @@ class AcousticWakeReliabilityRunner:
         command_source: dict[str, Any] | None = None
         attempt.fixture_id = fixture_id
         attempt.command_fixture_id = command_fixture_id
-        attempt.artifact_refs = [
-            f"artifact://{trial_id}/source-playback",
-            f"artifact://{trial_id}/target-boundary",
-            f"artifact://{trial_id}/target-final",
-        ]
+        attempt.artifact_refs = []
         try:
             attempt.invalid_reason = InvalidReason.DEVICE_ENVIRONMENT_ERROR
             attempt.environment_before = self._snapshot_target_state()
@@ -2118,6 +2292,9 @@ class AcousticWakeReliabilityRunner:
                 "boundary-snapshot.json",
                 json.dumps(boundary_snapshot, indent=2),
             )
+            attempt.artifact_refs.append(
+                f"trials/{trial_id}/target/boundary-snapshot.json"
+            )
             if boundary_generation is None:
                 raise HarnessError("target detector generation is unavailable at trial boundary")
             self._last_boundary_sequence = boundary_sequence
@@ -2148,6 +2325,7 @@ class AcousticWakeReliabilityRunner:
                 fixture_id,
                 volume,
             )
+            attempt.artifact_refs.append(f"trials/{trial_id}/source/result.json")
             events, wake_envelope = self._wait_for_target_events(
                 since_sequence=boundary_sequence,
                 event_type="STT_READY",
@@ -2230,6 +2408,9 @@ class AcousticWakeReliabilityRunner:
                             timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
                         )
                     )
+                    attempt.artifact_refs.append(
+                        f"trials/{command_trial_id}/source/result.json"
+                    )
                     require_correlated_event(
                         command_events,
                         "COMMAND_ROUTING_RESULT",
@@ -2271,6 +2452,9 @@ class AcousticWakeReliabilityRunner:
                 f"trials/{trial_id}/target",
                 "final-snapshot.json",
                 json.dumps(snapshot, indent=2),
+            )
+            attempt.artifact_refs.append(
+                f"trials/{trial_id}/target/final-snapshot.json"
             )
             self._last_target_snapshot = snapshot
             final_generation, final_session, final_path, correlation_failures = correlate_event_path(
@@ -2537,9 +2721,58 @@ class AcousticWakeReliabilityRunner:
             raise HarnessError(f"media volume {current} is outside [{minimum}..{maximum}]")
         return current, maximum
 
+    @staticmethod
+    def _parse_sensor_privacy_dump(raw: str, user_id: int) -> dict[str, str]:
+        """Parse effective microphone/camera privacy from SensorPrivacyService."""
+        if not raw.startswith("SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)"):
+            raise HarnessError("dumpsys sensor_privacy omitted sensor privacy manager state")
+
+        current_user: int | None = None
+        current_sensor: int | None = None
+        states: dict[int, list[int]] = {1: [], 2: []}
+        for raw_line in raw.splitlines():
+            line = raw_line.strip()
+            match = re.fullmatch(r"user_id=(\d+)", line)
+            if match:
+                current_user = int(match.group(1))
+                current_sensor = None
+                continue
+            match = re.fullmatch(r"sensor=(\d+)", line)
+            if match:
+                current_sensor = int(match.group(1))
+                continue
+            match = re.fullmatch(r"state_type=(\d+)", line)
+            if match and current_user == user_id and current_sensor in states:
+                state_type = int(match.group(1))
+                if state_type not in {1, 2}:
+                    raise HarnessError(
+                        f"unrecognised sensor privacy state type: {state_type}"
+                    )
+                states[current_sensor].append(state_type)
+
+        return {
+            "microphone": "enabled" if 1 in states[1] else "disabled",
+            "camera": "enabled" if 1 in states[2] else "disabled",
+        }
+
+    @staticmethod
+    def _parse_screen_off(raw: str) -> bool:
+        """Parse screen state from modern PowerManagerService output."""
+        match = re.search(r"(?m)^\s*mWakefulness=(\w+)\s*$", raw)
+        if match is None:
+            raise HarnessError("dumpsys power omitted mWakefulness")
+        wakefulness = match.group(1)
+        if wakefulness == "Awake":
+            return False
+        if wakefulness in {"Asleep", "Dozing"}:
+            return True
+        raise HarnessError(f"unrecognised Android wakefulness: {wakefulness!r}")
+
     def _snapshot_audio_state(self, client: AdbClient, alias: str) -> dict[str, Any]:
         """Capture exact Android audio values used by pre/post comparisons."""
-        volume_raw = client.shell("media", "volume", "--stream", "3", "--get").strip()
+        volume_raw = client.shell(
+            "cmd", "media_session", "volume", "--get", "--stream", "3"
+        ).strip()
         volume, volume_max = self._parse_media_volume(volume_raw)
         ringer = client.shell("settings", "get", "global", "mode_ringer").strip()
         dnd = client.shell("settings", "get", "global", "zen_mode").strip()
@@ -2559,15 +2792,25 @@ class AcousticWakeReliabilityRunner:
         return self._snapshot_audio_state(client, "volume-probe")["media_volume_max"]
 
     def _has_active_bluetooth_route(self, client: AdbClient) -> bool:
-        """Reject Bluetooth routes reported as selected or active; inspection is fail-closed."""
-        lines = client.shell("dumpsys", "audio").lower().splitlines()
-        bluetooth = re.compile(r"a2dp|bluetooth[_ -]?sco|ble[_ -]?headset|ble[_ -]?speaker")
-        active = re.compile(r"\b(active|selected|current|routed)\b")
-        inactive = re.compile(r"\b(inactive|not active|selected=false|active=false)\b")
-        return any(
-            bluetooth.search(line) and active.search(line) and not inactive.search(line)
-            for line in lines
-        )
+        """Read the current AudioRoutesInfo Bluetooth route, ignoring dumpsys history."""
+        lines = client.shell("dumpsys", "audio").splitlines()
+        try:
+            routes_start = next(
+                index for index, line in enumerate(lines)
+                if line.strip() == "Audio routes:"
+            )
+        except StopIteration as exc:
+            raise HarnessError("dumpsys audio omitted current Audio routes state") from exc
+
+        bluetooth_name = None
+        for line in lines[routes_start + 1:routes_start + 8]:
+            match = re.fullmatch(r"\s*mBluetoothName=(.*)\s*", line)
+            if match:
+                bluetooth_name = match.group(1).strip()
+                break
+        if bluetooth_name is None:
+            raise HarnessError("dumpsys audio omitted current Bluetooth route state")
+        return bluetooth_name.lower() != "null"
 
     def _snapshot_android_state(
         self,
@@ -2598,22 +2841,19 @@ class AcousticWakeReliabilityRunner:
             errors.append(f"current user: unrecognised response {current_user!r}")
             current_user = None
 
-        privacy: dict[str, str | None] = {}
-        for sensor in ("microphone", "camera"):
-            value = (
-                capture(
-                    f"{sensor} sensor privacy",
-                    ("cmd", "sensor_privacy", "status", current_user, sensor),
-                )
-                if current_user is not None
-                else None
+        privacy: dict[str, str | None] = {"microphone": None, "camera": None}
+        if current_user is not None:
+            privacy_dump = capture(
+                "sensor privacy",
+                ("dumpsys", "sensor_privacy"),
             )
-            normalised = value.lower() if value is not None else None
-            if normalised not in {"enabled", "disabled"}:
-                if value is not None:
-                    errors.append(f"{sensor} sensor privacy: unrecognised response {value!r}")
-                normalised = None
-            privacy[sensor] = normalised
+            if privacy_dump is not None:
+                try:
+                    privacy.update(
+                        self._parse_sensor_privacy_dump(privacy_dump, int(current_user))
+                    )
+                except HarnessError as exc:
+                    errors.append(f"sensor privacy: {exc}")
 
         package_uid_raw = capture(
             "package UID",
@@ -2678,10 +2918,16 @@ class AcousticWakeReliabilityRunner:
         except HarnessError as exc:
             errors.append(f"Bluetooth route state: {exc}")
         if target:
+            screen_off: bool | None = None
+            if power is not None:
+                try:
+                    screen_off = self._parse_screen_off(power)
+                except HarnessError as exc:
+                    errors.append(f"power state: {exc}")
             snapshot.update({
                 "uptime_seconds": uptime,
                 "boot_id": boot_id,
-                "screen_off": power is not None and "mScreenOn=false" in power,
+                "screen_off": screen_off,
                 "charging": battery is not None and (
                     "AC powered: true" in battery or "USB powered: true" in battery
                 ),
@@ -3111,23 +3357,49 @@ class AcousticWakeReliabilityRunner:
         self.cleanup_verified = not failures
 
     def is_matrix_complete(self) -> bool:
-        """Return true when every required position has a valid outcome."""
-        for slot in matrix_slots_for_target(self.target_alias):
-            if not any(
-                attempt.required_position_id == slot.position_id
-                and attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
-                for attempt in self.attempts
-            ):
-                return False
-        return True
+        """Return true only when each required position has one valid outcome."""
+        required = {
+            slot.position_id for slot in matrix_slots_for_target(self.target_alias)
+        }
+        valid_attempts = [
+            attempt
+            for attempt in self.attempts
+            if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        ]
+        return (
+            all(
+                sum(
+                    attempt.required_position_id == position
+                    for attempt in valid_attempts
+                ) == 1
+                for position in required
+            )
+            and all(
+                attempt.required_position_id in required
+                for attempt in valid_attempts
+            )
+        )
+
+    def all_required_passed(self) -> bool:
+        """Return true when the complete valid matrix contains only passes."""
+        return self.is_matrix_complete() and all(
+            attempt.status != AttemptStatus.FAILED
+            for attempt in self.attempts
+            if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        )
 
     def _release_provenance_verified(self) -> bool:
-        commit = os.environ.get("GIT_COMMIT", "")
+        _, commit = git_metadata()
+        source = self.source_identity
         target = self.target_identity
         expected = EXPECTED_DEVICES["s21"]
         return (
-            re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) is not None
+            commit is not None
+            and re.fullmatch(r"[0-9a-f]{40}", commit) is not None
             and self.target_alias == "s21"
+            and source is not None
+            and source.package_version is not None
+            and source.package_version_code is not None
             and target is not None
             and target.manufacturer.lower() == expected["manufacturer"]
             and target.model == expected["model"]
@@ -3137,19 +3409,12 @@ class AcousticWakeReliabilityRunner:
 
     def release_gate_success(self) -> bool:
         """Return true only for the S21 all-passed regression launch gate."""
-        required = {slot.position_id for slot in matrix_slots_for_target(self.target_alias)}
-        passed = {
-            attempt.required_position_id
-            for attempt in self.attempts
-            if attempt.status == AttemptStatus.PASSED
-        }
         preflight = self.preflight_approval or {}
         return (
             self.gate_mode == GateMode.RELEASE
             and self.run_kind == RunKind.REGRESSION
             and self._release_provenance_verified()
-            and self.is_matrix_complete()
-            and passed == required
+            and self.all_required_passed()
             and self.cleanup_verified
             and preflight.get("operator_approved") is True
             and preflight.get("cue_audibility_evidence_verified") is True
@@ -3157,9 +3422,62 @@ class AcousticWakeReliabilityRunner:
             and self.cue_policy_evidence_verified
             and self.manifest is not None
             and self.manifest.cue_policy_version is not None
+            and isinstance(self.preflight_manifest_hash, str)
+            and re.fullmatch(r"[0-9a-f]{64}", self.preflight_manifest_hash) is not None
+            and isinstance(preflight.get("fixture_set_id"), str)
+            and bool(preflight["fixture_set_id"])
+            and isinstance(preflight.get("fixture_hashes"), dict)
+            and bool(preflight["fixture_hashes"])
+            and all(
+                isinstance(value, str)
+                and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+                for value in preflight["fixture_hashes"].values()
+            )
             and not self.primary_failure
             and self.abort_reason is None
         )
+
+    def _completion_counts(self) -> dict[str, int]:
+        """Derive authoritative run-level completion counts from frozen matrix and attempts."""
+        required = {
+            slot.position_id for slot in matrix_slots_for_target(self.target_alias)
+        }
+        valid_attempts = [
+            a for a in self.attempts
+            if a.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+            and a.required_position_id in required
+        ]
+        invalid_attempts = [
+            a for a in self.attempts
+            if a.status == AttemptStatus.INVALID
+            and a.required_position_id in required
+        ]
+        positions: dict[str, list[AttemptStatus]] = defaultdict(list)
+        for attempt in valid_attempts:
+            positions[attempt.required_position_id].append(attempt.status)
+
+        total_required = len(required)
+        completed = sum(1 for outcomes in positions.values() if len(outcomes) == 1)
+        duplicate_count = sum(max(0, len(outcomes) - 1) for outcomes in positions.values())
+        passed_count = sum(
+            1 for outcomes in positions.values()
+            if len(outcomes) == 1 and outcomes[0] == AttemptStatus.PASSED
+        )
+        failed_count = sum(
+            1 for outcomes in positions.values()
+            if len(outcomes) == 1 and outcomes[0] == AttemptStatus.FAILED
+        )
+
+        return {
+            "total_required": total_required,
+            "completed": completed,
+            "missing": total_required - completed,
+            "passed": passed_count,
+            "failed": failed_count,
+            "invalid": len(invalid_attempts),
+            "duplicate_valid_positions": duplicate_count,
+        }
+
 
     def export_evidence(self) -> dict[str, Any]:
         """Build the final evidence object before a single sanitised write."""
@@ -3196,17 +3514,30 @@ class AcousticWakeReliabilityRunner:
             source_route=(preflight or {}).get("source_route"),
             secrets=self.secrets,
         )
-        required_positions = [slot.position_id for slot in matrix_slots_for_target(self.target_alias)]
+        complete_valid_matrix = self.is_matrix_complete()
+        all_required_passed = self.all_required_passed()
+        release_provenance_verified = self._release_provenance_verified()
+        release_gate_success = self.release_gate_success()
+        complete = self.abort_reason is None and self.primary_failure is None
+        abort_reason = (
+            sanitise_text(self.abort_reason, self.secrets)
+            if self.abort_reason else None
+        )
+        primary_failure = (
+            sanitise_text(self.primary_failure, self.secrets)
+            if self.primary_failure else None
+        )
+        completion_counts = self._completion_counts()
         reliability = evidence["wake_reliability"]
         reliability.update(
             {
-                "required_matrix_positions": required_positions,
-                "matrix_complete": self.is_matrix_complete(),
-                "release_gate_success": self.release_gate_success(),
-                "cleanup_failures": self.cleanup_failures,
-                "fixture_provenance_verified": bool(fixture_set_id and fixture_hashes),
-                "build_provenance_verified": bool(self.source_identity.package_version),
-                "preflight_manifest_sha256": (preflight or {}).get("manifest_sha256"),
+                "release_gate_success": release_gate_success,
+                "complete": complete,
+                "complete_valid_matrix": complete_valid_matrix,
+                "all_required_passed": all_required_passed,
+                "release_provenance_verified": release_provenance_verified,
+                "feasibility_only": self.is_feasibility,
+                "preflight_manifest_sha256": self.preflight_manifest_hash,
                 "cue_policy_evidence_verified": self.cue_policy_evidence_verified,
                 "cue_audibility_evidence_verified": self.cue_audibility_evidence_verified,
                 "run_environment_before": public_run_environment(
@@ -3215,36 +3546,27 @@ class AcousticWakeReliabilityRunner:
                 "run_environment_after": public_run_environment(
                     self.run_environment_after
                 ),
-                "aborted": bool(self.abort_reason),
-                "abort_reason": (
-                    sanitise_text(self.abort_reason, self.secrets)
-                    if self.abort_reason else None
-                ),
-                "primary_failure": (
-                    sanitise_text(self.primary_failure, self.secrets)
-                    if self.primary_failure else None
-                ),
+                "cleanup_failures": [
+                    sanitise_text(failure, self.secrets)
+                    for failure in self.cleanup_failures
+                ],
+                "abort_reason": abort_reason,
+                "completion": {
+                    "status": "completed" if complete else "aborted",
+                    "primary_failure": primary_failure,
+                    "cleanup_verified": self.cleanup_verified,
+                    **completion_counts,
+                },
             }
         )
-        reliability["expected_valid_counts"] = {position: 1 for position in required_positions}
-        evidence["summary"]["matrix_complete"] = self.is_matrix_complete()
-        evidence["summary"]["release_gate_success"] = self.release_gate_success()
-        if self.abort_reason:
-            evidence["summary"]["aborted"] = True
-            evidence["summary"]["abort_reason"] = sanitise_text(
-                self.abort_reason, self.secrets
-            )
-            evidence["summary"]["note"] = "ABORTED — evidence is incomplete and not publishable"
-        if not self.abort_reason and self.is_feasibility:
-            evidence["non_evidentiary"] = True
-            evidence["summary"]["note"] = (
-                "NON-EVIDENTIARY — feasibility fixed-delay mode"
-            )
-        elif not self.abort_reason and self.gate_mode == GateMode.RELEASE and not self.release_gate_success():
-            evidence["summary"]["note"] = "RELEASE GATE FAILED — evidence is not publishable"
         assert_commit_safe(evidence, self.secrets)
         self.sanitized_dir.mkdir(parents=True, exist_ok=True)
-        write_sanitized_summary(self.sanitized_dir, evidence, self.secrets)
+        write_sanitized_summary(
+            self.sanitized_dir,
+            evidence,
+            self.secrets,
+            private_run_dir=self.run_dir,
+        )
         return evidence
 
     # ─── Cancellation ────────────────────────────────────────────────
@@ -3360,6 +3682,12 @@ def load_later_run_preflight(
             "requested cue policy version does not match monitored preflight approval"
         )
 
+def finalize_evidence(runner: AcousticWakeReliabilityRunner) -> dict[str, Any]:
+    """Capture final cleanup state before serialising public evidence."""
+    runner.cleanup()
+    return runner.export_evidence()
+
+
 def smoke_mode(args: argparse.Namespace) -> int:
     """Short physical smoke test."""
     print("=== Short Physical Smoke ===\n")
@@ -3395,8 +3723,7 @@ def smoke_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nSmoke complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3437,8 +3764,7 @@ def preflight_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        runner.export_evidence()
+        finalize_evidence(runner)
 
     if completed and runner.cleanup_verified:
         print(f"\nPreflight manifest: {runner.run_dir / 'preflight-private.json'}")
@@ -3477,8 +3803,7 @@ def diagnostic_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nDiagnostic complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3540,8 +3865,7 @@ def regression_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nRegression complete. Evidence: {runner.sanitized_dir}")
     return 0 if runner.release_gate_success() else 1
@@ -3580,8 +3904,7 @@ def feasibility_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nFeasibility complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3631,8 +3954,7 @@ def resume_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     if runner.primary_failure:
         print(f"Primary failure: {runner.primary_failure}")

@@ -4,9 +4,12 @@
 # Tiers: reference (may block release), tracked (reliability signal), experimental (informational).
 # Execution: physical (real device on ADB) or github_hosted_runner (CI).
 
+schema_version: "1.0"
+
 devices:
   s23-ultra:
     label: S23 Ultra
+    aliases: [s23u, s23-ultra, s23_ultra]
     manufacturer: Samsung
     model: SM-S918B
     soc: Snapdragon 8 Gen 2
@@ -16,6 +19,7 @@ devices:
 
   s21-exynos:
     label: S21
+    aliases: [s21, s21-exynos, s21_exynos]
     manufacturer: Samsung
     model: SM-G991B
     soc: Exynos 2100
@@ -25,11 +29,12 @@ devices:
 
   honor-magic-8-pro:
     label: Honor Magic 8 Pro
+    aliases: [honor8pro, honor-magic-8-pro]
     manufacturer: Honor
-    model: Unknown
-    soc: latest Snapdragon
-    tier: tracked
-    android_api: null
+    model: HONOR Magic8 Pro
+    soc: Snapdragon 8 Elite Gen 5
+    tier: experimental
+    android_api: 36
     execution: physical
 
   ubuntu-latest:

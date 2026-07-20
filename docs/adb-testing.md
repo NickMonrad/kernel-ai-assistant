@@ -5,7 +5,7 @@
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Reference device — primary target |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
 | Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic 8 Pro | Snapdragon 8 Elite | 12 GB | NPU | FLAGSHIP | Future tracked / reference candidate |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Experimental reference candidate (Android API 36) |
 
 ---
 
@@ -408,6 +408,13 @@ The JSON output uses the existing #1113 schema:
   "suite": "permission_flows",
   "device": {
     "id": "s21-exynos",
+    "serial": null,
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "SM-G991B",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
     "execution": "physical"
   },
   "summary": {

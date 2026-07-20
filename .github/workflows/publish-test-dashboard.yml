@@ -43,6 +43,9 @@ jobs:
             echo "::warning::test-results branch not found or empty; using empty results"
           fi
 
+      - name: Install test evidence dependencies
+        run: python3 -m pip install --requirement repo/scripts/requirements-test-evidence.txt
+
       - name: Build dashboard
         run: |
           cd repo

@@ -198,5 +198,51 @@ class ValidatePrNumberTest(unittest.TestCase):
         # No exception = pass
 
 
+class InputDirectoryTreeTest(unittest.TestCase):
+    def test_recursive_tree_is_preserved_in_output_mapping(self) -> None:
+        with pte.tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence.json"
+            target = root / "trials/trial-1/attempt-1/target-events.json"
+            source = root / "trials/trial-1/attempt-1/source/result.json"
+            target.parent.mkdir(parents=True)
+            source.parent.mkdir(parents=True)
+            evidence.write_text("{}", encoding="utf-8")
+            target.write_text("{}", encoding="utf-8")
+            source.write_text("{}", encoding="utf-8")
+            args = pte.argparse.Namespace(
+                input_dir=str(root),
+                input_file=None,
+                pr=1408,
+                release=None,
+                source="on_device",
+            )
+
+            files = pte._collect_input_files(args)
+            mapping = pte._build_output_paths(files, args, None)
+
+            self.assertEqual(
+                mapping[target],
+                "results/pr/1408/on_device/trials/trial-1/attempt-1/target-events.json",
+            )
+            self.assertEqual(
+                mapping[source],
+                "results/pr/1408/on_device/trials/trial-1/attempt-1/source/result.json",
+            )
+            self.assertEqual(mapping[evidence], "results/pr/1408/on_device/evidence.json")
+
+    def test_recursive_tree_rejects_unsupported_files(self) -> None:
+        with pte.tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "evidence.json").write_text("{}", encoding="utf-8")
+            forbidden = root / "trials/trial-1/raw.bin"
+            forbidden.parent.mkdir(parents=True)
+            forbidden.write_bytes(b"private")
+            args = pte.argparse.Namespace(input_dir=str(root), input_file=None)
+
+            with self.assertRaises(SystemExit):
+                pte._collect_input_files(args)
+
+
 if __name__ == "__main__":
     unittest.main()
