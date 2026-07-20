@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+
+private const val TAG = "KernelAI"
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
 private const val AUTO_START_VOICE_DELAY_MS = 2_000L
@@ -564,9 +566,6 @@ class ClockAlertService : Service() {
         }
     }
 
-    private suspend fun performAutoStop(alert: TriggeredClockAlert) {
-        dismissAlert(alert)
-    }
 
     /**
      * Start voice control for the current alert.
