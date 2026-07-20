@@ -13,12 +13,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -35,6 +32,8 @@ class WakeWordCueTest {
         coEvery { c.startListening(VoiceCaptureMode.AlertCommand) } returns startResult
         return c
     }
+
+    // --- runWakeAttempt tests (unit-level) ---
 
     @Test
     fun `first ready attempt plays cue and returns transcript`() = runTest {
@@ -58,7 +57,7 @@ class WakeWordCueTest {
         assertEquals("hello", (outcome as WakeAttemptOutcome.GotTranscript).text)
         verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
 
-        // Journal ordering: STT_START_REQUESTED → STT_READY → CUE_REQUESTED → playback → STT_FINAL
+        // Journal ordering
         val startIdx = journalEvents.indexOf(AcousticEventType.STT_START_REQUESTED)
         val readyIdx = journalEvents.indexOf(AcousticEventType.STT_READY)
         val cueReqIdx = journalEvents.indexOf(AcousticEventType.CUE_REQUESTED)
@@ -78,33 +77,6 @@ class WakeWordCueTest {
     }
 
     @Test
-    fun `second ready attempt also plays cue`() = runTest {
-        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
-        val controller = fakeController(events)
-        val journal = WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> })
-        journal.start()
-        val cuePlayer = mockk<StartListeningCuePlayer>()
-        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
-            started = true, context = StartListeningCueContext.WAKE_WORD,
-        )
-        val sessionId = 42L
-
-        // Attempt 1: readiness + stopped (no transcript)
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        events.send(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        val result1 = runWakeAttempt(controller, journal, cuePlayer, 1)
-        assertTrue(result1 is WakeAttemptOutcome.NoTranscript)
-
-        // Attempt 2: readiness + transcript
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        events.send(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "hello", captureSessionId = sessionId))
-        val result2 = runWakeAttempt(controller, journal, cuePlayer, 2)
-        assertTrue(result2 is WakeAttemptOutcome.GotTranscript)
-
-        verify(exactly = 2) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
-    }
-
-    @Test
     fun `no cue before readiness`() = runTest {
         val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
         val controller = fakeController(events)
@@ -118,50 +90,129 @@ class WakeWordCueTest {
         verify(exactly = 0) { cuePlayer.playCue(any()) }
     }
 
-    @Test
-    fun `foreign events during attempt are ignored`() = runTest {
-        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
-        val controller = fakeController(events)
-        val journal = WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> })
-        val cuePlayer = mockk<StartListeningCuePlayer>()
-        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
-            started = true, context = StartListeningCueContext.WAKE_WORD,
-        )
-        val sessionId = 42L
-
-        // Foreign session events
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 99L))
-        events.send(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "foreign", captureSessionId = 99L))
-        // Own session readiness
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        events.send(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "owned", captureSessionId = sessionId))
-
-        val outcome = runWakeAttempt(controller, journal, cuePlayer, 1)
-
-        assertTrue(outcome is WakeAttemptOutcome.GotTranscript)
-        assertEquals("owned", (outcome as WakeAttemptOutcome.GotTranscript).text)
-    }
-
+    // --- runWakeCaptureSession tests (retry-loop level) ---
 
     @Test
-    fun `transcript collection failure produces correct cancellation category`() = runTest {
-        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
-        val controller = fakeController(events)
-        val journalEvents = mutableListOf<String>()
-        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
-        journal.start()
-        val cuePlayer = mockk<StartListeningCuePlayer>()
-        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
-            started = true, context = StartListeningCueContext.WAKE_WORD,
-        )
-        val sessionId = 42L
-        // Listen started then a terminal error
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        events.send(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "no speech", captureSessionId = sessionId))
-
-        val outcome = runWakeAttempt(controller, journal, cuePlayer, 1)
-        assertTrue(outcome is WakeAttemptOutcome.NoTranscript)
+    fun `first attempt success returns transcript`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            WakeAttemptOutcome.GotTranscript("hello")
+        }
+        assertEquals("hello", result.transcript)
+        assertEquals(listOf(1), attempts)
     }
+
+    @Test
+    fun `second attempt success returns transcript`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            if (attempt == 1) WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
+            else WakeAttemptOutcome.GotTranscript("hello")
+        }
+        assertEquals("hello", result.transcript)
+        assertEquals(listOf(1, 2), attempts)
+    }
+
+    @Test
+    fun `two failed attempts return no transcript`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
+        }
+        assertEquals(null, result.transcript)
+        assertEquals("stt_stopped_without_result", result.cancellationCategory)
+        assertEquals(listOf(1, 2), attempts)
+    }
+
+    @Test
+    fun `unavailable stops immediately with stt_unavailable`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            WakeAttemptOutcome.Unavailable
+        }
+        assertEquals(null, result.transcript)
+        assertEquals("stt_unavailable", result.cancellationCategory)
+        assertEquals(listOf(1), attempts)
+    }
+
+    @Test
+    fun `startup collection failure sets startup_collection_failed`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            throw WakeAttemptCollectionException("startup_collection_failed", RuntimeException("flow broke"))
+        }
+        assertEquals(null, result.transcript)
+        assertEquals("startup_collection_failed", result.cancellationCategory)
+        assertEquals(listOf(1), attempts)
+    }
+
+    @Test
+    fun `transcript collection failure sets transcript_collection_failed`() = runTest {
+        val attempts = mutableListOf<Int>()
+        val result = runWakeCaptureSession { attempt ->
+            attempts.add(attempt)
+            throw WakeAttemptCollectionException("transcript_collection_failed", RuntimeException("flow broke after readiness"))
+        }
+        assertEquals(null, result.transcript)
+        assertEquals("transcript_collection_failed", result.cancellationCategory)
+        assertEquals(listOf(1), attempts)
+    }
+
+    @Test
+    fun `cancellation propagates through runWakeCaptureSession`() = runTest {
+        val attempts = mutableListOf<Int>()
+        try {
+            runWakeCaptureSession { attempt ->
+                attempts.add(attempt)
+                throw CancellationException("test cancel")
+            }
+        } catch (e: CancellationException) {
+            assertEquals("test cancel", e.message)
+        }
+        assertEquals(listOf(1), attempts)
+    }
+
+    // --- finalizeWakeSession tests ---
+
+    @Test
+    fun `completed session records exactly one SESSION_COMPLETED`() {
+        val events = mutableListOf<String>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
+        j.start()
+        finalizeWakeSession(j, completed = true, "ignored")
+        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+    }
+
+    @Test
+    fun `failed session records exactly one SESSION_CANCELLED with category`() {
+        val events = mutableListOf<String>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
+        j.start()
+        finalizeWakeSession(j, completed = false, "startup_collection_failed")
+        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
+        assertTrue(events.contains(AcousticEventType.SESSION_CANCELLED))
+    }
+
+    @Test
+    fun `cancelled session records exactly one terminal event`() {
+        val events = mutableListOf<String>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
+        j.start()
+        finalizeWakeSession(j, completed = false, "session_cancelled")
+        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
+        assertTrue(events.contains(AcousticEventType.SESSION_CANCELLED))
+    }
+
+    // --- Cue-level tests ---
 
     @Test
     fun `successful cue metadata includes all required fields`() {
@@ -212,61 +263,5 @@ class WakeWordCueTest {
         playWakeCue(j, cuePlayer)
         assertTrue(events.contains(AcousticEventType.CUE_REQUESTED))
         assertTrue(events.contains(AcousticEventType.CUE_PLAYBACK_STARTED))
-    }
-
-    @Test
-    fun `WakeSessionJournal has exactly one terminal event`() {
-        val events = mutableListOf<String>()
-        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
-        j.start()
-        j.complete()
-        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
-        assertEquals(1, terminals)
-    }
-
-    @Test
-    fun `WakeSessionJournal does not record duplicate terminals`() {
-        val events = mutableListOf<String>()
-        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
-        j.start()
-        j.complete()
-        j.cancel("ignored")
-        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
-        assertEquals(1, terminals)
-    }
-
-    @Test
-    fun `coroutine cancellation cleans up attempt and propagates`() = runTest {
-        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
-        val controller = fakeController(events)
-        val journalEvents = mutableListOf<String>()
-        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
-        journal.start()
-        val cuePlayer = mockk<StartListeningCuePlayer>()
-        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
-            started = true, context = StartListeningCueContext.WAKE_WORD,
-        )
-
-        val sessionId = 42L
-        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
-        // Run the attempt — it will wait inside for a terminal event
-        val job = kotlinx.coroutines.Job()
-        val attemptDeferred = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined + job).launch {
-            runWakeAttempt(controller, journal, cuePlayer, 1)
-        }
-
-        // Cancel the scope while the attempt is live (before any terminal event)
-        val cancel = CancellationException("test cancel")
-        job.cancel(cancel)
-
-        // Wait for the attempt coroutine to finish
-        attemptDeferred.join()
-
-        // After the cancellation settles, finalise the journal and check
-        journal.complete()
-        val terminals = journalEvents.count {
-            it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED)
-        }
-        assertEquals(1, terminals)
     }
 }

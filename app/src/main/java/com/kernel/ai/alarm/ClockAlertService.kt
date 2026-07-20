@@ -59,8 +59,25 @@ internal fun isOwnedAlertEvent(
 ): Boolean = isVoiceListening && event.captureSessionId != null && event.captureSessionId == captureSessionId
 
 /**
- * Result of a [bufferedCaptureSession] call.
+ * Whether a voice event should trigger the clock-alert start-listening cue.
+ * Used by both [ClockAlertService.handleVoiceEvent] and tests.
  */
+internal fun shouldPlayClockAlertListeningCue(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean =
+    isOwnedAlertEvent(event, captureSessionId, isVoiceListening) &&
+        event is VoiceInputEvent.ListeningStarted &&
+        event.mode == VoiceCaptureMode.AlertCommand
+
+/**
+ * Returns the user-facing message for an unavailable voice controller,
+ * falling back to a generic message when the controller provides none.
+ */
+internal fun alertVoiceUnavailableMessage(message: String?): String =
+    message?.takeIf { it.isNotBlank() }
+        ?: "Voice commands are unavailable right now."
 internal sealed interface CaptureStartResult {
     val captureSessionId: Long
 
@@ -645,7 +662,7 @@ class ClockAlertService : Service() {
                     }
                     is CaptureStartResult.Unavailable -> {
                         captureSessionId = null
-                        finishVoiceCapture("Voice commands are unavailable right now.")
+                        finishVoiceCapture(alertVoiceUnavailableMessage(result.message))
                     }
                 }
             } catch (e: CancellationException) {
@@ -657,13 +674,11 @@ class ClockAlertService : Service() {
             }
         }
     }
-
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
         if (!isOwnedAlertEvent(event, captureSessionId, isVoiceListening)) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
-                // Only handle owned AlertCommand readiness events
-                if (event.mode == VoiceCaptureMode.AlertCommand) {
+                if (shouldPlayClockAlertListeningCue(event, captureSessionId, isVoiceListening)) {
                     currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
                     startListeningCuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
                     refreshForeground()

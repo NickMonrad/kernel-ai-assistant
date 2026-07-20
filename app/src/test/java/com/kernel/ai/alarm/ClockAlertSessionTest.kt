@@ -16,11 +16,71 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ClockAlertSessionTest {
+
+    // --- shouldPlayClockAlertListeningCue tests (shared production helper) ---
+
+    @Test
+    fun `owned AlertCommand readiness returns true`() {
+        assertTrue(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `owned Command readiness returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `owned SlotReply readiness returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `foreign session readiness returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 99L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `readiness while not listening returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L), 42L, false,
+        ))
+    }
+
+    @Test
+    fun `transcript event returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop", captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `error event returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "fail", captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    @Test
+    fun `stopped event returns false`() {
+        assertFalse(shouldPlayClockAlertListeningCue(
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId = 42L), 42L, true,
+        ))
+    }
+
+    // --- Synchronous readiness captured by bufferedCaptureSession ---
 
     @Test
     fun `synchronous readiness is captured by buffered startup`() = runTest(UnconfinedTestDispatcher()) {
@@ -44,7 +104,7 @@ class ClockAlertSessionTest {
     }
 
     @Test
-    fun `synchronous readiness triggers clock-alert cue through production handler`() = runTest(UnconfinedTestDispatcher()) {
+    fun `synchronous readiness passes shared helper exactly once`() = runTest(UnconfinedTestDispatcher()) {
         val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
         val sessionId = 42L
         val controller = mockk<VoiceInputController>()
@@ -65,79 +125,46 @@ class ClockAlertSessionTest {
         assertTrue(result is CaptureStartResult.Started)
         val started = result as CaptureStartResult.Started
 
+        var cueCount = 0
         for (event in started.ownedStartEvents) {
-            if (isOwnedAlertEvent(event, started.captureSessionId, true) && event is VoiceInputEvent.ListeningStarted && event.mode == VoiceCaptureMode.AlertCommand) {
+            if (shouldPlayClockAlertListeningCue(event, started.captureSessionId, true)) {
                 cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
+                cueCount++
             }
         }
+        assertEquals(1, cueCount)
         verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) }
     }
 
     @Test
-    fun `asynchronous readiness returns no buffered event and is owned later`() = runTest {
+    fun `asynchronous readiness passes shared helper exactly once`() = runTest {
         val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
         val sessionId = 42L
         val controller = mockk<VoiceInputController>()
         every { controller.events } returns events.receiveAsFlow()
         coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
 
+        val cuePlayer = mockk<StartListeningCuePlayer>()
+        every { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) } returns StartListeningCueResult(
+            started = true, context = StartListeningCueContext.CLOCK_ALERT,
+        )
+
         val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
         assertTrue(result is CaptureStartResult.Started)
         val started = result as CaptureStartResult.Started
         assertEquals(0, started.ownedStartEvents.size)
 
-        val later = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId)
-        assertTrue(isOwnedAlertEvent(later, sessionId, true))
+        var cueCount = 0
+        val asyncEvent = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = started.captureSessionId)
+        if (shouldPlayClockAlertListeningCue(asyncEvent, started.captureSessionId, true)) {
+            cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
+            cueCount++
+        }
+        assertEquals(1, cueCount)
+        verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) }
     }
 
-    @Test
-    fun `owned AlertCommand readiness is accepted by production path`() {
-        val sessionId = 42L
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId), sessionId, true,
-        ))
-    }
-
-    @Test
-    fun `Command and SlotReply modes pass ownership filter`() {
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 42L), 42L, true,
-        ))
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 42L), 42L, true,
-        ))
-    }
-
-    @Test
-    fun `foreign session events are filtered`() {
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 99L), 42L, true,
-        ).not())
-    }
-
-    @Test
-    fun `unavailable startup returns Unavailable result with original message`() = runTest {
-        val controller = mockk<VoiceInputController>()
-        every { controller.events } returns Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED).receiveAsFlow()
-        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Unavailable("mic_busy")
-
-        val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
-        assertTrue(result is CaptureStartResult.Unavailable)
-        assertEquals("mic_busy", (result as CaptureStartResult.Unavailable).message)
-    }
-
-    @Test
-    fun `foreign terminal events filtered by ownership`() {
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop", captureSessionId = 99L), 42L, true,
-        ).not())
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "fail", captureSessionId = 99L), 42L, true,
-        ).not())
-        assertTrue(isOwnedAlertEvent(
-            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId = 99L), 42L, true,
-        ).not())
-    }
+    // --- Foreign events ---
 
     @Test
     fun `foreign-session events in synchronous startup are excluded`() = runTest(UnconfinedTestDispatcher()) {
@@ -163,30 +190,33 @@ class ClockAlertSessionTest {
         assertEquals(ownSessionId, started.ownedStartEvents[0].captureSessionId)
     }
 
+    // --- Unavailable startup ---
+
     @Test
-    fun `mode filtering through production handler`() = runTest {
-        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
-        val sessionId = 42L
+    fun `unavailable startup returns Unavailable result with original message`() = runTest {
         val controller = mockk<VoiceInputController>()
-        every { controller.events } returns events.receiveAsFlow()
-        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+        every { controller.events } returns Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED).receiveAsFlow()
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Unavailable("mic_busy")
 
-        val cuePlayer = mockk<StartListeningCuePlayer>()
-        every { cuePlayer.playCue(any()) } returns StartListeningCueResult(
-            started = true, context = StartListeningCueContext.CLOCK_ALERT,
-        )
+        val result = bufferedCaptureSession(controller, VoiceCaptureMode.AlertCommand)
+        assertTrue(result is CaptureStartResult.Unavailable)
+        assertEquals("mic_busy", (result as CaptureStartResult.Unavailable).message)
+    }
 
-        fun fireAndCheck(mode: VoiceCaptureMode, sessionId: Long, expectedCue: Boolean) {
-            val event = VoiceInputEvent.ListeningStarted(mode, captureSessionId = sessionId)
-            if (isOwnedAlertEvent(event, sessionId, true) && event is VoiceInputEvent.ListeningStarted && event.mode == VoiceCaptureMode.AlertCommand) {
-                cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
-            }
-        }
+    // --- alertVoiceUnavailableMessage tests ---
 
-        fireAndCheck(VoiceCaptureMode.AlertCommand, sessionId, expectedCue = true)
-        fireAndCheck(VoiceCaptureMode.Command, 43L, expectedCue = false)
-        fireAndCheck(VoiceCaptureMode.SlotReply, 44L, expectedCue = false)
+    @Test
+    fun `non-blank controller message is used as-is`() {
+        assertEquals("mic is busy", alertVoiceUnavailableMessage("mic is busy"))
+    }
 
-        verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT) }
+    @Test
+    fun `blank controller message falls back to generic`() {
+        assertEquals("Voice commands are unavailable right now.", alertVoiceUnavailableMessage("  "))
+    }
+
+    @Test
+    fun `null controller message falls back to generic`() {
+        assertEquals("Voice commands are unavailable right now.", alertVoiceUnavailableMessage(null))
     }
 }
