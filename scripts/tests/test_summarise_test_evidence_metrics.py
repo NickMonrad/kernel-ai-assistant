@@ -410,6 +410,35 @@ class EvidenceMetricsTest(unittest.TestCase):
 
         self.assertTrue(valid, issues)
 
+    def test_invalid_acoustic_excluded_from_generic_totals(self) -> None:
+        """Finding 1: invalid acoustic attempts must not contaminate generic totals."""
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+        summary = metrics.summarise([(WAKE_FIXTURE, record, [])])
+
+        # Generic totals must exclude the invalid attempt
+        self.assertEqual(summary["totals"]["total"], 2)
+        self.assertEqual(summary["totals"]["passed"], 1)
+        self.assertEqual(summary["totals"]["failed"], 1)
+        # Suite totals must also exclude the invalid attempt
+        self.assertEqual(summary["by_suite"]["wake_word_acoustic_reliability"]["total"], 2)
+        self.assertEqual(summary["by_suite"]["wake_word_acoustic_reliability"]["passed"], 1)
+        self.assertEqual(summary["by_suite"]["wake_word_acoustic_reliability"]["failed"], 1)
+        # Device totals must also exclude the invalid attempt
+        self.assertEqual(summary["by_device"]["s21-exynos"]["total"], 2)
+        self.assertEqual(summary["by_device"]["s21-exynos"]["passed"], 1)
+        self.assertEqual(summary["by_device"]["s21-exynos"]["failed"], 1)
+        # Wake-specific metrics preserve the invalid diagnostic
+        wake = summary["wake_reliability"]
+        self.assertEqual(wake["overall"]["attempts"], 3)
+        self.assertEqual(wake["overall"]["valid"], 2)
+        self.assertEqual(wake["overall"]["invalid"], 1)
+        self.assertEqual(wake["overall"]["pass_rate"], 0.5)
+        # Non-acoustic evidence must be unaffected
+        normal = metrics.summarise([("ev.json", evidence_record(), [])])
+        self.assertEqual(normal["totals"]["total"], 2)
+        self.assertEqual(normal["totals"]["passed"], 1)
+        self.assertEqual(normal["totals"]["failed"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

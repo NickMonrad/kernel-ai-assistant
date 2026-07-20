@@ -480,5 +480,68 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
                 self.assertIsNotNone(data)
 
 
+    def test_dashboard_shows_invalid_acoustic_excluded_from_generic(self) -> None:
+        """Finding 1: invalid acoustic attempts excluded from PR/device generic totals."""
+        fixture_path = (
+            SCRIPT_DIR / "testdata" / "fixtures" / "acoustic-wake-reliability"
+            / "evidence-normalized-sample.json"
+        )
+        record = json.loads(fixture_path.read_text(encoding="utf-8"))
+        record["_source_relpath"] = "evidence.json"
+        record["pr"] = 1408
+
+        aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+
+        # Generic totals exclude the invalid attempt
+        self.assertEqual(metrics["totals"]["total"], 2)
+        self.assertEqual(metrics["totals"]["passed"], 1)
+        self.assertEqual(metrics["totals"]["failed"], 1)
+
+        # PR on-device status shows 1/2, not 1/3
+        pr_data = aggregates["prs"][0]
+        self.assertEqual(pr_data["pr"], 1408)
+        self.assertEqual(pr_data["on_device"]["total"], 2)
+        self.assertEqual(pr_data["on_device"]["passed"], 1)
+        self.assertEqual(pr_data["on_device"]["failed"], 1)
+
+        # Latest device summary shows 1/2
+        device = aggregates["devices"][0]
+        self.assertEqual(device["latest_summary"]["total"], 2)
+        self.assertEqual(device["latest_summary"]["passed"], 1)
+        self.assertEqual(device["latest_summary"]["failed"], 1)
+
+        # Historical device aggregate also uses 1/2
+        self.assertEqual(device["total"], 2)
+        self.assertEqual(device["passed"], 1)
+        self.assertEqual(device["failed"], 1)
+
+        # Wake-specific rendering still shows three attempts with one invalid
+        wake = metrics["wake_reliability"]["overall"]
+        self.assertEqual(wake["attempts"], 3)
+        self.assertEqual(wake["invalid"], 1)
+
+    def test_wake_render_shows_producer_completion(self) -> None:
+        """Finding 2: dashboard renders completion counts from producer, not 0/0."""
+        fixture_path = (
+            SCRIPT_DIR / "testdata" / "fixtures" / "acoustic-wake-reliability"
+            / "evidence-normalized-sample.json"
+        )
+        record = json.loads(fixture_path.read_text(encoding="utf-8"))
+        record["_source_relpath"] = "evidence.json"
+
+        aggregates = _build_aggregates([record])
+        metrics = aggregates["metrics"]
+        completion = metrics["wake_reliability"]["completion"]
+        wake_html = _render_wake_metrics_section(aggregates)
+
+        # Completion values must be non-zero and correct (fixture has 1/27)
+        self.assertGreater(completion["total_required"], 0)
+        self.assertEqual(completion["total_required"], 27)
+        self.assertEqual(completion["completed"], 1)
+        self.assertEqual(completion["missing"], 26)
+        # Dashboard renders the correct completion rather than 0/0
+        self.assertIn("26 required positions missing", wake_html)
+
 if __name__ == "__main__":
     unittest.main()

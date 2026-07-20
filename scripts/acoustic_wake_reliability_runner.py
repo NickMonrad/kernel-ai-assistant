@@ -52,11 +52,11 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -1405,10 +1405,10 @@ def render_evidence(
     secrets: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Build the normalised evidence record per target device."""
-    total = len(attempts)
+    invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
     passed = sum(1 for a in attempts if a.status == AttemptStatus.PASSED)
     failed = sum(1 for a in attempts if a.status == AttemptStatus.FAILED)
-    invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
+    total = len(attempts)
     valid = passed + failed
     branch, commit = git_metadata()
     required_positions = {
@@ -1449,7 +1449,7 @@ def render_evidence(
         # wake-word runtime. Do not publish an inferred NPU claim.
         "model": {"name": "wake_word", "runtime": "ONNX", "backend": None},
         "summary": {
-            "total": total,
+            "total": valid,
             "total_attempts": total,
             "valid": valid,
             "passed": passed,
@@ -3437,6 +3437,48 @@ class AcousticWakeReliabilityRunner:
             and self.abort_reason is None
         )
 
+    def _completion_counts(self) -> dict[str, int]:
+        """Derive authoritative run-level completion counts from frozen matrix and attempts."""
+        required = {
+            slot.position_id for slot in matrix_slots_for_target(self.target_alias)
+        }
+        valid_attempts = [
+            a for a in self.attempts
+            if a.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+            and a.required_position_id in required
+        ]
+        invalid_attempts = [
+            a for a in self.attempts
+            if a.status == AttemptStatus.INVALID
+            and a.required_position_id in required
+        ]
+        positions: dict[str, list[AttemptStatus]] = defaultdict(list)
+        for attempt in valid_attempts:
+            positions[attempt.required_position_id].append(attempt.status)
+
+        total_required = len(required)
+        completed = sum(1 for outcomes in positions.values() if len(outcomes) == 1)
+        duplicate_count = sum(max(0, len(outcomes) - 1) for outcomes in positions.values())
+        passed_count = sum(
+            1 for outcomes in positions.values()
+            if len(outcomes) == 1 and outcomes[0] == AttemptStatus.PASSED
+        )
+        failed_count = sum(
+            1 for outcomes in positions.values()
+            if len(outcomes) == 1 and outcomes[0] == AttemptStatus.FAILED
+        )
+
+        return {
+            "total_required": total_required,
+            "completed": completed,
+            "missing": total_required - completed,
+            "passed": passed_count,
+            "failed": failed_count,
+            "invalid": len(invalid_attempts),
+            "duplicate_valid_positions": duplicate_count,
+        }
+
+
     def export_evidence(self) -> dict[str, Any]:
         """Build the final evidence object before a single sanitised write."""
         if not self.target_identity or not self.source_identity:
@@ -3485,6 +3527,7 @@ class AcousticWakeReliabilityRunner:
             sanitise_text(self.primary_failure, self.secrets)
             if self.primary_failure else None
         )
+        completion_counts = self._completion_counts()
         reliability = evidence["wake_reliability"]
         reliability.update(
             {
@@ -3512,6 +3555,7 @@ class AcousticWakeReliabilityRunner:
                     "status": "completed" if complete else "aborted",
                     "primary_failure": primary_failure,
                     "cleanup_verified": self.cleanup_verified,
+                    **completion_counts,
                 },
             }
         )

@@ -198,7 +198,13 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
     total = _safe_int(summary.get("total"))
     passed = _safe_int(summary.get("passed"))
     failed = _safe_int(summary.get("failed"))
-    if total != len(cases):
+    suite = str(record.get("suite") or "")
+    is_wake = suite == "wake_word_acoustic_reliability"
+    # Wake records: accept both new (total = valid) and old (total = len(cases)) formats
+    if is_wake:
+        if total != passed + failed and total != len(cases):
+            issues.append("summary_total_mismatch")
+    elif total != len(cases):
         issues.append("summary_total_mismatch")
     if passed + failed > total:
         issues.append("summary_counts_exceed_total")
@@ -211,8 +217,15 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
         failures = case.get("failures")
         has_failures = isinstance(failures, list) and bool(failures)
         has_category = bool(case.get("failure_category"))
-        if status == "failed" and not (has_failures or has_category):
-            issues.append(f"case_{idx}:failed_without_diagnostic")
+        if status == "failed":
+            if is_wake:
+                # Wake records use failure_classification or invalid_reason
+                has_wake_diag = bool(case.get("failure_classification") or case.get("invalid_reason"))
+                if not (has_failures or has_category or has_wake_diag):
+                    issues.append(f"case_{idx}:failed_without_diagnostic")
+            elif not (has_failures or has_category):
+                issues.append(f"case_{idx}:failed_without_diagnostic")
+
 
     device = record.get("device")
     if not isinstance(device, dict):
@@ -478,9 +491,13 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             if not isinstance(raw_case, dict):
                 continue
             status = _case_status(raw_case)
-            _increment_status(totals, status)
-            _increment_status(by_suite[suite], status)
-            _increment_status(by_device[device_id], status)
+            # For wake_reliability suite, skip generic totals for explicitly
+            # invalid attempts — environment/setup failures are diagnostic,
+            # not product reliability measurements.
+            if not (wake is not None and str(raw_case.get("status") or "").lower() == "invalid"):
+                _increment_status(totals, status)
+                _increment_status(by_suite[suite], status)
+                _increment_status(by_device[device_id], status)
             if wake is not None:
                 wake_status = str(raw_case.get("status") or ("passed" if raw_case.get("passed") else "failed"))
                 run_kind = str(wake.get("run_kind") or "unknown")

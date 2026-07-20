@@ -1136,6 +1136,141 @@ class EvidenceAndModeTests(unittest.TestCase):
             harness.run_smoke()
             self.assertEqual(run_trial.call_count, 1)
 
+    def test_export_evidence_summary_excludes_invalid_from_generic_total(self) -> None:
+        """Finding 1: producer summary.total must equal valid, not all attempts."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+        ]
+        evidence = harness.export_evidence()
+        summary = evidence["summary"]
+        self.assertEqual(summary["total_attempts"], 3)
+        self.assertEqual(summary["valid"], 2)
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["passed"], 1)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["invalid"], 1)
+        self.assertEqual(summary["pass_rate"], 0.5)
+
+    def test_export_evidence_completion_counts(self) -> None:
+        """Finding 2: completion fields in exported evidence are authoritative."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        total_required = len(slots)
+        off_slot = runner.MatrixSlot(idle_s=999, wake_only=False, ordinal=1)
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+            runner.MatrixAttempt("pass-1-retry", slots[0], 2, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("off-matrix", off_slot, 1, runner.AttemptStatus.PASSED),
+        ]
+        evidence = harness.export_evidence()
+        completion = evidence["wake_reliability"]["completion"]
+
+        self.assertIn("total_required", completion)
+        self.assertEqual(completion["total_required"], total_required)
+        # slots[1] has exactly one valid outcome (failed) = completed
+        # slots[0] has two valid outcomes = not cleanly completed
+        # slots[2] has zero valid outcomes (invalid only) = not completed
+        # remaining 24 slots have zero outcomes = not completed
+        self.assertEqual(completion["completed"], 1)
+        self.assertEqual(completion["missing"], total_required - 1)
+        self.assertEqual(completion["passed"], 0)
+        self.assertEqual(completion["failed"], 1)
+        self.assertEqual(completion["invalid"], 1)
+        self.assertEqual(completion["duplicate_valid_positions"], 1)
+        # Schema validation
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
+    def test_export_evidence_end_to_end(self) -> None:
+        """Finding 2: completion flows correctly through summariser and dashboard."""
+        import build_test_dashboard as dashboard
+
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        # One passed, one failed, one invalid — no retry, no off-matrix.
+        # Producer and summariser completion agree since every valid
+        # position has exactly one outcome.
+        harness.attempts = [
+            runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
+                                 classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS,
+                                 failures=["STT readiness event absent"]),
+            runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
+                                 invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+        ]
+        evidence = harness.export_evidence()
+        producer_completion = evidence["wake_reliability"]["completion"]
+        self.assertGreater(producer_completion["total_required"], 0, "producer completion must be non-zero")
+
+        # 1. Through summariser
+        summary = evidence_metrics.summarise([("evidence.json", evidence, [])])
+        summariser_completion = summary["wake_reliability"]["completion"]
+        # Producer and summariser agree for this clean record
+        self.assertEqual(summariser_completion["total_required"], producer_completion["total_required"])
+        self.assertEqual(summariser_completion["completed"], producer_completion["completed"])
+        self.assertEqual(summariser_completion["missing"], producer_completion["missing"])
+        self.assertEqual(summariser_completion["duplicate_valid_positions"], producer_completion["duplicate_valid_positions"])
+        # The invalid-only required position remains missing
+        self.assertGreater(summariser_completion["missing"], 0)
+
+        # 2. Through dashboard aggregation
+        aggregates = dashboard._build_aggregates([evidence], metrics=summary)
+        dash_completion = aggregates["metrics"]["wake_reliability"]["completion"]
+        self.assertEqual(dash_completion["completed"], producer_completion["completed"])
+        self.assertEqual(dash_completion["total_required"], producer_completion["total_required"])
+        self.assertNotEqual(dash_completion["completed"], 0, "dashboard must not show 0/0")
+
+        # 3. Wake metrics rendering
+        wake_html = dashboard._render_wake_metrics_section(aggregates)
+        expected_fraction = f"{producer_completion['completed']}/{producer_completion['total_required']}"
+        self.assertIn(expected_fraction, wake_html, "dashboard must display correct completion rather than 0/0")
+        self.assertIn(f"{producer_completion['missing']} required positions missing", wake_html,
+                      "missing count must render in dashboard")
+        self.assertEqual(summariser_completion["duplicate_valid_positions"], producer_completion["duplicate_valid_positions"])
+
 
 if __name__ == "__main__":
     unittest.main()
