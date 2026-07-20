@@ -27,6 +27,8 @@ import com.kernel.ai.core.memory.clock.ClockAlertConfig
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.StartListeningCueContext
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -71,6 +73,7 @@ internal fun configuredSnoozeDurationMs(
 
 @AndroidEntryPoint
 class ClockAlertService : Service() {
+    @Inject lateinit var startListeningCuePlayer: StartListeningCuePlayer
     @Inject lateinit var clockRepository: ClockRepository
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
@@ -574,24 +577,20 @@ class ClockAlertService : Service() {
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
                 currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
+                startListeningCuePlayer.playCue(StartListeningCueContext.CLOCK_ALERT)
                 refreshForeground()
             }
-
             is VoiceInputEvent.SpeechDetected -> Unit
-
             is VoiceInputEvent.PartialTranscript -> Unit
-
             is VoiceInputEvent.Transcript -> {
                 handledVoiceTranscript = true
                 val alert = currentAlert() ?: return finishVoiceCapture("No active alert to control.")
                 handleVoiceTranscript(alert, event.text)
             }
-
             is VoiceInputEvent.Error -> {
                 handledVoiceTranscript = true
                 finishVoiceCapture(event.message)
             }
-
             is VoiceInputEvent.ListeningStopped -> {
                 if (!handledVoiceTranscript) {
                     finishVoiceCapture("I didn't catch a supported alert command.")

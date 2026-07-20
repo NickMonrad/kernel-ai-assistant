@@ -18,6 +18,7 @@ import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -264,31 +265,34 @@ class WakeWordService : Service() {
 
                         val terminalEvent = when (startupEvent) {
                             is VoiceInputEvent.ListeningStarted -> {
-                                if (attempt == 1) {
+                                journal.record(
+                                    AcousticEventType.CUE_REQUESTED,
+                                    metadata = { mapOf("context" to "wake_word") },
+                                )
+                                val cueResult = cuePlayer.playCue(StartListeningCueContext.WAKE_WORD)
+                                if (cueResult.started) {
                                     journal.record(
-                                        AcousticEventType.CUE_REQUESTED,
-                                        metadata = { mapOf("force_audible" to "true") },
+                                        AcousticEventType.CUE_PLAYBACK_STARTED,
+                                        metadata = { mapOf("context" to "wake_word") },
                                     )
-                                    cuePlayer.playCue(forceAudible = true)
+                                } else {
+                                    journal.record(
+                                        AcousticEventType.CUE_PLAYBACK_ERROR,
+                                        metadata = { mapOf("category" to (cueResult.failureCategory ?: "unknown")) },
+                                    )
                                 }
                                 try {
-                                    awaitAttemptEvent {
-                                        it is VoiceInputEvent.Transcript ||
-                                            it is VoiceInputEvent.Error ||
-                                            it is VoiceInputEvent.ListeningStopped
-                                    }
+                                    terminalEventDeferred.await()
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
-                                    cancellationCategory = "transcript_collection_failed"
-                                    Log.w(
-                                        TAG,
-                                        "WakeWordService: transcript collection failed (attempt $attempt)",
-                                        e,
+                                    Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                                    journal.record(
+                                        AcousticEventType.SESSION_CANCELLED,
+                                        metadata = { mapOf("reason" to "transcript_collection_failed") },
                                     )
                                     break
                                 }
-                            }
                             else -> startupEvent
                         }
 

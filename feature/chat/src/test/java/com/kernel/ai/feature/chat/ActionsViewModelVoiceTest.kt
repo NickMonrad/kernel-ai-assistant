@@ -12,6 +12,7 @@ import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.permissions.CapabilityKey
+import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -2474,7 +2475,7 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
         advanceUntilIdle()
 
-        verify(exactly = 1) { startListeningCuePlayer.playCue() }
+        verify(exactly = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
     }
 
     @Test
@@ -2484,7 +2485,7 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
         advanceUntilIdle()
 
-        verify(exactly = 0) { startListeningCuePlayer.playCue() }
+        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
 
     @Test
@@ -2512,7 +2513,7 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
         advanceUntilIdle()
 
-        verify(atLeast = 1) { startListeningCuePlayer.playCue() }
+        verify(atLeast = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
     }
 
     // ── #790: Slot-fill retry on no-speech + cancel phrase abort ─────────────

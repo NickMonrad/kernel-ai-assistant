@@ -15,10 +15,15 @@ private const val CUE_DURATION_MS = 100
 /**
  * Plays a brief, non-jarring beep when the microphone becomes ready for speech.
  *
- * Default playback uses [AudioManager.STREAM_MUSIC] so in-app manual mic cues respect the
- * user's normal media/silent settings. Wake-word capture can request [forceAudible] to route
- * the cue through [AudioManager.STREAM_ALARM], keeping the earcon audible even when the device
- * is in silent or vibrate mode.
+ * Context-to-stream mapping:
+ * - [StartListeningCueContext.FOREGROUND] → [AudioManager.STREAM_MUSIC] — respects the
+ *   user's media/silent settings for in-app (Chat, Actions, widget, side-key) capture.
+ * - [StartListeningCueContext.WAKE_WORD] → [AudioManager.STREAM_ALARM] — keeps the earcon
+ *   audible during screen-off wake capture even in silent/vibrate mode.
+ * - [StartListeningCueContext.CLOCK_ALERT] → [AudioManager.STREAM_ALARM] — audible while
+ *   the alert ringtone is ducked for voice control.
+ *
+ * Production code never modifies user volume.
  */
 @Singleton
 class ToneStartListeningCuePlayer @Inject constructor() : StartListeningCuePlayer {
@@ -26,18 +31,25 @@ class ToneStartListeningCuePlayer @Inject constructor() : StartListeningCuePlaye
     private var defaultToneGeneratorInstance: ToneGenerator? = null
     private var audibleToneGeneratorInstance: ToneGenerator? = null
 
-    private fun toneGenerator(forceAudible: Boolean): ToneGenerator? {
-        val existing = if (forceAudible) audibleToneGeneratorInstance else defaultToneGeneratorInstance
+    private fun streamForContext(context: StartListeningCueContext): Int = when (context) {
+        StartListeningCueContext.FOREGROUND -> DEFAULT_CUE_STREAM
+        StartListeningCueContext.WAKE_WORD -> AUDIBLE_CUE_STREAM
+        StartListeningCueContext.CLOCK_ALERT -> AUDIBLE_CUE_STREAM
+    }
+
+    private fun toneGenerator(context: StartListeningCueContext): ToneGenerator? {
+        val isAudible = context != StartListeningCueContext.FOREGROUND
+        val existing = if (isAudible) audibleToneGeneratorInstance else defaultToneGeneratorInstance
         if (existing != null) return existing
 
-        val stream = if (forceAudible) AUDIBLE_CUE_STREAM else DEFAULT_CUE_STREAM
+        val stream = streamForContext(context)
         val created = try {
             ToneGenerator(stream, CUE_VOLUME_PERCENT)
         } catch (e: RuntimeException) {
             Log.w(TAG, "ToneStartListeningCuePlayer: failed to create ToneGenerator", e)
             null
         }
-        if (forceAudible) {
+        if (isAudible) {
             audibleToneGeneratorInstance = created
         } else {
             defaultToneGeneratorInstance = created
@@ -45,11 +57,21 @@ class ToneStartListeningCuePlayer @Inject constructor() : StartListeningCuePlaye
         return created
     }
 
-    override fun playCue(forceAudible: Boolean) {
-        try {
-            toneGenerator(forceAudible)?.startTone(ToneGenerator.TONE_PROP_BEEP, CUE_DURATION_MS)
+    override fun playCue(context: StartListeningCueContext): StartListeningCueResult {
+        val generator = toneGenerator(context)
+        if (generator == null) {
+            return StartListeningCueResult(started = false, failureCategory = "tone_generator_unavailable")
+        }
+        return try {
+            val started = generator.startTone(ToneGenerator.TONE_PROP_BEEP, CUE_DURATION_MS)
+            if (started) {
+                StartListeningCueResult(started = true)
+            } else {
+                StartListeningCueResult(started = false, failureCategory = "playback_start_failed")
+            }
         } catch (e: RuntimeException) {
             Log.w(TAG, "ToneStartListeningCuePlayer: failed to play cue", e)
+            StartListeningCueResult(started = false, failureCategory = "playback_exception")
         }
     }
 

@@ -63,8 +63,14 @@ object AcousticEventType {
     /** STT recogniser reported readiness / ListeningStarted. */
     const val STT_READY = "STT_READY"
 
-    /** Start-listening cue was requested. Metadata: "force_audible". */
+    /** Start-listening cue playback was requested (before invoking player). Metadata: "context". */
     const val CUE_REQUESTED = "CUE_REQUESTED"
+
+    /** Start-listening cue playback actually started. Metadata: "context". */
+    const val CUE_PLAYBACK_STARTED = "CUE_PLAYBACK_STARTED"
+
+    /** Start-listening cue playback failed. Metadata: "category". */
+    const val CUE_PLAYBACK_ERROR = "CUE_PLAYBACK_ERROR"
 
     /** STT detected speech.  No transcript content exposed. */
     const val STT_SPEECH_DETECTED = "STT_SPEECH_DETECTED"
@@ -101,6 +107,8 @@ object AcousticEventType {
         SILENCE_GATE_ENTERED,
         VOICED_FRAME_AFTER_SILENCE,
         STAGE2_RESUMED,
+        CUE_PLAYBACK_STARTED,
+        CUE_PLAYBACK_ERROR,
         STAGE3_READY,
         ACTIVATION_CANDIDATE,
         VERIFIED_ACTIVATION,
