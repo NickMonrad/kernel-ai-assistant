@@ -46,6 +46,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
+/**
+ * Pure predicate: whether an event should be handled by the clock-alert voice session.
+ * Does not depend on Android framework state.
+ */
+internal fun isOwnedAlertEvent(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean = isVoiceListening && event.captureSessionId != null && event.captureSessionId == captureSessionId
+
 private const val TAG = "KernelAI"
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
@@ -617,9 +627,7 @@ class ClockAlertService : Service() {
     }
 
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
-        if (!isVoiceListening) return
-        // Only handle events belonging to the owned capture session
-        if (event.captureSessionId != captureSessionId) return
+        if (!isOwnedAlertEvent(event, captureSessionId, isVoiceListening)) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
                 // Only handle owned AlertCommand readiness events

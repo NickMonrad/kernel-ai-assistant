@@ -41,7 +41,6 @@ import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
 import java.util.Locale
-
 import javax.inject.Inject
 
 internal fun transcriptEvidenceSha256(text: String): String {
@@ -52,6 +51,57 @@ internal fun transcriptEvidenceSha256(text: String): String {
     return MessageDigest.getInstance("SHA-256")
         .digest(normalized.toByteArray(Charsets.UTF_8))
         .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
+
+/** Build consistent cue-journal metadata from a playback result. */
+internal fun cueMetadata(
+    cueResult: StartListeningCueResult,
+    isError: Boolean = false,
+): Map<String, String> {
+    val m = mutableMapOf(
+        "context" to "wake_word",
+        "policy_version" to cueResult.policyVersion,
+        "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
+        "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),
+        "max_volume" to (cueResult.maxVolume?.toString() ?: "unknown"),
+        "route" to (cueResult.routeClassification ?: "unknown"),
+    )
+    if (isError) {
+        m["category"] = cueResult.failureCategory ?: "unknown"
+    }
+    return m
+}
+
+/**
+ * Play the start-listening cue for a wake-word capture attempt and record
+ * truthful playback evidence. Returns the playback result for downstream use.
+ */
+internal fun playWakeCue(
+    journal: WakeSessionJournal,
+    cuePlayer: StartListeningCuePlayer,
+): StartListeningCueResult {
+    journal.record(
+        AcousticEventType.CUE_REQUESTED,
+        metadata = {
+            mapOf(
+                "context" to "wake_word",
+                "policy_version" to "2026-07-cue-v1",
+            )
+        },
+    )
+    val cueResult = cuePlayer.playCue(StartListeningCueContext.WAKE_WORD)
+    if (cueResult.started) {
+        journal.record(
+            AcousticEventType.CUE_PLAYBACK_STARTED,
+            metadata = { cueMetadata(cueResult) },
+        )
+    } else {
+        journal.record(
+            AcousticEventType.CUE_PLAYBACK_ERROR,
+            metadata = { cueMetadata(cueResult, isError = true) },
+        )
+    }
+    return cueResult
 }
 
 private const val TAG = "KernelAI"
@@ -265,41 +315,7 @@ class WakeWordService : Service() {
                         }
                         val terminalEvent = when (startupEvent) {
                             is VoiceInputEvent.ListeningStarted -> {
-                                fun cueMetadata(prefix: String, cueResult: StartListeningCueResult): Map<String, String> {
-                                    val m = mutableMapOf(
-                                        "context" to "wake_word",
-                                        "policy_version" to cueResult.policyVersion,
-                                        "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
-                                        "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),
-                                        "max_volume" to (cueResult.maxVolume?.toString() ?: "unknown"),
-                                        "route" to (cueResult.routeClassification ?: "unknown"),
-                                    )
-                                    if (prefix == "error") {
-                                        m["category"] = cueResult.failureCategory ?: "unknown"
-                                    }
-                                    return m
-                                }
-                                journal.record(
-                                    AcousticEventType.CUE_REQUESTED,
-                                    metadata = {
-                                        mapOf(
-                                            "context" to "wake_word",
-                                            "policy_version" to "2026-07-cue-v1",
-                                        )
-                                    },
-                                )
-                                val cueResult = cuePlayer.playCue(StartListeningCueContext.WAKE_WORD)
-                                if (cueResult.started) {
-                                    journal.record(
-                                        AcousticEventType.CUE_PLAYBACK_STARTED,
-                                        metadata = { cueMetadata("started", cueResult) },
-                                    )
-                                } else {
-                                    journal.record(
-                                        AcousticEventType.CUE_PLAYBACK_ERROR,
-                                        metadata = { cueMetadata("error", cueResult) },
-                                    )
-                                }
+                                playWakeCue(journal, cuePlayer)
                                 try {
                                     awaitAttemptEvent {
                                         it is VoiceInputEvent.Transcript ||
