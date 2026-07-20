@@ -293,12 +293,13 @@
     "complete": false,
     "complete_valid_matrix": false,
     "completion": {
-      "completed": 3,
+      "completed": 1,
+      "duplicate_valid_positions": 0,
       "failed": 1,
       "invalid": 1,
-      "missing": 21,
-      "passed": 1,
-      "total_required": 24
+      "missing": 26,
+      "passed": 0,
+      "total_required": 27
     },
     "cue_audibility_evidence_verified": true,
     "cue_policy_evidence_verified": true,

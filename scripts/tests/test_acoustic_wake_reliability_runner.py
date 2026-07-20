@@ -1214,7 +1214,7 @@ class EvidenceAndModeTests(unittest.TestCase):
         self.assertTrue(valid, issues)
 
     def test_export_evidence_end_to_end(self) -> None:
-        """Finding 2: completion flows correctly through summariser and dashboard."""
+        """Finding 2: producer, summariser, and dashboard completion agree with retry present."""
         import build_test_dashboard as dashboard
 
         harness = make_runner(runner.RunKind.DIAGNOSTIC)
@@ -1230,9 +1230,9 @@ class EvidenceAndModeTests(unittest.TestCase):
             "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
         )
         slots = runner.matrix_slots_for_target("s21")
-        # One passed, one failed, one invalid — no retry, no off-matrix.
-        # Producer and summariser completion agree since every valid
-        # position has exactly one outcome.
+        off_slot = runner.MatrixSlot(idle_s=999, wake_only=False, ordinal=1)
+        # One passed, one failed, one invalid, one retry on the passed position,
+        # one off-matrix valid attempt.
         harness.attempts = [
             runner.MatrixAttempt("pass-1", slots[0], 1, runner.AttemptStatus.PASSED),
             runner.MatrixAttempt("fail-1", slots[1], 1, runner.AttemptStatus.FAILED,
@@ -1240,37 +1240,41 @@ class EvidenceAndModeTests(unittest.TestCase):
                                  failures=["STT readiness event absent"]),
             runner.MatrixAttempt("invalid-1", slots[2], 1, runner.AttemptStatus.INVALID,
                                  invalid_reason=runner.InvalidReason.DEVICE_ENVIRONMENT_ERROR),
+            runner.MatrixAttempt("pass-1-retry", slots[0], 2, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt("off-matrix", off_slot, 1, runner.AttemptStatus.PASSED),
         ]
         evidence = harness.export_evidence()
         producer_completion = evidence["wake_reliability"]["completion"]
-        self.assertGreater(producer_completion["total_required"], 0, "producer completion must be non-zero")
+        # Producer semantics: passed position with retry has 2 outcomes → not completed,
+        # failed position has 1 outcome → completed, invalid position → missing,
+        # off-matrix → ignored.  So completed=1, missing=26, duplicates=1.
+        self.assertEqual(producer_completion["completed"], 1)
+        self.assertEqual(producer_completion["missing"], producer_completion["total_required"] - 1)
+        self.assertEqual(producer_completion["duplicate_valid_positions"], 1)
 
-        # 1. Through summariser
+        # 1. Through summariser — must agree with producer
         summary = evidence_metrics.summarise([("evidence.json", evidence, [])])
         summariser_completion = summary["wake_reliability"]["completion"]
-        # Producer and summariser agree for this clean record
-        self.assertEqual(summariser_completion["total_required"], producer_completion["total_required"])
-        self.assertEqual(summariser_completion["completed"], producer_completion["completed"])
-        self.assertEqual(summariser_completion["missing"], producer_completion["missing"])
-        self.assertEqual(summariser_completion["duplicate_valid_positions"], producer_completion["duplicate_valid_positions"])
-        # The invalid-only required position remains missing
-        self.assertGreater(summariser_completion["missing"], 0)
+        for key in ("total_required", "completed", "missing", "duplicate_valid_positions"):
+            self.assertEqual(
+                summariser_completion[key], producer_completion[key],
+                f"summariser {key} ({summariser_completion[key]}) != producer {key} ({producer_completion[key]})",
+            )
 
-        # 2. Through dashboard aggregation
+        # 2. Through dashboard aggregation — must agree with producer
         aggregates = dashboard._build_aggregates([evidence], metrics=summary)
         dash_completion = aggregates["metrics"]["wake_reliability"]["completion"]
-        self.assertEqual(dash_completion["completed"], producer_completion["completed"])
-        self.assertEqual(dash_completion["total_required"], producer_completion["total_required"])
-        self.assertNotEqual(dash_completion["completed"], 0, "dashboard must not show 0/0")
+        for key in ("total_required", "completed", "missing", "duplicate_valid_positions"):
+            self.assertEqual(
+                dash_completion[key], producer_completion[key],
+                f"dashboard {key} ({dash_completion[key]}) != producer {key} ({producer_completion[key]})",
+            )
 
-        # 3. Wake metrics rendering
+        # 3. Wake metrics rendering — same fraction as producer
         wake_html = dashboard._render_wake_metrics_section(aggregates)
         expected_fraction = f"{producer_completion['completed']}/{producer_completion['total_required']}"
-        self.assertIn(expected_fraction, wake_html, "dashboard must display correct completion rather than 0/0")
-        self.assertIn(f"{producer_completion['missing']} required positions missing", wake_html,
-                      "missing count must render in dashboard")
-        self.assertEqual(summariser_completion["duplicate_valid_positions"], producer_completion["duplicate_valid_positions"])
-
+        self.assertIn(expected_fraction, wake_html,
+                      "dashboard must display the same completed/required fraction as producer")
 
 if __name__ == "__main__":
     unittest.main()

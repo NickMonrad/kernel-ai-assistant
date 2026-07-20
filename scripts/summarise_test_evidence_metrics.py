@@ -585,7 +585,7 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         required = counts["required_positions"]
         attempted_positions = len(wake_attempted_positions[condition_key])
         valid_outcomes = wake_valid_outcomes[condition_key]
-        completed = len(valid_outcomes)
+        completed = sum(1 for count in valid_outcomes.values() if count == 1)
         duplicates = sum(max(0, count - 1) for count in valid_outcomes.values())
         retries = max(0, counts["attempts"] - attempted_positions)
         wake_completion["total_required"] += required

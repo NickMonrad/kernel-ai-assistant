@@ -386,7 +386,9 @@ class EvidenceMetricsTest(unittest.TestCase):
 
         self.assertEqual(condition["attempts"], 2)
         self.assertEqual(condition["attempted_positions"], 1)
-        self.assertEqual(condition["completed_positions"], 1)
+        # Duplicated position has 2 valid outcomes → not cleanly completed
+        self.assertEqual(condition["completed_positions"], 0)
+        self.assertEqual(condition["missing_positions"], 3)
         self.assertEqual(condition["retry_attempts"], 1)
         self.assertEqual(condition["duplicate_valid_positions"], 1)
         self.assertFalse(condition["complete"])
