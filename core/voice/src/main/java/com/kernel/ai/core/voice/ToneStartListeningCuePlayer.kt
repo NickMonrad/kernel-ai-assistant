@@ -3,8 +3,10 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioAttributes
 import android.media.ToneGenerator
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,6 +24,17 @@ fun streamForCueContext(context: StartListeningCueContext): Int = when (context)
     StartListeningCueContext.CLOCK_ALERT -> AudioManager.STREAM_ALARM
 }
 
+/** Pure mapping: set of output device types → route classification string. */
+fun classifyRoute(deviceTypes: Set<Int>): String = when {
+    deviceTypes.isEmpty() -> "unknown"
+    // Mixed device types are ambiguous — report unknown rather than picking one.
+    deviceTypes.size > 1 -> "unknown"
+    deviceTypes.all { it == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER } -> "built_in_speaker"
+    deviceTypes.any { it == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it == AudioDeviceInfo.TYPE_BLUETOOTH_SCO } -> "bluetooth_a2dp"
+    deviceTypes.any { it == AudioDeviceInfo.TYPE_WIRED_HEADSET || it == AudioDeviceInfo.TYPE_WIRED_HEADPHONES } -> "wired_headset"
+    else -> "unknown"
+}
+
 /**
  * Plays a brief, non-jarring beep when the microphone becomes ready for speech.
  *
@@ -37,7 +50,7 @@ fun streamForCueContext(context: StartListeningCueContext): Int = when (context)
  */
 @Singleton
 class ToneStartListeningCuePlayer @Inject constructor(
-    private val appContext: Context,
+    @ApplicationContext private val appContext: Context,
 ) : StartListeningCuePlayer {
 
     private var defaultToneGeneratorInstance: ToneGenerator? = null
@@ -68,19 +81,14 @@ class ToneStartListeningCuePlayer @Inject constructor(
         }
         return created
     }
-
-    private fun currentRouteClassification(): String {
+    private fun currentRouteClassification(context: StartListeningCueContext): String {
         return try {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            val active = devices.firstOrNull()
-            when (active?.type) {
-                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "built_in_speaker"
-                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-                AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth_a2dp"
-                AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_headset"
-                else -> "unknown"
-            }
+            val stream = streamForContext(context)
+            val attrs = AudioAttributes.Builder()
+                .setLegacyStreamType(stream)
+                .build()
+            val devices = audioManager.getAudioDevicesForAttributes(attrs)
+            classifyRoute(devices.map { it.type }.toSet())
         } catch (e: Exception) {
             Log.w(TAG, "ToneStartListeningCuePlayer: route classification unavailable", e)
             "unknown"
@@ -106,7 +114,7 @@ class ToneStartListeningCuePlayer @Inject constructor(
             selectedStream = stream,
             currentVolume = currentVolume,
             maxVolume = maxVolume,
-            routeClassification = currentRouteClassification(),
+            routeClassification = currentRouteClassification(context),
             failureCategory = failureCategory,
         )
     }

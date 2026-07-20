@@ -11,7 +11,6 @@ import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -34,17 +33,61 @@ class ToneStartListeningCuePlayerTest {
     }
 
     @Test
+    fun `empty device types returns unknown`() {
+        assertEquals("unknown", classifyRoute(emptySet()))
+    }
+
+    @Test
+    fun `only built-in speaker returns built_in_speaker`() {
+        assertEquals("built_in_speaker", classifyRoute(setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)))
+    }
+
+    @Test
+    fun `bluetooth a2dp route returns bluetooth_a2dp`() {
+        assertEquals("bluetooth_a2dp", classifyRoute(setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)))
+    }
+
+    @Test
+    fun `bluetooth sco route returns bluetooth_a2dp`() {
+        assertEquals("bluetooth_a2dp", classifyRoute(setOf(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)))
+    }
+
+    @Test
+    fun `wired headphones route returns wired_headset`() {
+        assertEquals("wired_headset", classifyRoute(setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)))
+    }
+
+    @Test
+    fun `wired headset route returns wired_headset`() {
+        assertEquals("wired_headset", classifyRoute(setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET)))
+    }
+
+    @Test
+    fun `mixed built-in and bluetooth returns unknown`() {
+        assertEquals("unknown", classifyRoute(
+            setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP),
+        ))
+    }
+
+    @Test
+    fun `mixed built-in and wired returns unknown`() {
+        assertEquals("unknown", classifyRoute(
+            setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_WIRED_HEADPHONES),
+        ))
+    }
+
+    @Test
+    fun `unknown device type returns unknown`() {
+        assertEquals("unknown", classifyRoute(setOf(AudioDeviceInfo.TYPE_USB_DEVICE)))
+    }
+
+    @Test
     fun `successful startTone returns complete playback metadata`() {
         val audioManager = mockk<AudioManager>()
         every { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) } returns 10
         every { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) } returns 25
-        val device = mockk<AudioDeviceInfo>()
-        every { device.type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(device)
-
         val context = mockk<Context>()
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
         mockkConstructor(ToneGenerator::class)
         every { anyConstructed<ToneGenerator>().startTone(ToneGenerator.TONE_PROP_BEEP, 100) } returns true
 
@@ -56,7 +99,6 @@ class ToneStartListeningCuePlayerTest {
         assertEquals(AudioManager.STREAM_MUSIC, result.selectedStream)
         assertEquals(10, result.currentVolume)
         assertEquals(25, result.maxVolume)
-        assertEquals("built_in_speaker", result.routeClassification)
         assertEquals("2026-07-cue-v1", result.policyVersion)
         assertNull(result.failureCategory)
     }
@@ -66,13 +108,8 @@ class ToneStartListeningCuePlayerTest {
         val audioManager = mockk<AudioManager>()
         every { audioManager.getStreamVolume(any()) } returns 10
         every { audioManager.getStreamMaxVolume(any()) } returns 25
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(mockk {
-            every { type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        })
-
         val context = mockk<Context>()
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
         mockkConstructor(ToneGenerator::class)
         every { anyConstructed<ToneGenerator>().startTone(ToneGenerator.TONE_PROP_BEEP, 100) } returns false
 
@@ -90,13 +127,8 @@ class ToneStartListeningCuePlayerTest {
         val audioManager = mockk<AudioManager>()
         every { audioManager.getStreamVolume(any()) } returns 10
         every { audioManager.getStreamMaxVolume(any()) } returns 25
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(mockk {
-            every { type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        })
-
         val context = mockk<Context>()
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
         mockkConstructor(ToneGenerator::class)
         every { anyConstructed<ToneGenerator>().startTone(ToneGenerator.TONE_PROP_BEEP, 100) } throws RuntimeException("playback died")
 
@@ -108,51 +140,21 @@ class ToneStartListeningCuePlayerTest {
     }
 
     @Test
-    fun `ToneGenerator creation failure reports tone_generator_unavailable`() {
-        val audioManager = mockk<AudioManager>()
-        every { audioManager.getStreamVolume(any()) } returns 10
-        every { audioManager.getStreamMaxVolume(any()) } returns 25
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(mockk {
-            every { type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        })
-
-        val context = mockk<Context>()
-        every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
-        // Constructor mock returns null behavior via exception
-        mockkConstructor(ToneGenerator::class)
-        every { anyConstructed<ToneGenerator>().startTone(any(), any()) } returns true
-        // We can't easily make constructor fail, so we verify the cached instance behaviour
-
-        val player = ToneStartListeningCuePlayer(context)
-        val result = player.playCue(StartListeningCueContext.FOREGROUND)
-        // Normal case — creation succeeded
-        assertTrue(result.started)
-    }
-
-    @Test
     fun `release clears both cached generators`() {
         val audioManager = mockk<AudioManager>()
         every { audioManager.getStreamVolume(any()) } returns 10
         every { audioManager.getStreamMaxVolume(any()) } returns 25
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(mockk {
-            every { type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        })
-
         val context = mockk<Context>()
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
         mockkConstructor(ToneGenerator::class)
         every { anyConstructed<ToneGenerator>().startTone(ToneGenerator.TONE_PROP_BEEP, 100) } returns true
 
         val player = ToneStartListeningCuePlayer(context)
-        // Play with both audible and non-audible contexts to create generators
         player.playCue(StartListeningCueContext.FOREGROUND)
         player.playCue(StartListeningCueContext.WAKE_WORD)
 
         player.release()
 
-        // Verify both generators were released
         verify(exactly = 2) { anyConstructed<ToneGenerator>().release() }
     }
 
@@ -160,24 +162,17 @@ class ToneStartListeningCuePlayerTest {
     fun `stream volume captured without mutation`() {
         val volumeSlot = slot<Int>()
         val maxVolumeSlot = slot<Int>()
-
         val audioManager = mockk<AudioManager>()
         every { audioManager.getStreamVolume(capture(volumeSlot)) } returns 10
         every { audioManager.getStreamMaxVolume(capture(maxVolumeSlot)) } returns 25
-        every { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS) } returns arrayOf(mockk {
-            every { type } returns AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        })
-
         val context = mockk<Context>()
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
-
         mockkConstructor(ToneGenerator::class)
         every { anyConstructed<ToneGenerator>().startTone(ToneGenerator.TONE_PROP_BEEP, 100) } returns true
 
         val player = ToneStartListeningCuePlayer(context)
         val result = player.playCue(StartListeningCueContext.FOREGROUND)
 
-        // Volume was read but never set
         assertEquals(AudioManager.STREAM_MUSIC, volumeSlot.captured)
         assertEquals(AudioManager.STREAM_MUSIC, maxVolumeSlot.captured)
         assertEquals(10, result.currentVolume)

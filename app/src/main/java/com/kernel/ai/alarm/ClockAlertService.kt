@@ -78,16 +78,13 @@ class ClockAlertService : Service() {
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
+    private var captureSessionId: Long? = null
+
     private val notificationManager: NotificationManager
         get() = getSystemService(NotificationManager::class.java)
 
     private val vibratorManager: VibratorManager
         get() = getSystemService(VibratorManager::class.java)
-
-    private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var voiceEventsJob: Job? = null
-    private var voicePreferencesJob: Job? = null
     private var clockSoundConfigJob: Job? = null
     private var clockAlertConfigJob: Job? = null
     private var autoStartVoiceJob: Job? = null
@@ -211,6 +208,7 @@ class ClockAlertService : Service() {
     }
 
     override fun onDestroy() {
+        captureSessionId = null
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
         voicePreferencesJob?.cancel()
@@ -559,21 +557,28 @@ class ClockAlertService : Service() {
     private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
         isVoiceListening = true
         handledVoiceTranscript = false
+        captureSessionId = null
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
         duckPlaybackForVoiceControl()
         refreshForeground()
         serviceScope.launch {
             when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
-                is VoiceInputStartResult.Started -> Unit
-                is VoiceInputStartResult.Unavailable -> finishVoiceCapture(
-                    result.message.ifBlank { "Voice commands are unavailable right now." },
-                )
+                is VoiceInputStartResult.Started -> {
+                    captureSessionId = result.captureSessionId
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    captureSessionId = null
+                    finishVoiceCapture(
+                        result.message.ifBlank { "Voice commands are unavailable right now." },
+                    )
+                }
             }
         }
     }
-
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
         if (!isVoiceListening) return
+        // Only handle events belonging to the owned capture session
+        if (event.captureSessionId != captureSessionId) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
                 // Only handle owned AlertCommand readiness events
@@ -586,16 +591,19 @@ class ClockAlertService : Service() {
             is VoiceInputEvent.SpeechDetected -> Unit
             is VoiceInputEvent.PartialTranscript -> Unit
             is VoiceInputEvent.Transcript -> {
+                captureSessionId = null
                 handledVoiceTranscript = true
                 val alert = currentAlert() ?: return finishVoiceCapture("No active alert to control.")
                 handleVoiceTranscript(alert, event.text)
             }
             is VoiceInputEvent.Error -> {
+                captureSessionId = null
                 handledVoiceTranscript = true
                 finishVoiceCapture(event.message)
             }
             is VoiceInputEvent.ListeningStopped -> {
                 if (!handledVoiceTranscript) {
+                    captureSessionId = null
                     finishVoiceCapture("I didn't catch a supported alert command.")
                 }
             }
@@ -658,6 +666,7 @@ class ClockAlertService : Service() {
     }
     private fun finishVoiceCapture(message: String) {
         isVoiceListening = false
+        captureSessionId = null
         handledVoiceTranscript = false
         voiceStatusMessage = message
         voiceInputController.stopListening()
