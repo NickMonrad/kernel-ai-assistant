@@ -60,35 +60,60 @@ internal fun isOwnedAlertEvent(
 
 /**
  * Result of a [bufferedCaptureSession] call.
- *
- * @property captureSessionId the session assigned by the voice controller
- * @property ownedStartEvents events received by this session before the function returns;
- *   empty when the controller delivers [VoiceInputEvent.ListeningStarted] asynchronously,
- *   which is the typical production path.
  */
-internal data class CaptureStartResult(
-    val captureSessionId: Long,
-    val ownedStartEvents: List<VoiceInputEvent>,
-)
+internal sealed interface CaptureStartResult {
+    val captureSessionId: Long
+
+    data class Started(
+        override val captureSessionId: Long,
+        val ownedStartEvents: List<VoiceInputEvent>,
+    ) : CaptureStartResult
+
+    data class Unavailable(
+        val message: String?,
+    ) : CaptureStartResult {
+        override val captureSessionId: Long get() = -1L
+    }
+}
 
 /**
- * Bounded STT session startup: call [startListening] and return a [CaptureStartResult].
+ * Bounded STT session startup with a temporary buffered collector.
  *
- * Does NOT buffer events synchronously — production controllers deliver
- * [VoiceInputEvent.ListeningStarted] asynchronously via [VoiceInputController.events].
- * The caller is responsible for subscribing to the flow before calling this function
- * to avoid missing the event entirely.
+ * Subscribes to [VoiceInputController.events] **before** calling [startListening] so that
+ * synchronously emitted events are captured. Events belonging to the returned session are
+ * drained and returned in [CaptureStartResult.Started.ownedStartEvents].
+ *
+ * The collector always terminates before this function returns.
  */
 internal suspend fun bufferedCaptureSession(
     voiceInputController: VoiceInputController,
     mode: VoiceCaptureMode,
-): CaptureStartResult? {
-    val startResult = voiceInputController.startListening(mode)
-    if (startResult !is VoiceInputStartResult.Started) return null
-    return CaptureStartResult(
-        captureSessionId = startResult.captureSessionId,
-        ownedStartEvents = emptyList(),
-    )
+): CaptureStartResult = coroutineScope {
+    val startupChannel = Channel<VoiceInputEvent>(Channel.BUFFERED)
+    val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
+        voiceInputController.events.collect { startupChannel.send(it) }
+    }
+    try {
+        when (val startResult = voiceInputController.startListening(mode)) {
+            is VoiceInputStartResult.Started -> {
+                val ownedEvents = mutableListOf<VoiceInputEvent>()
+                while (true) {
+                    val buffered = startupChannel.tryReceive().getOrNull() ?: break
+                    if (buffered.captureSessionId == startResult.captureSessionId) {
+                        ownedEvents.add(buffered)
+                    }
+                }
+                CaptureStartResult.Started(
+                    captureSessionId = startResult.captureSessionId,
+                    ownedStartEvents = ownedEvents,
+                )
+            }
+            is VoiceInputStartResult.Unavailable -> CaptureStartResult.Unavailable(startResult.message)
+        }
+    } finally {
+        collectorJob.cancelAndJoin()
+        startupChannel.cancel()
+    }
 }
 
 private const val TAG = "KernelAI"
@@ -611,15 +636,17 @@ class ClockAlertService : Service() {
         refreshForeground()
         serviceScope.launch {
             try {
-                val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)
-                if (result == null) {
-                    captureSessionId = null
-                    finishVoiceCapture("Voice commands are unavailable right now.")
-                    return@launch
-                }
-                captureSessionId = result.captureSessionId
-                for (event in result.ownedStartEvents) {
-                    handleVoiceEvent(event)
+                when (val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)) {
+                    is CaptureStartResult.Started -> {
+                        captureSessionId = result.captureSessionId
+                        for (event in result.ownedStartEvents) {
+                            handleVoiceEvent(event)
+                        }
+                    }
+                    is CaptureStartResult.Unavailable -> {
+                        captureSessionId = null
+                        finishVoiceCapture("Voice commands are unavailable right now.")
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e

@@ -132,14 +132,12 @@ internal suspend fun runWakeAttempt(
     cuePlayer: StartListeningCuePlayer,
     attempt: Int,
     onError: (String) -> Unit = {},
-): WakeAttemptOutcome {
-    val attemptEvents = Channel<VoiceInputEvent>(capacity = Channel.BUFFERED)
-    val collectorJob = Job()
-    val collectorScope = CoroutineScope(coroutineContext + collectorJob)
-    collectorScope.launch(start = CoroutineStart.UNDISPATCHED) {
+): WakeAttemptOutcome = coroutineScope {
+    val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
+    val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
         voiceInputController.events.collect(attemptEvents::send)
     }
-    return try {
+    try {
         journal.record(
             AcousticEventType.STT_START_REQUESTED,
             metadata = { mapOf("attempt" to attempt.toString()) },
@@ -153,7 +151,7 @@ internal suspend fun runWakeAttempt(
             (startResult as? VoiceInputStartResult.Unavailable)?.message?.let { msg ->
                 if (msg.isNotBlank()) onError(msg)
             }
-            return WakeAttemptOutcome.Unavailable
+            return@coroutineScope WakeAttemptOutcome.Unavailable
         }
 
         val captureSessionId = startResult.captureSessionId
@@ -222,7 +220,7 @@ internal suspend fun runWakeAttempt(
             WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
         }
     } finally {
-        collectorJob.cancel()
+        collectorJob.cancelAndJoin()
         attemptEvents.cancel()
     }
 }

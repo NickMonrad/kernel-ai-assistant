@@ -12,8 +12,13 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -35,7 +40,8 @@ class WakeWordCueTest {
     fun `first ready attempt plays cue and returns transcript`() = runTest {
         val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
         val controller = fakeController(events)
-        val journal = WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> })
+        val journalEvents = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
         journal.start()
         val cuePlayer = mockk<StartListeningCuePlayer>()
         every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
@@ -51,6 +57,24 @@ class WakeWordCueTest {
         assertTrue(outcome is WakeAttemptOutcome.GotTranscript)
         assertEquals("hello", (outcome as WakeAttemptOutcome.GotTranscript).text)
         verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
+
+        // Journal ordering: STT_START_REQUESTED → STT_READY → CUE_REQUESTED → playback → STT_FINAL
+        val startIdx = journalEvents.indexOf(AcousticEventType.STT_START_REQUESTED)
+        val readyIdx = journalEvents.indexOf(AcousticEventType.STT_READY)
+        val cueReqIdx = journalEvents.indexOf(AcousticEventType.CUE_REQUESTED)
+        val playbackIdx = journalEvents.indexOfFirst {
+            it == AcousticEventType.CUE_PLAYBACK_STARTED || it == AcousticEventType.CUE_PLAYBACK_ERROR
+        }
+        val finalIdx = journalEvents.indexOf(AcousticEventType.STT_FINAL)
+
+        assertTrue(startIdx >= 0, "STT_START_REQUESTED must be recorded")
+        assertTrue(readyIdx >= 0, "STT_READY must be recorded")
+        assertTrue(cueReqIdx >= 0, "CUE_REQUESTED must be recorded")
+        assertTrue(playbackIdx >= 0, "playback result must be recorded")
+        assertTrue(finalIdx >= 0, "STT_FINAL must be recorded")
+        assertTrue(startIdx < readyIdx, "STT_START_REQUESTED before STT_READY")
+        assertTrue(cueReqIdx < playbackIdx, "CUE_REQUESTED before playback result")
+        assertTrue(playbackIdx < finalIdx, "playback result before STT_FINAL")
     }
 
     @Test
@@ -208,6 +232,41 @@ class WakeWordCueTest {
         j.complete()
         j.cancel("ignored")
         val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
+    }
+
+    @Test
+    fun `coroutine cancellation cleans up attempt and propagates`() = runTest {
+        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
+        val controller = fakeController(events)
+        val journalEvents = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
+        journal.start()
+        val cuePlayer = mockk<StartListeningCuePlayer>()
+        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
+            started = true, context = StartListeningCueContext.WAKE_WORD,
+        )
+
+        val sessionId = 42L
+        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
+        // Run the attempt — it will wait inside for a terminal event
+        val job = kotlinx.coroutines.Job()
+        val attemptDeferred = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined + job).launch {
+            runWakeAttempt(controller, journal, cuePlayer, 1)
+        }
+
+        // Cancel the scope while the attempt is live (before any terminal event)
+        val cancel = CancellationException("test cancel")
+        job.cancel(cancel)
+
+        // Wait for the attempt coroutine to finish
+        attemptDeferred.join()
+
+        // After the cancellation settles, finalise the journal and check
+        journal.complete()
+        val terminals = journalEvents.count {
+            it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED)
+        }
         assertEquals(1, terminals)
     }
 }
