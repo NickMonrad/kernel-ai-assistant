@@ -2724,9 +2724,58 @@ class AcousticWakeReliabilityRunner:
             raise HarnessError(f"media volume {current} is outside [{minimum}..{maximum}]")
         return current, maximum
 
+    @staticmethod
+    def _parse_sensor_privacy_dump(raw: str, user_id: int) -> dict[str, str]:
+        """Parse effective microphone/camera privacy from SensorPrivacyService."""
+        if not raw.startswith("SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)"):
+            raise HarnessError("dumpsys sensor_privacy omitted sensor privacy manager state")
+
+        current_user: int | None = None
+        current_sensor: int | None = None
+        states: dict[int, list[int]] = {1: [], 2: []}
+        for raw_line in raw.splitlines():
+            line = raw_line.strip()
+            match = re.fullmatch(r"user_id=(\d+)", line)
+            if match:
+                current_user = int(match.group(1))
+                current_sensor = None
+                continue
+            match = re.fullmatch(r"sensor=(\d+)", line)
+            if match:
+                current_sensor = int(match.group(1))
+                continue
+            match = re.fullmatch(r"state_type=(\d+)", line)
+            if match and current_user == user_id and current_sensor in states:
+                state_type = int(match.group(1))
+                if state_type not in {1, 2}:
+                    raise HarnessError(
+                        f"unrecognised sensor privacy state type: {state_type}"
+                    )
+                states[current_sensor].append(state_type)
+
+        return {
+            "microphone": "enabled" if 1 in states[1] else "disabled",
+            "camera": "enabled" if 1 in states[2] else "disabled",
+        }
+
+    @staticmethod
+    def _parse_screen_off(raw: str) -> bool:
+        """Parse screen state from modern PowerManagerService output."""
+        match = re.search(r"(?m)^\s*mWakefulness=(\w+)\s*$", raw)
+        if match is None:
+            raise HarnessError("dumpsys power omitted mWakefulness")
+        wakefulness = match.group(1)
+        if wakefulness == "Awake":
+            return False
+        if wakefulness in {"Asleep", "Dozing"}:
+            return True
+        raise HarnessError(f"unrecognised Android wakefulness: {wakefulness!r}")
+
     def _snapshot_audio_state(self, client: AdbClient, alias: str) -> dict[str, Any]:
         """Capture exact Android audio values used by pre/post comparisons."""
-        volume_raw = client.shell("media", "volume", "--stream", "3", "--get").strip()
+        volume_raw = client.shell(
+            "cmd", "media_session", "volume", "--get", "--stream", "3"
+        ).strip()
         volume, volume_max = self._parse_media_volume(volume_raw)
         ringer = client.shell("settings", "get", "global", "mode_ringer").strip()
         dnd = client.shell("settings", "get", "global", "zen_mode").strip()
@@ -2746,15 +2795,25 @@ class AcousticWakeReliabilityRunner:
         return self._snapshot_audio_state(client, "volume-probe")["media_volume_max"]
 
     def _has_active_bluetooth_route(self, client: AdbClient) -> bool:
-        """Reject Bluetooth routes reported as selected or active; inspection is fail-closed."""
-        lines = client.shell("dumpsys", "audio").lower().splitlines()
-        bluetooth = re.compile(r"a2dp|bluetooth[_ -]?sco|ble[_ -]?headset|ble[_ -]?speaker")
-        active = re.compile(r"\b(active|selected|current|routed)\b")
-        inactive = re.compile(r"\b(inactive|not active|selected=false|active=false)\b")
-        return any(
-            bluetooth.search(line) and active.search(line) and not inactive.search(line)
-            for line in lines
-        )
+        """Read the current AudioRoutesInfo Bluetooth route, ignoring dumpsys history."""
+        lines = client.shell("dumpsys", "audio").splitlines()
+        try:
+            routes_start = next(
+                index for index, line in enumerate(lines)
+                if line.strip() == "Audio routes:"
+            )
+        except StopIteration as exc:
+            raise HarnessError("dumpsys audio omitted current Audio routes state") from exc
+
+        bluetooth_name = None
+        for line in lines[routes_start + 1:routes_start + 8]:
+            match = re.fullmatch(r"\s*mBluetoothName=(.*)\s*", line)
+            if match:
+                bluetooth_name = match.group(1).strip()
+                break
+        if bluetooth_name is None:
+            raise HarnessError("dumpsys audio omitted current Bluetooth route state")
+        return bluetooth_name.lower() != "null"
 
     def _snapshot_android_state(
         self,
@@ -2785,22 +2844,19 @@ class AcousticWakeReliabilityRunner:
             errors.append(f"current user: unrecognised response {current_user!r}")
             current_user = None
 
-        privacy: dict[str, str | None] = {}
-        for sensor in ("microphone", "camera"):
-            value = (
-                capture(
-                    f"{sensor} sensor privacy",
-                    ("cmd", "sensor_privacy", "status", current_user, sensor),
-                )
-                if current_user is not None
-                else None
+        privacy: dict[str, str | None] = {"microphone": None, "camera": None}
+        if current_user is not None:
+            privacy_dump = capture(
+                "sensor privacy",
+                ("dumpsys", "sensor_privacy"),
             )
-            normalised = value.lower() if value is not None else None
-            if normalised not in {"enabled", "disabled"}:
-                if value is not None:
-                    errors.append(f"{sensor} sensor privacy: unrecognised response {value!r}")
-                normalised = None
-            privacy[sensor] = normalised
+            if privacy_dump is not None:
+                try:
+                    privacy.update(
+                        self._parse_sensor_privacy_dump(privacy_dump, int(current_user))
+                    )
+                except HarnessError as exc:
+                    errors.append(f"sensor privacy: {exc}")
 
         package_uid_raw = capture(
             "package UID",
@@ -2865,10 +2921,16 @@ class AcousticWakeReliabilityRunner:
         except HarnessError as exc:
             errors.append(f"Bluetooth route state: {exc}")
         if target:
+            screen_off: bool | None = None
+            if power is not None:
+                try:
+                    screen_off = self._parse_screen_off(power)
+                except HarnessError as exc:
+                    errors.append(f"power state: {exc}")
             snapshot.update({
                 "uptime_seconds": uptime,
                 "boot_id": boot_id,
-                "screen_off": power is not None and "mScreenOn=false" in power,
+                "screen_off": screen_off,
                 "charging": battery is not None and (
                     "AC powered: true" in battery or "USB powered: true" in battery
                 ),

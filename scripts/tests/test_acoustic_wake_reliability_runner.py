@@ -55,22 +55,21 @@ def configure_environment(client: FakeAdb, *, target: bool) -> None:
     package = runner.DEFAULT_PACKAGE
     responses = {
         "shell am get-current-user": "0",
-        "shell cmd sensor_privacy status 0 microphone": "disabled",
-        "shell cmd sensor_privacy status 0 camera": "disabled",
+        "shell dumpsys sensor_privacy": "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\n",
         f"shell cmd package list packages -U {package}": f"package:{package} uid:10123",
         "shell am get-uid-state 10123": "PROCESS_STATE_CACHED_EMPTY",
         f"shell am get-standby-bucket {package}": "10",
         f"shell pidof {package}": "1234" if target else "",
-        "shell media volume --stream 3 --get": "volume is 10 in range [0..25]",
+        "shell cmd media_session volume --get --stream 3": "volume is 10 in range [0..25]",
         "shell settings get global mode_ringer": "2",
         "shell settings get global zen_mode": "0",
         f"shell dumpsys activity services {package}": "WakeWordService" if target else "",
-        "shell dumpsys audio": "Audio routes: speaker active",
+        "shell dumpsys audio": "Audio routes:\n  mMainType=0x0\n  mBluetoothName=null",
     }
     if target:
         responses.update({
             "shell dumpsys battery": "AC powered: false\nUSB powered: true",
-            "shell dumpsys power": "mScreenOn=false",
+            "shell dumpsys power": "mWakefulness=Dozing",
             "shell cat /proc/uptime": "100.00 10.00",
             "shell cat /proc/sys/kernel/random/boot_id": "boot-1",
         })
@@ -517,6 +516,32 @@ class SourceAndCorrelationTests(unittest.TestCase):
         self.assertIsNone(harness._active_source_trial_id)
         self.assertIsNone(harness._active_source_fixture_id)
 
+    def test_bluetooth_route_uses_current_state_not_dumpsys_history(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = """Audio routes:
+  mMainType=0x0
+  mBluetoothName=null
+
+Events log: wired/A2DP/hearing aid device connection
+BluetoothActiveDeviceChanged for A2DP, device update null -> XX:XX
+setBluetoothActiveDevice active bt_a2dp routed
+"""
+        self.assertFalse(harness._has_active_bluetooth_route(harness.source))
+
+    def test_bluetooth_route_reports_current_named_route(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = """Audio routes:
+  mMainType=0x0
+  mBluetoothName=Galaxy Buds
+"""
+        self.assertTrue(harness._has_active_bluetooth_route(harness.source))
+
+    def test_bluetooth_route_fails_closed_when_current_state_is_missing(self) -> None:
+        harness = make_runner()
+        harness.source.responses["shell dumpsys audio"] = "Events log: A2DP active"
+        with self.assertRaisesRegex(runner.HarnessError, "omitted current Audio routes state"):
+            harness._has_active_bluetooth_route(harness.source)
+
     def test_preflight_mode_cleans_up_after_operator_interrupt(self) -> None:
         harness = Mock()
         harness.run_preflight.side_effect = KeyboardInterrupt
@@ -793,6 +818,46 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         commands = harness.source.commands
         self.assertFalse(any("settings" in command and "put" in command for command in commands))
 
+
+    def test_sensor_privacy_dump_defaults_absent_sensor_state_to_disabled(self) -> None:
+        parsed = runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+            "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\n",
+            0,
+        )
+        self.assertEqual(parsed, {"microphone": "disabled", "camera": "disabled"})
+
+    def test_sensor_privacy_dump_aggregates_enabled_toggle_for_current_user(self) -> None:
+        parsed = runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+            "\n".join((
+                "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)",
+                "user_id=0", "sensor=1", "toggle_type=1", "state_type=2",
+                "toggle_type=2", "state_type=1",
+                "sensor=2", "toggle_type=1", "state_type=2",
+                "user_id=10", "sensor=2", "toggle_type=1", "state_type=1",
+            )),
+            0,
+        )
+        self.assertEqual(parsed, {"microphone": "enabled", "camera": "disabled"})
+
+    def test_sensor_privacy_dump_rejects_unknown_state_type(self) -> None:
+        with self.assertRaisesRegex(runner.HarnessError, "state type: 7"):
+            runner.AcousticWakeReliabilityRunner._parse_sensor_privacy_dump(
+                "SENSOR PRIVACY MANAGER STATE (dumpsys sensor_privacy)\nuser_id=0\nsensor=1\nstate_type=7\n",
+                0,
+            )
+
+    def test_screen_state_accepts_asleep_and_dozing_as_off(self) -> None:
+        self.assertTrue(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Asleep"))
+        self.assertTrue(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Dozing"))
+
+    def test_screen_state_reports_awake_as_on(self) -> None:
+        self.assertFalse(runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Awake"))
+
+    def test_screen_state_rejects_missing_or_unknown_wakefulness(self) -> None:
+        with self.assertRaisesRegex(runner.HarnessError, "omitted mWakefulness"):
+            runner.AcousticWakeReliabilityRunner._parse_screen_off("mScreenOn=false")
+        with self.assertRaisesRegex(runner.HarnessError, "unrecognised Android wakefulness"):
+            runner.AcousticWakeReliabilityRunner._parse_screen_off("mWakefulness=Dreaming")
 
     def test_exact_environment_capture_reads_privacy_process_power_and_audio(self) -> None:
         harness = make_runner()
