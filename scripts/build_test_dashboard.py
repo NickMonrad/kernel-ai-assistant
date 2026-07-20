@@ -486,6 +486,7 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
             "source": latest_rec.get("source", "unknown"),
             "latest": latest_rec.get("timestamp", ""),
             "latest_commit": latest_rec.get("commit", ""),
+            "latest_summary": latest_rec.get("summary", {}),
             "suites": suites,
             "total": merge["total"],
             "passed": merge["passed"],
@@ -815,12 +816,14 @@ def _render_wake_metrics_section(data: dict) -> str:
 
     release = wake.get("release_gate", {})
     completion = wake.get("completion", {})
-    release_ok = (
-        _safe_int(release.get("failed")) == 0
-        and _safe_int(release.get("successful")) > 0
-    )
-    release_class = "pass" if release_ok else "fail"
-    release_label = "PASS" if release_ok else "NOT RELEASE-READY"
+    release_records = _safe_int(release.get("records"))
+    release_ok = release.get("latest_successful") is True
+    if release_records == 0:
+        release_class = "neutral"
+        release_label = "NO RELEASE-GATE EVIDENCE"
+    else:
+        release_class = "pass" if release_ok else "fail"
+        release_label = "LATEST PASS" if release_ok else "LATEST NOT RELEASE-READY"
 
     def bucket_rows(raw: object) -> str:
         if not isinstance(raw, dict):
@@ -853,15 +856,19 @@ def _render_wake_metrics_section(data: dict) -> str:
         f"<td>{esc(item.get('device_id', '—'))}</td>"
         f"<td>{_safe_int(item.get('idle_seconds'))}</td>"
         f"<td><code>{esc(item.get('trial_type', '—'))}</code></td>"
-        f"<td>{_safe_int(item.get('attempted_positions'))}/{_safe_int(item.get('required_positions'))}</td>"
-        f"<td>{_safe_int(item.get('passed'))}</td>"
-        f"<td>{_safe_int(item.get('failed'))}</td>"
-        f"<td>{_safe_int(item.get('invalid'))}</td>"
+        f"<td>{_safe_int(item.get('completed_positions'))}/{_safe_int(item.get('required_positions'))}</td>"
+        f"<td>{_safe_int(item.get('attempted_positions'))}</td>"
+        f"<td>{_safe_int(item.get('retry_attempts'))}</td>"
+        f"<td>{_safe_int(item.get('valid_attempts'))}</td>"
+        f"<td>{_safe_int(item.get('passed_attempts'))}</td>"
+        f"<td>{_safe_int(item.get('failed_attempts'))}</td>"
+        f"<td>{_safe_int(item.get('invalid_attempts'))}</td>"
+        f"<td>{_safe_int(item.get('duplicate_valid_positions'))}</td>"
         f"<td>{_safe_int(item.get('missing_positions'))}</td>"
         "</tr>"
         for item in wake.get("completion_by_condition", [])
         if isinstance(item, dict)
-    ) or '<tr><td colspan="8">No matrix condition data recorded</td></tr>'
+    ) or '<tr><td colspan="12">No matrix condition data recorded</td></tr>'
     timing = wake.get("timing", {})
     timing = timing if isinstance(timing, dict) else {}
     timing_aggregate_rows = "".join(
@@ -936,21 +943,21 @@ def _render_wake_metrics_section(data: dict) -> str:
     return f"""<div class="section">
 <h2>Acoustic Wake Reliability</h2>
 <div class="summary-grid">
-  <div class="card"><div class="label">Attempts</div>
+  <div class="card"><div class="label">Valid attempt outcomes (all modes)</div>
     <div class="value">{_safe_int(overall.get('attempts'))}</div>
-    <div class="meta">{_safe_int(overall.get('valid'))} valid · {_safe_int(overall.get('invalid'))} invalid · {_safe_float(overall.get('pass_rate')):.1%} valid pass rate</div>
+    <div class="meta">{_safe_int(overall.get('valid'))} valid · {_safe_int(overall.get('invalid'))} invalid · {_safe_float(overall.get('pass_rate')):.1%} valid-attempt pass rate</div>
   </div>
-  <div class="card"><div class="label">Release Gate</div>
+  <div class="card"><div class="label">Latest release-gate record</div>
     <div class="value {release_class}">{release_label}</div>
-    <div class="meta">{_safe_int(release.get('successful'))} successful · {_safe_int(release.get('failed'))} failed · {_safe_int(release.get('provenance_unverified'))} provenance-unverified · {_safe_int(release.get('feasibility_only'))} feasibility-only</div>
+    <div class="meta">Latest {_iso_short(str(release.get('latest_timestamp', '')))} · historical release-gate records: {_safe_int(release.get('successful'))} successful, {_safe_int(release.get('failed'))} failed · {_safe_int(release.get('provenance_unverified'))} provenance-unverified · {_safe_int(release.get('feasibility_only'))} feasibility-only</div>
   </div>
-  <div class="card"><div class="label">Matrix Completion</div>
+  <div class="card"><div class="label">Aggregate valid-matrix coverage</div>
     <div class="value">{_safe_int(completion.get('completed'))}/{_safe_int(completion.get('total_required'))}</div>
-    <div class="meta">{_safe_int(completion.get('missing'))} required positions missing</div>
+    <div class="meta">Across all schema-valid records · {_safe_int(completion.get('missing'))} required positions missing · {_safe_int(completion.get('duplicate_valid_positions'))} duplicate valid outcomes · {_safe_int(wake.get('off_matrix_attempts'))} off-matrix attempts</div>
   </div>
 </div>
-<h3>Matrix Completion by Condition</h3><div class="pr-table-wrap"><table>
-<thead><tr><th>Device</th><th>Idle (s)</th><th>Trial type</th><th>Attempted / required</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Missing</th></tr></thead>
+<h3>Valid Matrix Coverage by Condition</h3><div class="pr-table-wrap"><table>
+<thead><tr><th>Device</th><th>Idle (s)</th><th>Trial type</th><th>Completed / required</th><th>Attempted positions</th><th>Retry attempts</th><th>Valid attempts</th><th>Passed</th><th>Failed</th><th>Invalid</th><th>Duplicate valid</th><th>Missing</th></tr></thead>
 <tbody>{condition_rows}</tbody></table></div>
 <h3>Same-domain Event Latency</h3><div class="pr-table-wrap"><table>
 <thead><tr><th>Device</th><th>Metric</th><th>Samples</th><th>Min ms</th><th>P50 ms</th><th>P95 ms</th><th>Max ms</th><th>Clock domain</th></tr></thead>
@@ -1048,12 +1055,13 @@ def _render_overview(data: dict, results_url_base: str) -> str:
     # Device summary
     dev_rows = ""
     for dev in data["devices"]:
+        latest_summary = dev.get("latest_summary", {})
         dev_rows += f"""<tr>
   <td><a href="devices.html#device-{dev['device_id']}">{dev['label']}</a></td>
   <td>{dev['tier']}</td>
   <td>{', '.join(dev['suites'])}</td>
+  <td>{_result_cell(latest_summary)}<div class="table-note">{_iso_short(dev['latest'])}</div></td>
   <td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['passed']}/{dev['total']}</td>
-  <td>{_iso_short(dev['latest'])}</td>
 </tr>"""
     if not dev_rows:
         dev_rows = '<tr><td colspan="5" class="empty">No device evidence yet</td></tr>'
@@ -1093,7 +1101,7 @@ def _render_overview(data: dict, results_url_base: str) -> str:
 <h2>Devices</h2>
 <div class="pr-table-wrap">
 <table>
-<thead><tr><th>Device</th><th>Tier</th><th>Suites</th><th>Pass Rate</th><th>Latest</th></tr></thead>
+<thead><tr><th>Device</th><th>Tier</th><th>Suites</th><th>Latest run</th><th>Historical aggregate</th></tr></thead>
 <tbody>{dev_rows}</tbody>
 </table>
 </div>

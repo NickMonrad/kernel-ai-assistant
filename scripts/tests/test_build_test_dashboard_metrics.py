@@ -92,6 +92,25 @@ def _make_record(**overrides: object) -> dict:
 
 class DashboardMetricsIntegrationTest(unittest.TestCase):
     """Tests for the metrics block in build_test_dashboard.py."""
+    def test_device_latest_run_is_separate_from_historical_aggregate(self) -> None:
+        old = _make_record(
+            timestamp="2026-06-13T00:00:00Z",
+            run_id="old-pass",
+            summary={"total": 2, "passed": 2, "failed": 0, "pass_rate": 1.0},
+        )
+        latest = _make_record(
+            timestamp="2026-06-14T00:00:00Z",
+            run_id="latest-fail",
+            summary={"total": 1, "passed": 0, "failed": 1, "pass_rate": 0.0},
+        )
+
+        data = _build_aggregates([old, latest])
+        device = data["devices"][0]
+
+        self.assertEqual(device["latest_summary"]["total"], 1)
+        self.assertEqual(device["latest_summary"]["passed"], 0)
+        self.assertEqual(device["total"], 3)
+        self.assertEqual(device["passed"], 2)
 
     def test_metrics_block_present_in_aggregates(self) -> None:
         """metrics block exists when evidence is present."""
@@ -262,9 +281,14 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
                 "trial_type": "wake_only",
                 "required_positions": 5,
                 "attempted_positions": 5,
-                "passed": 4,
-                "failed": 1,
-                "invalid": 0,
+                "completed_positions": 5,
+                "attempts": 6,
+                "retry_attempts": 1,
+                "valid_attempts": 5,
+                "passed_attempts": 4,
+                "failed_attempts": 1,
+                "invalid_attempts": 1,
+                "duplicate_valid_positions": 0,
                 "missing_positions": 0,
             }
         ]
@@ -294,15 +318,16 @@ class DashboardMetricsIntegrationTest(unittest.TestCase):
 
         self.assertIn("Acoustic Wake Reliability", wake_html)
         self.assertIn("2 valid · 1 invalid", wake_html)
-        self.assertIn("Release Gate", wake_html)
-        self.assertIn("NOT RELEASE-READY", wake_html)
-        self.assertIn("3/24", wake_html)
+        self.assertIn("Latest release-gate record", wake_html)
+        self.assertIn("LATEST NOT RELEASE-READY", wake_html)
+        self.assertIn("1/27", wake_html)
         self.assertIn("stt_readiness_failure", wake_html)
         self.assertIn("device_environment_error", wake_html)
         self.assertIn("source_device_elapsed_realtime", wake_html)
         self.assertIn("target_device_elapsed_realtime", wake_html)
-        self.assertIn("Matrix Completion by Condition", wake_html)
+        self.assertIn("Valid Matrix Coverage by Condition", wake_html)
         self.assertIn("5/5", wake_html)
+        self.assertIn("Retry attempts", wake_html)
         self.assertIn("activation_to_callback_ms", wake_html)
         self.assertIn(">51<", wake_html)
         self.assertIn(

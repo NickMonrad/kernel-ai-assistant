@@ -896,6 +896,17 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertTrue(any("source ringer mode changed" in failure for failure in harness.cleanup_failures))
 
 class EvidenceAndModeTests(unittest.TestCase):
+    def test_finalize_evidence_captures_cleanup_before_export(self) -> None:
+        order: list[str] = []
+        harness = Mock()
+        harness.cleanup.side_effect = lambda: order.append("cleanup")
+        harness.export_evidence.side_effect = lambda: order.append("export") or {"ok": True}
+
+        evidence = runner.finalize_evidence(harness)
+
+        self.assertEqual(order, ["cleanup", "export"])
+        self.assertEqual(evidence, {"ok": True})
+
     def test_fixed_delay_is_feasibility_only(self) -> None:
         with self.assertRaisesRegex(runner.HarnessError, "feasibility"):
             make_runner(runner.RunKind.REGRESSION, fixed_command_delay_ms=500)
@@ -1069,7 +1080,7 @@ class EvidenceAndModeTests(unittest.TestCase):
         )
         self.assertEqual(
             evidence["artifact_refs"],
-            [{"path": "trials/trial-1/attempt-1/target-events.json", "type": "other"}],
+            ["trials/trial-1/attempt-1/target-events.json"],
         )
         metrics = evidence_metrics.summarise([(Path("evidence.json"), evidence, [])])
         timing = metrics["wake_reliability"]["timing"]

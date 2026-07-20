@@ -1548,14 +1548,11 @@ def render_evidence(
             case["failures"] = attempt.failures
         evidence["cases"].append(case)
 
-    evidence["artifact_refs"] = [
-        {"path": path, "type": "other"}
-        for path in sorted({
-            path
-            for case in evidence["cases"]
-            for path in case.get("artifact_refs", [])
-        })
-    ]
+    evidence["artifact_refs"] = sorted({
+        path
+        for case in evidence["cases"]
+        for path in case.get("artifact_refs", [])
+    })
     assert_commit_safe(evidence, secrets)
     return evidence
 
@@ -3641,6 +3638,12 @@ def load_later_run_preflight(
             "requested cue policy version does not match monitored preflight approval"
         )
 
+def finalize_evidence(runner: AcousticWakeReliabilityRunner) -> dict[str, Any]:
+    """Capture final cleanup state before serialising public evidence."""
+    runner.cleanup()
+    return runner.export_evidence()
+
+
 def smoke_mode(args: argparse.Namespace) -> int:
     """Short physical smoke test."""
     print("=== Short Physical Smoke ===\n")
@@ -3676,8 +3679,7 @@ def smoke_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nSmoke complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3718,8 +3720,7 @@ def preflight_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        runner.export_evidence()
+        finalize_evidence(runner)
 
     if completed and runner.cleanup_verified:
         print(f"\nPreflight manifest: {runner.run_dir / 'preflight-private.json'}")
@@ -3758,8 +3759,7 @@ def diagnostic_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nDiagnostic complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3821,8 +3821,7 @@ def regression_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nRegression complete. Evidence: {runner.sanitized_dir}")
     return 0 if runner.release_gate_success() else 1
@@ -3861,8 +3860,7 @@ def feasibility_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     print(f"\nFeasibility complete. Evidence: {runner.sanitized_dir}")
     return 0 if (
@@ -3912,8 +3910,7 @@ def resume_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        runner.cleanup()
-        evidence = runner.export_evidence()
+        evidence = finalize_evidence(runner)
 
     if runner.primary_failure:
         print(f"Primary failure: {runner.primary_failure}")

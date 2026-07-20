@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import json
 import sys
 import tempfile
@@ -250,6 +252,26 @@ class EvidenceMetricsTest(unittest.TestCase):
             issues,
         )
 
+    def test_artifact_references_remain_optional_for_schema_1_0(self) -> None:
+        record = evidence_record()
+        record.pop("artifact_refs", None)
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertTrue(valid, issues)
+
+    def test_case_artifact_path_traversal_is_invalid_when_present(self) -> None:
+        record = evidence_record()
+        record["cases"][0]["artifact_refs"] = ["../private.log"]
+
+        valid, issues = metrics.validate_record(record, [])
+
+        self.assertFalse(valid)
+        self.assertTrue(
+            any("schema:cases.0:" in issue and "artifact_refs" in issue for issue in issues),
+            issues,
+        )
+
     def test_wake_fixture_reports_attempts_gates_and_completion(self) -> None:
         record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
 
@@ -272,10 +294,20 @@ class EvidenceMetricsTest(unittest.TestCase):
         self.assertEqual(wake["by_gate_mode"]["release_gate"]["invalid"], 1)
         self.assertEqual(wake["failure_classifications"], {"stt_readiness_failure": 1})
         self.assertEqual(wake["invalid_reasons"], {"device_environment_error": 1})
-        self.assertEqual(wake["completion"], {"total_required": 24, "completed": 3, "missing": 21})
+        self.assertEqual(
+            wake["completion"],
+            {
+                "total_required": 27,
+                "completed": 1,
+                "missing": 26,
+                "duplicate_valid_positions": 0,
+            },
+        )
         self.assertEqual(wake["release_gate"]["failed"], 1)
+        self.assertFalse(wake["release_gate"]["latest_successful"])
         self.assertEqual(wake["release_gate"]["provenance_unverified"], 0)
         self.assertEqual(wake["release_gate"]["feasibility_only"], 0)
+        self.assertEqual(wake["off_matrix_attempts"], 2)
 
         artifact_paths = {item["path"] for item in summary["artifacts"]}
         self.assertIn("trials/trial-pass/attempt-1/target-events.json", artifact_paths)
@@ -300,8 +332,11 @@ class EvidenceMetricsTest(unittest.TestCase):
         }
         self.assertEqual(conditions[(10, "wake_only")]["required_positions"], 5)
         self.assertEqual(conditions[(10, "wake_only")]["missing_positions"], 5)
-        self.assertEqual(conditions[(5, "wake_only")]["attempted_positions"], 1)
-        self.assertEqual(conditions[(5, "wake_only")]["passed"], 1)
+        self.assertEqual(conditions[(10, "wake_plus_command")]["attempted_positions"], 1)
+        self.assertEqual(conditions[(10, "wake_plus_command")]["completed_positions"], 1)
+        self.assertEqual(conditions[(10, "wake_plus_command")]["failed_attempts"], 1)
+        self.assertEqual(conditions[(10, "wake_plus_command")]["retry_attempts"], 0)
+        self.assertEqual(wake["off_matrix_attempts"], 2)
 
         samples = wake["timing"]["samples"]
         self.assertEqual(
@@ -315,6 +350,46 @@ class EvidenceMetricsTest(unittest.TestCase):
             sample["clock_domain"] == "target_device_elapsed_realtime"
             for sample in samples
         ))
+
+    def test_invalid_record_is_excluded_from_reliability_and_release_gate(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+        record["cases"][0]["artifact_refs"] = ["../private.log"]
+
+        summary = metrics.summarise([(WAKE_FIXTURE, record, [])])
+
+        self.assertEqual(summary["validity"]["invalid_records"], 1)
+        self.assertEqual(summary["wake_reliability"]["overall"]["attempts"], 0)
+        self.assertEqual(summary["wake_reliability"]["release_gate"]["records"], 0)
+        self.assertEqual(summary["wake_reliability"]["completion"]["total_required"], 0)
+
+    def test_matrix_completion_counts_positions_once_and_retries_separately(self) -> None:
+        record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))
+        retry = copy.deepcopy(record["cases"][1])
+        retry.update({"attempt": 2, "name": "trial-fail-retry", "trial_id": "trial-fail-retry"})
+        record["cases"].append(retry)
+        record["summary"].update({
+            "failed": 2,
+            "pass_rate": 1 / 3,
+            "total": 4,
+            "total_attempts": 4,
+            "valid": 3,
+        })
+
+        wake = metrics.summarise([(WAKE_FIXTURE, record, [])])["wake_reliability"]
+        condition = next(
+            item
+            for item in wake["completion_by_condition"]
+            if item["device_id"] == "s21-exynos"
+            and item["idle_seconds"] == 10
+            and item["trial_type"] == "wake_plus_command"
+        )
+
+        self.assertEqual(condition["attempts"], 2)
+        self.assertEqual(condition["attempted_positions"], 1)
+        self.assertEqual(condition["completed_positions"], 1)
+        self.assertEqual(condition["retry_attempts"], 1)
+        self.assertEqual(condition["duplicate_valid_positions"], 1)
+        self.assertFalse(condition["complete"])
 
     def test_wake_timing_does_not_subtract_different_clock_domains(self) -> None:
         record = json.loads(WAKE_FIXTURE.read_text(encoding="utf-8"))

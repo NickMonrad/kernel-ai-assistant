@@ -43,7 +43,6 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "model",
     "summary",
     "cases",
-    "artifact_refs",
 })
 
 ARTIFACT_FIELDS = (
@@ -385,16 +384,26 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         "provenance_unverified": 0,
         "feasibility_only": 0,
     })
-    wake_completion = Counter({"total_required": 0, "completed": 0, "missing": 0})
+    wake_completion = Counter({
+        "total_required": 0,
+        "completed": 0,
+        "missing": 0,
+        "duplicate_valid_positions": 0,
+    })
     wake_conditions: dict[tuple[str, int, str], Counter[str]] = defaultdict(
         lambda: Counter({
             "required_positions": 0,
-            "attempted_positions": 0,
-            "passed": 0,
-            "failed": 0,
-            "invalid": 0,
+            "attempts": 0,
+            "valid_attempts": 0,
+            "passed_attempts": 0,
+            "failed_attempts": 0,
+            "invalid_attempts": 0,
         })
     )
+    wake_latest_release: dict[str, Any] | None = None
+    wake_attempted_positions: dict[tuple[str, int, str], set[tuple[str, str]]] = defaultdict(set)
+    wake_valid_outcomes: dict[tuple[str, int, str], Counter[tuple[str, str]]] = defaultdict(Counter)
+    wake_off_matrix_attempts = 0
     wake_timing_samples: list[dict[str, Any]] = []
 
     for path, record, load_errors in records:
@@ -418,26 +427,41 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             by_device[device_id] = {**_empty_status_bucket(), **_device_context(record)}
 
         cases = record.get("cases") if isinstance(record.get("cases"), list) else []
-        wake = record.get("wake_reliability") if suite == "wake_word_acoustic_reliability" else None
-        wake = wake if isinstance(wake, dict) else None
+        raw_wake = record.get("wake_reliability") if suite == "wake_word_acoustic_reliability" else None
+        wake = raw_wake if is_valid and isinstance(raw_wake, dict) else None
+        expected_counts: dict[str, Any] = {}
         if wake is not None:
-            wake_release_gate["records"] += 1
-            if wake.get("release_gate_success") is True:
-                wake_release_gate["successful"] += 1
-            else:
-                wake_release_gate["failed"] += 1
-            if wake.get("complete") is not True:
-                wake_release_gate["incomplete"] += 1
-            if wake.get("release_provenance_verified") is not True:
-                wake_release_gate["provenance_unverified"] += 1
             if wake.get("feasibility_only") is True:
                 wake_release_gate["feasibility_only"] += 1
-            completion = wake.get("completion")
-            if isinstance(completion, dict):
-                for key in ("total_required", "completed", "missing"):
-                    wake_completion[key] += _safe_int(completion.get(key))
-            expected_counts = wake.get("expected_valid_counts")
-            if isinstance(expected_counts, dict):
+            if wake.get("gate_mode") == "release_gate":
+                wake_release_gate["records"] += 1
+                release_success = (
+                    wake.get("release_gate_success") is True
+                    and wake.get("complete") is True
+                    and wake.get("complete_valid_matrix") is True
+                    and wake.get("all_required_passed") is True
+                    and wake.get("release_provenance_verified") is True
+                    and wake.get("cleanup_verified") is True
+                    and wake.get("feasibility_only") is not True
+                )
+                wake_release_gate["successful" if release_success else "failed"] += 1
+                if wake.get("complete") is not True or wake.get("complete_valid_matrix") is not True:
+                    wake_release_gate["incomplete"] += 1
+                if wake.get("release_provenance_verified") is not True:
+                    wake_release_gate["provenance_unverified"] += 1
+                release_timestamp = str(record.get("timestamp") or "")
+                if (
+                    wake_latest_release is None
+                    or release_timestamp >= wake_latest_release["latest_timestamp"]
+                ):
+                    wake_latest_release = {
+                        "latest_successful": release_success,
+                        "latest_timestamp": release_timestamp,
+                        "latest_run_id": str(record.get("run_id") or ""),
+                    }
+            raw_expected_counts = wake.get("expected_valid_counts")
+            if isinstance(raw_expected_counts, dict):
+                expected_counts = raw_expected_counts
                 for position_id, required_count in expected_counts.items():
                     parts = str(position_id).split(":")
                     if len(parts) != 3:
@@ -474,16 +498,29 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
                 invalid_reason = raw_case.get("invalid_reason")
                 if invalid_reason:
                     wake_invalid_reasons[str(invalid_reason)] += 1
-                matrix_slot = raw_case.get("matrix_slot")
-                if isinstance(matrix_slot, dict):
-                    condition = wake_conditions[_wake_condition_key(
-                        device_id,
-                        _safe_int(matrix_slot.get("idle_s")),
-                        str(matrix_slot.get("trial_type") or raw_case.get("trial_type") or "unknown"),
-                    )]
-                    condition["attempted_positions"] += 1
-                    if wake_status in {"passed", "failed", "invalid"}:
-                        condition[wake_status] += 1
+
+                position_id = raw_case.get("required_position_id")
+                required_count = expected_counts.get(position_id) if isinstance(position_id, str) else None
+                if isinstance(position_id, str) and _safe_int(required_count) > 0:
+                    parts = position_id.split(":")
+                    if len(parts) == 3:
+                        try:
+                            condition_key = _wake_condition_key(device_id, int(parts[0]), parts[1])
+                        except ValueError:
+                            condition_key = None
+                        if condition_key is not None:
+                            position_key = (relpath, position_id)
+                            condition = wake_conditions[condition_key]
+                            condition["attempts"] += 1
+                            wake_attempted_positions[condition_key].add(position_key)
+                            if wake_status == "invalid":
+                                condition["invalid_attempts"] += 1
+                            elif wake_status in {"passed", "failed"}:
+                                condition["valid_attempts"] += 1
+                                condition[f"{wake_status}_attempts"] += 1
+                                wake_valid_outcomes[condition_key][position_key] += 1
+                else:
+                    wake_off_matrix_attempts += 1
                 wake_timing_samples.extend(_wake_timing_samples(raw_case, device_id))
 
             category = raw_case.get("failure_category")
@@ -527,15 +564,28 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
 
     completion_by_condition = []
     for (condition_device, idle_s, trial_type), counts in sorted(wake_conditions.items()):
+        condition_key = (condition_device, idle_s, trial_type)
         required = counts["required_positions"]
-        attempted = counts["attempted_positions"]
+        attempted_positions = len(wake_attempted_positions[condition_key])
+        valid_outcomes = wake_valid_outcomes[condition_key]
+        completed = len(valid_outcomes)
+        duplicates = sum(max(0, count - 1) for count in valid_outcomes.values())
+        retries = max(0, counts["attempts"] - attempted_positions)
+        wake_completion["total_required"] += required
+        wake_completion["completed"] += completed
+        wake_completion["missing"] += max(0, required - completed)
+        wake_completion["duplicate_valid_positions"] += duplicates
         completion_by_condition.append({
             "device_id": condition_device,
             "idle_seconds": idle_s,
             "trial_type": trial_type,
             **dict(counts),
-            "missing_positions": max(0, required - attempted),
-            "complete": required > 0 and attempted >= required,
+            "attempted_positions": attempted_positions,
+            "completed_positions": completed,
+            "retry_attempts": retries,
+            "duplicate_valid_positions": duplicates,
+            "missing_positions": max(0, required - completed),
+            "complete": required > 0 and completed == required and duplicates == 0,
         })
 
 
@@ -555,7 +605,8 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
         },
         "failure_classifications": dict(wake_failure_classifications.most_common()),
         "invalid_reasons": dict(wake_invalid_reasons.most_common()),
-        "release_gate": dict(wake_release_gate),
+        "off_matrix_attempts": wake_off_matrix_attempts,
+        "release_gate": {**dict(wake_release_gate), **(wake_latest_release or {})},
         "completion": dict(wake_completion),
         "completion_by_condition": completion_by_condition,
         "timing": _finalise_timing(wake_timing_samples),
