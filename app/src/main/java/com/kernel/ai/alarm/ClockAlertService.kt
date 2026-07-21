@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Pure predicate: whether an event should be handled by the clock-alert voice session.
@@ -226,6 +227,7 @@ class ClockAlertService : Service() {
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
     private var captureSessionId: Long? = null
+    private val voiceAttemptIds = AtomicLong(0L)
     private var voiceJournal: WakeSessionJournal? = null
     private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -686,32 +688,40 @@ class ClockAlertService : Service() {
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
         duckPlaybackForVoiceControl()
         refreshForeground()
+
+        val attemptJournal = WakeSessionJournal(
+            generationId = 0L,
+            sessionId = voiceAttemptIds.incrementAndGet(),
+        )
+        attemptJournal.start()
+        voiceJournal = attemptJournal
+
         serviceScope.launch {
             try {
                 when (val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)) {
                     is CaptureStartResult.Started -> {
                         captureSessionId = result.captureSessionId
-                        val journal = WakeSessionJournal(
-                            generationId = 0L,
-                            sessionId = result.captureSessionId,
-                        )
-                        journal.start()
-                        voiceJournal = journal
                         for (event in result.ownedStartEvents) {
                             handleVoiceEvent(event)
                         }
                     }
                     is CaptureStartResult.Unavailable -> {
-                        captureSessionId = null
-                        finishVoiceCapture(alertVoiceUnavailableMessage(result.message), "stt_unavailable")
+                        if (voiceJournal === attemptJournal) {
+                            captureSessionId = null
+                            voiceJournal = terminaliseClockAlertVoiceJournal(attemptJournal, completed = false, "stt_unavailable")
+                            finishVoiceCapture(alertVoiceUnavailableMessage(result.message), "stt_unavailable")
+                        }
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "ClockAlertService: voice startup failed", e)
-                captureSessionId = null
-                finishVoiceCapture("Voice command startup failed.", "voice_startup_failed")
+                if (voiceJournal === attemptJournal) {
+                    captureSessionId = null
+                    voiceJournal = terminaliseClockAlertVoiceJournal(attemptJournal, completed = false, "voice_startup_failed")
+                    finishVoiceCapture("Voice command startup failed.", "voice_startup_failed")
+                }
             }
         }
     }
@@ -765,12 +775,14 @@ class ClockAlertService : Service() {
                 val success = performSnooze(alert, snoozeDurationFor(alert))
                 if (success) {
                     voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = true)
+                    dismissAlert(alert)
                 }
             }
             ClockAlertVoiceCommand.ADD_ONE_MINUTE -> {
                 val success = performAddOneMinute(alert)
                 if (success) {
                     voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = true)
+                    dismissAlert(alert)
                 }
             }
         }
@@ -802,9 +814,7 @@ class ClockAlertService : Service() {
             snoozedUntilMillis = System.currentTimeMillis() + durationMs,
             currentAutoSnoozeCount = alert.autoSnoozeCount,
         )
-        if (success) {
-            dismissAlert(alert)
-        } else {
+        if (!success) {
             finishVoiceCapture("Couldn't snooze the alarm.", "command_execution_failed")
         }
         return success
@@ -826,9 +836,7 @@ class ClockAlertService : Service() {
 
             ClockEventType.PRE_ALARM -> false
         }
-        if (success) {
-            dismissAlert(alert)
-        } else {
+        if (!success) {
             finishVoiceCapture("Couldn't add one minute.", "command_execution_failed")
         }
         return success

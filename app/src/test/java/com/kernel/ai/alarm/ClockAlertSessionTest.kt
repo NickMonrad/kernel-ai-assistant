@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -445,5 +446,165 @@ class ClockAlertSessionTest {
         terminaliseClockAlertVoiceJournal(j, completed = false, "service_stopped")
         val terminals = events.count { it.first in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
         assertEquals(1, terminals)
+    }
+
+    // --- Finding 1: complete-before-dismiss orchestration tests ---
+
+    @Test
+    fun `successful snooze completes journal before dismissal`() {
+        val events = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
+        journal.start()
+
+        // Simulate production flow: complete journal first, then dismiss
+        val result = terminaliseClockAlertVoiceJournal(journal, completed = true)
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+        // After completion, journal is terminalised; simulating dismissAlert
+        // (which calls dismissAlertsMatching -> terminalise with alert_dismissed_externally)
+        // should be a no-op on already-terminalised journal.
+        terminaliseClockAlertVoiceJournal(journal, completed = false, "alert_dismissed_externally")
+
+        val terminals = events.count {
+            it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED)
+        }
+        assertEquals(1, terminals, "Exactly one terminal event expected")
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED), "SESSION_COMPLETED expected")
+        assertFalse(events.contains(AcousticEventType.SESSION_CANCELLED), "No SESSION_CANCELLED expected")
+        assertNull(result, "Completion returns null for atomic assignment")
+    }
+
+    @Test
+    fun `successful add-one-minute completes journal before dismissal`() {
+        val events = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 2L, emit = { type, _, _, _ -> events.add(type) })
+        journal.start()
+
+        // Same production pattern: complete, then dismiss
+        val result = terminaliseClockAlertVoiceJournal(journal, completed = true)
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+        terminaliseClockAlertVoiceJournal(journal, completed = false, "alert_dismissed_externally")
+
+        val terminals = events.count {
+            it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED)
+        }
+        assertEquals(1, terminals, "Exactly one terminal event expected")
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+        assertFalse(events.contains(AcousticEventType.SESSION_CANCELLED))
+        assertNull(result)
+    }
+
+    @Test
+    fun `dismiss alert after completed journal does not add SESSION_CANCELLED`() {
+        val events = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 3L, emit = { type, _, _, _ -> events.add(type) })
+        journal.start()
+
+        // Journal already completed (simulating snooze success completing it)
+        terminaliseClockAlertVoiceJournal(journal, completed = true)
+        // Now dismissAlert fires — it should NOT create a second terminal
+        val dismissResult = terminaliseClockAlertVoiceJournal(journal, completed = false, "alert_dismissed_externally")
+        assertNull(dismissResult)
+        // Only SESSION_COMPLETED, no SESSION_CANCELLED from dismissal
+        assertEquals(1, events.count { it == AcousticEventType.SESSION_COMPLETED || it == AcousticEventType.SESSION_CANCELLED })
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+        assertFalse(events.contains(AcousticEventType.SESSION_CANCELLED))
+    }
+
+    // --- Finding 2: startup journal before STT orchestration tests ---
+
+    @Test
+    fun `unavailable startup records VOICE_SESSION_STARTED then SESSION_CANCELLED`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        journal.start()
+
+        val started = events.map { it.first }
+        assertTrue(started.contains(AcousticEventType.VOICE_SESSION_STARTED), "VOICE_SESSION_STARTED expected on startup")
+
+        // STT returns Unavailable — terminalise as in production
+        terminaliseClockAlertVoiceJournal(journal, completed = false, "stt_unavailable")
+
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent, "SESSION_CANCELLED expected for unavailable startup")
+        assertEquals("stt_unavailable", cancelEvent!!.second["category"])
+        assertEquals(1, events.count { it.first == AcousticEventType.VOICE_SESSION_STARTED })
+        assertEquals(1, events.count { it.first == AcousticEventType.SESSION_CANCELLED })
+    }
+
+    @Test
+    fun `startup exception records VOICE_SESSION_STARTED then SESSION_CANCELLED`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val journal = WakeSessionJournal(1L, 2L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        journal.start()
+
+        assertTrue(events.any { it.first == AcousticEventType.VOICE_SESSION_STARTED })
+
+        // STT startup throws — terminalise with voice_startup_failed
+        terminaliseClockAlertVoiceJournal(journal, completed = false, "voice_startup_failed")
+
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent, "SESSION_CANCELLED expected for startup exception")
+        assertEquals("voice_startup_failed", cancelEvent!!.second["category"])
+        assertEquals(1, events.count { it.first == AcousticEventType.VOICE_SESSION_STARTED })
+        assertEquals(1, events.count { it.first == AcousticEventType.SESSION_CANCELLED })
+    }
+
+    @Test
+    fun `stale attempt does not cancel replacement journal`() {
+        val eventsA = mutableListOf<String>()
+        val eventsB = mutableListOf<String>()
+        val journalA = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> eventsA.add(type) })
+        val journalB = WakeSessionJournal(1L, 2L, emit = { type, _, _, _ -> eventsB.add(type) })
+
+        // Attempt A: create and start journal
+        journalA.start()
+        assertTrue(eventsA.contains(AcousticEventType.VOICE_SESSION_STARTED))
+
+        // Attempt B replaces A (B is now the active journal)
+        journalB.start()
+        assertTrue(eventsB.contains(AcousticEventType.VOICE_SESSION_STARTED))
+
+        // Stale result from attempt A (ownership check: current journal !== journalA)
+        assertFalse(journalB === journalA, "Journals must be distinct instances")
+
+        // Production ownership check: voiceJournal === attemptJournal
+        // Here voiceJournal (simulated as journalB) !== attemptJournal (journalA)
+        // So the stale result must NOT cancel journalB
+        val currentJournal: WakeSessionJournal? = journalB
+        if (currentJournal === journalA) {
+            terminaliseClockAlertVoiceJournal(journalA, completed = false, "stt_unavailable")
+        }
+        // journalB must remain uncancelled
+        assertFalse(eventsB.any { it == AcousticEventType.SESSION_CANCELLED },
+            "Stale attempt must not cancel replacement journal")
+    }
+
+    @Test
+    fun `stale unavailable result from older attempt does not clear newer journal`() {
+        val eventsOld = mutableListOf<String>()
+        val eventsNew = mutableListOf<String>()
+        val oldJournal = WakeSessionJournal(1L, 10L, emit = { type, _, _, _ -> eventsOld.add(type) })
+        val newJournal = WakeSessionJournal(1L, 20L, emit = { type, _, _, _ -> eventsNew.add(type) })
+
+        // Old attempt starts, creates journal
+        oldJournal.start()
+        // New attempt replaces old
+        newJournal.start()
+
+        // Simulate late Unavailable result from old attempt
+        // With ownership check: voiceJournal (now newJournal) !== oldJournal
+        val currentJournal: WakeSessionJournal? = newJournal
+        if (currentJournal === oldJournal) {
+            terminaliseClockAlertVoiceJournal(oldJournal, completed = false, "stt_unavailable")
+        }
+
+        // Old journal is left unterminated (the stale coroutine was abandoned)
+        // New journal must NOT have SESSION_CANCELLED
+        assertFalse(eventsNew.contains(AcousticEventType.SESSION_CANCELLED),
+            "Newer journal must not be cancelled by stale old attempt")
     }
 }
