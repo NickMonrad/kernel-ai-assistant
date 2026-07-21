@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
-import kotlinx.coroutines.flow.flow
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -201,6 +201,39 @@ class WakeWordCueTest {
         assertEquals(null, result.transcript)
         assertEquals("transcript_collection_failed", result.cancellationCategory)
         assertEquals(listOf(1), attempts)
+    }
+
+    @Test
+    fun `fatal collector error propagates without classification`() = runTest {
+        val sessionId = 42L
+        val fatal = AssertionError("fatal collector failure")
+
+        val controller = mockk<VoiceInputController>()
+        every { controller.events } returns flow<VoiceInputEvent> {
+            throw fatal
+        }
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+
+        val journalEvents = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
+        journal.start()
+        val cuePlayer = mockk<StartListeningCuePlayer>(relaxUnitFun = true)
+        // The Error must propagate from runWakeAttempt, not be caught and classified
+        val thrown = try {
+            runWakeAttempt(
+                voiceInputController = controller,
+                journal = journal,
+                cuePlayer = cuePlayer,
+                attempt = 1,
+            )
+            null // no exception — would fail via assertNotNull below
+        } catch (e: AssertionError) {
+            e
+        }
+
+        assertNotNull(thrown, "AssertionError must propagate from runWakeAttempt")
+        assertEquals("fatal collector failure", thrown!!.message)
+        verify(exactly = 0) { cuePlayer.playCue(any()) }
     }
 
     @Test

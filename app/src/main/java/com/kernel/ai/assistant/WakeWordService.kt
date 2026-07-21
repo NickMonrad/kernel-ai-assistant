@@ -154,7 +154,7 @@ internal suspend fun runWakeAttempt(
             attemptEvents.close()
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) {
+        } catch (e: Exception) {
             attemptEvents.close(e)
         }
     }
