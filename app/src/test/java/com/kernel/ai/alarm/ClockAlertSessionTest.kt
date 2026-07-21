@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -315,5 +316,134 @@ class ClockAlertSessionTest {
     fun `stopped capturing prevents cue events`() {
         val foreignEvent = VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L)
         assertFalse(shouldPlayClockAlertListeningCue(foreignEvent, 42L, false))
+    }
+
+    // --- explicit-category journal terminalisation tests (using the production helper) ---
+
+    @Test
+    fun `completed journal records exactly one SESSION_COMPLETED`() {
+        val events = mutableListOf<String>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> events.add(type) })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = true)
+        val terminals = events.count { it in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
+        assertTrue(events.contains(AcousticEventType.SESSION_COMPLETED))
+    }
+    @Test
+    fun `unavailable startup records SESSION_CANCELLED with stt_unavailable`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "stt_unavailable")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("stt_unavailable", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `recognition error records stt_recognition_failed`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "stt_recognition_failed")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("stt_recognition_failed", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `stopped without result records stt_stopped_without_result`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "stt_stopped_without_result")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("stt_stopped_without_result", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `unsupported command records unsupported_alert_command`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "unsupported_alert_command")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("unsupported_alert_command", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `command execution failure records command_execution_failed`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "command_execution_failed")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("command_execution_failed", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `external dismissal records alert_dismissed_externally`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "alert_dismissed_externally")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("alert_dismissed_externally", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `service shutdown records service_stopped`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "service_stopped")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("service_stopped", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `replacement session records voice_session_replaced`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = false, "voice_session_replaced")
+        val cancelEvent = events.firstOrNull { it.first == AcousticEventType.SESSION_CANCELLED }
+        assertNotNull(cancelEvent)
+        assertEquals("voice_session_replaced", cancelEvent!!.second["category"])
+    }
+
+    @Test
+    fun `repeated cleanup does not create duplicate terminal`() {
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        val j = WakeSessionJournal(1L, 1L, emit = { type, _, _, metadata ->
+            events.add(type to metadata())
+        })
+        j.start()
+        terminaliseClockAlertVoiceJournal(j, completed = true)
+        terminaliseClockAlertVoiceJournal(j, completed = false, "service_stopped")
+        val terminals = events.count { it.first in setOf(AcousticEventType.SESSION_COMPLETED, AcousticEventType.SESSION_CANCELLED) }
+        assertEquals(1, terminals)
     }
 }

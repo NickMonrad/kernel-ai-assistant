@@ -256,16 +256,20 @@ class WakeWordCueTest {
     }
     @Test
     fun `integrated two-attempt retry with real runWakeAttempt`() = runTest {
-        val sessionId = 42L
+        val sessionId1 = 101L
+        val sessionId2 = 202L
+        var startListeningCount = 0
+        var collectorCleanupCount = 0
 
-        // Use flow builder that produces events synchronously
         val attempt1Events = mutableListOf(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId),
-            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId1),
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId1),
         )
+        // Attempt 2: stale event from session 101, then owned events for session 202
         val attempt2Events = mutableListOf(
-            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId),
-            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "hello from attempt 2", captureSessionId = sessionId),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId1),
+            VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId2),
+            VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "hello from session 202", captureSessionId = sessionId2),
         )
 
         val attemptQueues = listOf(attempt1Events, attempt2Events)
@@ -274,11 +278,17 @@ class WakeWordCueTest {
         every { controller.events } answers {
             val queue = attemptQueues[attIdx]
             flow {
-                for (e in queue) emit(e)
+                try {
+                    for (e in queue) emit(e)
+                } finally {
+                    collectorCleanupCount++
+                }
             }
         }
         coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } answers {
-            VoiceInputStartResult.Started(sessionId)
+            startListeningCount++
+            val id = if (startListeningCount == 1) sessionId1 else sessionId2
+            VoiceInputStartResult.Started(id)
         }
 
         val journalEvents = mutableListOf<String>()
@@ -299,8 +309,11 @@ class WakeWordCueTest {
             )
         }
 
-        assertEquals("hello from attempt 2", result.transcript)
+        assertEquals(2, startListeningCount, "startListening called exactly twice")
+        assertEquals("hello from session 202", result.transcript)
         verify(exactly = 2) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
+        // Stale session 101 event in attempt 2 did not trigger a cue or satisfy attempt 2
+        assertEquals(2, collectorCleanupCount, "both event collectors terminated")
     }
 
     @Test
