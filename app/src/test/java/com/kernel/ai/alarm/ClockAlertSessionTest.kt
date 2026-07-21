@@ -553,8 +553,9 @@ class ClockAlertSessionTest {
         assertEquals(1, events.count { it.first == AcousticEventType.SESSION_CANCELLED })
     }
 
+
     @Test
-    fun `stale attempt does not cancel replacement journal`() {
+    fun `stale Started result does not affect replacement journal`() {
         val eventsA = mutableListOf<String>()
         val eventsB = mutableListOf<String>()
         val journalA = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> eventsA.add(type) })
@@ -568,43 +569,28 @@ class ClockAlertSessionTest {
         journalB.start()
         assertTrue(eventsB.contains(AcousticEventType.VOICE_SESSION_STARTED))
 
-        // Stale result from attempt A (ownership check: current journal !== journalA)
-        assertFalse(journalB === journalA, "Journals must be distinct instances")
+        // Production ownership query: current journal (B) !== attempt journal (A) → stale
+        assertFalse(ownsCurrentVoiceJournal(journalB, journalA),
+            "Stale attempt A must not own current journal B")
 
-        // Production ownership check: voiceJournal === attemptJournal
-        // Here voiceJournal (simulated as journalB) !== attemptJournal (journalA)
-        // So the stale result must NOT cancel journalB
-        val currentJournal: WakeSessionJournal? = journalB
-        if (currentJournal === journalA) {
-            terminaliseClockAlertVoiceJournal(journalA, completed = false, "stt_unavailable")
-        }
-        // journalB must remain uncancelled
-        assertFalse(eventsB.any { it == AcousticEventType.SESSION_CANCELLED },
-            "Stale attempt must not cancel replacement journal")
+        // Production ownership query: current journal (B) === attempt journal (B) → current
+        assertTrue(ownsCurrentVoiceJournal(journalB, journalB),
+            "Current attempt B must own journal B")
+
+        // Journal B must be unaffected by stale check: no cancelled events or STT_READY
+        assertFalse(eventsB.contains(AcousticEventType.SESSION_CANCELLED),
+            "Replacement journal must not be cancelled by stale attempt")
+        assertFalse(eventsB.contains(AcousticEventType.STT_READY),
+            "Replacement journal must not receive STT_READY from stale attempt")
+
+        // Journal B remains usable — can be terminated normally
+        terminaliseClockAlertVoiceJournal(journalB, completed = true)
+        assertTrue(eventsB.contains(AcousticEventType.SESSION_COMPLETED),
+            "Replacement journal must be usable after stale attempt rejected")
     }
 
     @Test
-    fun `stale unavailable result from older attempt does not clear newer journal`() {
-        val eventsOld = mutableListOf<String>()
-        val eventsNew = mutableListOf<String>()
-        val oldJournal = WakeSessionJournal(1L, 10L, emit = { type, _, _, _ -> eventsOld.add(type) })
-        val newJournal = WakeSessionJournal(1L, 20L, emit = { type, _, _, _ -> eventsNew.add(type) })
-
-        // Old attempt starts, creates journal
-        oldJournal.start()
-        // New attempt replaces old
-        newJournal.start()
-
-        // Simulate late Unavailable result from old attempt
-        // With ownership check: voiceJournal (now newJournal) !== oldJournal
-        val currentJournal: WakeSessionJournal? = newJournal
-        if (currentJournal === oldJournal) {
-            terminaliseClockAlertVoiceJournal(oldJournal, completed = false, "stt_unavailable")
-        }
-
-        // Old journal is left unterminated (the stale coroutine was abandoned)
-        // New journal must NOT have SESSION_CANCELLED
-        assertFalse(eventsNew.contains(AcousticEventType.SESSION_CANCELLED),
-            "Newer journal must not be cancelled by stale old attempt")
+    fun `ownsCurrentVoiceJournal returns false for null current journal`() {
+        assertFalse(ownsCurrentVoiceJournal(null, WakeSessionJournal(1L, 1L)))
     }
 }

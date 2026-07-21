@@ -64,6 +64,17 @@ internal fun isOwnedAlertEvent(
 ): Boolean = isVoiceListening && event.captureSessionId != null && event.captureSessionId == captureSessionId
 
 /**
+ * Whether [attemptJournal] is still the active clock‑alert voice journal.
+ * Used by [startVoiceControl] before processing a startup result — a stale
+ * attempt must not mutate shared service state if a replacement session has
+ * already taken over.
+ */
+internal fun ownsCurrentVoiceJournal(
+    currentJournal: WakeSessionJournal?,
+    attemptJournal: WakeSessionJournal,
+): Boolean = currentJournal === attemptJournal
+
+/**
  * Whether a voice event should trigger the clock-alert start-listening cue.
  * Used by both [ClockAlertService.handleVoiceEvent] and tests.
  */
@@ -700,6 +711,7 @@ class ClockAlertService : Service() {
             try {
                 when (val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)) {
                     is CaptureStartResult.Started -> {
+                        if (!ownsCurrentVoiceJournal(voiceJournal, attemptJournal)) return@launch
                         captureSessionId = result.captureSessionId
                         for (event in result.ownedStartEvents) {
                             handleVoiceEvent(event)
