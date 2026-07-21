@@ -59,10 +59,11 @@ internal fun transcriptEvidenceSha256(text: String): String {
 /** Build consistent cue-journal metadata from a playback result. */
 internal fun cueMetadata(
     cueResult: StartListeningCueResult,
+    context: String = "wake_word",
     isError: Boolean = false,
 ): Map<String, String> {
     val m = mutableMapOf(
-        "context" to "wake_word",
+        "context" to context,
         "policy_version" to cueResult.policyVersion,
         "stream" to (cueResult.selectedStream?.toString() ?: "unknown"),
         "current_volume" to (cueResult.currentVolume?.toString() ?: "unknown"),

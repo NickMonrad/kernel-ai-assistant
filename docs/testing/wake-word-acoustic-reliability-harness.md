@@ -806,32 +806,39 @@ No unresolved architectural decision remains. Physical feasibility can refine bo
 
 ### 24.1 Overview
 
-PR #1405 standardises the start-listening audio cue across all Jandal voice entry points.
-PR #1416 implements the bounded structured-concurrency helpers, collection-failure classification,
-and acceptance evidence.
+Issue #1405 standardises the start-listening audio cue across wake-word and clock-alert
+voice entry points. Only these two paths intentionally play the cue. All other voice
+initiation flows obtain readiness through their own UI or signal and do not use this cue.
 
-Every voice-initiation flow follows the same readiness-before-cue guarantee:
+### 24.2 STT entry-point inventory
+
+| Entry path | Production location | Capture mode | Readiness trigger | Cue policy | Cue context | Playback mechanism | Stream/attributes | Duplicate/missing-cue risk | Test coverage | Device evidence |
+| ---------- | ------------------- | ------------ | ----------------- | ---------- | ----------- | ------------------ | ----------------- | --------------------------- | ------------- | --------------- |
+| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | NOT RUN |
+| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | NOT RUN |
+| Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | NOT RUN |
+| Actions command capture | `VoiceCommandActivity` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Chat one-shot voice | `ChatViewModel` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | Automatic re-trigger | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Actions slot-fill reply | Slot-fill handler | `SlotReply` | `SlotReply` readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Chat slot-fill reply | Slot-fill handler | `SlotReply` | `SlotReply` readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Widget voice entry | `WidgetTextInputActivity` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Side-key assistant entry | `JandalVoiceInteractionSession` | `Command` | Assistant signal | No cue | — | — | — | None — assistant manages readiness | Manual | NOT RUN |
+| Permission-repair restart | Permission handler | `Command` | Permission-grant return | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+
+Only **wake-word** (Hey Jandal + retry) and **clock-alert** paths intentionally play the
+start-listening cue. All other paths obtain readiness through UI interaction or the
+assistant framework and do not require this cue.
+
+The overview schematic in earlier issues described every flow as:
 
 ```text
-subscribe to events flow
-  -> startListening()
-  -> await ListeningStarted
-  -> record STT_READY
-  -> play start-listening cue
-  -> await transcript/error/stopped
+ready -> cue
 ```
 
-### 24.2 Entry points
-
-| Entry point | File | Intentional cue | Context |
-|---|---|---|---|
-| Wake-word detection | `WakeWordService.handleDetection()` | Yes — every ready attempt | `WAKE_WORD` |
-| Clock-alert voice control | `ClockAlertService.handleVoiceEvent()` | Yes — owned AlertCommand readiness | `CLOCK_ALERT` |
-| Widget voice command | `WidgetTextInputActivity` | No | — |
-| Assistant session (Side key) | `JandalVoiceInteractionSession` | No | — |
-| Chat screen | `ChatViewModel` | No | — |
-
-Only wake-word and clock-alert entry points play the start-listening cue.
+This is accurate for cue-enabled paths. Cue-disabled paths still wait for readiness but
+intentionally do not play a start-listening cue because their initiation is user-driven
+(tap, assistant invocation) rather than passive detection.
 
 ### 24.3 Cue policy
 
@@ -886,27 +893,29 @@ The clock-alert flow uses the same ordering via `bufferedCaptureSession()`.
 
 ### 24.6 Volume non-mutation
 
-The implementation **never modifies the user's media or alarm volume**.
-
-- Before and after every wake attempt, the media volume is unchanged.
-- The cue uses `STREAM_ALARM` with its existing level.
-- Metadata records `currentVolume` and `maxVolume` for audit.
-- Volume mutations observed in earlier PRs (#1400 approach) were removed during review.
-
 ### 24.7 Route and volume metadata
 
-Every `CUE_PLAYBACK_STARTED` event carries the following metadata:
+Every cue playback event carries common metadata followed by type-specific fields.
+
+**Common fields (both `CUE_PLAYBACK_STARTED` and `CUE_PLAYBACK_ERROR`):**
 
 | Field | Source | Example |
 |---|---|---|
-| `context` | `StartListeningCueContext.name` | `wake_word` / `clock_alert` |
-| `policy_version` | `cueResult.policyVersion` | `2026-07-cue-v1` |
+| `context` | Cue context constant | `wake_word` / `clock_alert` |
+| `policy_version` | `StartListeningCueResult.policyVersion` | `2026-07-cue-v1` |
 | `stream` | `selectedStream.toString()` | `4` |
 | `current_volume` | `currentVolume.toString()` | `10` |
 | `max_volume` | `maxVolume.toString()` | `25` |
-| `route` | `classifyRoute()` | `built_in_speaker` / `bluetooth_a2dp` |
+| `route` | `routeClassification` | `built_in_speaker` / `bluetooth_a2dp` |
 
-Failed playback (`CUE_PLAYBACK_ERROR`) carries `category` instead of route/volume fields.
+**`CUE_PLAYBACK_ERROR` additionally carries:**
+
+| Field | Source | Example |
+|---|---|---|
+| `category` | `failureCategory` | `playback_start_failed` |
+
+The `category` field is present only on error events. It does not replace the common fields;
+all common fields are still recorded for error events.
 
 Route classification uses a pure function:
 
@@ -994,25 +1003,22 @@ Foreign-session events from overlapping voice interactions are silently filtered
 
 | Device | Scenario | Trigger | Volume/DND/Route | Cue count | Journal ordering | Command result | Evidence path | Result |
 |---|---|---|---|---:|---|---|---|---|
-| S21 | Normal screen-on | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-normal/` | |
-| S21 | Screen off | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-screen-off/` | |
-| S21 | Low media volume | Wake word | Media 2/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-low-vol/` | |
-| S21 | DND enabled | Wake word | Media 7/15, DND on, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-dnd/` | |
-| S21 | Bluetooth route | Wake word | Media 7/15, DND off, BT A2DP | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-bt/` | |
-| S21 | Clock-alert command | Timer/alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | "stop" | `evidence/1416/s21/clock-cmd/` | |
-| S21 | Unsupported command | Clock-alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | No-result | `evidence/1416/s21/clock-unsupported/` | |
-| S23U | Normal screen-on | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-normal/` | |
-| S23U | Screen off | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-screen-off/` | |
-| S23U | Low media volume | Wake word | Media 2/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-low-vol/` | |
-| S23U | DND enabled | Wake word | Media 7/15, DND on, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-dnd/` | |
-| S23U | Bluetooth route | Wake word | Media 7/15, DND off, BT A2DP | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-bt/` | |
-| S23U | Clock-alert command | Timer/alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | "stop" | `evidence/1416/s23u/clock-cmd/` | |
-| S23U | Unsupported command | Clock-alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | No-result | `evidence/1416/s23u/clock-unsupported/` | |
-
-### 24.13 Known Android-policy-dependent cases
-
-**DND:** `STREAM_ALARM` is typically exempt from DND, but OEM-specific DND configurations may
-suppress alarm-stream audio. The implementation does not circumvent device policy.
+| S21 | Normal screen-on | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Screen off | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Low media volume | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | DND enabled | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Bluetooth route | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Clock-alert command | Timer/alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Unsupported command | Clock-alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Monitored post-idle audibility | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Normal screen-on | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Screen off | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Low media volume | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | DND enabled | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Bluetooth route | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Clock-alert command | Timer/alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Unsupported command | Clock-alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S23U | Monitored post-idle audibility | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
 
 **Bluetooth:** A2DP routes alarm-stream audio according to the Bluetooth AVRCP profile version.
 Some headsets may not render `STREAM_ALARM`. The implementation correctly records the route
@@ -1026,3 +1032,27 @@ classification and does not override the platform routing decision.
 - [`classifyRoute()` tests — `WakeWordServiceTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/)
 - [`ClockAlertSessionTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/alarm/ClockAlertSessionTest.kt)
 - [`WakeWordCueTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/WakeWordCueTest.kt)
+
+### 24.15 Harness mutation audit
+
+The acoustic reliability harness (`scripts/acoustic_wake_reliability_runner.py`) and ADB
+harness (`scripts/adb_harness/`) are the repository's primary automated state mutators. The
+table below records their snapshot, apply, verify, and restore behaviour.
+
+| Script or harness | State mutated | Snapshot before | Verify applied | Restore in `finally` | Verify restored | Evidence invalidated on restore failure |
+| ----------------- | ------------- | --------------- | -------------- | -------------------- | --------------- | --------------------------------------- |
+| `acoustic_wake_reliability_runner.py` | Source media volume | Yes (volume query) | Yes (read-back) | Yes (finally block) | Yes (post-restore read) | Yes — HarnessError raised |
+| `acoustic_wake_reliability_runner.py` | Source output route (BT check) | Yes (BT query) | Yes (reject non-speaker) | Not applicable (no mutation) | N/A | Yes — error on active BT route |
+| `acoustic_wake_reliability_runner.py` | Target media volume, ringer, DND | Yes (state query) | Yes (read-back) | Yes (finally block) | Yes (post-restore read) | Yes — harness error raised |
+| `adb_harness/selectors.py` / `cases.py` | `set_volume` | Ad-hoc (caller-dependent) | Ad-hoc | Ad-hoc | Ad-hoc | Ad-hoc |
+| `adb_harness/selectors.py` / `cases.py` | `toggle_dnd_on / toggle_dnd_off` | Ad-hoc (caller-dependent) | Ad-hoc | Ad-hoc | Ad-hoc | Ad-hoc |
+| Manual ADB commands (`settings put`) | Any system volume, DND, ringer | Not applicable (operator responsibility) | Manual | Manual | Manual | Manual |
+
+**Current restoration state:** `acoustic_wake_reliability_runner.py` implements transactional
+restoration with pre/post verification. The ADB harness selectors provide primitive mutations
+without built-in transactional restoration; callers are responsible for snapshot/restore.
+Manual ADB commands have no automated safeguards.
+
+**PR #1405 requirement:** No production or test code introduced by this issue mutates volume,
+DND, ringer mode, or Bluetooth route. The PR relies on existing harness capabilities for any
+future physical-device evidence collection.
