@@ -149,7 +149,14 @@ internal suspend fun runWakeAttempt(
 ): WakeAttemptOutcome = coroutineScope {
     val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
-        voiceInputController.events.collect(attemptEvents::send)
+        try {
+            voiceInputController.events.collect(attemptEvents::send)
+            attemptEvents.close()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            attemptEvents.close(e)
+        }
     }
     try {
         var reachedReadiness = false
@@ -175,7 +182,15 @@ internal suspend fun runWakeAttempt(
                 isTerminal: (VoiceInputEvent) -> Boolean,
             ): VoiceInputEvent {
                 while (true) {
-                    val event = attemptEvents.receive()
+                    val result = attemptEvents.receiveCatching()
+                    val event = result.getOrNull()
+                    if (event == null) {
+                        val cause = result.exceptionOrNull()
+                        if (cause is CancellationException) throw cause
+                        throw cause ?: IllegalStateException(
+                            "Voice event stream completed before a terminal event",
+                        )
+                    }
                     if (!event.isWakeSessionEvent(captureSessionId)) continue
                     when (event) {
                         is VoiceInputEvent.SpeechDetected -> journal.record(

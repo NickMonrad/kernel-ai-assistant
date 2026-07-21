@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import kotlinx.coroutines.flow.flow
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -140,24 +141,63 @@ class WakeWordCueTest {
     }
 
     @Test
-    fun `startup collection failure sets startup_collection_failed`() = runTest {
+    fun `flow failure before readiness produces startup_collection_failed`() = runTest {
+        val sessionId = 42L
+        val controller = mockk<VoiceInputController>()
+        every { controller.events } returns flow<VoiceInputEvent> {
+            throw RuntimeException("connection lost")
+        }
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+
+        val journalEvents = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
+        journal.start()
+        val cuePlayer = mockk<StartListeningCuePlayer>(relaxUnitFun = true)
+
         val attempts = mutableListOf<Int>()
         val result = runWakeCaptureSession { attempt ->
             attempts.add(attempt)
-            throw WakeAttemptCollectionException("startup_collection_failed", RuntimeException("flow broke"))
+            runWakeAttempt(controller, journal, cuePlayer, attempt)
         }
+
         assertEquals(null, result.transcript)
         assertEquals("startup_collection_failed", result.cancellationCategory)
         assertEquals(listOf(1), attempts)
+        verify(exactly = 0) { cuePlayer.playCue(any()) }
     }
 
     @Test
-    fun `transcript collection failure sets transcript_collection_failed`() = runTest {
+    fun `flow failure after readiness produces transcript_collection_failed`() = runTest {
+        val sessionId = 42L
+        val controller = mockk<VoiceInputController>()
+        every { controller.events } returns flow {
+            emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
+            throw RuntimeException("connection lost after readiness")
+        }
+        coEvery { controller.startListening(VoiceCaptureMode.AlertCommand) } returns VoiceInputStartResult.Started(sessionId)
+
+        val journalEvents = mutableListOf<String>()
+        val journal = WakeSessionJournal(1L, 1L, emit = { type, _, _, _ -> journalEvents.add(type) })
+        journal.start()
+        val cuePlayer = mockk<StartListeningCuePlayer>()
+        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
+            started = true, context = StartListeningCueContext.WAKE_WORD,
+        )
+
         val attempts = mutableListOf<Int>()
         val result = runWakeCaptureSession { attempt ->
             attempts.add(attempt)
-            throw WakeAttemptCollectionException("transcript_collection_failed", RuntimeException("flow broke after readiness"))
+            runWakeAttempt(controller, journal, cuePlayer, attempt)
         }
+
+        assertTrue(journalEvents.contains(AcousticEventType.STT_READY), "STT_READY must be recorded")
+        assertTrue(journalEvents.contains(AcousticEventType.CUE_REQUESTED), "CUE_REQUESTED must be recorded")
+        val playbackResults = journalEvents.count {
+            it in setOf(AcousticEventType.CUE_PLAYBACK_STARTED, AcousticEventType.CUE_PLAYBACK_ERROR)
+        }
+        assertEquals(1, playbackResults, "exactly one playback-result event")
+        verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
+
         assertEquals(null, result.transcript)
         assertEquals("transcript_collection_failed", result.cancellationCategory)
         assertEquals(listOf(1), attempts)
