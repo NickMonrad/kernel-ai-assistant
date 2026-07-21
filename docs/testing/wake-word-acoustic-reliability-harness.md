@@ -801,3 +801,228 @@ No unresolved architectural decision remains. Physical feasibility can refine bo
 - [Termux:API](https://github.com/termux/termux-api)
 - [VLC for Android](https://github.com/videolan/vlc-android)
 - [mpv-android](https://github.com/mpv-android)
+
+## 24. Start-listening cue policy (PR #1405 / #1416)
+
+### 24.1 Overview
+
+PR #1405 standardises the start-listening audio cue across all Jandal voice entry points.
+PR #1416 implements the bounded structured-concurrency helpers, collection-failure classification,
+and acceptance evidence.
+
+Every voice-initiation flow follows the same readiness-before-cue guarantee:
+
+```text
+subscribe to events flow
+  -> startListening()
+  -> await ListeningStarted
+  -> record STT_READY
+  -> play start-listening cue
+  -> await transcript/error/stopped
+```
+
+### 24.2 Entry points
+
+| Entry point | File | Intentional cue | Context |
+|---|---|---|---|
+| Wake-word detection | `WakeWordService.handleDetection()` | Yes — every ready attempt | `WAKE_WORD` |
+| Clock-alert voice control | `ClockAlertService.handleVoiceEvent()` | Yes — owned AlertCommand readiness | `CLOCK_ALERT` |
+| Widget voice command | `WidgetTextInputActivity` | No | — |
+| Assistant session (Side key) | `JandalVoiceInteractionSession` | No | — |
+| Chat screen | `ChatViewModel` | No | — |
+
+Only wake-word and clock-alert entry points play the start-listening cue.
+
+### 24.3 Cue policy
+
+```kotlin
+internal fun shouldPlayClockAlertListeningCue(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean =
+    isOwnedAlertEvent(event, captureSessionId, isVoiceListening) &&
+        event is VoiceInputEvent.ListeningStarted &&
+        event.mode == VoiceCaptureMode.AlertCommand
+```
+
+Shared between `ClockAlertService.handleVoiceEvent()` and tests.
+
+**Wake-word cue rule (in `runWakeAttempt`):**
+- Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
+- A pre-readiness terminal event (`Error`, `ListeningStopped`, `Transcript`) produces no cue.
+- Maximum one cue per attempt.
+- A retry produces its own cue on the new attempt's readiness.
+
+**Clock-alert cue rule (in `handleVoiceEvent`):**
+- Cue plays only for owned `AlertCommand` readiness events.
+- Foreign-session events never trigger a cue.
+- `Command` and `SlotReply` modes never trigger a cue.
+- Transcript, error, and stopped events never trigger a cue.
+
+### 24.4 Android audio stream and attributes
+
+The cue is played using Android's `AudioAttributes` with usage `STREAM_ALARM`:
+
+| Attribute | Value |
+|---|---|
+| Stream type | `STREAM_ALARM` |
+| Usage | `USAGE_ALARM` |
+| Content type | `CONTENT_TYPE_SONIFICATION` |
+
+DND behaviour follows Android policy: `STREAM_ALARM` is typically exempt from DND suppression.
+The implementation does not bypass, query, or modify DND.
+
+### 24.5 Readiness-before-cue ordering
+
+Guaranteed by the buffered collector in `runWakeAttempt`:
+
+1. `launch(start = CoroutineStart.UNDISPATCHED)` subscribes to `VoiceInputController.events` before `startListening()`.
+2. Events emitted synchronously during `startListening()` are captured by the buffered channel.
+3. `awaitEvent` waits for `ListeningStarted` (or a pre-readiness terminal).
+4. Only after `ListeningStarted` is received does the cue play.
+
+The clock-alert flow uses the same ordering via `bufferedCaptureSession()`.
+
+### 24.6 Volume non-mutation
+
+The implementation **never modifies the user's media or alarm volume**.
+
+- Before and after every wake attempt, the media volume is unchanged.
+- The cue uses `STREAM_ALARM` with its existing level.
+- Metadata records `currentVolume` and `maxVolume` for audit.
+- Volume mutations observed in earlier PRs (#1400 approach) were removed during review.
+
+### 24.7 Route and volume metadata
+
+Every `CUE_PLAYBACK_STARTED` event carries the following metadata:
+
+| Field | Source | Example |
+|---|---|---|
+| `context` | `StartListeningCueContext.name` | `wake_word` / `clock_alert` |
+| `policy_version` | `cueResult.policyVersion` | `2026-07-cue-v1` |
+| `stream` | `selectedStream.toString()` | `4` |
+| `current_volume` | `currentVolume.toString()` | `10` |
+| `max_volume` | `maxVolume.toString()` | `25` |
+| `route` | `classifyRoute()` | `built_in_speaker` / `bluetooth_a2dp` |
+
+Failed playback (`CUE_PLAYBACK_ERROR`) carries `category` instead of route/volume fields.
+
+Route classification uses a pure function:
+
+```kotlin
+internal fun classifyRoute(deviceTypes: Set<Int>): String
+```
+
+Tested separately for built-in speaker, Bluetooth (A2DP/HEADSET), wired headset, and mixed routes.
+
+### 24.8 Wake retry semantics
+
+- Maximum two STT attempts per wake-word detection.
+- Second attempt occurs only when the first returns `NoTranscript`.
+- Each ready attempt plays its own cue.
+- `Unavailable` stops immediately (no retry).
+- `WakeAttemptCollectionException` containing a flow failure stops the retry loop.
+
+The retry loop is extracted as:
+
+```kotlin
+internal suspend fun runWakeCaptureSession(
+    runAttempt: suspend (attempt: Int) -> WakeAttemptOutcome,
+): WakeSessionCaptureResult
+```
+
+### 24.9 Collection-failure classification
+
+| Condition | Category |
+|---|---|
+| Flow fails before `ListeningStarted` | `startup_collection_failed` |
+| Flow fails after `ListeningStarted` | `transcript_collection_failed` |
+| STT unavailable | `stt_unavailable` |
+| STT produces error event | `stt_recognition_failed` |
+| STT stops without transcript | `stt_stopped_without_result` |
+| Fatal `Error` (OOM, Linkage, AssertionError) | Propagates — not classified |
+| Caller `CancellationException` | Propagates — not classified |
+
+The classification boundary in `runWakeAttempt` catches `Exception` (not `Throwable`),
+ensuring fatal JVM errors propagate without conversion to cancellation categories.
+
+### 24.10 Clock-alert ownership semantics
+
+The clock-alert voice session filters events by:
+
+1. **Session ownership** — `event.captureSessionId == captureSessionId` and `isVoiceListening`.
+2. **Mode** — Only `VoiceCaptureMode.AlertCommand` triggers the cue.
+3. **Event type** — Only `VoiceInputEvent.ListeningStarted` triggers the cue.
+
+```kotlin
+internal fun isOwnedAlertEvent(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean = isVoiceListening && event.captureSessionId != null &&
+    event.captureSessionId == captureSessionId
+```
+
+Foreign-session events from overlapping voice interactions are silently filtered.
+
+### 24.11 Evidence collection steps
+
+1. Build and install `./gradlew :app:installDebug`.
+2. Enable acoustic journal via the debug menu or broadcast:
+   ```
+   adb shell am broadcast -a com.kernel.ai.debug.action.CLEAR_JOURNAL
+   adb shell am broadcast -a com.kernel.ai.debug.action.START_JOURNAL
+   ```
+3. Trigger the wake word or clock-alert flow.
+4. Capture journal:
+   ```
+   adb shell am broadcast -a com.kernel.ai.debug.action.QUERY_JOURNAL
+   ```
+5. Capture logcat filtered to the service:
+   ```
+   adb logcat -s KernelAI WakeWordService ClockAlertService
+   ```
+6. Record media volume before and after:
+   ```
+   adb shell settings get system volume_music
+   adb shell settings get system volume_alarm
+   ```
+7. Record DND state and audio route.
+
+### 24.12 Validation matrix
+
+| Device | Scenario | Trigger | Volume/DND/Route | Cue count | Journal ordering | Command result | Evidence path | Result |
+|---|---|---|---|---:|---|---|---|---|
+| S21 | Normal screen-on | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-normal/` | |
+| S21 | Screen off | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-screen-off/` | |
+| S21 | Low media volume | Wake word | Media 2/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-low-vol/` | |
+| S21 | DND enabled | Wake word | Media 7/15, DND on, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-dnd/` | |
+| S21 | Bluetooth route | Wake word | Media 7/15, DND off, BT A2DP | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s21/wake-bt/` | |
+| S21 | Clock-alert command | Timer/alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | "stop" | `evidence/1416/s21/clock-cmd/` | |
+| S21 | Unsupported command | Clock-alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | No-result | `evidence/1416/s21/clock-unsupported/` | |
+| S23U | Normal screen-on | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-normal/` | |
+| S23U | Screen off | Wake word | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-screen-off/` | |
+| S23U | Low media volume | Wake word | Media 2/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-low-vol/` | |
+| S23U | DND enabled | Wake word | Media 7/15, DND on, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-dnd/` | |
+| S23U | Bluetooth route | Wake word | Media 7/15, DND off, BT A2DP | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | Routed | `evidence/1416/s23u/wake-bt/` | |
+| S23U | Clock-alert command | Timer/alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | "stop" | `evidence/1416/s23u/clock-cmd/` | |
+| S23U | Unsupported command | Clock-alert | Media 7/15, DND off, speaker | 1 | STT_START→READY→CUE_REQ→PLAY→FINAL | No-result | `evidence/1416/s23u/clock-unsupported/` | |
+
+### 24.13 Known Android-policy-dependent cases
+
+**DND:** `STREAM_ALARM` is typically exempt from DND, but OEM-specific DND configurations may
+suppress alarm-stream audio. The implementation does not circumvent device policy.
+
+**Bluetooth:** A2DP routes alarm-stream audio according to the Bluetooth AVRCP profile version.
+Some headsets may not render `STREAM_ALARM`. The implementation correctly records the route
+classification and does not override the platform routing decision.
+
+### 24.14 Sources (cue policy)
+
+- [PR #1405 — Standardise start-listening cue policy](https://github.com/NickMonrad/kernel-ai-assistant/pull/1416)
+- [Android AudioAttributes](https://developer.android.com/reference/android/media/AudioAttributes)
+- [Android AudioDeviceInfo](https://developer.android.com/reference/android/media/AudioDeviceInfo)
+- [`classifyRoute()` tests — `WakeWordServiceTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/)
+- [`ClockAlertSessionTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/alarm/ClockAlertSessionTest.kt)
+- [`WakeWordCueTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/WakeWordCueTest.kt)
