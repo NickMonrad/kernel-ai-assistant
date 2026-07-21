@@ -129,6 +129,25 @@ internal fun recordClockAlertCue(
 }
 
 /**
+ * Terminalise the clock-alert voice journal with exactly one terminal event.
+ * Returns null so callers can atomically clear [voiceJournal]: `voiceJournal = terminaliseClockAlertVoiceJournal(...)`.
+ */
+internal fun terminaliseClockAlertVoiceJournal(
+    journal: WakeSessionJournal?,
+    completed: Boolean,
+    cancellationCategory: String = "",
+): WakeSessionJournal? {
+    journal?.let {
+        if (completed) {
+            it.complete()
+        } else {
+            it.cancel(cancellationCategory)
+        }
+    }
+    return null
+}
+
+/**
  * Bounded STT session startup with a temporary buffered collector.
  *
  * Subscribes to [VoiceInputController.events] **before** calling [startListening] so that
@@ -339,8 +358,8 @@ class ClockAlertService : Service() {
             }
         }
     }
-
     override fun onDestroy() {
+        voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = false, "service_stopped")
         captureSessionId = null
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
@@ -459,7 +478,6 @@ class ClockAlertService : Service() {
             VibrationEffect.createWaveform(longArrayOf(0, 500, 250, 500), 0),
         )
     }
-
     private fun stopAlertSession() {
         lifecycleJobs.values.forEach { it.cancel() }
         lifecycleJobs.clear()
@@ -728,7 +746,26 @@ class ClockAlertService : Service() {
             }
         }
     }
-
+    private suspend fun handleVoiceTranscript(alert: TriggeredClockAlert, transcript: String) {
+        isVoiceListening = false
+        val command = parseClockAlertVoiceCommand(transcript)
+            ?: return finishVoiceCapture("Say stop, dismiss, snooze, or add one minute.")
+        alertVoiceUnsupportedMessage(command, alert.type)?.let { message ->
+            return finishVoiceCapture(message)
+        }
+        var commandSuccessful = false
+        when (command) {
+            ClockAlertVoiceCommand.DISMISS -> {
+                dismissAlert(alert)
+                commandSuccessful = true
+            }
+            ClockAlertVoiceCommand.SNOOZE -> commandSuccessful = performSnooze(alert, snoozeDurationFor(alert))
+            ClockAlertVoiceCommand.ADD_ONE_MINUTE -> commandSuccessful = performAddOneMinute(alert)
+        }
+        if (commandSuccessful) {
+            voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = true)
+        }
+    }
     private suspend fun performAutoStop(alert: TriggeredClockAlert) {
         dismissAlert(alert)
     }
@@ -746,38 +783,7 @@ class ClockAlertService : Service() {
             performAutoStop(alert)
         }
     }
-    private suspend fun handleVoiceTranscript(alert: TriggeredClockAlert, transcript: String) {
-        isVoiceListening = false
-        val command = parseClockAlertVoiceCommand(transcript)
-            ?: return finishVoiceCapture("Say stop, dismiss, snooze, or add one minute.")
-        alertVoiceUnsupportedMessage(command, alert.type)?.let { message ->
-            return finishVoiceCapture(message)
-        }
-        when (command) {
-            ClockAlertVoiceCommand.DISMISS -> {
-                dismissAlert(alert)
-            }
-            ClockAlertVoiceCommand.SNOOZE -> performSnooze(alert, snoozeDurationFor(alert))
-            ClockAlertVoiceCommand.ADD_ONE_MINUTE -> performAddOneMinute(alert)
-        }
-    }
-    private suspend fun performSnooze(alert: TriggeredClockAlert, durationMs: Long) {
-        if (alert.type != ClockEventType.ALARM) {
-            finishVoiceCapture("Snooze is only available for alarms.")
-            return
-        }
-        val success = clockRepository.snoozeAlarm(
-            alarmId = alert.ownerId,
-            snoozedUntilMillis = System.currentTimeMillis() + durationMs,
-            currentAutoSnoozeCount = alert.autoSnoozeCount,
-        )
-        if (success) {
-            dismissAlert(alert)
-        } else {
-            finishVoiceCapture("Couldn't snooze the alarm.")
-        }
-    }
-    private suspend fun performAddOneMinute(alert: TriggeredClockAlert) {
+    private suspend fun performSnooze(alert: TriggeredClockAlert, durationMs: Long): Boolean {
         val success = when (alert.type) {
             ClockEventType.ALARM -> {
                 clockRepository.snoozeAlarm(
@@ -799,6 +805,32 @@ class ClockAlertService : Service() {
         } else {
             finishVoiceCapture("Couldn't add one minute.")
         }
+        return success
+        return success
+    }
+    private suspend fun performAddOneMinute(alert: TriggeredClockAlert): Boolean {
+        val success = when (alert.type) {
+            ClockEventType.ALARM -> {
+                clockRepository.snoozeAlarm(
+                    alarmId = alert.ownerId,
+                    snoozedUntilMillis = System.currentTimeMillis() + ALERT_ADD_MINUTE_MS,
+                    currentAutoSnoozeCount = alert.autoSnoozeCount,
+                )
+            }
+
+            ClockEventType.TIMER -> clockRepository.scheduleTimer(
+                durationMs = ALERT_ADD_MINUTE_MS,
+                label = alert.label.takeIf { it.isNotBlank() },
+            ) is SchedulingResult.Success
+
+            ClockEventType.PRE_ALARM -> false
+        }
+        if (success) {
+            dismissAlert(alert)
+        } else {
+            finishVoiceCapture("Couldn't add one minute.")
+        }
+        return success
     }
     private fun finishVoiceCapture(message: String) {
         isVoiceListening = false
@@ -806,12 +838,18 @@ class ClockAlertService : Service() {
         handledVoiceTranscript = false
         voiceStatusMessage = message
         voiceInputController.stopListening()
-        // Close any active voice journal with exactly one terminal event
-        voiceJournal?.let { journal ->
-            // Transcript means success; otherwise the capture was cancelled/incomplete
-            journal.complete()
-            voiceJournal = null
+        // Terminalise journal — finishVoiceCapture is called for unsuccessful outcomes
+        val category = when {
+            message.startsWith("Voice commands are unavailable") -> "stt_unavailable"
+            message == "Voice command startup failed." -> "voice_startup_failed"
+            message == "I didn't catch a supported alert command." -> "stt_stopped_without_result"
+            message == "Say stop, dismiss, snooze, or add one minute." ||
+                message.endsWith("supported alert") ||
+                message.endsWith("supported alert command.") -> "unsupported_alert_command"
+            message.startsWith("Couldn't") || message.startsWith("No active alert") -> "command_execution_failed"
+            else -> "stt_recognition_failed"
         }
+        voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = false, category)
         if (activeAlerts.isEmpty()) {
             stopAlertSession()
         } else {
@@ -819,7 +857,6 @@ class ClockAlertService : Service() {
             restorePlaybackAfterVoiceCapture()
         }
     }
-
     private fun Intent.toTriggeredClockAlert(): TriggeredClockAlert? {
         val ownerId = getStringExtra(ClockAlertContract.EXTRA_OWNER_ID) ?: return null
         val label = getStringExtra(ClockAlertContract.EXTRA_LABEL) ?: return null
@@ -838,15 +875,14 @@ class ClockAlertService : Service() {
         )
         return TriggeredClockAlert(
             ownerId = ownerId,
-            type = type,
-            title = title,
             label = label,
+            title = title,
+            type = type,
             occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
             soundUri = soundUri,
             autoSnoozeCount = autoSnoozeCount,
         )
     }
-
     companion object {
         @Volatile
         private var activeAlertSnapshot: Set<TriggeredClockAlert> = emptySet()
