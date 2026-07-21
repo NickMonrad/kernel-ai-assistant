@@ -1,0 +1,27 @@
+# PR #1416 Baseline — S23 Ultra (SM-S918B)
+# Captured: 2026-07-21
+
+## Device identity
+- ADB serial: 192.168.31.248:36739
+- Model: SM-S918B (dm3q)
+- Android: 16 (SDK 36)
+- Battery: 100% (charging via AC)
+
+## App
+- Package: com.kernel.ai.debug
+- Source SHA: 38c590f0c756e781a651f901a4c1e940a9f5a931
+- APK SHA-256: bf86072f82547073acdae34a4b6851889f646e5e2840df491726950e9e99bf95
+
+## Audio state
+- Media volume: 6/15
+- Alarm volume: default (min=1, max=15, not muted)
+- Ring volume: muted (Muted=true)
+- DND: ZEN_MODE_OFF
+- BT state: ON (no active A2DP connection; BLE scanning history present)
+
+## Permissions
+- RECORD_AUDIO: granted (baseline)
+- POST_NOTIFICATIONS: granted (baseline)
+
+## Other
+- Wake word: enabled (JandalVoiceInteractionService registered as assistant)

@@ -999,60 +999,93 @@ Foreign-session events from overlapping voice interactions are silently filtered
    ```
 7. Record DND state and audio route.
 
-### 24.12 Validation matrix
+### 24.12 Validation matrix (PR #1416 — automated 2026-07-21)
 
 | Device | Scenario | Trigger | Volume/DND/Route | Cue count | Journal ordering | Command result | Evidence path | Result |
 |---|---|---|---|---:|---|---|---|---|
-| S21 | Normal screen-on | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Screen off | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Low media volume | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | DND enabled | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Bluetooth route | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Clock-alert command | Timer/alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Unsupported command | Clock-alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S21 | Monitored post-idle audibility | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Normal screen-on | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Screen off | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Low media volume | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | DND enabled | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Bluetooth route | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Clock-alert command | Timer/alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Unsupported command | Clock-alert | TBD | TBD | TBD | TBD | TBD | NOT RUN |
-| S23U | Monitored post-idle audibility | Wake word | TBD | TBD | TBD | TBD | TBD | NOT RUN |
+| S21 | Unit tests (ownership guard) | Automated | N/A | N/A | N/A | N/A | ClockAlertSessionTest | ✅ PASS |
+| S21 | Unit tests (wake cue) | Automated | N/A | N/A | N/A | N/A | WakeWordCueTest | ✅ PASS |
+| S21 | App launch + wake service | ADB launch | 9/15 media, DND off, no BT | N/A | N/A | Service OK | logcat | ✅ PASS |
+| S23U | App launch + wake service | ADB launch | 6/15 media, DND off, no BT | N/A | N/A | Service OK | logcat | ✅ PASS |
+| S21 | ASSIST intent → VoiceCommandActivity | ADB intent | 9/15 media | N/A | N/A | Activity shown | logcat | ✅ PASS |
+| S21 | Normal screen-on wake word | ⚠️ Human | 9/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Screen-off wake word | ⚠️ Human | 9/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Low media volume wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | DND enabled wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Bluetooth route wake word | 🔷 N/A | No BT audio device | — | — | — | — | 🔷 NOT PRESENT |
+| S21 | Clock-alert command | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Monitored post-idle audibility | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Normal screen-on wake word | ⚠️ Human | 6/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Screen-off wake word | ⚠️ Human | 6/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Low media volume wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | DND enabled wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Bluetooth route wake word | 🔷 N/A | No BT audio device | — | — | — | — | 🔷 NOT PRESENT |
+| S23U | Clock-alert command | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Monitored post-idle audibility | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
 
-**Bluetooth:** A2DP routes alarm-stream audio according to the Bluetooth AVRCP profile version.
-Some headsets may not render `STREAM_ALARM`. The implementation correctly records the route
-classification and does not override the platform routing decision.
+**Legend:** ✅ PASS (verified) | ❌ FAIL | ⚠️ NEEDS HUMAN | 🔷 NOT PRESENT | TBD = to be determined during human-led validation
 
-### 24.14 Sources (cue policy)
+### 24.13 Stale-startup ownership guard (PR #1416 remediation)
 
-- [PR #1405 — Standardise start-listening cue policy](https://github.com/NickMonrad/kernel-ai-assistant/pull/1416)
-- [Android AudioAttributes](https://developer.android.com/reference/android/media/AudioAttributes)
-- [Android AudioDeviceInfo](https://developer.android.com/reference/android/media/AudioDeviceInfo)
-- [`classifyRoute()` tests — `WakeWordServiceTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/)
-- [`ClockAlertSessionTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/alarm/ClockAlertSessionTest.kt)
-- [`WakeWordCueTest`](https://github.com/NickMonrad/kernel-ai-assistant/blob/feature/1405-start-listening-cue-policy/app/src/test/java/com/kernel/ai/assistant/WakeWordCueTest.kt)
+`startVoiceControl()` creates an attempt-local `WakeSessionJournal` before STT startup.
+The `Unavailable` and exception branches perform an ownership check before mutating
+shared service state. The same check is now applied to the successful-start branch:
 
-### 24.15 Harness mutation audit
+```kotlin
+internal fun ownsCurrentVoiceJournal(
+    currentJournal: WakeSessionJournal?,
+    attemptJournal: WakeSessionJournal,
+): Boolean = currentJournal === attemptJournal
+```
 
-The acoustic reliability harness (`scripts/acoustic_wake_reliability_runner.py`) and ADB
-harness (`scripts/adb_harness/`) are the repository's primary automated state mutators. The
-table below records their snapshot, apply, verify, and restore behaviour.
+Used in `startVoiceControl()` at the `CaptureStartResult.Started` branch — if the
+current service journal no longer matches the attempt's journal (because a
+replacement session started while the first attempt was waiting for STT), the
+stale result is silently discarded without mutating `captureSessionId`, processing
+buffered events, or recording evidence against the replacement journal.
 
-| Script or harness | State mutated | Snapshot before | Verify applied | Restore in `finally` | Verify restored | Evidence invalidated on restore failure |
-| ----------------- | ------------- | --------------- | -------------- | -------------------- | --------------- | --------------------------------------- |
-| `acoustic_wake_reliability_runner.py` | Source media volume | Yes (volume query) | Yes (read-back) | Yes (finally block) | Yes (post-restore read) | Yes — HarnessError raised |
-| `acoustic_wake_reliability_runner.py` | Source output route (BT check) | Yes (BT query) | Yes (reject non-speaker) | Not applicable (no mutation) | N/A | Yes — error on active BT route |
-| `acoustic_wake_reliability_runner.py` | Target media volume, ringer, DND | Yes (state query) | Yes (read-back) | Yes (finally block) | Yes (post-restore read) | Yes — harness error raised |
-| `adb_harness/selectors.py` / `cases.py` | `set_volume` | Ad-hoc (caller-dependent) | Ad-hoc | Ad-hoc | Ad-hoc | Ad-hoc |
-| `adb_harness/selectors.py` / `cases.py` | `toggle_dnd_on / toggle_dnd_off` | Ad-hoc (caller-dependent) | Ad-hoc | Ad-hoc | Ad-hoc | Ad-hoc |
-| Manual ADB commands (`settings put`) | Any system volume, DND, ringer | Not applicable (operator responsibility) | Manual | Manual | Manual | Manual |
+Tested in `ClockAlertSessionTest.stale Started result does not affect replacement journal`,
+which exercises the production `ownsCurrentVoiceJournal()` function with stale and
+current journals, and verifies the replacement journal remains uncorrupted.
 
-**Current restoration state:** `acoustic_wake_reliability_runner.py` implements transactional
-restoration with pre/post verification. The ADB harness selectors provide primitive mutations
-without built-in transactional restoration; callers are responsible for snapshot/restore.
-Manual ADB commands have no automated safeguards.
+### 24.14 Monitored audibility standard
 
-**PR #1405 requirement:** No production or test code introduced by this issue mutates volume,
-DND, ringer mode, or Bluetooth route. The PR relies on existing harness capabilities for any
-future physical-device evidence collection.
+The start-listening cue policy defines four distinct levels of evidence, each
+requiring different validation methods:
+
+| Level | Evidence | Source | Validation method |
+|---|---|---|---|
+| 1 — Requested | `CUE_REQUESTED` recorded in journal | App before calling `StartListeningCuePlayer.playCue()` | Unit test / journal inspection |
+| 2 — Started | `CUE_PLAYBACK_STARTED` recorded in journal | App after `MediaPlayer.start()` returns | Unit test / journal inspection |
+| 3 — Route/volume metadata | `route`, `current_volume`, `max_volume`, `stream` in journal | `StartListeningCueResult` from cue player | Unit test / journal inspection |
+| 4 — Acoustic audibility | Human observer confirms audible | Physical device test | Monitored trial with human |
+
+**A test cannot claim acoustic success from levels 1-3 alone.** `CUE_PLAYBACK_STARTED`
+at zero volume, on a muted stream, or on a non-rendering Bluetooth route is not
+acoustic proof and must not be reported as audible.
+
+**Minimum evidence fields for physical trials:**
+
+- `trial_id` (unique per trial)
+- `device_id`
+- `device_screen_state` (on / off)
+- `media_volume_before` / `alarm_volume_before`
+- `dnd_state`
+- `audio_route` (built_in_speaker / bluetooth_a2dp / wired_headset / unknown)
+- `cue_requested` (true/false + timestamp)
+- `cue_playback_started` (true/false + timestamp)
+- `route` / `current_volume` / `max_volume` from journal
+- `human_observed_audible` (yes / no)
+- `transcript_captured` (yes / no)
+- `duplicate_cue` (yes / no, with description)
+- `terminal_session_event` (type + category)
+- `restoration_verified` (yes / no)
+
+**Invalidation rules:**
+
+A trial MUST be marked INVALID — RESTORATION FAILED if:
+- Any mutated device state (volume, DND, ringer, BT, permissions) is not restored to its
+  exact baseline value.
+- The baseline verification step after restoration reveals a mismatch.
+- Equipment calibration or source placement was disturbed and not re-verified.
+
