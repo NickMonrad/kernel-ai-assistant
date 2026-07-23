@@ -114,24 +114,32 @@ All 10 trials: cue exactly once, capture works, wake re-arms after session.
 
 ## Conclusions
 
-**PHYSICAL VALIDATION PASSED — READY FOR FINAL REVIEW**
+**PHYSICAL VALIDATION PASSED — BUT PR #1416 HAS A SNOOZE REGRESSION**
 
-All PR #1416 code changes verified:
-1. Ownership guard rejects stale STT results correctly
-2. Cue plays exactly once per listening attempt (all entry points)
-3. Cue follows recogniser readiness (never pre-readiness)
-4. Correct context metadata (FOREGROUND / WAKE_WORD / CLOCK_ALERT)
-5. No duplicate or missing cues (SlotReply is pre-existing separate issue)
-6. Speech capture functions after cue on all paths
-7. Volume never silently raised
-8. DND bypass works (STREAM_ALARM exemption)
-9. BT route metadata captured
+### Verified (all PASS)
+1. Ownership guard rejects stale STT results correctly ✅
+2. Cue plays exactly once per listening attempt (all entry points) ✅
+3. Cue follows recogniser readiness (never pre-readiness) ✅
+4. Correct context metadata (FOREGROUND / WAKE_WORD / CLOCK_ALERT) ✅
+5. Chat slot-reply now plays FOREGROUND cue for SlotReply mode ✅
+6. Speech capture functions after cue on all paths ✅
+7. Volume never silently raised ✅
+8. DND bypass works (STREAM_ALARM exemption) ✅
+9. BT route metadata captured (S23U) ✅
 
-**Pre-existing issues (not PR #1416 defects):**
-- SlotReply mode plays no FOREGROUND cue
-- Snooze action non-functional
-- Model context limit
+### Pre-existing issues found during testing
+- Model context limit on re-listening (Gemma 3072-token window)
 
-**Documentation corrections needed:**
-- Entry-point table: Command mode DOES play FOREGROUND cue (was marked "No cue")
-- SlotReply has no cue (was incorrectly implied to have audio feedback)
+### Regression found (PR-introduced)
+- **Snooze non-functional on PR branch.** Main SHA `5ca1c4fa`: snooze works via UI button.
+  PR branch: snooze fails via both voice + UI button. Tracked separately as #1420.
+  Per instructions, not fixed in this PR.
+
+### Not tested (blocked by infrastructure)
+- **Automatic STT retry**: requires acoustic fixture deployment. Harness infrastructure not set up in this session.
+- **S21 Bluetooth route**: no BT audio device available on S21 during testing.
+
+### Documentation corrections applied
+- Entry-point table: Command mode DOES play FOREGROUND cue (was incorrectly marked "No cue")
+- SlotReply mode now plays FOREGROUND cue (ChatViewModel fix)
+- Three cue contexts documented: FOREGROUND (STREAM_MUSIC), WAKE_WORD (STREAM_ALARM), CLOCK_ALERT (STREAM_ALARM)

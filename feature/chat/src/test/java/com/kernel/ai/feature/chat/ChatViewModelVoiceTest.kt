@@ -858,13 +858,78 @@ class ChatViewModelVoiceTest {
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
     @Test
-    fun `ListeningStarted for SlotReply does not trigger cue in ChatViewModel`() = runTest(dispatcher) {
-        // ChatViewModel only plays cue for Command mode; SlotReply is handled by ActionsViewModel.
+    fun `ListeningStarted for owned SlotReply triggers cue player`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        verify(exactly = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
+    }
+
+    @Test
+    fun `ListeningStarted for unowned SlotReply does not trigger cue`() = runTest(dispatcher) {
+        // ChatViewModel is Idle — it owns nothing. SlotReply event should be ignored.
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
         advanceUntilIdle()
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
 
+    @Test
+    fun `ListeningStarted for foreign mode does not trigger cue`() = runTest(dispatcher) {
+        // AlertCommand is not relevant to Chat — even when owning a session.
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
+    }
+
+    @Test
+    fun `transcript event does not trigger cue`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "hello"))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
+    }
+
+    @Test
+    fun `error event does not trigger cue`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "error"))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
+    }
+
+    @Test
+    fun `stopped event does not trigger cue`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
+    }
     @Test
     fun `stop phrase in one-shot mode falls through normally`() = runTest(dispatcher) {
         every { quickIntentRouter.route("stop") } returns

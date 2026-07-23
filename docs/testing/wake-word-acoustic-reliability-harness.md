@@ -814,31 +814,30 @@ initiation flows obtain readiness through their own UI or signal and do not use 
 
 | Entry path | Production location | Capture mode | Readiness trigger | Cue policy | Cue context | Playback mechanism | Stream/attributes | Duplicate/missing-cue risk | Test coverage | Device evidence |
 | ---------- | ------------------- | ------------ | ----------------- | ---------- | ----------- | ------------------ | ----------------- | --------------------------- | ------------- | --------------- |
-| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | NOT RUN |
-| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | NOT RUN |
-| Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | NOT RUN |
-| Actions command capture | `VoiceCommandActivity` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Chat one-shot voice | `ChatViewModel` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | Automatic re-trigger | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Actions slot-fill reply | Slot-fill handler | `SlotReply` | `SlotReply` readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Chat slot-fill reply | Slot-fill handler | `SlotReply` | `SlotReply` readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Widget voice entry | `WidgetTextInputActivity` | `Command` | UI tap readiness | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
-| Side-key assistant entry | `JandalVoiceInteractionSession` | `Command` | Assistant signal | No cue | — | — | — | None — assistant manages readiness | Manual | NOT RUN |
-| Permission-repair restart | Permission handler | `Command` | Permission-grant return | No cue | — | — | — | None — no cue path | Manual | NOT RUN |
+| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | S21/S23U physical — PASS |
+| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | NOT RUN (evidence pending) |
+| Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | S21/S23U physical — PASS |
+| Actions command capture | `ActionsViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21/S23U physical — PASS |
+| Chat one-shot voice | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S21/S23U physical — PASS |
+| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S23U pending |
+| Actions slot-fill reply | `ActionsViewModel` | `SlotReply` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ActionsViewModelVoiceTest` | S21 physical — PASS |
+| Chat slot-fill reply | `ChatViewModel` | `SlotReply` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | Pending retest |
+| Widget voice entry | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21 physical — PASS |
+| Side-key / ASSIST intent | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | Mapped to VoiceCommandActivity — same path as widget |
+| Permission-repair restart | ChatViewModel / ActionsViewModel | `Command` | `ListeningStarted` | FOREGROUND cue per re-started readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — fresh session | Manual | S21 physical — PASS |
 
-Only **wake-word** (Hey Jandal + retry) and **clock-alert** paths intentionally play the
-start-listening cue. All other paths obtain readiness through UI interaction or the
-assistant framework and do not require this cue.
+Every cue-enabled path follows readiness before playback. Three cue contexts exist:
 
-The overview schematic in earlier issues described every flow as:
+| Context | Examples | Stream |
+| ------- | -------- | ------ |
+| `FOREGROUND` | Chat, Actions, widget/assistant, Command and SlotReply readiness | `STREAM_MUSIC` |
+| `WAKE_WORD` | Hey Jandal and bounded wake/STT retry attempts | `STREAM_ALARM` |
+| `CLOCK_ALERT` | Alarm/timer command capture | `STREAM_ALARM` |
 
-```text
-ready -> cue
-```
+The cue plays exactly once per owned readiness event. Foreign or unowned sessions never trigger a cue.
 
-This is accurate for cue-enabled paths. Cue-disabled paths still wait for readiness but
-intentionally do not play a start-listening cue because their initiation is user-driven
-(tap, assistant invocation) rather than passive detection.
+All three contexts use the same readiness-before-playback ordering. The only difference is the
+audio stream and the cue context metadata recorded in the acoustic journal.
 
 ### 24.3 Cue policy
 
@@ -855,6 +854,14 @@ internal fun shouldPlayClockAlertListeningCue(
 
 Shared between `ClockAlertService.handleVoiceEvent()` and tests.
 
+**Foreground cue rule (in `ChatViewModel` and `ActionsViewModel`):**
+- Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
+- Both `VoiceCaptureMode.Command` and `VoiceCaptureMode.SlotReply` trigger the cue.
+- Ownership is required — the ViewModel must have an active capture session.
+- A pre-readiness terminal event (`Error`, `ListeningStopped`, `Transcript`) produces no cue.
+- Maximum one cue per readiness event (STT engine emits `ListeningStarted` once per session).
+- A retry produces its own cue on the new attempt's readiness.
+
 **Wake-word cue rule (in `runWakeAttempt`):**
 - Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
 - A pre-readiness terminal event (`Error`, `ListeningStopped`, `Transcript`) produces no cue.
@@ -864,21 +871,24 @@ Shared between `ClockAlertService.handleVoiceEvent()` and tests.
 **Clock-alert cue rule (in `handleVoiceEvent`):**
 - Cue plays only for owned `AlertCommand` readiness events.
 - Foreign-session events never trigger a cue.
-- `Command` and `SlotReply` modes never trigger a cue.
 - Transcript, error, and stopped events never trigger a cue.
 
 ### 24.4 Android audio stream and attributes
 
-The cue is played using Android's `AudioAttributes` with usage `STREAM_ALARM`:
+Two audio streams are used depending on the cue context:
 
-| Attribute | Value |
-|---|---|
-| Stream type | `STREAM_ALARM` |
-| Usage | `USAGE_ALARM` |
-| Content type | `CONTENT_TYPE_SONIFICATION` |
+| Cue context | Stream | Usage | Content type |
+| ----------- | ------ | ----- | ------------ |
+| `FOREGROUND` | `STREAM_MUSIC` | `USAGE_MEDIA` | `CONTENT_TYPE_SPEECH` |
+| `WAKE_WORD` | `STREAM_ALARM` | `USAGE_ALARM` | `CONTENT_TYPE_SONIFICATION` |
+| `CLOCK_ALERT` | `STREAM_ALARM` | `USAGE_ALARM` | `CONTENT_TYPE_SONIFICATION` |
 
 DND behaviour follows Android policy: `STREAM_ALARM` is typically exempt from DND suppression.
-The implementation does not bypass, query, or modify DND.
+`STREAM_MUSIC` is subject to DND and volume settings. The implementation does not bypass,
+query, or modify DND or per-stream volume.
+
+Low or zero stream volume may make the cue inaudible. The app never silently raises volume.
+Clock-alert cue audibility can be reduced by same-stream alert contention (both use `STREAM_ALARM`).
 
 ### 24.5 Readiness-before-cue ordering
 
