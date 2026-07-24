@@ -19,6 +19,7 @@ import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
+import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -380,8 +381,7 @@ class ActionsViewModel @Inject constructor(
                             ?.transcript
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
-                        // #791: Play the start-listening earcon now that the mic is truly open.
-                        startListeningCuePlayer.playCue()
+                        startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.PartialTranscript -> {

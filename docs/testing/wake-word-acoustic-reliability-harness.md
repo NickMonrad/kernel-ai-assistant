@@ -801,3 +801,303 @@ No unresolved architectural decision remains. Physical feasibility can refine bo
 - [Termux:API](https://github.com/termux/termux-api)
 - [VLC for Android](https://github.com/videolan/vlc-android)
 - [mpv-android](https://github.com/mpv-android)
+
+## 24. Start-listening cue policy (PR #1405 / #1416)
+
+### 24.1 Overview
+
+Issue #1405 standardises the start-listening audio cue across all voice entry points.
+Three cue contexts exist:
+
+| Context | Examples | Stream |
+| ------- | -------- | ------ |
+| `FOREGROUND` | Chat, Actions, widget/assistant, Command mode; Actions SlotReply | `STREAM_MUSIC` |
+| `WAKE_WORD` | Hey Jandal and bounded automatic wake/STT retry | `STREAM_ALARM` |
+| `CLOCK_ALERT` | Alarm and timer command capture | `STREAM_ALARM` |
+
+All cue-enabled paths follow owned recogniser readiness. Foreign or unowned sessions
+never trigger a cue. Volume is never modified. Android/Samsung controls DND and routing.
+
+### 24.2 STT entry-point inventory
+
+| Entry path | Production location | Capture mode | Readiness trigger | Cue policy | Cue context | Playback mechanism | Stream/attributes | Duplicate/missing-cue risk | Test coverage | Device evidence |
+| ---------- | ------------------- | ------------ | ----------------- | ---------- | ----------- | ------------------ | ----------------- | --------------------------- | ------------- | --------------- |
+| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | S21/S23U physical — PASS |
+| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | Deterministic UT — two attempts, one cue per readiness, stale session ignored, no third attempt |
+| Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | S21/S23U physical — PASS |
+| Actions command capture | `ActionsViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21/S23U physical — PASS |
+| Chat one-shot voice | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S21/S23U physical — PASS |
+| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S23U physical — PASS |
+| Chat slot-fill reply | `ChatViewModel` | `Command` | `ListeningStarted` (mic tap) | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — user re-taps mic | Manual | S21/S23U physical — PASS |
+| Widget voice entry | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21 physical — PASS |
+| Side-key / ASSIST intent | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | Mapped to VoiceCommandActivity — same path as widget |
+| Permission-repair restart | ChatViewModel / ActionsViewModel | `Command` | `ListeningStarted` | FOREGROUND cue per re-started readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — fresh session | Manual | S21 physical — PASS |
+
+Every cue-enabled path follows readiness before playback. The three cue contexts are defined in §24.1.
+
+
+All three contexts use the same readiness-before-playback ordering. The only difference is the
+audio stream and the cue context metadata recorded in the acoustic journal.
+
+### 24.3 Cue policy
+
+```kotlin
+internal fun shouldPlayClockAlertListeningCue(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean =
+    isOwnedAlertEvent(event, captureSessionId, isVoiceListening) &&
+        event is VoiceInputEvent.ListeningStarted &&
+        event.mode == VoiceCaptureMode.AlertCommand
+```
+
+Shared between `ClockAlertService.handleVoiceEvent()` and tests.
+
+**Foreground cue rule:**
+- **ChatViewModel**: cue plays for `VoiceCaptureMode.Command` only (Chat's capture mode).
+- **ActionsViewModel**: cue plays for both `VoiceCaptureMode.Command` and
+  `VoiceCaptureMode.SlotReply` (Actions starts SlotReply sessions).
+- Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
+- Ownership required — ViewModel must have an active capture session.
+- Pre-readiness terminal events (`Error`, `ListeningStopped`, `Transcript`) produce no cue.
+- Maximum one cue per readiness event.
+- A retry produces its own cue on the new attempt's readiness.
+
+**Wake-word cue rule (in `runWakeAttempt`):**
+- Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
+- A pre-readiness terminal event (`Error`, `ListeningStopped`, `Transcript`) produces no cue.
+- Maximum one cue per attempt.
+- A retry produces its own cue on the new attempt's readiness.
+
+**Clock-alert cue rule (in `handleVoiceEvent`):**
+- Cue plays only for owned `AlertCommand` readiness events.
+- Foreign-session events never trigger a cue.
+- Transcript, error, and stopped events never trigger a cue.
+
+### 24.4 Android audio stream and attributes
+
+Two audio streams are used depending on the cue context:
+
+| Cue context | Stream | Usage | Content type |
+| ----------- | ------ | ----- | ------------ |
+| `FOREGROUND` | `STREAM_MUSIC` | `USAGE_MEDIA` | `CONTENT_TYPE_SPEECH` |
+| `WAKE_WORD` | `STREAM_ALARM` | `USAGE_ALARM` | `CONTENT_TYPE_SONIFICATION` |
+| `CLOCK_ALERT` | `STREAM_ALARM` | `USAGE_ALARM` | `CONTENT_TYPE_SONIFICATION` |
+
+DND behaviour follows Android policy: `STREAM_ALARM` is typically exempt from DND suppression.
+`STREAM_MUSIC` is subject to DND and volume settings. The implementation does not bypass,
+query, or modify DND or per-stream volume.
+
+Low or zero stream volume may make the cue inaudible. The app never silently raises volume.
+Clock-alert cue audibility can be reduced by same-stream alert contention (both use `STREAM_ALARM`).
+
+### 24.5 Readiness-before-cue ordering
+
+Guaranteed by the buffered collector in `runWakeAttempt`:
+
+1. `launch(start = CoroutineStart.UNDISPATCHED)` subscribes to `VoiceInputController.events` before `startListening()`.
+2. Events emitted synchronously during `startListening()` are captured by the buffered channel.
+3. `awaitEvent` waits for `ListeningStarted` (or a pre-readiness terminal).
+4. Only after `ListeningStarted` is received does the cue play.
+
+The clock-alert flow uses the same ordering via `bufferedCaptureSession()`.
+
+### 24.6 Volume non-mutation
+
+### 24.7 Route and volume metadata
+
+Every cue playback event carries common metadata followed by type-specific fields.
+
+**Common fields (both `CUE_PLAYBACK_STARTED` and `CUE_PLAYBACK_ERROR`):**
+
+| Field | Source | Example |
+|---|---|---|
+| `context` | Cue context constant | `wake_word` / `clock_alert` |
+| `policy_version` | `StartListeningCueResult.policyVersion` | `2026-07-cue-v1` |
+| `stream` | `selectedStream.toString()` | `4` |
+| `current_volume` | `currentVolume.toString()` | `10` |
+| `max_volume` | `maxVolume.toString()` | `25` |
+| `route` | `routeClassification` | `built_in_speaker` / `bluetooth_a2dp` |
+
+**`CUE_PLAYBACK_ERROR` additionally carries:**
+
+| Field | Source | Example |
+|---|---|---|
+| `category` | `failureCategory` | `playback_start_failed` |
+
+The `category` field is present only on error events. It does not replace the common fields;
+all common fields are still recorded for error events.
+
+Route classification uses a pure function:
+
+```kotlin
+internal fun classifyRoute(deviceTypes: Set<Int>): String
+```
+
+Tested separately for built-in speaker, Bluetooth (A2DP/HEADSET), wired headset, and mixed routes.
+
+### 24.8 Wake retry semantics
+
+- Maximum two STT attempts per wake-word detection.
+- Second attempt occurs only when the first returns `NoTranscript`.
+- Each ready attempt plays its own cue.
+- `Unavailable` stops immediately (no retry).
+- `WakeAttemptCollectionException` containing a flow failure stops the retry loop.
+
+The retry loop is extracted as:
+
+```kotlin
+internal suspend fun runWakeCaptureSession(
+    runAttempt: suspend (attempt: Int) -> WakeAttemptOutcome,
+): WakeSessionCaptureResult
+```
+
+### 24.9 Collection-failure classification
+
+| Condition | Category |
+|---|---|
+| Flow fails before `ListeningStarted` | `startup_collection_failed` |
+| Flow fails after `ListeningStarted` | `transcript_collection_failed` |
+| STT unavailable | `stt_unavailable` |
+| STT produces error event | `stt_recognition_failed` |
+| STT stops without transcript | `stt_stopped_without_result` |
+| Fatal `Error` (OOM, Linkage, AssertionError) | Propagates — not classified |
+| Caller `CancellationException` | Propagates — not classified |
+
+The classification boundary in `runWakeAttempt` catches `Exception` (not `Throwable`),
+ensuring fatal JVM errors propagate without conversion to cancellation categories.
+
+### 24.10 Clock-alert ownership semantics
+
+The clock-alert voice session filters events by:
+
+1. **Session ownership** — `event.captureSessionId == captureSessionId` and `isVoiceListening`.
+2. **Mode** — Only `VoiceCaptureMode.AlertCommand` triggers the cue.
+3. **Event type** — Only `VoiceInputEvent.ListeningStarted` triggers the cue.
+
+```kotlin
+internal fun isOwnedAlertEvent(
+    event: VoiceInputEvent,
+    captureSessionId: Long?,
+    isVoiceListening: Boolean,
+): Boolean = isVoiceListening && event.captureSessionId != null &&
+    event.captureSessionId == captureSessionId
+```
+
+Foreign-session events from overlapping voice interactions are silently filtered.
+
+### 24.11 Evidence collection steps
+
+1. Build and install `./gradlew :app:installDebug`.
+2. Enable acoustic journal via the debug menu or broadcast:
+   ```
+   adb shell am broadcast -a com.kernel.ai.debug.action.CLEAR_JOURNAL
+   adb shell am broadcast -a com.kernel.ai.debug.action.START_JOURNAL
+   ```
+3. Trigger the wake word or clock-alert flow.
+4. Capture journal:
+   ```
+   adb shell am broadcast -a com.kernel.ai.debug.action.QUERY_JOURNAL
+   ```
+5. Capture logcat filtered to the service:
+   ```
+   adb logcat -s KernelAI WakeWordService ClockAlertService
+   ```
+6. Record media volume before and after:
+   ```
+   adb shell settings get system volume_music
+   adb shell settings get system volume_alarm
+   ```
+7. Record DND state and audio route.
+
+### 24.12 Validation matrix (PR #1416 — automated 2026-07-21)
+
+| Device | Scenario | Trigger | Volume/DND/Route | Cue count | Journal ordering | Command result | Evidence path | Result |
+|---|---|---|---|---:|---|---|---|---|
+| S21 | Unit tests (ownership guard) | Automated | N/A | N/A | N/A | N/A | ClockAlertSessionTest | ✅ PASS |
+| S21 | Unit tests (wake cue) | Automated | N/A | N/A | N/A | N/A | WakeWordCueTest | ✅ PASS |
+| S21 | App launch + wake service | ADB launch | 9/15 media, DND off, no BT | N/A | N/A | Service OK | logcat | ✅ PASS |
+| S23U | App launch + wake service | ADB launch | 6/15 media, DND off, no BT | N/A | N/A | Service OK | logcat | ✅ PASS |
+| S21 | ASSIST intent → VoiceCommandActivity | ADB intent | 9/15 media | N/A | N/A | Activity shown | logcat | ✅ PASS |
+| S21 | Normal screen-on wake word | ⚠️ Human | 9/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Screen-off wake word | ⚠️ Human | 9/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Low media volume wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | DND enabled wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Bluetooth route wake word | 🔷 N/A | No BT audio device | — | — | — | — | 🔷 NOT PRESENT |
+| S21 | Clock-alert command | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S21 | Monitored post-idle audibility | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Normal screen-on wake word | ⚠️ Human | 6/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Screen-off wake word | ⚠️ Human | 6/15, DND off, built-in | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Low media volume wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | DND enabled wake word | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Bluetooth route wake word | 🔷 N/A | No BT audio device | — | — | — | — | 🔷 NOT PRESENT |
+| S23U | Clock-alert command | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+| S23U | Monitored post-idle audibility | ⚠️ Human | TBD | TBD | TBD | TBD | TBD | ⚠️ NOT RUN |
+
+**Legend:** ✅ PASS (verified) | ❌ FAIL | ⚠️ NEEDS HUMAN | 🔷 NOT PRESENT | TBD = to be determined during human-led validation
+
+### 24.13 Stale-startup ownership guard (PR #1416 remediation)
+
+`startVoiceControl()` creates an attempt-local `WakeSessionJournal` before STT startup.
+The `Unavailable` and exception branches perform an ownership check before mutating
+shared service state. The same check is now applied to the successful-start branch:
+
+```kotlin
+internal fun ownsCurrentVoiceJournal(
+    currentJournal: WakeSessionJournal?,
+    attemptJournal: WakeSessionJournal,
+): Boolean = currentJournal === attemptJournal
+```
+
+Used in `startVoiceControl()` at the `CaptureStartResult.Started` branch — if the
+current service journal no longer matches the attempt's journal (because a
+replacement session started while the first attempt was waiting for STT), the
+stale result is silently discarded without mutating `captureSessionId`, processing
+buffered events, or recording evidence against the replacement journal.
+
+Tested in `ClockAlertSessionTest.stale Started result does not affect replacement journal`,
+which exercises the production `ownsCurrentVoiceJournal()` function with stale and
+current journals, and verifies the replacement journal remains uncorrupted.
+
+### 24.14 Monitored audibility standard
+
+The start-listening cue policy defines four distinct levels of evidence, each
+requiring different validation methods:
+
+| Level | Evidence | Source | Validation method |
+|---|---|---|---|
+| 1 — Requested | `CUE_REQUESTED` recorded in journal | App before calling `StartListeningCuePlayer.playCue()` | Unit test / journal inspection |
+| 2 — Started | `CUE_PLAYBACK_STARTED` recorded in journal | App after `MediaPlayer.start()` returns | Unit test / journal inspection |
+| 3 — Route/volume metadata | `route`, `current_volume`, `max_volume`, `stream` in journal | `StartListeningCueResult` from cue player | Unit test / journal inspection |
+| 4 — Acoustic audibility | Human observer confirms audible | Physical device test | Monitored trial with human |
+
+**A test cannot claim acoustic success from levels 1-3 alone.** `CUE_PLAYBACK_STARTED`
+at zero volume, on a muted stream, or on a non-rendering Bluetooth route is not
+acoustic proof and must not be reported as audible.
+
+**Minimum evidence fields for physical trials:**
+
+- `trial_id` (unique per trial)
+- `device_id`
+- `device_screen_state` (on / off)
+- `media_volume_before` / `alarm_volume_before`
+- `dnd_state`
+- `audio_route` (built_in_speaker / bluetooth_a2dp / wired_headset / unknown)
+- `cue_requested` (true/false + timestamp)
+- `cue_playback_started` (true/false + timestamp)
+- `route` / `current_volume` / `max_volume` from journal
+- `human_observed_audible` (yes / no)
+- `transcript_captured` (yes / no)
+- `duplicate_cue` (yes / no, with description)
+- `terminal_session_event` (type + category)
+- `restoration_verified` (yes / no)
+
+**Invalidation rules:**
+
+A trial MUST be marked INVALID — RESTORATION FAILED if:
+- Any mutated device state (volume, DND, ringer, BT, permissions) is not restored to its
+  exact baseline value.
+- The baseline verification step after restoration reveals a mismatch.
+- Equipment calibration or source placement was disturbed and not re-verified.
+
