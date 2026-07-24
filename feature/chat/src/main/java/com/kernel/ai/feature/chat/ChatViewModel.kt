@@ -589,8 +589,7 @@ class ChatViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (event.mode != VoiceCaptureMode.Command && event.mode != VoiceCaptureMode.SlotReply) return@collect
-                        if (!ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.transcript

@@ -75,6 +75,20 @@ internal fun ownsCurrentVoiceJournal(
 ): Boolean = currentJournal === attemptJournal
 
 /**
+ * Handles the result of a snooze operation.
+ * Dismisses the current alert only when snoozing succeeded.
+ * Used by both the notification Snooze button and the voice Snooze command.
+ */
+internal fun snoozeAlertResult(
+    snoozeSuccess: Boolean,
+    dismissAlert: () -> Unit,
+) {
+    if (snoozeSuccess) {
+        dismissAlert()
+    }
+}
+
+/**
  * Whether a voice event should trigger the clock-alert start-listening cue.
  * Used by both [ClockAlertService.handleVoiceEvent] and tests.
  */
@@ -314,11 +328,14 @@ class ClockAlertService : Service() {
                 val dismissed = dismissAlertsMatching { it.type == ClockEventType.TIMER }
                 if (dismissed == 0 && activeAlerts.isEmpty()) stopSelf()
             }
-
             ClockAlertContract.ACTION_SNOOZE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
-                    serviceScope.launch { performSnooze(alert, snoozeDurationFor(alert)) }
+                    serviceScope.launch {
+                        snoozeAlertResult(performSnooze(alert, snoozeDurationFor(alert))) {
+                            dismissAlert(alert)
+                        }
+                    }
                 }
             }
 

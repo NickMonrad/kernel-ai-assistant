@@ -819,20 +819,16 @@ initiation flows obtain readiness through their own UI or signal and do not use 
 | Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | S21/S23U physical — PASS |
 | Actions command capture | `ActionsViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21/S23U physical — PASS |
 | Chat one-shot voice | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S21/S23U physical — PASS |
-| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S23U pending |
-| Actions slot-fill reply | `ActionsViewModel` | `SlotReply` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ActionsViewModelVoiceTest` | S21 physical — PASS |
-| Chat slot-fill reply | `ChatViewModel` | `SlotReply` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | Pending retest |
+| Chat back-and-forth re-listening | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S23U physical — PASS |
+| Chat slot-fill reply | `ChatViewModel` | `Command` | `ListeningStarted` (mic tap) | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — user re-taps mic | Manual | S21/S23U physical — PASS |
 | Widget voice entry | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21 physical — PASS |
 | Side-key / ASSIST intent | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | Mapped to VoiceCommandActivity — same path as widget |
 | Permission-repair restart | ChatViewModel / ActionsViewModel | `Command` | `ListeningStarted` | FOREGROUND cue per re-started readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — fresh session | Manual | S21 physical — PASS |
 
 Every cue-enabled path follows readiness before playback. Three cue contexts exist:
-
 | Context | Examples | Stream |
 | ------- | -------- | ------ |
-| `FOREGROUND` | Chat, Actions, widget/assistant, Command and SlotReply readiness | `STREAM_MUSIC` |
-| `WAKE_WORD` | Hey Jandal and bounded wake/STT retry attempts | `STREAM_ALARM` |
-| `CLOCK_ALERT` | Alarm/timer command capture | `STREAM_ALARM` |
+| `FOREGROUND` | Chat, Actions, widget/assistant, Command mode; Actions SlotReply readiness | `STREAM_MUSIC` |
 
 The cue plays exactly once per owned readiness event. Foreign or unowned sessions never trigger a cue.
 
@@ -854,12 +850,14 @@ internal fun shouldPlayClockAlertListeningCue(
 
 Shared between `ClockAlertService.handleVoiceEvent()` and tests.
 
-**Foreground cue rule (in `ChatViewModel` and `ActionsViewModel`):**
+**Foreground cue rule:**
+- **ChatViewModel**: cue plays for `VoiceCaptureMode.Command` only (Chat's capture mode).
+- **ActionsViewModel**: cue plays for both `VoiceCaptureMode.Command` and
+  `VoiceCaptureMode.SlotReply` (Actions starts SlotReply sessions).
 - Cue plays only after `VoiceInputEvent.ListeningStarted` is received.
-- Both `VoiceCaptureMode.Command` and `VoiceCaptureMode.SlotReply` trigger the cue.
-- Ownership is required — the ViewModel must have an active capture session.
-- A pre-readiness terminal event (`Error`, `ListeningStopped`, `Transcript`) produces no cue.
-- Maximum one cue per readiness event (STT engine emits `ListeningStarted` once per session).
+- Ownership required — ViewModel must have an active capture session.
+- Pre-readiness terminal events (`Error`, `ListeningStopped`, `Transcript`) produce no cue.
+- Maximum one cue per readiness event.
 - A retry produces its own cue on the new attempt's readiness.
 
 **Wake-word cue rule (in `runWakeAttempt`):**

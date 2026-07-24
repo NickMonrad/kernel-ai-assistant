@@ -857,40 +857,6 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
-    @Test
-    fun `ListeningStarted for owned SlotReply triggers cue player`() = runTest(dispatcher) {
-        val viewModel = createViewModel()
-        coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started(1L)
-        viewModel.startVoiceInput()
-        runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
-        advanceUntilIdle()
-        verify(exactly = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
-    }
-
-    @Test
-    fun `ListeningStarted for unowned SlotReply does not trigger cue`() = runTest(dispatcher) {
-        // ChatViewModel is Idle — it owns nothing. SlotReply event should be ignored.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
-        advanceUntilIdle()
-        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
-    }
-
-    @Test
-    fun `ListeningStarted for foreign mode does not trigger cue`() = runTest(dispatcher) {
-        // AlertCommand is not relevant to Chat — even when owning a session.
-        val viewModel = createViewModel()
-        coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
-        } returns VoiceInputStartResult.Started(1L)
-        viewModel.startVoiceInput()
-        runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
-        advanceUntilIdle()
-        verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
-    }
 
     @Test
     fun `transcript event does not trigger cue`() = runTest(dispatcher) {

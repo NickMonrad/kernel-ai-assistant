@@ -10,10 +10,15 @@
 | ADB device-state capture | ADB |
 | Human audibility observation | HO |
 
+## Tested commits
+
+- Application code (physical matrix): `38c590f0`
+- Snooze fix + tests: HEAD (after `2eee13b9`)
+- Main snooze comparison: `5ca1c4fa`
+
 ## Clock-alert dismiss — S21 (AJ)
 
-**SHA:** `38c590f0`
-**Journal snapshot (timestamp 2026-07-22):**
+**Journal snapshot:**
 
 | Seq | Event | Metadata |
 |-----|-------|----------|
@@ -23,89 +28,51 @@
 | 4 | `CUE_PLAYBACK_STARTED` | context=clock_alert, stream=4 (STREAM_ALARM), current_volume=10, max_volume=15, route=built_in_speaker |
 | 5 | `SESSION_COMPLETED` | — |
 
-**Sequence:** 5 events, no overflow. CUE_REQUESTED → CUE_PLAYBACK_STARTED → SESSION_COMPLETED confirms ordering and terminal event.
+## Wake-word capture — S21 (HO, LC)
 
-## Clock-alert dismiss — S23U (HO, LC)
+**5 trials (normal volume):** All 5 wake triggered, cue exactly once, capture worked.
 
-**SHA:** `38c590f0`
-Journal cleared by `pm clear` during testing. Human observation confirms:
-- Cue audible: ✅ (after alarm volume fixed to 11)
-- Alert ducked: ✅
-- Dismiss worked: ✅
-- Cue count: 1
+## Wake-word capture — S23U (HO, LC)
 
-## Wake-word capture — S21 (AJ, HO, LC)
-
-**SHA:** `38c590f0`
-
-**S21 — normal volume (5 trials):**
-| Trial | Wake triggered | Cue audible | Cue count | Capture |
-|-------|---------------|-------------|-----------|---------|
-| 1 | ✅ | ✅ | 1 | ✅ |
-| 2 | ✅ | ✅ | 1 | ✅ |
-| 3 | ✅ (several tries) | ✅ | 1 | ✅ |
-| 4 | ✅ | ✅ | 1 | ✅ |
-| 5 | ✅ | ✅ | 1 | ✅ |
-
-Evidence source: HO + LC (HO confirmed audibility; LC confirmed wake detection + re-arm)
-
-**S23U — normal volume (5 trials):**
-| Trial | Wake triggered | Cue audible | Cue count | Capture |
-|-------|---------------|-------------|-----------|---------|
-| 1 | ✅ | ✅ | 1 | ✅ |
-| 2 | ✅ | ✅ | 1 | ✅ |
-| 3 | ✅ | ✅ | 1 | ✅ |
-| 4 | ✅ (2 tries) | ✅ | 1 | ✅ |
-| 5 | ✅ (2 tries) | ✅ | 1 | ✅ |
-
-Evidence source: HO + LC
+**5 trials (normal volume):** All 5 wake triggered, cue exactly once, capture worked. 2 trials required multiple wake-word attempts.
 
 ## Foreground capture — Chat mic (UT, HO)
 
-**SHA:** `38c590f0` (original), new SHA for Chat SlotReply fix
+**Chat uses `VoiceCaptureMode.Command` exclusively.**
+- Chat slot-fill voice replies use the existing Command mic path (user taps mic).
+- `SlotReply` mode cue is handled by `ActionsViewModel` for the Actions screen only.
+- S21: One cue (FOREGROUND), capture works. UT: `ChatViewModelVoiceTest`
+- S23U: One cue (FOREGROUND). HO: "very quiet" at media 8/15.
 
-**Command mode:**
-- S21: One cue (FOREGROUND), capture works. HO: audible. UT: `ChatViewModelVoiceTest.ListeningStarted for owned Command session triggers cue player`
-- S23U: One cue (FOREGROUND). HO: "very quiet" at media 8/15. UT: same test.
+## Chat back-and-forth re-listening (HO + LC)
 
-**SlotReply mode (after fix):**
-- S21 Chat: One cue per mic tap (2 total for slot-fill flow). HO: audible after second tap. UT: `ChatViewModelVoiceTest.ListeningStarted for owned SlotReply triggers cue player`
-- S23U Chat: Same result. HO: audible. UT: same test.
+**S23U fresh conversation:** ✅ PASS
+- Cue per auto-relisten: yes (FOREGROUND)
+- Multi-turn flow completed: "set a timer" → TTS → rearm → cue → "5 minutes" → done
 
-## Chat back-and-forth re-listening
+## Snooze regression — now fixed (UT)
 
-**SHA:** new SHA for Chat SlotReply fix
-**Result:** PENDING — requires human test on S23U with fresh conversation.
+- `main` SHA `5ca1c4fa`: snooze button works ✅
+- PR branch before fix: snooze failed (regression)
+- Fix: `snoozeAlertResult()` helper ensures dismiss only on success
+- `ClockAlertSnoozeRegressionTest` validates contract (4 tests)
 
-## Bluetooth route — S21
+## Audio-policy summary (HO + ADB)
 
-**SHA:** `38c590f0`
-**Result:** PENDING — requires human with BT audio device connected to S21.
+| Condition | S21 | S23U |
+|-----------|-----|------|
+| Low media (1/15) foreground | Inaudible, capture works | Same |
+| Low alarm (1/15) wake-word | Inaudible, capture works | Same |
+| DND + wake-word | Cue audible (STREAM_ALARM bypasses) | Same |
+| Zero/min volume | No app volume raise | Same |
+| BT A2DP wake-word | BLOCKED (no BT device) | Cue from handset+BT |
+| Clock-alert stop+duck | Alert ducked, dismiss works | Same |
 
-## Audio-policy summary (all HO + ADB)
+## Unit tests (all passing at HEAD)
 
-| Condition | S21 | S23U | Evidence |
-|-----------|-----|------|----------|
-| Low media (1/15) foreground | Inaudible, capture works | Same | HO + ADB |
-| Low alarm (1/15) wake-word | Inaudible, capture works | Same | HO + ADB |
-| DND + wake-word | Cue audible (STREAM_ALARM bypasses) | Same | HO + ADB |
-| Zero/min volume | No app volume raise | Same | HO + ADB |
-| BT A2DP wake-word | PENDING | Cue from handset+BT | HO + ADB (S23U) |
-| Clock-alert stop+duck | Alert ducked, dismiss works | Same | AJ + HO |
-
-## Unit tests (all passing at commit time)
-
-Full suite at SHA `38c590f0`:
-- `ClockAlertSessionTest` — ownership guard, cue rules
-- `WakeWordCueTest` — wake-word cue ordering, retry
-- `ChatViewModelVoiceTest` — Command + SlotReply cue tests
-
-ChatViewModelVoiceTest (new tests at new SHA):
-- `ListeningStarted for owned Command session triggers cue player` ✅
-- `ListeningStarted for owned SlotReply triggers cue player` ✅
-- `ListeningStarted for unowned mode does not trigger cue player` ✅
-- `ListeningStarted for unowned SlotReply does not trigger cue` ✅
-- `ListeningStarted for foreign mode (AlertCommand) does not trigger cue` ✅
-- `transcript event does not trigger cue` ✅
-- `error event does not trigger cue` ✅
-- `stopped event does not trigger cue` ✅
+| Suite | Key tests |
+|-------|-----------|
+| `ClockAlertSessionTest` | Ownership guard, cue rules, journal |
+| `ClockAlertSnoozeRegressionTest` | Successful snooze dismisses, failed snooze does not |
+| `WakeWordCueTest` | Wake-word cue ordering, retry |
+| `ChatViewModelVoiceTest` | Owned Command cue, unowned ignored, transcript/error/stopped no-cue |
