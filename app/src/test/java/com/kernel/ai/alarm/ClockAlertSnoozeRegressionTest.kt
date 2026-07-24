@@ -1,5 +1,6 @@
 package com.kernel.ai.alarm
 
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -11,22 +12,23 @@ import org.junit.jupiter.api.Test
  * the current alert after a successful repository operation.
  *
  * These tests validate [runSnoozeAction] — the smallest testable orchestration
- * that owns both the snooze call and the dismiss decision.
+ * that owns both the snooze call and the dismiss decision. The helper receives
+ * the real suspend snooze operation, not a precomputed Boolean.
  */
 class ClockAlertSnoozeRegressionTest {
 
     @Test
-    fun `snooze is invoked exactly once`() {
+    fun `snooze operation executes exactly once`() = runTest {
         var snoozeCount = 0
         runSnoozeAction(
             snooze = { snoozeCount++; true },
             dismiss = {},
         )
-        assertEquals(1, snoozeCount, "Snooze operation must be called exactly once")
+        assertEquals(1, snoozeCount, "Snooze operation must execute exactly once")
     }
 
     @Test
-    fun `successful snooze invokes dismissal exactly once`() {
+    fun `successful snooze invokes dismissal exactly once`() = runTest {
         var dismissCount = 0
         runSnoozeAction(
             snooze = { true },
@@ -36,7 +38,7 @@ class ClockAlertSnoozeRegressionTest {
     }
 
     @Test
-    fun `failed snooze does not invoke dismissal`() {
+    fun `failed snooze does not invoke dismissal`() = runTest {
         var dismissed = false
         runSnoozeAction(
             snooze = { false },
@@ -46,7 +48,7 @@ class ClockAlertSnoozeRegressionTest {
     }
 
     @Test
-    fun `repeated failures do not invoke dismissal`() {
+    fun `repeated failures never invoke dismissal`() = runTest {
         var dismissCount = 0
         repeat(3) {
             runSnoozeAction(
@@ -58,7 +60,7 @@ class ClockAlertSnoozeRegressionTest {
     }
 
     @Test
-    fun `helper does not invoke snooze more than once`() {
+    fun `successful execution does not invoke snooze more than once`() = runTest {
         var snoozeCount = 0
         runSnoozeAction(
             snooze = { snoozeCount++; true },

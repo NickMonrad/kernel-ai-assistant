@@ -822,6 +822,7 @@ never trigger a cue. Volume is never modified. Android/Samsung controls DND and 
 
 | Entry path | Production location | Capture mode | Readiness trigger | Cue policy | Cue context | Playback mechanism | Stream/attributes | Duplicate/missing-cue risk | Test coverage | Device evidence |
 | ---------- | ------------------- | ------------ | ----------------- | ---------- | ----------- | ------------------ | ----------------- | --------------------------- | ------------- | --------------- |
+| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | S21/S23U physical — PASS |
 | Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | Deterministic UT — two attempts, one cue per readiness, stale session ignored, no third attempt |
 | Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | S21/S23U physical — PASS |
 | Actions command capture | `ActionsViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21/S23U physical — PASS |
@@ -832,12 +833,8 @@ never trigger a cue. Volume is never modified. Android/Samsung controls DND and 
 | Side-key / ASSIST intent | `VoiceCommandActivity` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | Mapped to VoiceCommandActivity — same path as widget |
 | Permission-repair restart | ChatViewModel / ActionsViewModel | `Command` | `ListeningStarted` | FOREGROUND cue per re-started readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — fresh session | Manual | S21 physical — PASS |
 
-Every cue-enabled path follows readiness before playback. Three cue contexts exist:
-| Context | Examples | Stream |
-| ------- | -------- | ------ |
-| `FOREGROUND` | Chat, Actions, widget/assistant, Command mode; Actions SlotReply readiness | `STREAM_MUSIC` |
+Every cue-enabled path follows readiness before playback. The three cue contexts are defined in §24.1.
 
-The cue plays exactly once per owned readiness event. Foreign or unowned sessions never trigger a cue.
 
 All three contexts use the same readiness-before-playback ordering. The only difference is the
 audio stream and the cue context metadata recorded in the acoustic journal.

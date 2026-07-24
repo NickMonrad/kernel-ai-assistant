@@ -80,8 +80,8 @@ internal fun ownsCurrentVoiceJournal(
  * Tests verify the orchestration: snooze is invoked exactly once, dismiss
  * only when snooze returns true.
  */
-internal fun runSnoozeAction(
-    snooze: () -> Boolean,
+internal suspend fun runSnoozeAction(
+    snooze: suspend () -> Boolean,
     dismiss: () -> Unit,
 ) {
     if (snooze()) {
@@ -333,9 +333,13 @@ class ClockAlertService : Service() {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
                     serviceScope.launch {
-                        val success = performSnooze(alert, snoozeDurationFor(alert))
                         runSnoozeAction(
-                            snooze = { success },
+                            snooze = {
+                                performSnooze(
+                                    alert,
+                                    snoozeDurationFor(alert),
+                                )
+                            },
                             dismiss = { dismissAlert(alert) },
                         )
                     }

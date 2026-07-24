@@ -15,6 +15,7 @@
 - Application code (physical matrix): `38c590f0c756e781a651f901a4c1e940a9f5a931`
 - Snooze fix + targeted retest: `8191b2425076a289c2904c24e7226f6ae23acf7d`
 - Main snooze comparison: `5ca1c4fad772e3b29e19e8d1798ded36c5d34b57`
+- Final remediation: `1d123f78` (current head)
 
 ## Clock-alert dismiss — S21 (AJ)
 
@@ -51,11 +52,20 @@
 - Multi-turn flow completed: "set a timer" → TTS → rearm → cue → "5 minutes" → done
 
 ## Snooze regression — now fixed (UT)
-
 - `main` SHA `5ca1c4fa`: snooze button works ✅
 - PR branch before fix: snooze failed (regression)
-- Fix: `snoozeAlertResult()` helper ensures dismiss only on success
-- `ClockAlertSnoozeRegressionTest` validates contract (4 tests)
+- Fix: `runSnoozeAction()` runs the real suspend snooze operation and dismisses only on success
+- `ClockAlertSnoozeRegressionTest` validates orchestration (5 tests using `runTest`)
+
+## S21 Bluetooth route (HO + ADB)
+
+**SHA:** `8191b242`
+- Active Bluetooth audio device connected to S21
+- Wake-word capture triggered ("Hey Jandal" → "What time is it?")
+- Cue heard: **handset and Bluetooth device both** (STREAM_ALARM routes to both)
+- Response played: **Bluetooth device only** (STREAM_MUSIC routes to active BT)
+- Route metadata confirmed `Devices: speaker(2), bt_a2dp(80)`
+- Bluetooth disconnected and restored after test
 
 ## Audio-policy summary (HO + ADB)
 
@@ -65,7 +75,7 @@
 | Low alarm (1/15) wake-word | Inaudible, capture works | Same |
 | DND + wake-word | Cue audible (STREAM_ALARM bypasses) | Same |
 | Zero/min volume | No app volume raise | Same |
-| BT A2DP wake-word | BLOCKED (no BT device) | Cue from handset+BT |
+| BT A2DP wake-word | PASS — cue from handset+BT | PASS — cue from handset+BT |
 | Clock-alert stop+duck | Alert ducked, dismiss works | Same |
 
 ## Unit tests (all passing at HEAD)

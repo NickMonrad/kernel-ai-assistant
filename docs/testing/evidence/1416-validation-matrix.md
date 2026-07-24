@@ -1,7 +1,8 @@
 # PR #1416 Physical Validation Results
 
-**Source SHAs:** `38c590f0` (original), `8191b242` (snooze fix + docs)
-**APK SHA-256:** `bf86072f82547073acdae34a4b6851889f646e5e2840df491726950e9e99bf95`
+**Source SHAs:** `38c590f0` (original physical matrix), `8191b242` (snooze/retest), `1d123f78` (runSnoozeAction remediation)
+**APK SHA-256 (original physical matrix):** `bf86072f82547073acdae34a4b6851889f646e5e2840df491726950e9e99bf95`
+Targeted retests at `8191b242` were retained human-observer checks; no separate APK hash was preserved.
 **Date:** 2026-07-22
 **Validator:** Human-observer interactive session via ADB
 
