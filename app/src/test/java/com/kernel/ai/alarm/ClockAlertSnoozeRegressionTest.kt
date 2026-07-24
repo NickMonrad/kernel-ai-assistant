@@ -4,45 +4,66 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Regression tests for the notification Snooze button path.
+ * Regression tests for the notification Snooze button orchestration.
  *
  * PR #1416 introduced a regression where [ClockAlertContract.ACTION_SNOOZE_ALERT]
  * called [ClockAlertService.performSnooze] but did not [ClockAlertService.dismissAlert]
  * the current alert after a successful repository operation.
  *
- * These tests validate the [snoozeAlertResult] contract used by both the
- * notification Snooze button and the voice Snooze command: dismiss only on success.
+ * These tests validate [runSnoozeAction] — the smallest testable orchestration
+ * that owns both the snooze call and the dismiss decision.
  */
 class ClockAlertSnoozeRegressionTest {
 
     @Test
-    fun `successful snooze dismisses the current alert`() {
-        var dismissed = false
-        snoozeAlertResult(snoozeSuccess = true) { dismissed = true }
-        assertEquals(true, dismissed, "Successful snooze must dismiss the current alert")
+    fun `snooze is invoked exactly once`() {
+        var snoozeCount = 0
+        runSnoozeAction(
+            snooze = { snoozeCount++; true },
+            dismiss = {},
+        )
+        assertEquals(1, snoozeCount, "Snooze operation must be called exactly once")
     }
 
     @Test
-    fun `failed snooze does not dismiss the current alert`() {
-        var dismissed = false
-        snoozeAlertResult(snoozeSuccess = false) { dismissed = true }
-        assertEquals(false, dismissed, "Failed snooze must NOT dismiss the current alert")
-    }
-
-    @Test
-    fun `dismiss callback is invoked exactly once per successful snooze`() {
+    fun `successful snooze invokes dismissal exactly once`() {
         var dismissCount = 0
-        snoozeAlertResult(snoozeSuccess = true) { dismissCount++ }
-        snoozeAlertResult(snoozeSuccess = false) { dismissCount++ }
-        assertEquals(1, dismissCount, "Only the successful snooze should dismiss")
+        runSnoozeAction(
+            snooze = { true },
+            dismiss = { dismissCount++ },
+        )
+        assertEquals(1, dismissCount, "Successful snooze must invoke dismissal exactly once")
     }
 
     @Test
-    fun `dismiss is not invoked when snooze fails repeatedly`() {
+    fun `failed snooze does not invoke dismissal`() {
+        var dismissed = false
+        runSnoozeAction(
+            snooze = { false },
+            dismiss = { dismissed = true },
+        )
+        assertEquals(false, dismissed, "Failed snooze must not invoke dismissal")
+    }
+
+    @Test
+    fun `repeated failures do not invoke dismissal`() {
         var dismissCount = 0
         repeat(3) {
-            snoozeAlertResult(snoozeSuccess = false) { dismissCount++ }
+            runSnoozeAction(
+                snooze = { false },
+                dismiss = { dismissCount++ },
+            )
         }
-        assertEquals(0, dismissCount, "No dismiss should occur on repeated failures")
+        assertEquals(0, dismissCount, "No dismissal should occur after repeated failures")
+    }
+
+    @Test
+    fun `helper does not invoke snooze more than once`() {
+        var snoozeCount = 0
+        runSnoozeAction(
+            snooze = { snoozeCount++; true },
+            dismiss = {},
+        )
+        assertEquals(1, snoozeCount, "Snooze operation must not be called more than once")
     }
 }

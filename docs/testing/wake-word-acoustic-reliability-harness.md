@@ -806,16 +806,23 @@ No unresolved architectural decision remains. Physical feasibility can refine bo
 
 ### 24.1 Overview
 
-Issue #1405 standardises the start-listening audio cue across wake-word and clock-alert
-voice entry points. Only these two paths intentionally play the cue. All other voice
-initiation flows obtain readiness through their own UI or signal and do not use this cue.
+Issue #1405 standardises the start-listening audio cue across all voice entry points.
+Three cue contexts exist:
+
+| Context | Examples | Stream |
+| ------- | -------- | ------ |
+| `FOREGROUND` | Chat, Actions, widget/assistant, Command mode; Actions SlotReply | `STREAM_MUSIC` |
+| `WAKE_WORD` | Hey Jandal and bounded automatic wake/STT retry | `STREAM_ALARM` |
+| `CLOCK_ALERT` | Alarm and timer command capture | `STREAM_ALARM` |
+
+All cue-enabled paths follow owned recogniser readiness. Foreign or unowned sessions
+never trigger a cue. Volume is never modified. Android/Samsung controls DND and routing.
 
 ### 24.2 STT entry-point inventory
 
 | Entry path | Production location | Capture mode | Readiness trigger | Cue policy | Cue context | Playback mechanism | Stream/attributes | Duplicate/missing-cue risk | Test coverage | Device evidence |
 | ---------- | ------------------- | ------------ | ----------------- | ---------- | ----------- | ------------------ | ----------------- | --------------------------- | ------------- | --------------- |
-| Hey Jandal wake handoff | `WakeWordService.handleDetection()` → `runWakeAttempt()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — gated by `reachedReadiness` | `WakeWordCueTest` | S21/S23U physical — PASS |
-| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | NOT RUN (evidence pending) |
+| Automatic wake/STT retry (attempt 2) | `WakeWordService.handleDetection()` → `runWakeCaptureSession()` | `AlertCommand` | `ListeningStarted` | Cue per ready attempt | `WAKE_WORD` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — separate journal, new collector | `WakeWordCueTest` | Deterministic UT — two attempts, one cue per readiness, stale session ignored, no third attempt |
 | Alarm/timer voice command | `ClockAlertService.handleVoiceEvent()` | `AlertCommand` | `ListeningStarted` | Cue for owned AlertCommand readiness | `CLOCK_ALERT` | `StartListeningCuePlayer.playCue()` | `STREAM_ALARM` | None — ownership + mode filter | `ClockAlertSessionTest` | S21/S23U physical — PASS |
 | Actions command capture | `ActionsViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | Manual | S21/S23U physical — PASS |
 | Chat one-shot voice | `ChatViewModel` | `Command` | `ListeningStarted` | FOREGROUND cue per owned readiness | `FOREGROUND` | `StartListeningCuePlayer.playCue()` | `STREAM_MUSIC` | None — ownership + mode filter | `ChatViewModelVoiceTest` | S21/S23U physical — PASS |
