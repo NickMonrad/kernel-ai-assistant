@@ -15,7 +15,7 @@
 - Application code (physical matrix): `38c590f0c756e781a651f901a4c1e940a9f5a931`
 - Snooze fix + targeted retest: `8191b2425076a289c2904c24e7226f6ae23acf7d`
 - Main snooze comparison: `5ca1c4fad772e3b29e19e8d1798ded36c5d34b57`
-- Final remediation: `1d123f78` (current head)
+- Real suspend snooze orchestration: `79a0e89e640e3a5a89f84825553f57e886c36c7d`
 
 ## Clock-alert dismiss — S21 (AJ)
 
