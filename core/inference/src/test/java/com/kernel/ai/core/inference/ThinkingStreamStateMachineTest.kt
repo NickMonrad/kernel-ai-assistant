@@ -29,6 +29,21 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
+    fun `structured thought sharing a prefix with primary response does not truncate response`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                "$THINKING_CHANNEL_HEADER\nThe answer is" to "",
+                null to "The answer is 42.",
+            ),
+        )
+
+        assertEquals("The answer is", result.thinking)
+        assertEquals("The answer is 42.", result.response)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
     fun `later thought channel traffic remains thinking after close and tool boundary`() {
         val result = collect(
             ThinkingStreamStateMachine(),

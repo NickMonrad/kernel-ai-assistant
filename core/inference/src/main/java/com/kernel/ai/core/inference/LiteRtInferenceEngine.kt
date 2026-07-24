@@ -273,7 +273,7 @@ internal class ThinkingStreamStateMachine(
             ?.let { raw ->
                 val novel = appendNovelInput(rawObserved, raw)
                 if (novel.isNotEmpty()) {
-                    rawPending.append(suppressStructuredEcho(novel, channelDelta))
+                    rawPending.append(novel)
                     processRaw(thinking, response)
                 }
             }
@@ -508,28 +508,6 @@ internal class ThinkingStreamStateMachine(
         response += delta
     }
 
-    private fun suppressStructuredEcho(
-        raw: String,
-        channelDelta: String?,
-    ): String {
-        if (containsProtocolSyntaxOrPrefix(raw)) return raw
-        val candidates = buildList {
-            emittedStructuredThinking.toString().takeIf { it.isNotEmpty() }?.let(::add)
-            channelDelta
-                ?.let(::stripStructuredSyntax)
-                ?.takeIf { it.isNotEmpty() }
-                ?.let(::add)
-        }
-        candidates.sortedByDescending { it.length }.forEach { candidate ->
-            if (raw.startsWith(candidate)) return raw.removePrefix(candidate)
-            val trimmedRaw = raw.trimStart()
-            val trimmedCandidate = candidate.trimStart()
-            if (trimmedRaw.startsWith(trimmedCandidate)) {
-                return trimmedRaw.removePrefix(trimmedCandidate)
-            }
-        }
-        return raw
-    }
 
     private fun appendNovelInput(
         observed: StringBuilder,
