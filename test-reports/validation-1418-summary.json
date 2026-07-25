@@ -2,68 +2,36 @@
   "validation_type": "bounded_physical_validation",
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
-  "head_sha": "9a92dda7c2557d3dc7dbdeb9ea065bda2e183a15",
+  "head_sha": "5b603553a9eb5077c5e6bb46255fce1a40cfd4a8",
   "pr": "#1421",
-  "root_cause": "Gemma-4's chat template requires explicit instructions to close the thought channel (<|/think|>) before outputting the visible answer. Without these instructions, the LiteRT-LM SDK routes all model output (including the answer) to message.channels['thought'], message.toString() remains empty, and the parser's finish() correctly discards unterminated thought content as thinking — leaving zero visible tokens.",
-  "fix": "Append thinking-channel instructions to the system prompt in buildConversationConfig() when thinking is enabled. The instruction tells the model: 'place your reasoning between <|think|> and <|/think|> tags. Your final answer must come AFTER the <|/think|> tag.'",
-  "fix_details": {
-    "file": "core/inference/src/main/java/com/kernel/ai/core/inference/LiteRtInferenceEngine.kt",
-    "changes": "buildConversationConfig(): changed systemInstruction from val to var; when config.thinkingEnabled, append thinking channel instruction to system prompt",
-    "lines_changed": "+9/-1"
-  },
-  "devices": [
-    {
-      "serial": "192.168.31.248:36739",
-      "model": "SM-S918B (S23U)",
-      "android_sdk": 36,
-      "model_available": "gemma-4-E4B-it.litertlm (3.4GB)",
-      "status": "model download in progress after clean reinstall; previous E4B tests confirmed fix works"
-    },
-    {
-      "serial": "R5CR605B71K",
-      "model": "SM-G991B (S21)",
-      "android_sdk": 35,
-      "model_available": "gemma-4-E2B-it.litertlm (2.5GB)",
-      "status": "fix confirmed working"
-    }
+  "root_cause": "Gemma-4's chat template requires explicit instructions to close the thought channel (<|/think|>) before outputting the visible answer. Without these instructions, the LiteRT-LM SDK routes all model output to message.channels['thought']; message.toString() remains empty; the parser's finish() correctly discards unterminated thought content as thinking.",
+  "fix": "1) Append thinking-channel close instruction to system prompt in buildConversationConfig() when thinking is enabled. 2) Add partial protocol marker patterns <|/think and <|think to PROTOCOL_MARKERS_FOR_BOUNDARY. 3) Add bidirectional suffix/marker check in containsProtocolSyntaxOrPrefix() to catch markers at any position.",
+  "implementation_commits": [
+    "872b24ea — Core parser rewrite",
+    "2e0e74ad — Remove suppressStructuredEcho, shared-prefix regression",
+    "9a92dda7 — Thinking-channel close instruction",
+    "5b603553 — Protocol marker detection fixes"
   ],
-  "qualifying_sequence": {
-    "prompt": "Look up the history of the Battle of Hastings on Wikipedia for me",
-    "device": "S21 SM-G991B (E2B)",
-    "qir_result": "llm_tools_route: result=fallthrough best_guess=null confidence=0.0",
-    "thinking_enabled": true,
-    "thinking_chars": 605,
-    "visible_chars": 373,
-    "TTFT_ms": 34901,
-    "tokens": 87,
-    "tool_call": "query_wikipedia (query: Battle of Hastings)",
-    "tool_result": "direct_reply mode=success",
-    "message_persisted": true,
-    "tool_chip_visible": true,
-    "final_visible_response": "Battle of Hastings  The Battle of Hastings was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy, and an English army under the Anglo-Saxon King Harold Godwinson, beginning the Norman Conquest of England. It took place approximately 7 mi (11 km) northwest of Hastings, close to the present-day town of Battle, East Sussex, and was a decisive Norman victory.  Read more: https://en.wikipedia.org/wiki/Battle_of_Hastings",
-    "protocol_leak": false,
-    "thinking_leak": false,
-    "blank_response_guard_triggered": false
-  },
+  "devices": [
+    {"model": "SM-S918B (S23U)", "sdk": 36, "status": "Engine fails to init after clean rebuild (Android 16 GPU/lib issue). Model files present (E2B+E4B) but app never loads LiteRT native library."},
+    {"model": "SM-G991B (S21)", "sdk": 35, "status": "Inference pipeline verified working with fix on multiple prompts. Model files cleared by pm clear during debugging."}
+  ],
+  "known_blockers": [
+    "S23U: Engine initialization fails silently after clean-gradle-build APK install. App process starts but never initializes LiteRT engine. Root cause suspected: Android 16 foreground service/permission interaction with clean-slate install. Same APK works on S21.",
+    "S21 E2B: Generates 4000+ chars of thinking for complex volume prompts, exhausting context window before producing visible output. Unable to complete the required load_skill -> run_intent -> resume -> answer multi-pass sequence within reasonable time."
+  ],
   "parser_invariants_preserved": {
-    "thinking_content_separated_correctly": true,
-    "no_thinking_leak": true,
-    "no_protocol_markers": true,
-    "thinking_parser_warnings": 0,
-    "blocked_unsafe_deltas": 0,
-    "disabled_thinking_discards_reasoning": true,
-    "shared_prefix_not_truncated": true,
+    "thinking_separated_correctly": true, "no_thinking_leak": true, "no_protocol_markers": true,
+    "thinking_parser_warnings": 0, "blocked_unsafe_deltas": 0,
+    "disabled_thinking_discards_reasoning": true, "shared_prefix_not_truncated": true,
     "unterminated_thought_not_flushed": true
   },
   "validation_commands": {
-    "core_inference_test_debug": "BUILD SUCCESSFUL",
-    "core_inference_test": "BUILD SUCCESSFUL",
-    "feature_chat_test": "BUILD SUCCESSFUL",
-    "app_test": "BUILD SUCCESSFUL",
-    "assemble_debug": "BUILD SUCCESSFUL",
-    "lint": "BUILD SUCCESSFUL",
-    "git_diff_check": "clean"
+    "core_inference_state_machine": "PASS", "core_inference_all": "PASS",
+    "feature_chat": "PASS", "app_test": "PASS", "assemble_debug": "PASS",
+    "lint": "PASS", "git_diff_check": "PASS"
   },
-  "timestamp": "2026-07-25T16:25:00Z"
+  "timestamp": "2026-07-25T19:00:00Z"
 }
+
 
