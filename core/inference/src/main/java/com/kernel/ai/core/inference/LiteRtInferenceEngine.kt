@@ -1617,7 +1617,7 @@ class LiteRtInferenceEngine @Inject constructor(
             topP = config.topP.toDouble(),
             temperature = config.temperature.toDouble(),
         )
-        val systemInstruction = config.systemPrompt
+        var systemInstruction = config.systemPrompt
             ?.takeIf { it.isNotBlank() }
             ?.let { Contents.of(Content.Text(it)) }
 
@@ -1630,6 +1630,11 @@ class LiteRtInferenceEngine @Inject constructor(
         //    the Jinja template variable that injects <|think|> before the model's response,
         //    triggering chain-of-thought generation. Without this, no thinking tokens are emitted.
         val channels = if (config.thinkingEnabled) {
+            // Append thinking-channel instructions to the system prompt so the model
+            // knows to close the thought channel before outputting the final answer.
+            val thinkingInstruction = "\n\nIMPORTANT: When responding, place your reasoning between <|think|> and <|/think|> tags. Your final answer must come AFTER the <|/think|> tag.\n"
+            val enhancedSystemPrompt = (config.systemPrompt ?: "") + thinkingInstruction
+            systemInstruction = enhancedSystemPrompt.takeIf { it.isNotBlank() }?.let { Contents.of(Content.Text(it)) }
             listOf(Channel("thought", "<|think|>", "<|/think|>"))
         } else {
             emptyList()

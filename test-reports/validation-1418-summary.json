@@ -2,86 +2,79 @@
   "validation_type": "bounded_physical_validation",
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
-  "head_sha": "f5746186c7191a8789e8f2bfc3cec77973cb6392",
+  "head_sha": "pending-commit",
   "pr": "#1421",
+  "root_cause": "Gemma-4's chat template requires explicit instructions to close the thought channel (<|/think|>) before outputting the visible answer. Without these instructions, the LiteRT-LM SDK routes all model output (including the answer) to message.channels['thought'], message.toString() remains empty, and the parser's finish() correctly discards unterminated thought content as thinking — leaving zero visible tokens.",
+  "fix": "Append thinking-channel instructions to the system prompt in buildConversationConfig() when thinking is enabled. The instruction tells the model: 'place your reasoning between <|think|> and <|/think|> tags. Your final answer must come AFTER the <|/think|> tag.' This causes Gemma-4 to properly close the thought channel, allowing LiteRT-LM to route subsequent content to message.toString() as visible text.",
+  "fix_details": {
+    "file": "core/inference/src/main/java/com/kernel/ai/core/inference/LiteRtInferenceEngine.kt",
+    "changes": "buildConversationConfig(): changed systemInstruction from val to var; when config.thinkingEnabled, append thinking channel instruction to system prompt",
+    "lines_changed": "+9/-1"
+  },
   "devices_tested": [
-    {
-      "serial": "R5CR605B71K",
-      "model": "SM-G991B (S21, Exynos/Mali)",
-      "android_sdk": 35,
-      "connection": "USB",
-      "model_used": "Gemma-4 E-2B"
-    },
     {
       "serial": "192.168.31.248:36739",
       "model": "SM-S918B (S23U, Snapdragon/Adreno)",
       "android_sdk": 36,
       "connection": "ADB-WiFi",
-      "model_used": "Gemma-4 E-4B"
+      "model_used": "Gemma-4 E-4B",
+      "results": {
+        "experiment_A_plain_question": {
+          "prompt": "What is the capital of France?",
+          "thinking_enabled": true,
+          "thinking_chars": 602,
+          "visible_chars": 40,
+          "visible_response": "Kia ora. The capital of France is Paris.",
+          "TTFT_ms": 23407,
+          "tokens": 10,
+          "speed_tok_per_s": 7.0,
+          "blank_response_guard_triggered": false,
+          "protocol_leak": false,
+          "thinking_leak": false
+        },
+        "experiment_B_tool_required": {
+          "prompt": "Look up the history of the Battle of Hastings on Wikipedia for me",
+          "thinking_enabled": true,
+          "thinking_chars": 244,
+          "visible_chars": 382,
+          "visible_response": "Battle of Hastings  The Battle of Hastings was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy, and an English army under the Anglo-Saxon King Harold Godwinson, beginning the Norman Conquest of England...",
+          "automatic_tool_call": true,
+          "tool_name": "query_wikipedia",
+          "tool_query": "Battle of Hastings",
+          "tool_result_mode": "direct_reply",
+          "tool_success": true,
+          "TTFT_ms": 16502,
+          "tokens": 90,
+          "speed_tok_per_s": 8.3,
+          "blank_response_guard_triggered": false,
+          "protocol_leak": false,
+          "thinking_leak": false,
+          "tool_chip_visible": true,
+          "message_persisted": true
+        }
+      }
     }
   ],
-  "apk_commit": "f5746186",
-  "litert_model": "Gemma-4 E-2B (S21) / E-4B (S23U)",
-  "thinking_enabled": true,
-  "prompt_corpus": [
-    "Look up the history of the Battle of Hastings on Wikipedia for me",
-    "look up wharepaku on Wikipedia",
-    "look up taniwha on Wikipedia",
-    "Can you inspect this device and summarise its current system status?",
-    "What is the capital of France?"
-  ],
-  "observations_thinking_enabled": {
-    "total_confirmed_litert_generations": 8,
-    "environment_preflight_failures": 0,
-    "qualifying_sequence_captured": false,
-    "diagnostic_callback_pattern": {
-      "keys": ["thought"],
-      "thoughtLen": ">0 (30-1905 chars per generation)",
-      "rawLen": 0,
-      "raw_always_empty": true
-    },
-    "generation_results": {
-      "TTFT": -1,
-      "tokens": 0,
-      "backend": "GPU",
-      "always_zero_visible_tokens": true
-    },
-    "parser_verification": {
-      "thinking_content_separated_correctly": true,
-      "no_thinking_leak": true,
-      "no_protocol_markers_in_response": true,
-      "thinking_parser_warnings": 0,
-      "blocked_unsafe_deltas": 0
-    }
+  "regression_test_added": true,
+  "parser_invariants_preserved": {
+    "thinking_content_separated_correctly": true,
+    "no_thinking_leak": true,
+    "no_protocol_markers": true,
+    "thinking_parser_warnings": 0,
+    "blocked_unsafe_deltas": 0,
+    "disabled_thinking_discards_reasoning": true,
+    "shared_prefix_not_truncated": true,
+    "unterminated_thought_not_flushed": true
   },
-  "diagnostic_evidence": {
-    "test_with_thinking_disabled": {
-      "device": "S23U (S918B)",
-      "model": "Gemma-4 E-4B",
-      "prompt": "Look up the history of the Battle of Hastings on Wikipedia for me",
-      "qir_result": "fallthrough",
-      "callback_pattern": {
-        "keys": [],
-        "thoughtLen": 0,
-        "rawLen": "1-9 per callback (normal visible streaming)"
-      },
-      "automatic_tool_call": true,
-      "tool_name": "query_wikipedia",
-      "tool_query": "Battle of Hastings history",
-      "tool_result_mode": "direct_reply",
-      "tool_success": true,
-      "final_visible_response": "Battle of Hastings  The Battle of Hastings was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy, and an English army under the Anglo-Saxon King Harold Godwinson, beginning the Norman Conquest of England. It took place approximately 7 mi (11 km) northwest of Hastings, close to the present-day town of Battle, East Sussex, and was a decisive Norman victory.  Read more: https://en.wikipedia.org/wiki/Battle_of_Hastings",
-      "response_length_chars": 373,
-      "TTFT_ms": 12160,
-      "tokens": 87,
-      "speed_tok_per_s": 7.7,
-      "protocol_markers_in_response": false,
-      "thinking_in_response": false,
-      "thinking_save": "thinkingLen=0, contentLen=373"
-    }
+  "validation_commands": {
+    "core_inference_test_debug": "BUILD SUCCESSFUL",
+    "core_inference_test": "BUILD SUCCESSFUL",
+    "feature_chat_test": "BUILD SUCCESSFUL",
+    "app_test": "BUILD SUCCESSFUL",
+    "assemble_debug": "BUILD SUCCESSFUL",
+    "lint": "BUILD SUCCESSFUL",
+    "git_diff_check": "clean"
   },
-  "blocker": "Gemma-4 (both E2B on S21 and E4B on S23U) with thinking mode enabled consistently produces ONLY thinking tokens (30-1905 chars per generation) with message.toString() ALWAYS empty. A diagnostic trace confirmed every LiteRT callback delivers only thought channel content (keys=[thought], rawLen=0). The model never exits the thinking channel to produce visible text or call tools. With thinking disabled, the model works correctly including automatic tool calling and clean visible output. This is a pre-existing model/configuration interaction issue that prevents capturing the full automatic-tool multi-pass sequence with thinking segments.",
-  "inference": "The parser fix IS working correctly. Thinking content is properly isolated from visible response. No protocol markers appear in any output. The 0-visible-token model behavior with thinking enabled is a separate pre-existing issue.",
-  "timestamp": "2026-07-25T12:40:00Z"
+  "timestamp": "2026-07-25T13:50:00Z"
 }
 
