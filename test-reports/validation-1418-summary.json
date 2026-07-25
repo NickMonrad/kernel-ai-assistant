@@ -2,60 +2,49 @@
   "validation_type": "bounded_physical_validation",
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
-  "head_sha": "pending-commit",
+  "head_sha": "9a92dda7c2557d3dc7dbdeb9ea065bda2e183a15",
   "pr": "#1421",
   "root_cause": "Gemma-4's chat template requires explicit instructions to close the thought channel (<|/think|>) before outputting the visible answer. Without these instructions, the LiteRT-LM SDK routes all model output (including the answer) to message.channels['thought'], message.toString() remains empty, and the parser's finish() correctly discards unterminated thought content as thinking — leaving zero visible tokens.",
-  "fix": "Append thinking-channel instructions to the system prompt in buildConversationConfig() when thinking is enabled. The instruction tells the model: 'place your reasoning between <|think|> and <|/think|> tags. Your final answer must come AFTER the <|/think|> tag.' This causes Gemma-4 to properly close the thought channel, allowing LiteRT-LM to route subsequent content to message.toString() as visible text.",
+  "fix": "Append thinking-channel instructions to the system prompt in buildConversationConfig() when thinking is enabled. The instruction tells the model: 'place your reasoning between <|think|> and <|/think|> tags. Your final answer must come AFTER the <|/think|> tag.'",
   "fix_details": {
     "file": "core/inference/src/main/java/com/kernel/ai/core/inference/LiteRtInferenceEngine.kt",
     "changes": "buildConversationConfig(): changed systemInstruction from val to var; when config.thinkingEnabled, append thinking channel instruction to system prompt",
     "lines_changed": "+9/-1"
   },
-  "devices_tested": [
+  "devices": [
     {
       "serial": "192.168.31.248:36739",
-      "model": "SM-S918B (S23U, Snapdragon/Adreno)",
+      "model": "SM-S918B (S23U)",
       "android_sdk": 36,
-      "connection": "ADB-WiFi",
-      "model_used": "Gemma-4 E-4B",
-      "results": {
-        "experiment_A_plain_question": {
-          "prompt": "What is the capital of France?",
-          "thinking_enabled": true,
-          "thinking_chars": 602,
-          "visible_chars": 40,
-          "visible_response": "Kia ora. The capital of France is Paris.",
-          "TTFT_ms": 23407,
-          "tokens": 10,
-          "speed_tok_per_s": 7.0,
-          "blank_response_guard_triggered": false,
-          "protocol_leak": false,
-          "thinking_leak": false
-        },
-        "experiment_B_tool_required": {
-          "prompt": "Look up the history of the Battle of Hastings on Wikipedia for me",
-          "thinking_enabled": true,
-          "thinking_chars": 244,
-          "visible_chars": 382,
-          "visible_response": "Battle of Hastings  The Battle of Hastings was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy, and an English army under the Anglo-Saxon King Harold Godwinson, beginning the Norman Conquest of England...",
-          "automatic_tool_call": true,
-          "tool_name": "query_wikipedia",
-          "tool_query": "Battle of Hastings",
-          "tool_result_mode": "direct_reply",
-          "tool_success": true,
-          "TTFT_ms": 16502,
-          "tokens": 90,
-          "speed_tok_per_s": 8.3,
-          "blank_response_guard_triggered": false,
-          "protocol_leak": false,
-          "thinking_leak": false,
-          "tool_chip_visible": true,
-          "message_persisted": true
-        }
-      }
+      "model_available": "gemma-4-E4B-it.litertlm (3.4GB)",
+      "status": "model download in progress after clean reinstall; previous E4B tests confirmed fix works"
+    },
+    {
+      "serial": "R5CR605B71K",
+      "model": "SM-G991B (S21)",
+      "android_sdk": 35,
+      "model_available": "gemma-4-E2B-it.litertlm (2.5GB)",
+      "status": "fix confirmed working"
     }
   ],
-  "regression_test_added": true,
+  "qualifying_sequence": {
+    "prompt": "Look up the history of the Battle of Hastings on Wikipedia for me",
+    "device": "S21 SM-G991B (E2B)",
+    "qir_result": "llm_tools_route: result=fallthrough best_guess=null confidence=0.0",
+    "thinking_enabled": true,
+    "thinking_chars": 605,
+    "visible_chars": 373,
+    "TTFT_ms": 34901,
+    "tokens": 87,
+    "tool_call": "query_wikipedia (query: Battle of Hastings)",
+    "tool_result": "direct_reply mode=success",
+    "message_persisted": true,
+    "tool_chip_visible": true,
+    "final_visible_response": "Battle of Hastings  The Battle of Hastings was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy, and an English army under the Anglo-Saxon King Harold Godwinson, beginning the Norman Conquest of England. It took place approximately 7 mi (11 km) northwest of Hastings, close to the present-day town of Battle, East Sussex, and was a decisive Norman victory.  Read more: https://en.wikipedia.org/wiki/Battle_of_Hastings",
+    "protocol_leak": false,
+    "thinking_leak": false,
+    "blank_response_guard_triggered": false
+  },
   "parser_invariants_preserved": {
     "thinking_content_separated_correctly": true,
     "no_thinking_leak": true,
@@ -75,6 +64,6 @@
     "lint": "BUILD SUCCESSFUL",
     "git_diff_check": "clean"
   },
-  "timestamp": "2026-07-25T13:50:00Z"
+  "timestamp": "2026-07-25T16:25:00Z"
 }
 
