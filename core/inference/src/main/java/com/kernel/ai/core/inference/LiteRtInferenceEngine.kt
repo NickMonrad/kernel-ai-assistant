@@ -700,8 +700,9 @@ internal fun containsProtocolSyntaxOrPrefix(text: String): Boolean {
     if (PROTOCOL_MARKERS_FOR_BOUNDARY.any(text::contains)) return true
     for (start in text.indices) {
         val suffix = text.substring(start)
-        if (suffix.length >= 2 && PROTOCOL_MARKERS_FOR_BOUNDARY.any { it.startsWith(suffix) }) {
-            return true
+        if (suffix.length >= 2) {
+            if (PROTOCOL_MARKERS_FOR_BOUNDARY.any { suffix.startsWith(it) }) return true
+            if (PROTOCOL_MARKERS_FOR_BOUNDARY.any { it.startsWith(suffix) }) return true
         }
     }
     return false
@@ -713,6 +714,8 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<channel|>",
     "<|think|>",
     "<|/think|>",
+    "<|/think",
+    "<|think",
 )
 
 internal fun stripReplayedPrefix(
