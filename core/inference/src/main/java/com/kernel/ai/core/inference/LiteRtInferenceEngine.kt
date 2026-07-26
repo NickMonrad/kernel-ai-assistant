@@ -1030,6 +1030,8 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.w(TAG, "thinking_parser: withheld ambiguous protocol fragment len=$length")
             },
         )
+        val eventSeq = java.util.concurrent.atomic.AtomicInteger(0)
+        val generationId = "gen_${start}"
 
         fun emitVisibleToken(delta: String) {
             if (delta.isEmpty()) return
@@ -1064,6 +1066,11 @@ class LiteRtInferenceEngine @Inject constructor(
                 override fun onMessage(message: Message) {
                     val channelDelta = message.channels["thought"]
                     val raw = message.toString()
+                    Log.d(TAG, "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=callback " +
+                        "channels=${message.channels.keys.sorted()} " +
+                        "thought=\"${channelDelta.orEmpty().replace("\n","\\n").replace("\"","\\\"").take(256)}\" " +
+                        "raw=\"${raw.replace("\n","\\n").replace("\"","\\\"").take(256)}\" " +
+                        "toolCalls=${message.toolCalls.joinToString(";") { it.name }}")
                     emitEmission(
                         thinkingStateMachine.consume(
                             channelDelta = channelDelta,
@@ -1084,6 +1091,8 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                     Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
                         "tokens=$outputTokenCount, speed=${"%.1f".format(tokensPerSec)}tok/s [backend=${_activeBackend.value}]")
+                    Log.d(TAG, "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
+                        "callbacks=$outputTokenCount thinkingChars=$thinkingCharCount visibleTokens=$outputTokenCount")
                     trySend(GenerationResult.Complete(durationMs = durationMs))
                     close()
                 }

@@ -71,6 +71,7 @@ class KernelAIToolSet @Inject constructor(
     private fun setLastToolCall(name: String, request: String) {
         lastToolName = name
         lastToolRequest = request
+        Log.d(TAG, "event_seq: gen_ tool_call name=$name args=${request.take(256)}")
     }
 
     // -------------------------------------------------------------------------
@@ -283,6 +284,15 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.DirectReply -> result.spokenSummary
                 else -> null
             }
+            val resultContent = when (result) {
+                is SkillResult.Success -> result.content.take(128)
+                is SkillResult.DirectReply -> result.content.take(128)
+                is SkillResult.Failure -> result.error
+                else -> result::class.simpleName
+            }
+            Log.d(TAG, "event_seq: gen_ tool_result name=$skillName type=${result::class.simpleName} " +
+                "directReply=$lastToolWasDirectReply returnedToGemma=true " +
+                "content=\"${resultContent.orEmpty().replace("\"","\\\"")}\"")
             when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
