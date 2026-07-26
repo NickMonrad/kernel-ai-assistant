@@ -3,7 +3,7 @@
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
   "tested_code_sha": "013db2391a679e46a1aa94055624af488ab57e47",
-  "final_code_sha": "pending",
+  "final_code_sha": "71b5a2d8d8ef4c1522733b88932d3c5c29f3ef63",
   "tested_apk_provenance": "local debug build from committed diagnostic SHA, worktree clean at build time",
   "pr": "#1421",
   "root_cause": "Gemma-4 chat template requires explicit instructions to close thought channel",
@@ -15,7 +15,9 @@
     "prompt": "Using the phone current device status calculate how many percentage points its battery is above or below 50 percent then tell me the result.",
     "router_result": "fallthrough (result=fallthrough, best_guess=null, confidence=0.0)",
     "thinking_enabled": true,
-    "ordered_tool_sequence": ["get_system_info -> DirectReply, returnedToGemma=true (event seq 170-171)"],
+    "ordered_tool_sequence": [
+      "get_system_info -> DirectReply, returnedToGemma=true (event seq 170-171)"
+    ],
     "initial_thinking_char_count": 1316,
     "later_thinking_char_count": 1316,
     "callbacks_before_tool_result": 170,
