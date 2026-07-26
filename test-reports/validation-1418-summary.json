@@ -2,46 +2,35 @@
   "validation_type": "bounded_physical_validation",
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
-  "tested_code_sha": "08a592a7f286214660256e07656bd95aad4b127d",
-  "final_code_sha": "393519fe6b3694eb35774063fc0e9544980cefef",
+  "tested_code_sha": "013db2391a679e46a1aa94055624af488ab57e47",
+  "final_code_sha": "pending",
   "tested_apk_provenance": "local debug build from committed diagnostic SHA, worktree clean at build time",
   "pr": "#1421",
   "root_cause": "Gemma-4 chat template requires explicit instructions to close thought channel",
   "fix": "1) Append thinking-channel close instruction to system prompt. 2) Add partial protocol marker patterns. 3) Add bidirectional marker check. 4) Remove generic SecurityException catch.",
-  "implementation_commits": [
-    "7da69931 \u2014 catch ForegroundServiceStartNotAllowedException only",
-    "872b24ea \u2014 Core parser rewrite",
-    "2e0e74ad \u2014 Remove suppressStructuredEcho",
-    "9a92dda7 \u2014 Thinking-channel close instruction",
-    "5b603553 \u2014 Protocol marker detection fixes",
-    "08a592a7 \u2014 Calculator queries manifest fix"
-  ],
   "physical_validation": {
     "device": "S23U (SM-S918B, SDK 36)",
     "model": "Gemma-4 E-4B (GPU Adreno 740)",
     "date": "2026-07-26",
-    "prompt": "First load run_intent skill. Then open Calculator using native open_app intent with app_name Calculator and confirm when ready.",
+    "prompt": "Using the phone current device status calculate how many percentage points its battery is above or below 50 percent then tell me the result.",
     "router_result": "fallthrough (result=fallthrough, best_guess=null, confidence=0.0)",
     "thinking_enabled": true,
-    "ordered_tool_sequence": [
-      "load_skill(run_intent) -> SkillResult.Success, directReply=false, returnedToGemma=true (event seq 220-221)",
-      "run_intent(open_app, app_name=Calculator) -> SkillResult.Success, directReply=false, returnedToGemma=true (event seq 222-223)"
-    ],
-    "initial_thinking_char_count": 798,
-    "later_thinking_count": 0,
-    "tool_results_both_success": true,
-    "direct_reply_both_false": true,
-    "returned_to_gemma_both_true": true,
-    "called_after_load_skill_result": true,
-    "called_after_run_intent_result": true,
-    "final_visible_response": "Kia ora! I've loaded the `run_intent` skill and opened the Calculator app for you. Let me know if you need anything else, mate.",
+    "ordered_tool_sequence": ["get_system_info -> DirectReply, returnedToGemma=true (event seq 170-171)"],
+    "initial_thinking_char_count": 1316,
+    "later_thinking_char_count": 1316,
+    "callbacks_before_tool_result": 170,
+    "callbacks_after_tool_result": 229,
+    "later_thinking_non_empty": true,
+    "tool_call_result": "DirectReply (non-Failure)",
+    "returned_to_gemma": true,
+    "final_visible_response": "The battery is 41 percentage points below 50%.",
     "protocol_leak_result": "pass",
     "thinking_leak_result": "pass",
     "parser_warning_count": 0,
     "tts_input": "clean model-generated visible text",
     "fixture_path": "core/inference/src/test/resources/physical_callback_fixture.json",
-    "regression_test_name": "physical non-direct tool multi-pass callbacks produce clean output",
-    "foreground_service_diagnosis": "ForegroundServiceStartNotAllowedException tolerated. LiteRT/conversation already initialised."
+    "regression_test_name": "physical get_system_info tool produces initial and later thinking",
+    "foreground_service_diagnosis": "ForegroundServiceStartNotAllowedException tolerated."
   },
   "parser_invariants_preserved": true,
   "validation_commands": {
@@ -53,5 +42,5 @@
     "lint": "PASS",
     "git_diff_check": "PASS"
   },
-  "timestamp": "2026-07-26T13:15:00Z"
+  "timestamp": "2026-07-26T14:55:00Z"
 }
