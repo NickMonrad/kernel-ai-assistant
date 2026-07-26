@@ -3,18 +3,18 @@
   "issue": "#1418",
   "branch": "fix/1418-thinking-protocol-leak",
   "tested_code_sha": "08a592a7f286214660256e07656bd95aad4b127d",
-  "final_code_sha": "pending",
+  "final_code_sha": "393519fe6b3694eb35774063fc0e9544980cefef",
   "tested_apk_provenance": "local debug build from committed diagnostic SHA, worktree clean at build time",
   "pr": "#1421",
   "root_cause": "Gemma-4 chat template requires explicit instructions to close thought channel",
   "fix": "1) Append thinking-channel close instruction to system prompt. 2) Add partial protocol marker patterns. 3) Add bidirectional marker check. 4) Remove generic SecurityException catch.",
   "implementation_commits": [
-    "7da69931 — catch ForegroundServiceStartNotAllowedException only",
-    "872b24ea — Core parser rewrite",
-    "2e0e74ad — Remove suppressStructuredEcho",
-    "9a92dda7 — Thinking-channel close instruction",
-    "5b603553 — Protocol marker detection fixes",
-    "08a592a7 — Calculator queries manifest fix"
+    "7da69931 \u2014 catch ForegroundServiceStartNotAllowedException only",
+    "872b24ea \u2014 Core parser rewrite",
+    "2e0e74ad \u2014 Remove suppressStructuredEcho",
+    "9a92dda7 \u2014 Thinking-channel close instruction",
+    "5b603553 \u2014 Protocol marker detection fixes",
+    "08a592a7 \u2014 Calculator queries manifest fix"
   ],
   "physical_validation": {
     "device": "S23U (SM-S918B, SDK 36)",
