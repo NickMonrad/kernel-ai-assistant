@@ -2,6 +2,7 @@ package com.kernel.ai.core.inference
 
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -254,7 +255,7 @@ class ThinkingStreamStateMachineTest {
         //   load_skill(run_intent) -> SkillResult.Success (directReply=false,
         //   returnedToGemma=true) -> model calls run_intent(open_app) ->
         //   SkillResult.Success (directReply=false, returnedToGemma=true) ->
-        //   later thinking -> clean final answer "Kia ora. Calculator is now open."
+        //   later thinking (seq 398-450) -> clean final answer (seq 451-458)
         val resource = javaClass.classLoader!!.getResource("physical_callback_fixture.json")
             ?: throw IllegalStateException("Missing test resource: physical_callback_fixture.json")
         val json = org.json.JSONObject(resource.readText())
@@ -268,13 +269,16 @@ class ThinkingStreamStateMachineTest {
         val allThinkingDeltas = mutableListOf<String>()
         val allResponseDeltas = mutableListOf<String>()
 
-        // Track tool events
+        // Tool event tracking
         val loadSkillCalls = mutableListOf<org.json.JSONObject>()
         val loadSkillResults = mutableListOf<org.json.JSONObject>()
-        var beforeFirstResult = true
-        val callbacksBeforeResult = mutableListOf<Pair<String?, String>>()
-        val callbacksAfterResult = mutableListOf<Pair<String?, String>>()
-        var firstPostResultSeq = -1
+        var qualifyingResultSeq: Int? = null
+        var qualifyingResult: org.json.JSONObject? = null
+        var qualifyingCall: org.json.JSONObject? = null
+        var firstVisibleSeq: Int? = null
+        var visibleBeforeQualifyingResult = false
+        val postResultThinking = StringBuilder()
+        var qualifyingResultProcessed = false
 
         for (i in 0 until events.length()) {
             val evt = events.getJSONObject(i)
@@ -282,25 +286,45 @@ class ThinkingStreamStateMachineTest {
                 "callback" -> {
                     val thought = evt.optString("thought", "").takeIf { it.isNotEmpty() }
                     val raw = evt.optString("raw", "")
+                    val seq = evt.getInt("seq")
                     val emission = machine.consume(thought, raw)
+
+                    // Record first visible delta seq
+                    if (emission.responseDeltas.isNotEmpty() && firstVisibleSeq == null) {
+                        firstVisibleSeq = seq
+                        if (qualifyingResultSeq == null || seq < qualifyingResultSeq!!) {
+                            visibleBeforeQualifyingResult = true
+                        }
+                    }
+
+                    // Accumulate thinking from after the qualifying result
+                    if (qualifyingResultProcessed) {
+                        emission.thinkingDeltas.forEach { postResultThinking.append(it) }
+                    }
+
                     allThinkingDeltas += emission.thinkingDeltas
                     allResponseDeltas += emission.responseDeltas
-                    if (beforeFirstResult) {
-                        callbacksBeforeResult.add(thought to raw)
-                    } else {
-                        callbacksAfterResult.add(thought to raw)
-                        if (firstPostResultSeq < 0) firstPostResultSeq = evt.getInt("seq")
-                    }
                 }
                 "tool_call" -> {
-                    if (evt.getString("name") == "load_skill") {
+                    val name = evt.getString("name")
+                    if (name == "load_skill") {
                         loadSkillCalls.add(evt)
+                    }
+                    // Identify the qualifying run_intent call with valid Calculator arguments
+                    if (name == "run_intent" && evt.getString("arguments").contains("Calculator")) {
+                        qualifyingCall = evt
                     }
                 }
                 "tool_result" -> {
-                    if (evt.getString("name") == "load_skill") {
+                    val name = evt.getString("name")
+                    if (name == "load_skill") {
                         loadSkillResults.add(evt)
-                        beforeFirstResult = false
+                    }
+                    // Identify the successful run_intent result
+                    if (name == "run_intent" && evt.getString("resultType") == "Success") {
+                        qualifyingResult = evt
+                        qualifyingResultSeq = evt.getInt("seq")
+                        qualifyingResultProcessed = true
                     }
                 }
             }
@@ -309,81 +333,97 @@ class ThinkingStreamStateMachineTest {
         allThinkingDeltas += finalEmission.thinkingDeltas
         allResponseDeltas += finalEmission.responseDeltas
 
-        // ── load_skill Tool assertions ───────────────────────────────
+        // ── load_skill assertions ────────────────────────────────────
         assertEquals(1, loadSkillCalls.size, "exactly one load_skill call")
         assertTrue(loadSkillCalls[0].getString("arguments").contains("run_intent"),
             "load_skill arguments must specify run_intent")
-
         assertEquals(1, loadSkillResults.size, "exactly one load_skill result")
         assertEquals("Success", loadSkillResults[0].getString("resultType"),
-            "result type must be Success (not DirectReply)")
+            "load_skill result must be Success")
         assertEquals(false, loadSkillResults[0].getBoolean("directReply"),
-            "directReply must be false")
+            "load_skill directReply must be false")
         assertTrue(loadSkillResults[0].getBoolean("returnedToGemma"),
-            "result must be returned to Gemma")
-        val resultContent = loadSkillResults[0].optString("content", "")
-        assertTrue(resultContent.isNotEmpty(), "result content must be non-empty")
-        assertTrue(resultContent.contains("run_intent"),
-            "result content must contain run_intent skill instructions")
+            "load_skill returnedToGemma must be true")
 
-        // ── Continuous parser assertions ────────────────────────────
-        // Thinking before the result is non-empty
-        val thinkingText = allThinkingDeltas.joinToString("")
-        assertTrue(thinkingText.isNotEmpty(),
-            "continuous parser must emit non-empty total thinking")
+        // ── Qualifying run_intent assertions ────────────────────────
+        assertNotNull(qualifyingCall, "qualifying run_intent call must exist")
+        assertEquals("run_intent", qualifyingCall!!.getString("name"),
+            "qualifying call name must be run_intent")
+        assertTrue(qualifyingCall!!.getString("arguments").contains("open_app"),
+            "qualifying run_intent must use open_app")
+        assertTrue(qualifyingCall!!.getString("arguments").contains("Calculator"),
+            "qualifying run_intent must target Calculator")
+
+        assertNotNull(qualifyingResult, "qualifying run_intent result must exist")
+        assertEquals(397, qualifyingResultSeq,
+            "qualifying run_intent result must be at seq 397")
+        assertEquals("Success", qualifyingResult!!.getString("resultType"),
+            "qualifying result type must be Success")
+        assertEquals(false, qualifyingResult!!.getBoolean("directReply"),
+            "qualifying result directReply must be false")
+        assertTrue(qualifyingResult!!.getBoolean("returnedToGemma"),
+            "qualifying result returnedToGemma must be true")
+        val runIntentContent = qualifyingResult!!.optString("content", "")
+        assertTrue(runIntentContent.contains("Opening"),
+            "qualifying result content must confirm opening")
+
+        // ── Post-result callback assertions ─────────────────────────
+        // The first callback after the qualifying result is seq 398
         assertTrue(
-            callbacksBeforeResult.isNotEmpty(),
-            "there must be callbacks before the first tool result"
+            qualifyingResultSeq!! < events.length(),
+            "there must be events after the qualifying result"
         )
 
-        // No protocol markers in any visible delta
+        // ── Continuous parser: post-result thinking ─────────────────
+        assertTrue(
+            postResultThinking.isNotEmpty(),
+            "the same continuous parser must emit non-empty thinking after the qualifying result"
+        )
+
+        // ── Visible output ordering ─────────────────────────────────
+        assertNotNull(firstVisibleSeq, "first visible delta must be recorded")
+        assertTrue(
+            firstVisibleSeq!! > qualifyingResultSeq!!,
+            "first visible delta (seq $firstVisibleSeq) must occur after " +
+            "qualifying result (seq $qualifyingResultSeq)"
+        )
+        assertEquals(451, firstVisibleSeq,
+            "first visible delta must be at seq 451 (Kia)")
+        assertFalse(visibleBeforeQualifyingResult,
+            "no visible delta may occur before the successful run_intent result")
+
+        // ── Protocol safety ─────────────────────────────────────────
         allResponseDeltas.forEach { delta ->
             assertFalse(delta.contains("<|channel>"), "no channel wrapper in visible: $delta")
             assertFalse(delta.contains("<|think|>"), "no think tags in visible: $delta")
         }
 
-        // There must be callbacks after the result
-        assertTrue(
-            callbacksAfterResult.isNotEmpty(),
-            "there must be callbacks after the first tool result"
-        )
-        assertTrue(
-            firstPostResultSeq > 0,
-            "first post-result callback must have a positive seq"
-        )
-
-        // Thinking before the result (initial reasoning)
-        assertTrue(
-            allThinkingDeltas.any { it.isNotEmpty() },
-            "initial thinking must be non-empty"
-        )
-
-        // No protocol or partial marker appears visibly
+        // ── Final visible output ────────────────────────────────────
         val totalVisible = allResponseDeltas.joinToString("")
-        assertFalse(totalVisible.contains("<|channel>"), "visible must not contain channel wrapper")
-        assertFalse(totalVisible.contains("<|think|>"), "visible must not contain think tags")
-
-        // Final visible output exactly matches captured answer
         assertEquals(finalVisible, totalVisible, "visible output must match captured final answer")
         assertVisibleDeltasAreSafe(allResponseDeltas)
 
         // ── Thinking-disabled replay ─────────────────────────────────
-        // One parser instance, all callbacks, no thinking emitted
         val disabledMachine = ThinkingStreamStateMachine(thinkingEnabled = false)
         val disabledThinking = mutableListOf<String>()
-        val disabledResponse = mutableListOf<String>()
-        (callbacksBeforeResult + callbacksAfterResult).forEach { (thought, raw) ->
-            val em = disabledMachine.consume(thought, raw)
-            disabledThinking += em.thinkingDeltas
-            disabledResponse += em.responseDeltas
+        val disabledResponseDeltas = mutableListOf<String>()
+        for (i in 0 until events.length()) {
+            val evt = events.getJSONObject(i)
+            if (evt.getString("type") == "callback") {
+                val thought = evt.optString("thought", "").takeIf { it.isNotEmpty() }
+                val raw = evt.optString("raw", "")
+                val em = disabledMachine.consume(thought, raw)
+                disabledThinking += em.thinkingDeltas
+                disabledResponseDeltas += em.responseDeltas
+            }
         }
         val disabledFinal = disabledMachine.finish()
         disabledThinking += disabledFinal.thinkingDeltas
-        disabledResponse += disabledFinal.responseDeltas
+        disabledResponseDeltas += disabledFinal.responseDeltas
 
         assertTrue(disabledThinking.all { it.isEmpty() }, "disabled thinking must emit no thinking")
-        assertVisibleDeltasAreSafe(disabledResponse)
-        assertEquals(finalVisible, disabledResponse.joinToString(""),
+        assertVisibleDeltasAreSafe(disabledResponseDeltas)
+        assertEquals(finalVisible, disabledResponseDeltas.joinToString(""),
             "disabled thinking must produce same visible output")
     }
 

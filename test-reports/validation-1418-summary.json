@@ -24,8 +24,14 @@
       "seq=147: load_skill — SkillResult.Success, directReply=false, returnedToGemma=true",
       "seq=397: run_intent — SkillResult.Success, directReply=false, returnedToGemma=true"
     ],
-    "first_callback_after_result_seq": 148,
-    "first_callback_after_result_raw": "I",
+    "load_skill_result_seq": 147,
+    "first_callback_after_load_skill_result_seq": 149,
+    "first_callback_after_load_skill_result_raw": "<|channel>",
+    "run_intent_success_result_seq": 397,
+    "first_callback_after_run_intent_result_seq": 398,
+    "first_callback_after_run_intent_result_raw": "<|channel>",
+    "first_visible_callback_seq": 451,
+    "post_run_intent_thinking_non_empty": true,
     "initial_thought_char_count": 1626,
     "later_thought_emitted": true,
     "tool_result_type": "SkillResult.Success",
@@ -49,12 +55,12 @@
   "parser_invariants_preserved": true,
   "validation_commands": {
     "core_inference_state_machine": "PASS",
-    "core_inference_all": "<PENDING>",
-    "feature_chat": "<PENDING>",
-    "app_test": "<PENDING>",
-    "assemble_debug": "<PENDING>",
-    "lint": "<PENDING>",
-    "git_diff_check": "<PENDING>"
+    "core_inference_all": "PASS",
+    "feature_chat": "PASS",
+    "app_test": "PASS",
+    "assemble_debug": "PASS",
+    "lint": "PASS",
+    "git_diff_check": "PASS"
   },
   "timestamp": "2026-07-26"
 }
