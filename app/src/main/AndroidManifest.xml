@@ -52,7 +52,8 @@
         <package android:name="com.google.android.youtube" />
         <package android:name="com.plexapp.android" />
         <package android:name="com.netflix.mediaclient" />
-    </queries>
+        <package android:name="com.sec.android.app.popupcalculator" />
+        <package android:name="com.google.android.calculator" />
 
     <application
         android:name=".KernelAIApplication"
