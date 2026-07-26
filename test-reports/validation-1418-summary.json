@@ -4,7 +4,7 @@
   "branch": "fix/1418-thinking-protocol-leak",
   "pr": "#1421",
   "tested_diagnostic_sha": "4bd442270fed3df5f630699dc767fe7c40ab3768",
-  "final_code_sha": "<FILL_AT_COMMIT>",
+  "final_code_sha": "5b5ae74c75f285590b0dbd78484d3df69bc78e83",
   "tested_apk_provenance": "local debug build from committed diagnostic SHA, worktree clean at build time",
   "root_cause": "Gemma-4 chat template requires explicit instructions to close thought channel",
   "fix": "append thinking-channel close instruction to system prompt",
