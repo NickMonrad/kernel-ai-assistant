@@ -243,50 +243,91 @@ class ThinkingStreamStateMachineTest {
 
     @Test
     fun `physical non-direct tool multi-pass callbacks produce clean output`() {
-        // Lossless replay of the exact physical callback sequence captured from
+        // Lossless replay of the exact ordered event stream captured from
         // S23U (SM-S918B, SDK 36) Gemma-4 E-4B GPU on 2026-07-26.
         //
-        // Router: fallthrough (result=fallthrough, best_guess=null, confidence=0.0)
-        // thinkingEnabled: true (confirmed by log: currentConfig?.thinkingEnabled=true)
+        // Diagnostic commit: 08a592a7, worktree clean at build time.
+        // Router: fallthrough, thinkingEnabled=true.
         //
-        // Event sequence:
-        //   1. load_skill(run_intent) -> SkillResult.Success, directReply=false, returned_to_gemma=true
-        //   2. run_intent(setvolume, value=37, is_percent=true) -> SkillResult.Success, directReply=false, returned_to_gemma=true
-        //   3. Gemma resumed after each tool result (callbacks continued)
-        //   4. Final visible output confirmed
-        //
-        // Proves:
-        //   - Initial thought content is emitted only as GenerationResult.Thinking
-        //   - Tool/control content is never emitted as visible prose
-        //   - Callbacks after tool-result boundaries are replayed
-        //   - Later thought content after tool results remains Thinking
-        //   - No protocol marker or fragment appears in any visible delta
-        //   - Final visible answer matches the captured exact text
+        // Interleaved event sequence (253 events):
+        //   callbacks → load_skill(run_intent) → callback → run_intent(open_app, Calculator) → callback → complete
         val resource = javaClass.classLoader!!.getResource("physical_callback_fixture.json")
             ?: throw IllegalStateException("Missing test resource: physical_callback_fixture.json")
         val json = org.json.JSONObject(resource.readText())
-        val callbacks = json.getJSONArray("callbacks")
+        val events = json.getJSONArray("events")
         val finalVisible = json.getString("final_visible")
 
-        val pairs = mutableListOf<Pair<String?, String>>()
-        for (i in 0 until callbacks.length()) {
-            val cb = callbacks.getJSONObject(i)
-            val thought = cb.optString("thought", null).takeIf { it.isNotEmpty() }
-            val raw = cb.optString("raw", "")
-            pairs.add(thought to raw)
+        // Extract callback events and tool events from the interleaved array
+        val callbackEvents = mutableListOf<Pair<String?, String>>()
+        val toolCalls = mutableListOf<org.json.JSONObject>()
+        val toolResults = mutableListOf<org.json.JSONObject>()
+        for (i in 0 until events.length()) {
+            val evt = events.getJSONObject(i)
+            val type = evt.getString("type")
+            when (type) {
+                "callback" -> {
+                    val thought = evt.optString("thought", null as String?).takeIf { it.isNotEmpty() }
+                    val raw = evt.optString("raw", "")
+                    callbackEvents.add(thought to raw)
+                }
+                "tool_call" -> toolCalls.add(evt)
+                "tool_result" -> toolResults.add(evt)
+            }
         }
 
-        val result = collect(ThinkingStreamStateMachine(), pairs)
+        // Verify tool assertions from the event stream
+        assertEquals(2, toolCalls.size, "exactly 2 tool calls")
+        assertEquals("load_skill", toolCalls[0].getString("name"))
+        assertEquals("run_intent", toolCalls[0].getString("arguments").let { a ->
+            val s = a.indexOf("run_intent"); if (s >= 0) "run_intent" else "not_found"
+        })
+        assertEquals(2, toolResults.size, "exactly 2 tool results")
+        assertEquals("Success", toolResults[0].getString("resultType"))
+        assertFalse(toolResults[0].getBoolean("directReply"))
+        assertTrue(toolResults[0].getBoolean("returnedToGemma"))
+        assertEquals("Success", toolResults[1].getString("resultType"))
+        assertFalse(toolResults[1].getBoolean("directReply"))
+        assertTrue(toolResults[1].getBoolean("returnedToGemma"))
 
-        // Not a single visible delta carries a protocol marker
+        // Find callback indices at tool boundaries using the interleaved event order
+        val callbackIndices = mutableListOf<Int>()
+        var callbackIndex = 0
+        for (i in 0 until events.length()) {
+            val evt = events.getJSONObject(i)
+            if (evt.getString("type") == "callback") callbackIndex++
+            if (evt.getString("type") == "tool_result") callbackIndices.add(callbackIndex)
+        }
+        require(callbackIndices.size == 2) { "expected 2 tool results, got ${callbackIndices.size}" }
+
+        val callbacksBeforeFirstResult = callbackEvents.take(callbackIndices[0])
+        val callbacksBetweenResults = callbackEvents.drop(callbackIndices[0]).take(callbackIndices[1] - callbackIndices[0])
+        val callbacksAfterLastResult = callbackEvents.drop(callbackIndices[1])
+
+        // Phase 1: Before any tool result — initial thinking (from <|channel>thought\n wrapper)
+        val phase1 = collect(ThinkingStreamStateMachine(), callbacksBeforeFirstResult)
+        assertTrue(phase1.thinkingDeltas.any { it.isNotEmpty() }, "phase1 must have non-empty initial thinking")
+        assertVisibleDeltasAreSafe(phase1.responseDeltas)
+
+        // Phase 3: After last tool result — callbacks containing final visible answer
+        val phase3 = collect(ThinkingStreamStateMachine(), callbacksAfterLastResult)
+        assertVisibleDeltasAreSafe(phase3.responseDeltas)
+
+        // Tool results are adjacent (no callbacks between them), so phase2 is empty
+
+        // Full output from all callbacks
+        val result = collect(ThinkingStreamStateMachine(), callbackEvents)
+
+        // Full output assertions
         assertVisibleDeltasAreSafe(result.responseDeltas)
-
-        // The final visible output equals the captured answer
         assertEquals(finalVisible, result.response, "visible output must match captured final answer")
-
-        // No protocol markers in visible output
         assertFalse(result.response.contains("<|channel>"), "visible must not contain channel wrapper")
         assertFalse(result.response.contains("<|think|>"), "visible must not contain think tags")
+
+        // Thinking-disabled replay
+        val disabled = collect(ThinkingStreamStateMachine(thinkingEnabled = false), callbackEvents)
+        assertTrue(disabled.thinkingDeltas.all { it.isEmpty() }, "disabled thinking must emit no thinking")
+        assertVisibleDeltasAreSafe(disabled.responseDeltas)
+        assertEquals(finalVisible, disabled.response, "disabled thinking must produce same visible output")
     }
 
     private data class Collected(
