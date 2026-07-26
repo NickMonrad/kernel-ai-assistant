@@ -71,7 +71,6 @@ class KernelAIToolSet @Inject constructor(
     private fun setLastToolCall(name: String, request: String) {
         lastToolName = name
         lastToolRequest = request
-        Log.d(TAG, "thinking_trace: tool_call name=$name args=${request.take(256)}")
     }
 
     // -------------------------------------------------------------------------
@@ -284,11 +283,6 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.DirectReply -> result.spokenSummary
                 else -> null
             }
-            Log.d(
-                TAG,
-                "thinking_trace: tool_result name=$skillName type=${result::class.simpleName} " +
-                    "directReply=$lastToolWasDirectReply returned_to_gemma=true",
-            )
             when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
