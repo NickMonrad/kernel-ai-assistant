@@ -54,6 +54,7 @@
         <package android:name="com.netflix.mediaclient" />
         <package android:name="com.sec.android.app.popupcalculator" />
         <package android:name="com.google.android.calculator" />
+    </queries>
 
     <application
         android:name=".KernelAIApplication"
