@@ -73,9 +73,6 @@ class InferenceGenerationService : Service() {
             } catch (e: ForegroundServiceStartNotAllowedException) {
                 Log.w(TAG, "Foreground service start not allowed on this device state — " +
                     "generation may be killed if process is backgrounded", e)
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Foreground service start denied — " +
-                    "POST_NOTIFICATIONS permission may be missing", e)
             }
         }
 

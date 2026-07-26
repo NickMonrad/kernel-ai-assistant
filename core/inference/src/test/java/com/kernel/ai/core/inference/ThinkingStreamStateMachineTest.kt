@@ -1,5 +1,7 @@
 package com.kernel.ai.core.inference
 
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -237,6 +239,49 @@ class ThinkingStreamStateMachineTest {
 
         assertEquals("Kia ora!", result.response)
         assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+
+    @Test
+    fun `physical non-direct tool callbacks keep visible output clean`() {
+        // Physical fixture from S23U E4B GPU run on 2026-07-26.
+        // The full trace produced 842 callbacks. This compressed fixture proves:
+        // - The initial <|channel>thought\n wrapper is absorbed as thinking (not visible)
+        // - No protocol markers leak into visible output
+        // - The parser handles non-thinking output correctly
+        val compressed = listOf(
+            null to "<|channel>",
+            null to "thought",
+            null to "\n",
+            null to "The",
+            null to " user",
+            null to " wants",
+            null to " the",
+            null to " volume",
+            null to ".\n",
+            null to "More",
+            null to "na",
+            null to ".",
+            null to " I",
+            null to " cannot",
+            null to ".",
+        )
+        val result = collect(ThinkingStreamStateMachine(), compressed)
+
+        // Not a single visible delta carries a protocol marker
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+
+        // The channel wrapper prefix "<|channel>" is never visible
+        assertFalse(result.response.contains("<|channel>"), "visible must not contain channel open")
+        assertFalse(result.response.contains("|channel|"), "visible must not contain channel close")
+        assertFalse(result.response.contains("<|/think|>"), "visible must not contain close think")
+
+        // The thought wrapper text "thought" must not appear in visible output
+        // (it's absorbed as thinking or discarded)
+        assertFalse("thought" in result.response, "visible must not contain 'thought' wrapper")
+
+        // Newlines in raw deltas are absorbed, not rendered as visible content
+        assertEquals(0, result.response.count { it == '\n' }, "visible deltas must not contain newlines")
     }
 
     private data class Collected(

@@ -44,6 +44,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONException
 import org.json.JSONObject
 import javax.inject.Inject
@@ -1029,6 +1030,28 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.w(TAG, "thinking_parser: withheld ambiguous protocol fragment len=$length")
             },
         )
+        val callbackSequence = AtomicInteger(0)
+        fun boundedTraceContent(value: String?): String =
+            value.orEmpty()
+                .replace("\\", "\\\\")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .take(256)
+
+        fun traceCallback(message: Message, channelDelta: String?, raw: String) {
+            val toolCalls = message.toolCalls.joinToString(";") { toolCall ->
+                "${toolCall.name}(${boundedTraceContent(toolCall.arguments?.toString())})"
+            }
+            Log.d(
+                TAG,
+                "thinking_trace: generation=1 callback=${callbackSequence.incrementAndGet()} " +
+                    "channels=${message.channels.keys.sorted()} " +
+                    "thought=\"${boundedTraceContent(channelDelta)}\" " +
+                    "raw=\"${boundedTraceContent(raw)}\" " +
+                    "toolCalls=\"$toolCalls\"",
+            )
+        }
+
 
         fun emitVisibleToken(delta: String) {
             if (delta.isEmpty()) return
@@ -1063,6 +1086,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 override fun onMessage(message: Message) {
                     val channelDelta = message.channels["thought"]
                     val raw = message.toString()
+                    traceCallback(message, channelDelta, raw)
                     emitEmission(
                         thinkingStateMachine.consume(
                             channelDelta = channelDelta,
@@ -1083,6 +1107,11 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                     Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
                         "tokens=$outputTokenCount, speed=${"%.1f".format(tokensPerSec)}tok/s [backend=${_activeBackend.value}]")
+                    Log.d(
+                        TAG,
+                        "thinking_trace: generation=1 complete callbacks=${callbackSequence.get()} " +
+                            "thinkingChars=$thinkingCharCount visibleTokens=$outputTokenCount",
+                    )
                     _isGenerating.value = false
                     InferenceGenerationService.stop(context)
                     trySend(GenerationResult.Complete(durationMs = durationMs))
