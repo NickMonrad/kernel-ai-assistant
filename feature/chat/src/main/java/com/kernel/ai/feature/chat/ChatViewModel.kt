@@ -2473,13 +2473,14 @@ class ChatViewModel @Inject constructor(
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
                 var blankResponseRetryAttempted = false
+                var incompleteChainRetryAttempted = false
                 var preservedThinkingText: String? = null
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
             do {
                 needsHallucinationRetry = false
-
+                kernelAIToolSet.resetAttemptState()
             inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
@@ -2508,8 +2509,74 @@ class ChatViewModel @Inject constructor(
                       is GenerationResult.Complete -> {
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
-                           ?: preservedThinkingText
+                                ?: preservedThinkingText
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
+                            // Incomplete tool-chain check: load_skill was called but no terminal
+                            // executable tool followed. This must be detected before the generic
+                            // blank guard, hallucination retry, or native tool call path.
+                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                if (!incompleteChainRetryAttempted) {
+                                    incompleteChainRetryAttempted = true
+                                    Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
+                                    Log.d("KernelAI", "llm_tools_tool_sequence: " +
+                                        "attempt=${kernelAIToolSet.attemptToolSequence()} " +
+                                        "turn=${kernelAIToolSet.turnToolSequence()} " +
+                                        "terminal=${kernelAIToolSet.terminalToolNameOrDefault()}")
+                                    needsHallucinationRetry = true
+                                    currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
+                                    accumulatedContent = StringBuilder()
+                                    accumulatedThinking = StringBuilder()
+                                    activeStreamingContent = accumulatedContent
+                                    activeStreamingThinking = accumulatedThinking
+                                    if (thinking != null) preservedThinkingText = thinking
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                    }
+                                    return@collect
+                                } else {
+                                    // Continuation failed — even after the targeted prompt, the model
+                                    // still didn't call an executable tool. Show honest failure.
+                                    Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                                    val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = honestFailure, isStreaming = false) else it }
+                                    }
+                                    conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
+                                    finalizeVoicePlaybackForResponse(honestFailure)
+                                    activeStreamingMsgId = null
+                                    activeStreamingContent = StringBuilder()
+                                    activeStreamingThinking = StringBuilder()
+                                    needsHallucinationRetry = false
+                                    return@collect
+                                }
+                            }
+
+                            // After the incomplete-chain retry was attempted and the result still
+                            // has no terminal tool, fail honestly — skip all other retry guards.
+                            if (incompleteChainRetryAttempted &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                                val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
+                                _messages.update { msgs ->
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = honestFailure, isStreaming = false) else it }
+                                }
+                                conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
+                                if (savedUserMsgId.isNotBlank()) {
+                                    ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                }
+                                finalizeVoicePlaybackForResponse(honestFailure)
+                                activeStreamingMsgId = null
+                                activeStreamingContent = StringBuilder()
+                                activeStreamingThinking = StringBuilder()
+                                needsHallucinationRetry = false
+                                return@collect
+                            }
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
                             // generates an immediate EOS — often triggered by an unusual RAG injection
@@ -3576,6 +3643,17 @@ private const val SYSTEM_ONLY_TOOL_RETRY_CORRECTION =
     "[System: You already loaded internal tool instructions. Do NOT quote, summarise, or paste " +
         "those instructions into chat. Use them silently and answer the user's original request " +
         "in natural language only.]"
+
+/**
+ * Correction for an incomplete tool chain: load_skill was called but no executable
+ * tool followed. The model needs to use the loaded instructions and call the
+ * appropriate native tool, not merely describe or confirm the action.
+ */
+private const val INCOMPLETE_CHAIN_CORRECTION =
+    "[System: You successfully loaded the required internal tool instructions, but you " +
+        "have not executed the user's requested action. Use those instructions now and call " +
+        "the appropriate executable native tool. Do not merely describe or confirm the action. " +
+        "After the tool returns, provide only the final user-facing result.]"
 
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.

@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -129,4 +130,130 @@ class KernelAIToolSetTest {
         // Should still call the skill but with empty args
         assertTrue(toolSet.wasToolCalled())
     }
+
+    // -------------------------------------------------------------------------
+    // Per-attempt / per-turn tracking tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `direct executable tool is terminal`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertTrue(toolSet.terminalToolCalledInCurrentAttempt())
+        assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
+        assertEquals("run_intent", toolSet.terminalToolName())
+    }
+
+    @Test
+    fun `load_skill alone is non-terminal`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "load_skill"
+        every { skill.description } returns "instructions"
+        coEvery { skill.execute(any()) } returns SkillResult.Success("instructions")
+        every { registry.get("load_skill") } returns skill
+
+        toolSet.loadSkill("run_intent")
+
+        assertTrue(toolSet.loadSkillCalledInCurrentAttempt())
+        assertFalse(toolSet.terminalToolCalledInCurrentAttempt())
+        assertNull(toolSet.terminalToolName())
+    }
+
+    @Test
+    fun `load_skill followed by run_intent records sequence and selects terminal`() {
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns "instructions"
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success("instructions")
+        every { registry.get("load_skill") } returns loadSkill
+
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Alarm set")
+        every { registry.get("run_intent") } returns runIntent
+
+        toolSet.loadSkill("run_intent")
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertTrue(toolSet.loadSkillCalledInCurrentAttempt())
+        assertTrue(toolSet.terminalToolCalledInCurrentAttempt())
+        assertEquals("run_intent", toolSet.terminalToolName())
+        assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
+        assertEquals("load_skill>run_intent", toolSet.turnToolSequence())
+    }
+
+    @Test
+    fun `executable tool returning Failure is still terminal`() {
+        val skill = mockk<Skill>(relaxed = true)
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.Failure("run_intent", "Permission denied")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertTrue(toolSet.terminalToolCalledInCurrentAttempt())
+        assertEquals("run_intent", toolSet.terminalToolName())
+        assertTrue(toolSet.terminalToolResult()?.contains("Permission denied") == true)
+    }
+
+    @Test
+    fun `resetAttemptState clears attempt calls but preserves turn sequence`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+        assertEquals("run_intent", toolSet.attemptToolSequence())
+        assertEquals("run_intent", toolSet.turnToolSequence())
+
+        toolSet.resetAttemptState()
+
+        assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
+        assertFalse(toolSet.terminalToolCalledInCurrentAttempt())
+        assertNull(toolSet.lastToolName())
+        // Terminal metadata is turn-level, preserved across attempts
+        assertEquals("run_intent", toolSet.terminalToolName())
+        // Turn sequence is preserved
+        assertEquals("run_intent", toolSet.turnToolSequence())
+    }
+
+    @Test
+    fun `resetTurnState clears both attempt and turn state`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        toolSet.resetTurnState()
+
+        assertFalse(toolSet.wasToolCalled())
+        assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
+        assertNull(toolSet.lastToolName())
+        assertNull(toolSet.terminalToolName())
+        assertEquals("none", toolSet.attemptToolSequence())
+        assertEquals("none", toolSet.turnToolSequence())
+    }
+
+    @Test
+    fun `DirectReply metadata associates with executable tool`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("Alarm set for 7 AM")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertTrue(toolSet.terminalToolWasDirectReply())
+        assertEquals("run_intent", toolSet.terminalToolName())
+        assertEquals("Alarm set for 7 AM", toolSet.terminalToolResult())
+    }
+
 }
