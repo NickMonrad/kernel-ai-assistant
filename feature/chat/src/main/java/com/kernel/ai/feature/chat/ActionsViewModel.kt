@@ -19,6 +19,7 @@ import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
+import com.kernel.ai.core.skills.slot.parseReminderScheduleReply
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -1468,17 +1469,45 @@ class ActionsViewModel @Inject constructor(
         Log.d(TAG, "ADB_SLOT_STATE action=reply intent=${pending.request.intentName} slot=${pending.request.missingSlot.name} reply=\"$text\"")
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
-        val normalizedText = if (pending.inputMode == InputMode.Voice) {
-            normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
+        val reminderSchedule = if (pending.request.intentName == "add_reminder") {
+            parseReminderScheduleReply(text)
         } else {
-            normalizeSlotReply(text, pending.request.missingSlot.name)
+            emptyMap()
         }
+        if (pending.request.intentName == "add_reminder" &&
+            pending.request.missingSlot.name !in reminderSchedule &&
+            reminderSchedule.isNotEmpty()
+        ) {
+            val mergedParams = pending.request.existingParams + reminderSchedule
+            val nextMissingSlot = quickIntentRouter.nextMissingSlot(
+                intentName = pending.request.intentName,
+                params = mergedParams,
+            )
+            if (nextMissingSlot != null) {
+                primePendingSlot(
+                    intentName = pending.request.intentName,
+                    existingParams = mergedParams,
+                    missingSlot = nextMissingSlot,
+                    originalQuery = pending.originalQuery,
+                    inputMode = pending.inputMode,
+                    delayVoicePrompt = pending.inputMode == InputMode.Voice,
+                )
+                return
+            }
+        }
+        val normalizedText = reminderSchedule[pending.request.missingSlot.name]
+            ?: if (pending.inputMode == InputMode.Voice) {
+                normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
+            } else {
+                normalizeSlotReply(text, pending.request.missingSlot.name)
+            }
         if (normalizedText.isBlank()) {
             cancelSlotFill()
             return
         }
 
         val mergedParams = pending.request.existingParams +
+            reminderSchedule +
             mapOf(pending.request.missingSlot.name to normalizedText)
         val nextMissingSlot = quickIntentRouter.nextMissingSlot(
             intentName = pending.request.intentName,

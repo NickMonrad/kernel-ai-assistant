@@ -372,6 +372,112 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `reminder time-first reply is retained across Quick Actions slot prompts`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        viewModel.onSlotReply("5 pm")
+        advanceUntilIdle()
+
+        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        assertEquals("17:00", viewModel.pendingSlot.value?.request?.existingParams?.get("time"))
+        assertEquals(0, runIntentSkill.calls.size)
+
+        viewModel.onSlotReply("tomorrow")
+        advanceUntilIdle()
+
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(
+            mapOf(
+                "intent_name" to "add_reminder",
+                "item" to "buy milk",
+                "time" to "17:00",
+                "day" to "tomorrow",
+            ),
+            runIntentSkill.calls.single().arguments,
+        )
+    }
+
+    @Test
+    fun `incomplete reminder starts slot-fill without navigating to chat`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+
+        // Slot-fill is active with day missing
+        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        assertEquals("add_reminder", viewModel.pendingSlot.value?.request?.intentName)
+        assertEquals("buy milk", viewModel.pendingSlot.value?.request?.existingParams["item"])
+        // No direct execution
+        assertEquals(0, runIntentSkill.calls.size)
+        // No fallthrough to chat/LLM (no llm_fallthrough entity inserted)
+        assertEquals(0, insertedActions.size)
+    }
+
+    @Test
+    fun `complete time-only reminder executes directly without slot-fill`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Remind me to buy milk at 5 pm")
+        advanceUntilIdle()
+
+        // No pending slot — executed directly
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(1, runIntentSkill.calls.size)
+    }
+
+    @Test
+    fun `combined reminder with next Monday at 5 pm fills all slots`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        viewModel.onSlotReply("Next Monday at 5 pm")
+        advanceUntilIdle()
+
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(
+            mapOf(
+                "intent_name" to "add_reminder",
+                "item" to "buy milk",
+                "day" to "next monday",
+                "time" to "17:00",
+            ),
+            runIntentSkill.calls.single().arguments,
+        )
+    }
+
+    @Test
     fun `slot reply execution failure records truthful error state`() = runTest(dispatcher) {
         val failingSkill = CapturingRunIntentSkill { throw IllegalStateException("Dialer exploded") }
         every { skillRegistry.get(any()) } answers {
