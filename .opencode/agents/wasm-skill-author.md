@@ -40,4 +40,4 @@ You are the **wasm-skill-author** for the Kernel AI Assistant project. Read `.om
 4. Audit Wasm import section — flag any unexpected imports
 5. Test via `SkillExecutor` with mocked bridge functions
 6. Update skill manifest with version bump
-7. Hand off to spec-writer for documentation
+7. Complete the required documentation in the same task by following `.opencode/agents/spec-writer.md`; use a separate `spec-writer` only when the user explicitly requests delegation or the documentation is a genuinely independent workstream

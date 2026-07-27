@@ -58,40 +58,42 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 
 ## Agent working model
 
-| Agent | Role |
-|-------|------|
-| **coordinator** | Orchestrates; decomposes; routes; synthesises |
+Work inline by default when the request is one coherent feature, defect, review, or remediation task. Multi-file scope, expected duration, and generic complexity are not reasons to delegate.
+
+The active agent owns issue interpretation, scope, architecture and design decisions, cross-component contracts, implementation sequencing, the integrated change, final validation, complete-diff review, and PR handoff.
+
+| Agent | Optional capability |
+|-------|---------------------|
+| **coordinator** | Coordinates genuinely independent workstreams under an agreed shared contract |
 | **android-developer** | Kotlin/Compose/Gradle, native skills, UI, plumbing |
 | **llm-engineer** | LiteRT integration, model cascade, RAG, prompt engineering |
-| **test-writer** | JUnit 5 + MockK unit tests, Compose UI tests — interfaces only |
-| **spec-writer** | README, specification.md, AGENTS.md, skill schemas |
-| **code-reviewer** | Security, memory safety, LiteRT anti-patterns — mandatory before PR merge |
+| **test-writer** | Focused JUnit 5 + MockK and Compose UI test work |
+| **spec-writer** | README, specification, agent docs, and skill schemas |
+| **code-reviewer** | Security, correctness, memory safety, and LiteRT anti-pattern review |
 | **wasm-skill-author** | Rust → Wasm skills, Chicory bridge, Skill Store |
 
-**Workflow:** Analyse → dispatch (android-developer / llm-engineer) → parallel test-writer + spec-writer → PR with `Closes #N` → parallel code-reviewer + CI → push fixes → owner tests via ADB → owner merges.
+Delegate only when the user explicitly requests it, or when at least two genuinely independent workstreams can progress without first resolving a shared decision. Otherwise do the work directly.
 
-### Subagent code changes — recovery pattern
+Do not spawn agents merely to reinterpret, plan, research, test, document, or review the same coherent task. Read the issue first, identify concrete unknowns before research, and avoid nested delegation unless explicitly requested or required to clear a real blocker. The active agent defines any shared contract, integrates delegated results, and remains accountable for the final outcome.
 
-Task agents run in **ephemeral, isolated worktrees** that are cleaned up on completion.
-Their file writes never reach your worktree. To extract their changes, use one of:
+### Task briefs
 
-**Option A — diff output (preferred):** Add this to the end of every code-changing assignment:
-```
-LAST STEP — output your changes as a patch:
-1. Run `git diff` (do NOT omit this step).
-2. Copy the ENTIRE diff output into your final message verbatim,
-   wrapped in a ```diff code block.
-Do NOT summarise your changes — I need the raw diff to `git apply`.
-```
-Then apply in your worktree: pipe the diff block into `git apply`.
+Include the exact objective and source issue/PR; only non-canonical repository context; explicit scope boundaries; observable behaviour and acceptance criteria; focused automated tests; realistic manual or physical-device validation; instructions to inspect current code and report deviations or genuine blockers; and `Do not merge — wait for review.`
 
-**Option B — raw file content:** Instruct the agent to `cat` each modified file.
-The artifact output will contain the full content; copy it with `write`.
+Do not repeat this repository context, prescribe every file/tool/step, require a new planning phase after an accepted design, request competing architectures without an unresolved decision, create a fixed specialist pipeline, or add speculative work outside the issue.
 
-**Option C — GitHub push:** For larger changes, tell the agent to `git push` its branch,
-then `git fetch` + `git merge` from your worktree.
+### OMP delegation and recovery
 
-**Never** assume a `task` agent's file modifications are visible in your worktree.
+When using OMP's `task` tool:
+- omit `effort` unless the user explicitly requested per-task effort; importance alone does not justify a high-effort override;
+- do not pass a per-call `model` field: the current task schema does not expose one;
+- do not change agent definitions or `task.agentModelOverrides` for a task unless the user explicitly requests a child-model override; never pass a default-valued model selector to mean configured routing;
+- let configured agent definitions, `task.agentModelOverrides`, and the `task` model role determine the child model and reasoning selector;
+- keep handoffs compact and do not replay the parent transcript or canonical instructions;
+- prefer the configured task/workhorse role for routine execution and use the resolved-model display for routing diagnosis when available;
+- do not use nested delegation by default.
+
+OMP isolated tasks normally integrate changes through automatic patch application or branch-mode cherry-pick. Review returned status and patch/branch metadata. Recover from a retained patch artifact or task branch if integration fails; request raw diff or full-file output only as a final fallback. See `.docs/agents/failure-handling.md`.
 
 ## Branch isolation
 
@@ -113,32 +115,13 @@ adb logcat -s KernelAI
 connectedDebugAndroidTest   # requires device
 ```
 
-## rtk — MUST use for output-heavy commands
+## rtk — output control
 
-`rtk` filters tool output before it enters context. Every build, test, lint, log, or diff command producing >5 lines MUST use `rtk`.
-
-| Instead of | Use | Saves |
-|------------|-----|-------|
-| `./gradlew test` | `rtk test ./gradlew test` | ~70% (failures only) |
-| `./gradlew :core:inference:test` | `rtk test ./gradlew :core:inference:test` | ~70% |
-| `./gradlew lint` | `rtk lint ./gradlew lint` | ~60% (grouped) |
-| `./gradlew assembleDebug / installDebug` | `rtk cargo ./gradlew ...` | ~50% |
-| `adb logcat -s KernelAI` | `rtk log adb logcat -s KernelAI` | ~70% (dedup) |
-| `git status / diff` | `rtk git status / rtk git diff` | ~50% |
-| `npx vitest run <path>` | `rtk test npx vitest run <path>` | ~70% |
-| `grep -r <pattern>` | `rtk grep <pattern>` | ~50% |
-| Only errors needed | `rtk err <cmd>` | ~90% |
-| Quick summary | `rtk summary <cmd>` | ~80% |
-| Any diff output | `rtk diff <cmd>` | ~60% |
-| Raw JSON output | `rtk json <cmd>` | Schema/compact |
-
-**Standalone:** `rtk gain` shows token savings. `rtk env` shows filtered env vars. **Hard rule:** If output is >5 lines, use `rtk`.
+Use `rtk` for output-heavy builds, tests, lint, logs, diffs, searches, and JSON when supported so raw output does not consume the context. Common forms: `rtk test <cmd>`, `rtk lint <cmd>`, `rtk log <cmd>`, `rtk git status`, `rtk git diff`, `rtk grep <pattern>`, `rtk err <cmd>`, `rtk summary <cmd>`, and `rtk json <cmd>`. Do not wrap short or interactive commands where filtering provides no benefit.
 
 ## context-mode — routing
 
-context-mode is installed globally (MCP tools + native OMP hooks). Full routing rules at `~/.omp/agent/SYSTEM.md` (if available).
-
-**Fallback (no SYSTEM.md):** Use `ctx_execute(language, code)` for count/filter/parse/transform analysis. Only stdout enters context — keep analysis in code, not raw data. A one-liner replaces 10+ `read`/`bash` calls. Avoid reading large data into context when code can summarise it.
+context-mode is installed globally (MCP tools + native OMP hooks). Follow `~/.omp/agent/SYSTEM.md` when available. Otherwise use `ctx_execute(language, code)` for count/filter/parse/transform analysis so only concise stdout enters context; do not read large raw data when code can summarise it.
 
 ## Branching & PR standards
 
@@ -147,6 +130,8 @@ context-mode is installed globally (MCP tools + native OMP hooks). Full routing 
 Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` only. PR body: `Closes #N`. Never auto-merge. After creating a PR, merge `main` into the branch if behind and check CI status.
 
 **Commit:** `type(#issue): short description` — types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
+
+End every implementation handoff with: **Do not merge — wait for review.**
 
 ## Testing strategy
 
@@ -161,10 +146,10 @@ Feature PRs let normal CI generate test evidence artifacts. Do not publish durab
 
 **For CI evidence:** Use the "Publish PR test evidence" workflow — requires only the PR number.
 The workflow resolves the CI run, artifact, and commit SHA automatically.
-See \`.docs/agents/test-evidence-workflow.md\` for the full flow and manual fallback.
+See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallback.
 
-> **⚠️ PR number, not issue number:** For evidence publishing, \`--pr\` is always the GitHub Pull Request number,
-> not the issue number from \`Closes #N\`. Derive it mechanically: \`gh pr view --json number --jq .number\`.
+> **⚠️ PR number, not issue number:** For evidence publishing, `--pr` is always the GitHub Pull Request number,
+> not the issue number from `Closes #N`. Derive it mechanically: `gh pr view --json number --jq .number`.
 > Publishing under the wrong number misroutes dashboard evidence to the wrong PR.
 
 **For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
@@ -179,7 +164,6 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 - Use `lsp` for all code intelligence — not grep
 - Reuse existing context; prefer targeted validation
 - Prefer small, reviewable diffs; match surrounding style
-
 
 ## Performance targets
 
@@ -196,15 +180,11 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
 No GitHub Copilot Review | Human/ChatGPT review plus repo evidence is the expected review path
 
-## Memory
+## Agent memory
 
-Write to memory (`memory://root/skills/<name>/SKILL.md`) after discovering:
-- Non-obvious file locations or module boundaries
-- Build/debug quirks (tool flags, adb incantations, test setup)
-- Architectural invariants that caused a bug (e.g. "gemma4InitMutex required")
-- Tool invocation patterns that save tokens (rtk, context-mode)
-Consult memory via `memory://root` before starting work in an unfamiliar module.
-Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync, model_availability_state.
+Consult `memory://root` before unfamiliar-module work when available. Store only durable, non-obvious repository knowledge such as module locations, build/debug quirks, architectural invariants, and high-value tool patterns. Do not duplicate information already present here or in an on-demand document.
+
+Existing entries include: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync, model_availability_state.
 
 ## On-demand reference docs
 
@@ -217,7 +197,7 @@ Load these only when relevant:
 - `.docs/agents/debugging.md` — ADB commands, log filtering, common issues
 - `.docs/agents/validation.md` — per-scope validation table, CI constraints (updated with risk tiers)
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
-- `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
+- `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting, isolated-task recovery
 - `.docs/agents/repo-map.md` — key file index by area
 - `docs/UX_PATTERNS.md` — canonical UI/UX patterns (read before any new screen)
 - `.docs/agents/test-evidence-workflow.md` — test evidence lifecycle, CI vs on-device, publishing workflow, agent guidance
