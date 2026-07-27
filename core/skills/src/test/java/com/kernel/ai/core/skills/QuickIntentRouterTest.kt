@@ -3938,6 +3938,30 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "add_reminder", "remind me to take out trash monday")
         }
         @Test
+        fun `incomplete imperative reminder forms retain item and ask for day`() {
+            val requests = listOf(
+                "Remind me to buy milk",
+                "Please remind me to buy milk",
+                "Can you remind me to buy milk?",
+                "Set a reminder to buy milk",
+                "Remind me about buying milk",
+                "Don't let me forget to buy milk",
+            )
+
+            requests.forEach { request ->
+                val result = regexOnlyRouter.route(request)
+                val needsSlot = assertInstanceOf(
+                    QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                    result,
+                    "Expected slot fill for '$request', got $result",
+                )
+                assertEquals("add_reminder", needsSlot.intent.intentName)
+                assertEquals("buy milk", needsSlot.intent.params["item"])
+                assertEquals("day", needsSlot.missingSlot.name)
+            }
+        }
+
+        @Test
         fun `remind me at 9am routes to set_alarm not add_reminder`() {
             val result = hybridRouter.route("remind me at 9am")
             assertRegexMatch(result, "set_alarm", "remind me at 9am")

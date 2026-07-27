@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills.slot
 
+import com.kernel.ai.core.skills.QuickIntentRouter
+
 /**
  * Describes a required parameter that is missing from a matched intent, together with
  * a template for the clarifying question to ask the user.
@@ -28,6 +30,42 @@ fun normalizeSlotReply(text: String, slotName: String): String {
         "list_name" -> normalizeListSlotReply(trimmed)
         else -> trimmed
     }
+}
+
+/**
+ * Extracts any reminder schedule values present in one natural-language slot reply.
+ *
+ * A single reply can fill both `day` and `time` (for example, "tomorrow at 5 pm").
+ * Replies containing only one value return only that value so slot filling can prompt
+ * for the remaining schedule field.
+ */
+fun parseReminderScheduleReply(text: String): Map<String, String> {
+    val cleaned = text.trim().trimEnd('.', '!', '?')
+    if (cleaned.isBlank()) return emptyMap()
+
+    val params = linkedMapOf<String, String>()
+    val dayMatch = Regex(
+        """\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
+        RegexOption.IGNORE_CASE,
+    ).find(cleaned)
+    if (dayMatch != null) {
+        params["day"] = normalizeReminderDay(dayMatch.groupValues[1])
+    }
+
+    QuickIntentRouter.parseAlarmTime(cleaned)["time"]?.let { params["time"] = it }
+    return params
+}
+
+private fun normalizeReminderDay(raw: String): String = when (raw.lowercase()) {
+    "tonight" -> "today"
+    "mon" -> "monday"
+    "tue", "tues" -> "tuesday"
+    "wed" -> "wednesday"
+    "thu", "thur", "thurs" -> "thursday"
+    "fri" -> "friday"
+    "sat" -> "saturday"
+    "sun" -> "sunday"
+    else -> raw.lowercase()
 }
 
 private fun normalizeTimeSlotReply(trimmed: String): String {

@@ -269,6 +269,9 @@ class QuickIntentRouter(
         .takeIf { it.isNotBlank() }
         ?.takeUnless { it.lowercase() in placeholderItems }
 
+    private fun normalizeReminderItem(raw: String): String = raw.trim()
+        .replace(Regex("""^buying\b\s*""", RegexOption.IGNORE_CASE), "buy ")
+
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
@@ -613,7 +616,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val item = match.groupValues[1].trim()
+                val item = normalizeReminderItem(match.groupValues[1])
                 val day = normalizeDayName(match.groupValues[2].trim().lowercase())
                 val timeParsed = parseAlarmTime(match.groupValues[3].trim())
                 buildMap {
@@ -622,6 +625,35 @@ class QuickIntentRouter(
                     putAll(timeParsed)
                 }
             },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // Imperative reminder requests without a schedule — retain the task and start slot-filling.
+        // Keep these after complete reminder matchers so explicit day/time requests still dispatch.
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:don't|do not)\s+let\s+me\s+forget\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
             requiredSlots = slotContract("add_reminder"),
         ),
         // "remind me to/about <task> on <day>" — needs time slot-fill
@@ -633,7 +665,7 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ ->
                 mapOf(
-                    "item" to match.groupValues[1].trim(),
+                    "item" to normalizeReminderItem(match.groupValues[1]),
                     "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
@@ -648,7 +680,7 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ ->
                 mapOf(
-                    "item" to match.groupValues[1].trim(),
+                    "item" to normalizeReminderItem(match.groupValues[1]),
                     "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
