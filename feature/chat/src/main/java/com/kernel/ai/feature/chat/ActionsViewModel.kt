@@ -1471,10 +1471,29 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         val reminderSchedule = if (pending.request.intentName == "add_reminder") {
             parseReminderScheduleReply(text)
-                .takeIf { it.containsKey(pending.request.missingSlot.name) }
-                ?: emptyMap()
         } else {
             emptyMap()
+        }
+        if (pending.request.intentName == "add_reminder" &&
+            pending.request.missingSlot.name !in reminderSchedule &&
+            reminderSchedule.isNotEmpty()
+        ) {
+            val mergedParams = pending.request.existingParams + reminderSchedule
+            val nextMissingSlot = quickIntentRouter.nextMissingSlot(
+                intentName = pending.request.intentName,
+                params = mergedParams,
+            )
+            if (nextMissingSlot != null) {
+                primePendingSlot(
+                    intentName = pending.request.intentName,
+                    existingParams = mergedParams,
+                    missingSlot = nextMissingSlot,
+                    originalQuery = pending.originalQuery,
+                    inputMode = pending.inputMode,
+                    delayVoicePrompt = pending.inputMode == InputMode.Voice,
+                )
+                return
+            }
         }
         val normalizedText = reminderSchedule[pending.request.missingSlot.name]
             ?: if (pending.inputMode == InputMode.Voice) {

@@ -45,7 +45,7 @@ fun parseReminderScheduleReply(text: String): Map<String, String> {
 
     val params = linkedMapOf<String, String>()
     val dayMatch = Regex(
-        """\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
+        """\b((?:next\s+)?(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\b""",
         RegexOption.IGNORE_CASE,
     ).find(cleaned)
     if (dayMatch != null) {
@@ -56,16 +56,21 @@ fun parseReminderScheduleReply(text: String): Map<String, String> {
     return params
 }
 
-private fun normalizeReminderDay(raw: String): String = when (raw.lowercase()) {
-    "tonight" -> "today"
-    "mon" -> "monday"
-    "tue", "tues" -> "tuesday"
-    "wed" -> "wednesday"
-    "thu", "thur", "thurs" -> "thursday"
-    "fri" -> "friday"
-    "sat" -> "saturday"
-    "sun" -> "sunday"
-    else -> raw.lowercase()
+private fun normalizeReminderDay(raw: String): String {
+    val maybeNext = if (raw.startsWith("next ", ignoreCase = true)) "next " else ""
+    val day = raw.removePrefix("next ").removePrefix("Next ").lowercase()
+    val normalized = when (day) {
+        "tonight" -> "today"
+        "mon" -> "monday"
+        "tue", "tues" -> "tuesday"
+        "wed" -> "wednesday"
+        "thu", "thur", "thurs" -> "thursday"
+        "fri" -> "friday"
+        "sat" -> "saturday"
+        "sun" -> "sunday"
+        else -> day
+    }
+    return "$maybeNext$normalized"
 }
 
 private fun normalizeTimeSlotReply(trimmed: String): String {

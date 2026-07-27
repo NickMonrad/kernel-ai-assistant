@@ -627,65 +627,6 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_reminder"),
         ),
-        // Imperative reminder requests without a schedule — retain the task and start slot-filling.
-        // Keep these after complete reminder matchers so explicit day/time requests still dispatch.
-        IntentPattern(
-            intentName = "add_reminder",
-            regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
-            requiredSlots = slotContract("add_reminder"),
-        ),
-        IntentPattern(
-            intentName = "add_reminder",
-            regex = Regex(
-                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
-            requiredSlots = slotContract("add_reminder"),
-        ),
-        IntentPattern(
-            intentName = "add_reminder",
-            regex = Regex(
-                """^(?:don't|do not)\s+let\s+me\s+forget\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
-            requiredSlots = slotContract("add_reminder"),
-        ),
-        // "remind me to/about <task> on <day>" — needs time slot-fill
-        IntentPattern(
-            intentName = "add_reminder",
-            regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+on\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[1]),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                )
-            },
-            requiredSlots = slotContract("add_reminder"),
-        ),
-        // "remind me to <task> <day>" (day without 'on') — dispatches directly; handler defaults time
-        IntentPattern(
-            intentName = "add_reminder",
-            regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[1]),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                )
-            },
-            requiredSlots = emptyMap(),
-        ),
         // "remind me to <task> at <time>" — time without explicit day (dispatches directly)
         IntentPattern(
             intentName = "add_reminder",
@@ -727,6 +668,94 @@ class QuickIntentRouter(
                 mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
             },
             requiredSlots = emptyMap(),
+        ),
+        // "remind me <day> at <time> to <task>" — task-bearing reminder before time
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
+                    "day" to normalizeDayName(match.groupValues[1].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[2].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "set a reminder for <time> <day> to <task>" — task-bearing reminder
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:for|at)\s+(.+?)\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "remind me to/about <task> on <day>" — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+on\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[1]),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to <task> <day>" (day without 'on') — dispatches directly
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|sat|sun|mon|tues?|wed|thurs?))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[1]),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // Imperative reminder requests without a schedule — retain the task and start slot-filling.
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:don't|do not)\s+let\s+me\s+forget\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
         ),
         IntentPattern(
             intentName = "set_alarm",
