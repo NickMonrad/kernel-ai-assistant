@@ -1,0 +1,66 @@
+{
+  "validation_type": "bounded_physical_validation",
+  "issue": "#1418",
+  "branch": "fix/1418-thinking-protocol-leak",
+  "pr": "#1421",
+  "tested_diagnostic_sha": "4bd442270fed3df5f630699dc767fe7c40ab3768",
+  "final_code_sha": "5b5ae74c75f285590b0dbd78484d3df69bc78e83",
+  "tested_apk_provenance": "local debug build from committed diagnostic SHA, worktree clean at build time",
+  "root_cause": "Gemma-4 chat template requires explicit instructions to close thought channel",
+  "fix": "append thinking-channel close instruction to system prompt",
+  "qualifying_physical_validation": {
+    "device": "S23U (SM-S918B, SDK 36)",
+    "model": "Gemma-4 E-4B (GPU Adreno 740)",
+    "date": "2026-07-26",
+    "prompt": "First load runintent skill. Then open Calculator using native open_app intent with app_name Calculator and confirm when ready.",
+    "router_result": "fallthrough (best_guess=open_app, confidence=0.56)",
+    "thinking_enabled": true,
+    "tool_call_event_sequence": [
+      "seq=146: load_skill(skill_name=run_intent)",
+      "seq=148: run_intent(intent_name=open_app) — 3 attempts with different param formats",
+      "seq=396: run_intent(intent_name=open_app, parameters={\"app_name\":\"Calculator\"})"
+    ],
+    "tool_result_event_sequence": [
+      "seq=147: load_skill — SkillResult.Success, directReply=false, returnedToGemma=true",
+      "seq=397: run_intent — SkillResult.Success, directReply=false, returnedToGemma=true"
+    ],
+    "load_skill_result_seq": 147,
+    "first_callback_after_load_skill_result_seq": 149,
+    "first_callback_after_load_skill_result_raw": "<|channel>",
+    "run_intent_success_result_seq": 397,
+    "first_callback_after_run_intent_result_seq": 398,
+    "first_callback_after_run_intent_result_raw": "<|channel>",
+    "first_visible_callback_seq": 451,
+    "post_run_intent_thinking_non_empty": true,
+    "initial_thought_char_count": 1626,
+    "later_thought_emitted": true,
+    "tool_result_type": "SkillResult.Success",
+    "directReply": false,
+    "returnedToGemma": true,
+    "result_content_preview": "run_intent: Perform a native Android device action.\nParameters: intent_name (required), parameters (JSON)...",
+    "final_visible_response": "Kia ora. Calculator is now open.",
+    "protocol_leak_result": "pass",
+    "thinking_leak_result": "pass",
+    "parser_warning_count": 0,
+    "fixture_path": "core/inference/src/test/resources/physical_callback_fixture.json",
+    "regression_test_name": "physical load_skill tool produces initial and later thinking with one continuous parser",
+    "thinking_disabled_replay": "same clean visible output, no thinking"
+  },
+  "supplementary_directreply_validation": {
+    "note": "Wikipedia query_wikipedia DirectReply run confirms direct-reply path remains clean",
+    "tool": "query_wikipedia (Battle of Hastings)",
+    "result": "DirectReply, success",
+    "visible_output": "clean, no protocol markers"
+  },
+  "parser_invariants_preserved": true,
+  "validation_commands": {
+    "core_inference_state_machine": "PASS",
+    "core_inference_all": "PASS",
+    "feature_chat": "PASS",
+    "app_test": "PASS",
+    "assemble_debug": "PASS",
+    "lint": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "timestamp": "2026-07-26"
+}

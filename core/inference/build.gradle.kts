@@ -44,4 +44,6 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+    // Real org.json for unit tests (Android SDK stubs this class)
+    testImplementation("org.json:json:20231013")
 }

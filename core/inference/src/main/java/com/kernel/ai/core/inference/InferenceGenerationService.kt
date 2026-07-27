@@ -3,6 +3,7 @@ package com.kernel.ai.core.inference
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -65,9 +66,14 @@ class InferenceGenerationService : Service() {
         private const val NOTIFICATION_ID = 9002
 
         fun start(context: Context) {
-            context.startForegroundService(
-                Intent(context, InferenceGenerationService::class.java),
-            )
+            try {
+                context.startForegroundService(
+                    Intent(context, InferenceGenerationService::class.java),
+                )
+            } catch (e: ForegroundServiceStartNotAllowedException) {
+                Log.w(TAG, "Foreground service start not allowed on this device state — " +
+                    "generation may be killed if process is backgrounded", e)
+            }
         }
 
         fun stop(context: Context) {
