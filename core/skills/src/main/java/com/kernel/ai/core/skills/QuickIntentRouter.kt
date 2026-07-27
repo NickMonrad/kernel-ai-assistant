@@ -718,7 +718,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|sat|sun|mon|tues?|wed|thurs?))\s*[.!?]*$""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
