@@ -2477,6 +2477,21 @@ class ChatViewModel @Inject constructor(
                 var preservedThinkingText: String? = null
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
+                suspend fun persistHonestActionFailure(thinking: String?) {
+                    val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
+                    _messages.update { msgs ->
+                        msgs.map {
+                            if (it.id == assistantMsgId) {
+                                it.copy(content = honestFailure, isStreaming = false)
+                            } else it
+                        }
+                    }
+                    conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
+                    finalizeVoicePlaybackForResponse(honestFailure)
+                    activeStreamingMsgId = null
+                    activeStreamingContent = StringBuilder()
+                    activeStreamingThinking = StringBuilder()
+                }
 
             do {
                 needsHallucinationRetry = false
@@ -2510,11 +2525,20 @@ class ChatViewModel @Inject constructor(
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
+                            kernelAIToolSet.logToolSequence()
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
+                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.w("KernelAI", "load_skill_failed")
+                                persistHonestActionFailure(thinking)
+                                return@collect
+                            }
                             // Incomplete tool-chain check: load_skill was called but no terminal
                             // executable tool followed. This must be detected before the generic
                             // blank guard, hallucination retry, or native tool call path.
-                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                            if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
                                 if (!incompleteChainRetryAttempted) {
@@ -2539,18 +2563,7 @@ class ChatViewModel @Inject constructor(
                                     // Continuation failed — even after the targeted prompt, the model
                                     // still didn't call an executable tool. Show honest failure.
                                     Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
-                                    val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
-                                    _messages.update { msgs ->
-                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = honestFailure, isStreaming = false) else it }
-                                    }
-                                    conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
-                                    if (savedUserMsgId.isNotBlank()) {
-                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
-                                    }
-                                    finalizeVoicePlaybackForResponse(honestFailure)
-                                    activeStreamingMsgId = null
-                                    activeStreamingContent = StringBuilder()
-                                    activeStreamingThinking = StringBuilder()
+                                    persistHonestActionFailure(thinking)
                                     needsHallucinationRetry = false
                                     return@collect
                                 }
@@ -2562,18 +2575,7 @@ class ChatViewModel @Inject constructor(
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
                                 Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
-                                val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
-                                _messages.update { msgs ->
-                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = honestFailure, isStreaming = false) else it }
-                                }
-                                conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
-                                if (savedUserMsgId.isNotBlank()) {
-                                    ragRepository.indexMessage(savedUserMsgId, convId, text)
-                                }
-                                finalizeVoicePlaybackForResponse(honestFailure)
-                                activeStreamingMsgId = null
-                                activeStreamingContent = StringBuilder()
-                                activeStreamingThinking = StringBuilder()
+                                persistHonestActionFailure(thinking)
                                 needsHallucinationRetry = false
                                 return@collect
                             }
@@ -2630,20 +2632,24 @@ class ChatViewModel @Inject constructor(
                             // transparently during generate() — the SDK calls our @Tool
                             // methods and feeds results back to the model. Check if any
                             // tool was invoked this turn for UI metadata.
-                            val nativeToolCall = if (kernelAIToolSet.wasToolCalled()) {
-                                val name = kernelAIToolSet.lastToolName() ?: "unknown"
-                                val request = kernelAIToolSet.lastToolRequest() ?: ""
-                                val result = kernelAIToolSet.lastToolResult() ?: ""
+                            val nativeToolCall = kernelAIToolSet.terminalToolName()?.let { name ->
+                                val request = kernelAIToolSet.terminalToolRequest() ?: ""
+                                val result = kernelAIToolSet.terminalToolResult() ?: ""
                                 ToolCallInfo(
                                     skillName = name,
                                     requestJson = request,
                                     resultText = result,
-                                    isSuccess = !result.startsWith("error"),
-                                    presentation = kernelAIToolSet.lastToolPresentation(),
-                                    spokenSummary = kernelAIToolSet.lastToolSpokenSummary()
-                                        ?: kernelAIToolSet.lastToolPresentation()?.toSpokenSummary(),
+                                    isSuccess = kernelAIToolSet.terminalToolSucceededInCurrentAttempt(),
+                                    presentation = kernelAIToolSet.terminalToolPresentation(),
+                                    spokenSummary = kernelAIToolSet.terminalToolSpokenSummary()
+                                        ?: kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary(),
                                 )
-                            } else null
+                            }
+                            if (incompleteChainRetryAttempted &&
+                                kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.d("KernelAI", "incomplete_tool_chain_retry_succeeded")
+                            }
                             // E2E marker: native SDK tool call
                             if (nativeToolCall != null) {
                                 Log.d(
@@ -2653,7 +2659,7 @@ class ChatViewModel @Inject constructor(
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
                                 !nativeToolCall.isSuccess -> "failure"
-                                kernelAIToolSet.lastToolWasDirectReply() -> "direct_reply"
+                                kernelAIToolSet.terminalToolWasDirectReply() -> "direct_reply"
                                 else -> "success"
                             }
                             Log.d(
@@ -2674,7 +2680,7 @@ class ChatViewModel @Inject constructor(
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
-                                    nativeToolCall != null && kernelAIToolSet.lastToolWasDirectReply()
+                                    nativeToolCall != null && kernelAIToolSet.terminalToolWasDirectReply()
                                 val isSystemOnlyTool = rawToolCall.isSuccess && isSystemOnlyToolCall(rawToolCall.skillName)
                                 val leakedSystemToolContent = isSystemOnlyTool && looksLikeRawToolCall(fullContent)
                                 if (leakedSystemToolContent) {

@@ -1159,6 +1159,13 @@ class ChatViewModelInitTest {
         every { kernelAIToolSet.lastToolPresentation() } returns null
         every { kernelAIToolSet.lastToolSpokenSummary() } returns null
         every { kernelAIToolSet.lastToolWasDirectReply() } returns false
+        every { kernelAIToolSet.terminalToolName() } returns "load_skill"
+        every { kernelAIToolSet.terminalToolRequest() } returns """{"skill_name":"run_intent"}"""
+        every { kernelAIToolSet.terminalToolResult() } returns leakedInstructions
+        every { kernelAIToolSet.terminalToolPresentation() } returns null
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns null
+        every { kernelAIToolSet.terminalToolWasDirectReply() } returns false
+        every { kernelAIToolSet.terminalToolSucceededInCurrentAttempt() } returns true
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg-id", "assistant-msg-id")
 

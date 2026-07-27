@@ -41,6 +41,23 @@ private const val TAG = "KernelAI"
 class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
+    enum class ToolExecutionOutcome {
+        NOT_CALLED,
+        SUCCEEDED,
+        FAILED,
+    }
+
+    private fun ToolExecutionOutcome.isSuccess(): Boolean =
+        this == ToolExecutionOutcome.SUCCEEDED
+
+    private fun ToolExecutionOutcome.isFailure(): Boolean =
+        this == ToolExecutionOutcome.FAILED
+
+    // -------------------------------------------------------------------------
+    // Explicit per-attempt execution outcomes
+    // -------------------------------------------------------------------------
+    @Volatile private var attemptLoadSkillOutcome = ToolExecutionOutcome.NOT_CALLED
+    @Volatile private var attemptTerminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
 
     companion object {
         /** The single non-terminal internal-only tool name. */
@@ -64,23 +81,13 @@ class KernelAIToolSet @Inject constructor(
     private val attemptToolNames = mutableListOf<String>()
     private var attemptLoadSkillCalled = false
     private var attemptTerminalToolCalled = false
-
-    // -------------------------------------------------------------------------
-    // Per-turn tracking (preserved across retries for diagnostics)
-    // -------------------------------------------------------------------------
     private val turnToolNames = mutableListOf<String>()
-
-    // -------------------------------------------------------------------------
-    // Terminal (executable) tool metadata — captured only for non-load_skill
-    // tools, used for UI chip display.
-    // -------------------------------------------------------------------------
     @Volatile private var terminalToolName: String? = null
     @Volatile private var terminalToolRequest: String? = null
     @Volatile private var terminalToolResult: String? = null
     @Volatile private var terminalToolPresentation: ToolPresentation? = null
     @Volatile private var terminalToolSpokenSummary: String? = null
     @Volatile private var terminalToolWasDirectReply: Boolean = false
-
     fun resetTurnState() {
         toolCalledInThisTurn = false
         lastToolName = null
@@ -89,9 +96,6 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
-        attemptToolNames.clear()
-        attemptLoadSkillCalled = false
-        attemptTerminalToolCalled = false
         turnToolNames.clear()
         terminalToolName = null
         terminalToolRequest = null
@@ -99,6 +103,7 @@ class KernelAIToolSet @Inject constructor(
         terminalToolPresentation = null
         terminalToolSpokenSummary = null
         terminalToolWasDirectReply = false
+        resetAttemptState()
     }
 
     /** Clears only the current generation-attempt state. Preserves turn sequence. */
@@ -106,13 +111,20 @@ class KernelAIToolSet @Inject constructor(
         attemptToolNames.clear()
         attemptLoadSkillCalled = false
         attemptTerminalToolCalled = false
-        // Clear last-call metadata from the previous attempt
+        attemptLoadSkillOutcome = ToolExecutionOutcome.NOT_CALLED
+        attemptTerminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
+        terminalToolName = null
+        terminalToolRequest = null
+        terminalToolResult = null
+        terminalToolPresentation = null
+        terminalToolSpokenSummary = null
+        terminalToolWasDirectReply = false
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
@@ -123,13 +135,25 @@ class KernelAIToolSet @Inject constructor(
     fun lastToolSpokenSummary(): String? = lastToolSpokenSummary
     fun lastToolWasDirectReply(): Boolean = lastToolWasDirectReply
 
-    // --- New per-attempt / per-turn accessors ---
-
     /** True when load_skill was called in the current generation attempt. */
     fun loadSkillCalledInCurrentAttempt(): Boolean = attemptLoadSkillCalled
 
+    /** True when load_skill completed successfully in the current attempt. */
+    fun loadSkillSucceededInCurrentAttempt(): Boolean = attemptLoadSkillOutcome.isSuccess()
+
+    /** True when load_skill completed with a failure in the current attempt. */
+    fun loadSkillFailedInCurrentAttempt(): Boolean = attemptLoadSkillOutcome.isFailure()
+
     /** True when a terminal executable tool was called in the current attempt. */
     fun terminalToolCalledInCurrentAttempt(): Boolean = attemptTerminalToolCalled
+
+    /** True when the terminal executable completed successfully. */
+    fun terminalToolSucceededInCurrentAttempt(): Boolean =
+        attemptTerminalToolOutcome.isSuccess()
+
+    /** True when the terminal executable completed with a failure. */
+    fun terminalToolFailedInCurrentAttempt(): Boolean =
+        attemptTerminalToolOutcome.isFailure()
 
     /** The last terminal (executable) tool name, or null. Never returns "load_skill". */
     fun terminalToolName(): String? = terminalToolName
@@ -149,19 +173,11 @@ class KernelAIToolSet @Inject constructor(
     /** True when the last terminal tool was a DirectReply. */
     fun terminalToolWasDirectReply(): Boolean = terminalToolWasDirectReply
 
-    /**
-     * Stable diagnostic summary of the current attempt's tool call sequence.
-     * Bounded: "load_skill>run_intent" or "run_intent" or "load_skill" or "none".
-     */
     fun attemptToolSequence(): String = buildString {
         if (attemptToolNames.isEmpty()) { append("none"); return@buildString }
         attemptToolNames.joinTo(this, ">")
     }
 
-    /**
-     * Stable diagnostic summary of the complete turn's tool call sequence.
-     * Bounded: "load_skill>run_intent" or "run_intent" or "load_skill" or "none".
-     */
     fun turnToolSequence(): String = buildString {
         if (turnToolNames.isEmpty()) { append("none"); return@buildString }
         turnToolNames.joinTo(this, ">")
@@ -184,6 +200,20 @@ class KernelAIToolSet @Inject constructor(
             attemptLoadSkillCalled = true
         } else {
             attemptTerminalToolCalled = true
+        }
+    }
+
+    /** Records the actual SkillResult outcome, independent of its rendered text. */
+    private fun recordToolOutcome(name: String, succeeded: Boolean) {
+        val outcome = if (succeeded) {
+            ToolExecutionOutcome.SUCCEEDED
+        } else {
+            ToolExecutionOutcome.FAILED
+        }
+        if (name == LOAD_SKILL_NAME) {
+            attemptLoadSkillOutcome = outcome
+        } else {
+            attemptTerminalToolOutcome = outcome
         }
     }
 
@@ -212,6 +242,10 @@ class KernelAIToolSet @Inject constructor(
     private fun setLastToolCall(name: String, request: String) {
         lastToolName = name
         lastToolRequest = request
+        lastToolResult = null
+        lastToolPresentation = null
+        lastToolSpokenSummary = null
+        lastToolWasDirectReply = false
         Log.d(TAG, "event_seq: tool_call name=$name args=${request.take(256)}")
     }
 
@@ -253,6 +287,7 @@ class KernelAIToolSet @Inject constructor(
         if (intentName in reservedSkillNames) {
             val error = "Invalid run_intent call: '$intentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
             lastToolResult = error
+            recordToolOutcome("run_intent", succeeded = false)
             captureTerminalResult("run_intent")
             return mapOf("status" to "error", "error" to error)
         }
@@ -266,6 +301,7 @@ class KernelAIToolSet @Inject constructor(
                 val error = "Invalid parameters: expected a JSON object. Got: ${parameters.take(120)}"
                 Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.message}")
                 lastToolResult = error
+                recordToolOutcome("run_intent", succeeded = false)
                 captureTerminalResult("run_intent")
                 return mapOf("status" to "error", "error" to error)
             }
@@ -395,24 +431,21 @@ class KernelAIToolSet @Inject constructor(
 
     // -------------------------------------------------------------------------
     // Internal dispatch
-    // -------------------------------------------------------------------------
-
-    /**
-     * Dispatches to the named [Skill] via [SkillRegistry].
-     *
-     * LiteRT-LM @Tool methods are called synchronously by the SDK on its inference
-     * thread, but our Skill.execute() methods are suspend functions (Room, network).
-     * We bridge with [runBlocking] scoped to the single call — acceptable because the
-     * SDK already blocks its inference loop waiting for the tool result.
-     */
     private fun executeSkill(skillName: String, args: Map<String, String>): Map<String, String> {
         val skill = skillRegistry.get().get(skillName)
-            ?: return mapOf("error" to "Unknown skill: $skillName")
+            ?: run {
+                recordToolOutcome(skillName, succeeded = false)
+                return mapOf("error" to "Unknown skill: $skillName")
+            }
 
         return try {
             val result = runBlocking {
                 skill.execute(SkillCall(skillName = skillName, arguments = args))
             }
+            recordToolOutcome(
+                skillName,
+                succeeded = result is SkillResult.Success || result is SkillResult.DirectReply,
+            )
             lastToolWasDirectReply = result is SkillResult.DirectReply
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
@@ -449,6 +482,7 @@ class KernelAIToolSet @Inject constructor(
                 )
             }
         } catch (e: Exception) {
+            recordToolOutcome(skillName, succeeded = false)
             lastToolPresentation = null
             lastToolSpokenSummary = null
             Log.e(TAG, "ToolSet: $skillName execution failed", e)

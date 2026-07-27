@@ -217,9 +217,7 @@ class KernelAIToolSetTest {
         assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
         assertFalse(toolSet.terminalToolCalledInCurrentAttempt())
         assertNull(toolSet.lastToolName())
-        // Terminal metadata is turn-level, preserved across attempts
-        assertEquals("run_intent", toolSet.terminalToolName())
-        // Turn sequence is preserved
+        assertNull(toolSet.terminalToolName())
         assertEquals("run_intent", toolSet.turnToolSequence())
     }
 
