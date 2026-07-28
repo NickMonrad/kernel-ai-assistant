@@ -202,7 +202,7 @@ class KernelAIToolSetTest {
     }
 
     @Test
-    fun `resetAttemptState clears attempt calls but preserves turn sequence`() {
+    fun `resetAttemptState clears attempt calls but preserves turn sequence and terminal record`() {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_intent"
         coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
@@ -217,7 +217,10 @@ class KernelAIToolSetTest {
         assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
         assertFalse(toolSet.terminalToolCalledInCurrentAttempt())
         assertNull(toolSet.lastToolName())
-        assertNull(toolSet.terminalToolName())
+        // Terminal metadata is preserved across resetAttemptState
+        assertEquals("run_intent", toolSet.terminalToolName())
+        assertTrue(toolSet.terminalToolSucceeded())
+        assertFalse(toolSet.terminalToolFailed())
         assertEquals("run_intent", toolSet.turnToolSequence())
     }
 
@@ -229,6 +232,7 @@ class KernelAIToolSetTest {
         every { registry.get("run_intent") } returns skill
 
         toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+        assertTrue(toolSet.terminalToolSucceeded())
 
         toolSet.resetTurnState()
 
@@ -236,6 +240,8 @@ class KernelAIToolSetTest {
         assertFalse(toolSet.loadSkillCalledInCurrentAttempt())
         assertNull(toolSet.lastToolName())
         assertNull(toolSet.terminalToolName())
+        assertFalse(toolSet.terminalToolSucceeded())
+        assertFalse(toolSet.terminalToolFailed())
         assertEquals("none", toolSet.attemptToolSequence())
         assertEquals("none", toolSet.turnToolSequence())
     }
@@ -252,6 +258,50 @@ class KernelAIToolSetTest {
         assertTrue(toolSet.terminalToolWasDirectReply())
         assertEquals("run_intent", toolSet.terminalToolName())
         assertEquals("Alarm set for 7 AM", toolSet.terminalToolResult())
+    }
+
+    @Test
+    fun `load_skill never populates terminal metadata`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "load_skill"
+        every { skill.description } returns "instructions"
+        coEvery { skill.execute(any()) } returns SkillResult.Success("instructions")
+        every { registry.get("load_skill") } returns skill
+
+        toolSet.loadSkill("run_intent")
+
+        assertTrue(toolSet.loadSkillCalledInCurrentAttempt())
+        assertFalse(toolSet.terminalToolCalledInCurrentAttempt())
+        assertNull(toolSet.terminalToolName())
+        assertNull(toolSet.terminalToolResult())
+        assertFalse(toolSet.terminalToolSucceeded())
+        assertFalse(toolSet.terminalToolFailed())
+    }
+
+    @Test
+    fun `terminalToolSucceeded and terminalToolFailed reflect preserved outcome across resetAttemptState`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.Failure("run_intent", "Permission denied")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+        assertTrue(toolSet.terminalToolFailed())
+        assertFalse(toolSet.terminalToolSucceeded())
+
+        toolSet.resetAttemptState()
+
+        // Outcome preserved across resetAttemptState
+        assertTrue(toolSet.terminalToolFailed())
+        assertFalse(toolSet.terminalToolSucceeded())
+        assertEquals("run_intent", toolSet.terminalToolName())
+
+        toolSet.resetTurnState()
+
+        // Cleared by resetTurnState
+        assertFalse(toolSet.terminalToolFailed())
+        assertFalse(toolSet.terminalToolSucceeded())
+        assertNull(toolSet.terminalToolName())
     }
 
 }

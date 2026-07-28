@@ -2478,16 +2478,15 @@ class ChatViewModel @Inject constructor(
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
                 suspend fun persistHonestActionFailure(thinking: String?) {
-                    val honestFailure = "I wasn't able to complete that action — please try again, or try phrasing it differently."
                     _messages.update { msgs ->
                         msgs.map {
                             if (it.id == assistantMsgId) {
-                                it.copy(content = honestFailure, isStreaming = false)
+                                it.copy(content = HONEST_ACTION_FAILURE, isStreaming = false)
                             } else it
                         }
                     }
-                    conversationRepository.addMessage(convId, "assistant", honestFailure, thinking)
-                    finalizeVoicePlaybackForResponse(honestFailure)
+                    conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
                     activeStreamingMsgId = null
                     activeStreamingContent = StringBuilder()
                     activeStreamingThinking = StringBuilder()
@@ -2544,10 +2543,7 @@ class ChatViewModel @Inject constructor(
                                 if (!incompleteChainRetryAttempted) {
                                     incompleteChainRetryAttempted = true
                                     Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
-                                    Log.d("KernelAI", "llm_tools_tool_sequence: " +
-                                        "attempt=${kernelAIToolSet.attemptToolSequence()} " +
-                                        "turn=${kernelAIToolSet.turnToolSequence()} " +
-                                        "terminal=${kernelAIToolSet.terminalToolNameOrDefault()}")
+                                    // logToolSequence already emitted llm_tools_tool_sequence above
                                     needsHallucinationRetry = true
                                     currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
                                     accumulatedContent = StringBuilder()
@@ -2639,7 +2635,7 @@ class ChatViewModel @Inject constructor(
                                     skillName = name,
                                     requestJson = request,
                                     resultText = result,
-                                    isSuccess = kernelAIToolSet.terminalToolSucceededInCurrentAttempt(),
+                                    isSuccess = kernelAIToolSet.terminalToolSucceeded(),
                                     presentation = kernelAIToolSet.terminalToolPresentation(),
                                     spokenSummary = kernelAIToolSet.terminalToolSpokenSummary()
                                         ?: kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary(),
@@ -2718,6 +2714,9 @@ class ChatViewModel @Inject constructor(
                                         rawToolCall.presentation != null &&
                                         rawToolCall.isSuccess ->
                                         rawToolCall.resultText
+                                    kernelAIToolSet.terminalToolFailed() &&
+                                        kernelAIToolSet.terminalToolName() != null ->
+                                        kernelAIToolSet.terminalToolResult()?.takeIf { it.isNotBlank() } ?: HONEST_ACTION_FAILURE
                                     nativeToolCall != null -> fullContent
                                     isSystemOnlyTool -> fallbackSystemOnlyToolReply(text)
                                     else -> toolCallResult!!.second
@@ -3660,6 +3659,13 @@ private const val INCOMPLETE_CHAIN_CORRECTION =
         "have not executed the user's requested action. Use those instructions now and call " +
         "the appropriate executable native tool. Do not merely describe or confirm the action. " +
         "After the tool returns, provide only the final user-facing result.]"
+
+/**
+ * Wording used when no executable tool was invoked or a tool result is blank.
+ * Matches the wording used in persistHonestActionFailure().
+ */
+private const val HONEST_ACTION_FAILURE =
+    "I wasn't able to complete that action — please try again, or try phrasing it differently."
 
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.

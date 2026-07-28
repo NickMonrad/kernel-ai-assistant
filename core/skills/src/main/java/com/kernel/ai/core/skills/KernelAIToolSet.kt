@@ -88,6 +88,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var terminalToolPresentation: ToolPresentation? = null
     @Volatile private var terminalToolSpokenSummary: String? = null
     @Volatile private var terminalToolWasDirectReply: Boolean = false
+    @Volatile private var terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
     fun resetTurnState() {
         toolCalledInThisTurn = false
         lastToolName = null
@@ -103,10 +104,12 @@ class KernelAIToolSet @Inject constructor(
         terminalToolPresentation = null
         terminalToolSpokenSummary = null
         terminalToolWasDirectReply = false
+        terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
         resetAttemptState()
     }
 
-    /** Clears only the current generation-attempt state. Preserves turn sequence. */
+    /** Clears only the current generation-attempt state.
+     * Preserves turn sequence and the latest terminal executable record. */
     fun resetAttemptState() {
         attemptToolNames.clear()
         attemptLoadSkillCalled = false
@@ -119,12 +122,10 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
-        terminalToolName = null
-        terminalToolRequest = null
-        terminalToolResult = null
-        terminalToolPresentation = null
-        terminalToolSpokenSummary = null
-        terminalToolWasDirectReply = false
+        // Preserve terminalToolName, terminalToolRequest, terminalToolResult,
+        // terminalToolPresentation, terminalToolSpokenSummary, terminalToolWasDirectReply,
+        // terminalToolOutcome — these represent the turn's latest executable tool.
+        // Cleared only in resetTurnState().
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
@@ -173,6 +174,12 @@ class KernelAIToolSet @Inject constructor(
     /** True when the last terminal tool was a DirectReply. */
     fun terminalToolWasDirectReply(): Boolean = terminalToolWasDirectReply
 
+    /** Whether the turn's terminal executable tool succeeded. Turn-level (survives retry). */
+    fun terminalToolSucceeded(): Boolean = terminalToolOutcome.isSuccess()
+
+    /** Whether the turn's terminal executable tool failed. Turn-level (survives retry). */
+    fun terminalToolFailed(): Boolean = terminalToolOutcome.isFailure()
+
     fun attemptToolSequence(): String = buildString {
         if (attemptToolNames.isEmpty()) { append("none"); return@buildString }
         attemptToolNames.joinTo(this, ">")
@@ -217,7 +224,9 @@ class KernelAIToolSet @Inject constructor(
         }
     }
 
-    /** After executeSkill returns, copies result metadata into terminal fields. */
+    /** After executeSkill returns, copies result metadata into terminal fields.
+     * Only copies for non-load_skill tools. Also preserves the attempt-level outcome
+     * so the turn-level outcome survives resetAttemptState(). */
     private fun captureTerminalResult(name: String) {
         if (name != LOAD_SKILL_NAME) {
             terminalToolName = lastToolName
@@ -226,6 +235,7 @@ class KernelAIToolSet @Inject constructor(
             terminalToolPresentation = lastToolPresentation
             terminalToolSpokenSummary = lastToolSpokenSummary
             terminalToolWasDirectReply = lastToolWasDirectReply
+            terminalToolOutcome = attemptTerminalToolOutcome
         }
     }
 
