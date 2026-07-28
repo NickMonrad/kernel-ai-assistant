@@ -2473,13 +2473,28 @@ class ChatViewModel @Inject constructor(
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
                 var blankResponseRetryAttempted = false
+                var incompleteChainRetryAttempted = false
                 var preservedThinkingText: String? = null
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
+                suspend fun persistHonestActionFailure(thinking: String?) {
+                    _messages.update { msgs ->
+                        msgs.map {
+                            if (it.id == assistantMsgId) {
+                                it.copy(content = HONEST_ACTION_FAILURE, isStreaming = false)
+                            } else it
+                        }
+                    }
+                    conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
+                    activeStreamingMsgId = null
+                    activeStreamingContent = StringBuilder()
+                    activeStreamingThinking = StringBuilder()
+                }
 
             do {
                 needsHallucinationRetry = false
-
+                kernelAIToolSet.resetAttemptState()
             inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
@@ -2508,8 +2523,58 @@ class ChatViewModel @Inject constructor(
                       is GenerationResult.Complete -> {
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
-                           ?: preservedThinkingText
+                                ?: preservedThinkingText
+                            kernelAIToolSet.logToolSequence()
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
+                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.w("KernelAI", "load_skill_failed")
+                                persistHonestActionFailure(thinking)
+                                return@collect
+                            }
+                            // Incomplete tool-chain check: load_skill was called but no terminal
+                            // executable tool followed. This must be detected before the generic
+                            // blank guard, hallucination retry, or native tool call path.
+                            if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                if (!incompleteChainRetryAttempted) {
+                                    incompleteChainRetryAttempted = true
+                                    Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
+                                    // logToolSequence already emitted llm_tools_tool_sequence above
+                                    needsHallucinationRetry = true
+                                    currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
+                                    accumulatedContent = StringBuilder()
+                                    accumulatedThinking = StringBuilder()
+                                    activeStreamingContent = accumulatedContent
+                                    activeStreamingThinking = accumulatedThinking
+                                    if (thinking != null) preservedThinkingText = thinking
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                    }
+                                    return@collect
+                                } else {
+                                    // Continuation failed — even after the targeted prompt, the model
+                                    // still didn't call an executable tool. Show honest failure.
+                                    Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                                    persistHonestActionFailure(thinking)
+                                    needsHallucinationRetry = false
+                                    return@collect
+                                }
+                            }
+
+                            // After the incomplete-chain retry was attempted and the result still
+                            // has no terminal tool, fail honestly — skip all other retry guards.
+                            if (incompleteChainRetryAttempted &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                                persistHonestActionFailure(thinking)
+                                needsHallucinationRetry = false
+                                return@collect
+                            }
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
                             // generates an immediate EOS — often triggered by an unusual RAG injection
@@ -2563,20 +2628,24 @@ class ChatViewModel @Inject constructor(
                             // transparently during generate() — the SDK calls our @Tool
                             // methods and feeds results back to the model. Check if any
                             // tool was invoked this turn for UI metadata.
-                            val nativeToolCall = if (kernelAIToolSet.wasToolCalled()) {
-                                val name = kernelAIToolSet.lastToolName() ?: "unknown"
-                                val request = kernelAIToolSet.lastToolRequest() ?: ""
-                                val result = kernelAIToolSet.lastToolResult() ?: ""
+                            val nativeToolCall = kernelAIToolSet.terminalToolName()?.let { name ->
+                                val request = kernelAIToolSet.terminalToolRequest() ?: ""
+                                val result = kernelAIToolSet.terminalToolResult() ?: ""
                                 ToolCallInfo(
                                     skillName = name,
                                     requestJson = request,
                                     resultText = result,
-                                    isSuccess = !result.startsWith("error"),
-                                    presentation = kernelAIToolSet.lastToolPresentation(),
-                                    spokenSummary = kernelAIToolSet.lastToolSpokenSummary()
-                                        ?: kernelAIToolSet.lastToolPresentation()?.toSpokenSummary(),
+                                    isSuccess = kernelAIToolSet.terminalToolSucceeded(),
+                                    presentation = kernelAIToolSet.terminalToolPresentation(),
+                                    spokenSummary = kernelAIToolSet.terminalToolSpokenSummary()
+                                        ?: kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary(),
                                 )
-                            } else null
+                            }
+                            if (incompleteChainRetryAttempted &&
+                                kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.d("KernelAI", "incomplete_tool_chain_retry_succeeded")
+                            }
                             // E2E marker: native SDK tool call
                             if (nativeToolCall != null) {
                                 Log.d(
@@ -2586,7 +2655,7 @@ class ChatViewModel @Inject constructor(
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
                                 !nativeToolCall.isSuccess -> "failure"
-                                kernelAIToolSet.lastToolWasDirectReply() -> "direct_reply"
+                                kernelAIToolSet.terminalToolWasDirectReply() -> "direct_reply"
                                 else -> "success"
                             }
                             Log.d(
@@ -2607,7 +2676,7 @@ class ChatViewModel @Inject constructor(
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
-                                    nativeToolCall != null && kernelAIToolSet.lastToolWasDirectReply()
+                                    nativeToolCall != null && kernelAIToolSet.terminalToolWasDirectReply()
                                 val isSystemOnlyTool = rawToolCall.isSuccess && isSystemOnlyToolCall(rawToolCall.skillName)
                                 val leakedSystemToolContent = isSystemOnlyTool && looksLikeRawToolCall(fullContent)
                                 if (leakedSystemToolContent) {
@@ -2645,6 +2714,9 @@ class ChatViewModel @Inject constructor(
                                         rawToolCall.presentation != null &&
                                         rawToolCall.isSuccess ->
                                         rawToolCall.resultText
+                                    kernelAIToolSet.terminalToolFailed() &&
+                                        kernelAIToolSet.terminalToolName() != null ->
+                                        kernelAIToolSet.terminalToolResult()?.takeIf { it.isNotBlank() } ?: HONEST_ACTION_FAILURE
                                     nativeToolCall != null -> fullContent
                                     isSystemOnlyTool -> fallbackSystemOnlyToolReply(text)
                                     else -> toolCallResult!!.second
@@ -3576,6 +3648,24 @@ private const val SYSTEM_ONLY_TOOL_RETRY_CORRECTION =
     "[System: You already loaded internal tool instructions. Do NOT quote, summarise, or paste " +
         "those instructions into chat. Use them silently and answer the user's original request " +
         "in natural language only.]"
+
+/**
+ * Correction for an incomplete tool chain: load_skill was called but no executable
+ * tool followed. The model needs to use the loaded instructions and call the
+ * appropriate native tool, not merely describe or confirm the action.
+ */
+private const val INCOMPLETE_CHAIN_CORRECTION =
+    "[System: You successfully loaded the required internal tool instructions, but you " +
+        "have not executed the user's requested action. Use those instructions now and call " +
+        "the appropriate executable native tool. Do not merely describe or confirm the action. " +
+        "After the tool returns, provide only the final user-facing result.]"
+
+/**
+ * Wording used when no executable tool was invoked or a tool result is blank.
+ * Matches the wording used in persistHonestActionFailure().
+ */
+private const val HONEST_ACTION_FAILURE =
+    "I wasn't able to complete that action — please try again, or try phrasing it differently."
 
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.

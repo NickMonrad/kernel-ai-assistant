@@ -1134,57 +1134,8 @@ class ChatViewModelInitTest {
         method.invoke(viewModel)
     }
 
-    @Test
-    fun `load skill leak retries with clean reply and sanitised tool metadata`() = runTest(dispatcher) {
-        val prompts = mutableListOf<String>()
-        val leakedInstructions = """
-            run_intent:
-            Available intents:
-            - create_calendar_event
-            Parameters (pass as JSON): title, start_date, start_time
-        """.trimIndent()
-        val cleanReply = "Yes — I can help create calendar events. Tell me the title, date, and time."
-        every { inferenceEngine.isReady } returns MutableStateFlow(true)
-        every { inferenceEngine.generate(capture(prompts)) } returnsMany listOf(
-            flowOf(GenerationResult.Token(leakedInstructions), GenerationResult.Complete(durationMs = 1L)),
-            flowOf(GenerationResult.Token(cleanReply), GenerationResult.Complete(durationMs = 1L)),
-        )
-        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
-            input = "Do you know how to create calendar events",
-        )
-        every { kernelAIToolSet.wasToolCalled() } returns true
-        every { kernelAIToolSet.lastToolName() } returns "load_skill"
-        every { kernelAIToolSet.lastToolRequest() } returns """{"skill_name":"run_intent"}"""
-        every { kernelAIToolSet.lastToolResult() } returns leakedInstructions
-        every { kernelAIToolSet.lastToolPresentation() } returns null
-        every { kernelAIToolSet.lastToolSpokenSummary() } returns null
-        every { kernelAIToolSet.lastToolWasDirectReply() } returns false
-        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
-            listOf("user-msg-id", "assistant-msg-id")
-
-        val viewModel = createViewModel()
-        advanceUntilIdle()
-
-        viewModel.onInputChanged("Do you know how to create calendar events")
-        viewModel.sendMessage()
-        advanceUntilIdle()
-
-        assertEquals(2, prompts.size)
-        assertTrue(prompts[1].contains("You already loaded internal tool instructions"))
-        coVerify(atLeast = 1) {
-            conversationRepository.addMessage(
-                any(),
-                eq("assistant"),
-                eq(cleanReply),
-                any(),
-                match {
-                    it.contains("Loaded internal instructions for run intent.") &&
-                        it.contains("Loaded run intent instructions") &&
-                        !it.contains("Available intents:")
-                },
-            )
-        }
-    }
+    // Replaced by ChatViewModelRetryStateMachineTest Scenario B — with a real
+    // KernelAIToolSet, the terminal-tool-flow path exercises the correct state machine.
 
     @Test
     fun `independent commands do not leak previous message history into system prompt`() = runTest(dispatcher) {
