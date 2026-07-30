@@ -29,10 +29,11 @@ class SaveMemorySkill @Inject constructor(
 
     override val name = "save_memory"
     override val description =
-        "Saves an important fact or preference to the user's long-term core memory " +
-            "for future conversations. Use when the user says 'remember', 'save', " +
-            "'note that', 'don't forget', 'keep that in mind', 'store this', " +
-            "or asks you to save something. Always call this tool — never just say you saved it."
+        "Saves an important fact or preference about the user to long-term core memory " +
+            "for future conversations. Use when the user wants to store a personal fact or preference " +
+            "(e.g. 'remember that Sarah is vegetarian', 'note that I like dark mode'). " +
+            "NOT for scheduling, calendar events, alarms, timers, or device actions " +
+            "— use run_intent for those. Always call this tool — never just say you saved it."
     override val schema = SkillSchema(
         parameters = mapOf(
             "content" to SkillParameter(

@@ -815,7 +815,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun buildToolUsePrompt(): String {
+    internal fun buildToolUsePrompt(): String {
         val skillNames = skillRegistry.buildNativeDeclarations()
         if (skillNames.isBlank()) return ""
         return buildString {
@@ -831,7 +831,17 @@ class ChatViewModel @Inject constructor(
             append("2. Call that tool directly when its name and parameters are clear from the request.\n")
             append("3. If you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
             append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
-            append("5. Output ONLY the final user-facing result when successful.\n\n")
+            append("5. Output ONLY the final user-facing result when successful.\n")
+            append("6. CRITICAL — Action requests MUST use run_intent: When the user asks you to PERFORM a device action\n")
+            append("   (create a calendar event, play music, toggle a setting, open an app, set an alarm or timer,\n")
+            append("   send a message, navigate somewhere, calculate something), use run_intent. Do NOT respond\n")
+            append("   with informational tools (get_system_info, query_wikipedia) or memory tools (save_memory).\n")
+            append("   Execute the action — do not explain or summarise it.\n")
+            append("7. Calendar and scheduling: requests with date/time details (Friday, 7pm, next week) route to\n")
+            append("   run_intent(create_calendar_event), NOT save_memory. The word 'keep' in scheduling\n")
+            append("   context ('keep Friday free', 'keep the evening open') means RESERVE TIME, not remember a fact.\n")
+            append("8. Memory vs action: personal facts ('remember that Sarah is vegetarian') → save_memory.\n")
+            append("   Device operations with time/date context → run_intent.\n\n")
             append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
