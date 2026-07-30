@@ -762,6 +762,10 @@ class NativeIntentHandler @Inject constructor(
         if (durationMinutes <= 0) {
             return SkillResult.Failure("run_intent", "duration_minutes must be greater than 0 (received: $durationMinutes).")
         }
+        // Reject clearly invalid timed-event durations (> 24 hours for an event with a time)
+        if (durationMinutes > 1440) {
+            return SkillResult.Failure("run_intent", "duration_minutes seems too large for a timed event (received: $durationMinutes). Expected at most 1440 (24 hours).")
+        }
         val zone = ZoneId.systemDefault()
 
         var resolvedTimeLabel: String? = null

@@ -841,7 +841,7 @@ class ChatViewModel @Inject constructor(
             append("   or otherwise create a calendar entry. Date/time words alone do NOT make a request\n")
             append("   a calendar action. Use run_intent(create_calendar_event) only for calendar entries.\n")
             append("   Parameters: title (required), date (use relative phrases like \"next friday\" as-is),\n")
-            append("   time (use HH:MM 24h format, e.g. 19:00), duration_minutes (optional, default 60).\n")
+            append("   time (use HH:MM 24h format, e.g. 19:00), duration_minutes (integer minutes from start to end, e.g. 60 for 19:00\u201320:00).\n")
             append("   Alarms, timers, reminders, and date/time queries retain their existing intents.\n")
             append("   The word 'keep' in scheduling context ('keep Friday free', 'keep the evening open')\n")
             append("   means RESERVE TIME, not remember a fact.\n")
