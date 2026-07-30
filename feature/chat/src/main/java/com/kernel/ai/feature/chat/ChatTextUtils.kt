@@ -584,8 +584,10 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
         // Kiwi/casual action verbs — "I've flicked the flashlight on", "flicked it on"
         "i've flicked", "i have flicked", "flicked it on", "flicked it off",
         "switched on", "switched off",
-        // Calendar/diary hallucinations — "I've put that in the diary", "put it on your calendar"
-        "i've put", "i have put", "put that in", "put it on your",
+        // Calendar/diary hallucinations — specific phrases only, not generic "put that in"
+        "i've put that in the diary", "i have put that in the diary",
+        "i've put it in your calendar", "i have put it in your calendar",
+        "put that in your calendar", "put it on your calendar",
         // Torch/light state claims — "the light's on", "flashlight is on", etc.
         "the light's on", "the light's off", "lights are on", "lights are off",
         "torch is on", "torch is off", "flashlight is on", "flashlight is off",

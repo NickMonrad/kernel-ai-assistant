@@ -198,13 +198,15 @@ class ChatViewModelToolUsePromptTest {
     @Test
     fun `buildToolUsePrompt contains calendar scheduling rule`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("route to") && p.contains("run_intent(create_calendar_event)"), "Missing calendar rule\n$p")
+        assertTrue(p.contains("Use run_intent(create_calendar_event)"), "Missing calendar rule\n$p")
+        assertTrue(p.contains("reserve") || p.contains("block") || p.contains("schedule"), "Missing reservation language\n$p")
     }
 
     @Test
-    fun `buildToolUsePrompt says NOT save_memory for calendar`() {
+    fun `buildToolUsePrompt says date time words alone not calendar`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("NOT save_memory"), "Missing save_memory exclusion\n$p")
+        assertTrue(p.contains("Date/time words alone") || p.contains("do NOT make a request a calendar action"),
+            "Missing date/time narrowing\n$p")
     }
 
     @Test
@@ -229,5 +231,28 @@ class ChatViewModelToolUsePromptTest {
     fun `buildToolUsePrompt addresses load_skill to executable tool path`() {
         val p = createViewModel().buildToolUsePrompt()
         assertTrue(p.contains("load_skill first") || p.contains("load_skill results"), "Missing load_skill guidance\n$p")
+    }
+
+    @Test
+    fun `calendar rule says reservation blocking booking scheduling time creates event`() {
+        val p = createViewModel().buildToolUsePrompt()
+        assertTrue(p.contains("reserve") || p.contains("block") || p.contains("book") || p.contains("schedule"),
+            "Calendar rule must mention reserving/blocking/booking/scheduling time\n$p")
+    }
+
+    @Test
+    fun `calendar rule says date time words alone do not make calendar action`() {
+        val p = createViewModel().buildToolUsePrompt()
+        assertTrue(p.contains("Date/time words alone") || p.contains("do NOT make a request a calendar action"),
+            "Calendar rule must clarify date/time words alone are not sufficient\n$p")
+    }
+
+    @Test
+    fun `calendar rule says alarms timers reminders retain their intents`() {
+        val p = createViewModel().buildToolUsePrompt()
+        val hasAlarmsTimers = p.contains("Alarms") && p.contains("timers") && p.contains("reminders")
+        val hasRetain = p.contains("retain their existing intents") || p.contains("retain their existing")
+        assertTrue(hasAlarmsTimers && hasRetain,
+            "Calendar rule must clarify alarms/timers/reminders retain their intents\n$p")
     }
 }

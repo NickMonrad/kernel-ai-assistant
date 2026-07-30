@@ -108,6 +108,7 @@ class RunIntentSkill @Inject constructor(
         "Set alarm 9pm called dinner → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"9pm\",\"label\":\"dinner\"}')",
         "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
         "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
+        "Calendar event with relative date and duration → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner with Sarah\",\"date\":\"next friday\",\"time\":\"19:00\",\"duration_minutes\":\"60\"}')",
         "Calendar event (explicit date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
         "Calendar event (relative date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Cancel MightyApe\",\"date\":\"next thursday\",\"time\":\"16:00\"}')",
         "Calendar with attendees → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner\",\"date\":\"friday\",\"time\":\"19:00\",\"attendees\":\"Sarah,John\"}')",
@@ -230,10 +231,10 @@ class RunIntentSkill @Inject constructor(
         appendLine("Calendar rule: 'add calendar entry', 'create calendar event', 'add event',")
         appendLine("'schedule [topic] on [date]', 'set up a meeting', 'block time on my calendar',")
         appendLine("'put [X] in my calendar' → runIntent with intentName=create_calendar_event.")
-        appendLine("Pass relative dates as-is ONLY for these supported forms: \"tomorrow\", \"next <weekday>\", \"this <weekday>\".")
-        appendLine("Note: 'this <weekday>' resolves to today if today is that day, otherwise next occurrence.")
-        appendLine("For anything else (e.g. 'the day after tomorrow', 'next week'), convert to YYYY-MM-DD.")
-        appendLine("Only use YYYY-MM-DD if the user stated an explicit date or an unsupported relative form. Pass time as HH:MM (24h).")
+        appendLine("Parameters: title (required), date (use relative phrases like \"next friday\", \"tomorrow\", \"this thursday\" as-is),")
+        appendLine("time (use HH:MM 24h format), duration_minutes (optional, default 60 if not specified).")
+        appendLine("Pass relative dates as-is. Do NOT convert relative dates like \"next friday\" to YYYY-MM-DD.")
+        appendLine("Example: create_calendar_event title=\"Dinner with Sarah\" date=\"next friday\" time=19:00 duration_minutes=60")
         appendLine("CRITICAL: NEVER say 'I've put that in the diary', 'I've added it to your calendar', ")
         appendLine("or any similar confirmation without calling runIntent(create_calendar_event) first. ")
         appendLine("You MUST call the tool — do NOT confirm the event was created without the tool having been called. ")

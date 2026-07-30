@@ -515,6 +515,12 @@ class ChatTextUtilsTest {
                 "Created a new todo list.",
                 "Turned on wifi for you.",
                 "Turned off bluetooth.",
+                // Calendar-specific (#1428 finding 3)
+                "I've put that in the diary for you.",
+                "I have put that in the diary.",
+                "I've put it on your calendar.",
+                "I have put it in your calendar.",
+                "Put that in your calendar for you.",
             ],
         )
         fun `returns true for hallucinated confirmations`(response: String) {
@@ -532,6 +538,12 @@ class ChatTextUtilsTest {
                 "Let me think about that.",
                 "Here's what I found:",
                 "The weather is sunny today.",
+                // Calendar false positives — Must NOT match (#1428 finding 3)
+                "I've put together the comparison below.",
+                "Put that in context with the earlier result.",
+                "I've put a lot of thought into this.",
+                "I've put the documents in the folder.",
+                "Put it on the table.",
             ],
         )
         fun `returns false for normal responses`(response: String) {

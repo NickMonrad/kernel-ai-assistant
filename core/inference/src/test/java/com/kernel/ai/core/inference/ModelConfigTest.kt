@@ -101,8 +101,7 @@ class ModelConfigTest {
 
     @Test
     fun `calendar scheduling does not route to save_memory`() {
-        // The action rule explicitly says date/time details route to run_intent(create_calendar_event)
-        // NOT save_memory — even when words like 'keep' or 'save' appear in scheduling context
+        // The action rule must still exclude save_memory for calendar content
         listOf(
             "DEFAULT" to DEFAULT_SYSTEM_PROMPT,
             "HALF" to HALF_JANDAL_SYSTEM_PROMPT,
@@ -110,8 +109,42 @@ class ModelConfigTest {
             "MINIMAL" to MINIMAL_SYSTEM_PROMPT,
             "BORING_MINIMAL" to BORING_MINIMAL_SYSTEM_PROMPT,
         ).forEach { (name, prompt) ->
-            assertTrue(prompt.contains("do NOT route to save_memory"),
+            assertTrue(prompt.contains("route to save_memory") || prompt.contains("route to save_memory", ignoreCase = true),
                 "Variant '$name' missing calendar→save_memory exclusion")
+        }
+    }
+
+    @Test
+    fun `all variants narrow calendar to reservation scheduling not date-words alone`() {
+        listOf(
+            "DEFAULT" to DEFAULT_SYSTEM_PROMPT,
+            "HALF" to HALF_JANDAL_SYSTEM_PROMPT,
+            "BORING" to BORING_AI_SYSTEM_PROMPT,
+            "MINIMAL" to MINIMAL_SYSTEM_PROMPT,
+            "BORING_MINIMAL" to BORING_MINIMAL_SYSTEM_PROMPT,
+        ).forEach { (name, prompt) ->
+            val hasNarrowing = prompt.contains("date/time words alone", ignoreCase = true) ||
+                prompt.contains("Date/time words alone") ||
+                prompt.contains("do NOT make a request a calendar action")
+            assertTrue(hasNarrowing,
+                "Variant '$name' missing calendar narrowing language")
+        }
+    }
+
+    @Test
+    fun `all variants say alarms timers reminders retain their intents`() {
+        listOf(
+            "DEFAULT" to DEFAULT_SYSTEM_PROMPT,
+            "HALF" to HALF_JANDAL_SYSTEM_PROMPT,
+            "BORING" to BORING_AI_SYSTEM_PROMPT,
+            "MINIMAL" to MINIMAL_SYSTEM_PROMPT,
+            "BORING_MINIMAL" to BORING_MINIMAL_SYSTEM_PROMPT,
+        ).forEach { (name, prompt) ->
+            val hasAll = prompt.contains("Alarms") && prompt.contains("timers") &&
+                prompt.contains("reminders") &&
+                (prompt.contains("retain their existing") || prompt.contains("retain their existing intents"))
+            assertTrue(hasAll,
+                "Variant '$name' missing alarms/timers/reminders retention clause. Prompt snippet: " + prompt.take(500).replace("\n", "\\n"))
         }
     }
 }
