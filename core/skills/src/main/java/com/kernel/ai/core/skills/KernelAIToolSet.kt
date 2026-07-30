@@ -277,7 +277,7 @@ class KernelAIToolSet @Inject constructor(
     @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles. NOT for weather, web search, or memory — use other tools for those. Call run_intent directly when the required intent name and parameters are clear. Call load_skill(\"run_intent\") only when the supported intent name or required parameters are unclear.")
     fun runIntent(
         @ToolParam(description = "The intent action name. Call run_intent directly when the intent is known (e.g. 'set_alarm', 'create_calendar_event', 'send_sms'). Only call load_skill first when unsure which intent or parameters to use.") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. Provide parameters directly when known; call load_skill only when required parameters are unclear.") parameters: String,
+        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes. For other intents, call load_skill to learn parameter names.") parameters: String,
     ): Map<String, String> {
         recordToolCall("run_intent", """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}""")
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")

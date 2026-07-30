@@ -602,6 +602,14 @@ class ChatTextUtilsTest {
                 "plan meals vegetarian",
                 "plan a meal",
                 "sort dinners for this week",
+                // Media-listening patterns (#1428 finding 1)
+                "I want the entire Rumours record by Fleetwood Mac from beginning to end",
+                "I want to listen to Rumours by Fleetwood Mac",
+                "I'd like to hear the whole album",
+                "Put on the new Lorde record",
+                "Can I listen to Fleetwood Mac",
+                "I want to hear some music",
+                "I would like to listen to something",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -616,6 +624,11 @@ class ChatTextUtilsTest {
                 "write me a poem",
                 "how do I cook pasta",
                 "what is the meaning of life",
+                // Media-informational queries — must NOT match as tool queries (#1428)
+                "Tell me about the album Rumours",
+                "Who produced Rumours",
+                "What year did Rumours come out",
+                "What are the lyrics to Dreams",
             ],
         )
         fun `returns false for non-tool queries`(query: String) {
@@ -703,7 +716,9 @@ class ChatTextUtilsTest {
         @Test
         fun `non tool instruction softly prefers reasoning`() {
             assertEquals(
-                "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
+                "This looks like a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning " +
+                    "when no action or external information is requested. If the user asks you to perform a supported " +
+                    "device action, use the appropriate tool.",
                 nonToolTurnInstruction(),
             )
         }
