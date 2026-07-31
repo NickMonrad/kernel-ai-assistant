@@ -105,7 +105,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 @Composable
 fun VoiceScreen(
     onBack: () -> Unit,
-    onNavigateToModelManagement: () -> Unit = {},
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -249,7 +248,6 @@ fun VoiceScreen(
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
-        onNavigateToModelManagement = onNavigateToModelManagement,
         onDownloadSherpaStt = viewModel::downloadSherpaStt,
         onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
@@ -406,7 +404,6 @@ private fun VoiceScreenContent(
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
-    onNavigateToModelManagement: () -> Unit,
     onDownloadSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
@@ -992,12 +989,6 @@ private fun VoiceScreenContent(
                         }
                     }
                 }
-                TextButton(
-                    onClick = onNavigateToModelManagement,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                ) {
-                    Text("Manage voice models")
-                }
             }
 
             if (uiState.selectedOutputEngine == VoiceOutputEngine.KokoroExperimental) {
@@ -1132,12 +1123,6 @@ private fun VoiceScreenContent(
                             onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
                         )
                     }
-                }
-                TextButton(
-                    onClick = onNavigateToModelManagement,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                ) {
-                    Text("Manage voice models")
                 }
             }
 
@@ -1608,7 +1593,6 @@ private fun VoiceScreenPreview() {
             onActiveSpeakerIdChanged = {},
             onKokoroVoiceSelected = {},
             onKokoroActiveSpeakerIdChanged = {},
-            onNavigateToModelManagement = {},
         )
     }
 }
