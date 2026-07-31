@@ -429,6 +429,17 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "what time", "what's the time", "battery", "get battery",
         "system info", "device info",
         "meal plan", "plan my meals", "meal planner", "plan meals",
+        // Media-listening intent — indirect playback requests without the verb "play"
+        // Matches "I want to listen to...", "I want the entire...record by...",
+        // "I'd like to hear/listen...", "put on...", "can I listen to..." but NOT
+        // informational queries like "tell me about" or "what are the lyrics".
+        "\\bwant\\s+to\\s+listen\\s+to\\b",
+        "\\bwant\\s+(?:the\\s+)?entire\\s+.+\\brecord\\b",
+        "\\bput\\s+on\\b",
+        "\\bcan\\s+(?:i|we|you)\\s+listen\\s+to\\b",
+        "\\b(?:'d|would)\\s+like\\s+to\\s+(?:hear|listen\\s+to)\\b",
+        "\\bwant\\s+to\\s+hear\\b",
+        "\\bwant\\s+some\\s+music\\b",
     )
     return toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {
@@ -555,8 +566,9 @@ internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
     }
 
 internal fun nonToolTurnInstruction(): String =
-"This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. " +
-        "Only call tools if the user is clearly asking for current, external, or retrieved information."
+"This looks like a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning " +
+        "when no action or external information is requested. If the user asks you to perform a supported " +
+        "device action, use the appropriate tool."
 
 /**
  * Returns true if [response] looks like the model confirmed a tool action without
@@ -584,6 +596,10 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
         // Kiwi/casual action verbs — "I've flicked the flashlight on", "flicked it on"
         "i've flicked", "i have flicked", "flicked it on", "flicked it off",
         "switched on", "switched off",
+        // Calendar/diary hallucinations — specific phrases only, not generic "put that in"
+        "i've put that in the diary", "i have put that in the diary",
+        "i've put it in your calendar", "i have put it in your calendar",
+        "put that in your calendar", "put it on your calendar",
         // Torch/light state claims — "the light's on", "flashlight is on", etc.
         "the light's on", "the light's off", "lights are on", "lights are off",
         "torch is on", "torch is off", "flashlight is on", "flashlight is off",

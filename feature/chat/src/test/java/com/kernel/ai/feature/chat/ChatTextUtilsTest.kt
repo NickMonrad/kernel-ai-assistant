@@ -515,6 +515,12 @@ class ChatTextUtilsTest {
                 "Created a new todo list.",
                 "Turned on wifi for you.",
                 "Turned off bluetooth.",
+                // Calendar-specific (#1428 finding 3)
+                "I've put that in the diary for you.",
+                "I have put that in the diary.",
+                "I've put it on your calendar.",
+                "I have put it in your calendar.",
+                "Put that in your calendar for you.",
             ],
         )
         fun `returns true for hallucinated confirmations`(response: String) {
@@ -532,6 +538,12 @@ class ChatTextUtilsTest {
                 "Let me think about that.",
                 "Here's what I found:",
                 "The weather is sunny today.",
+                // Calendar false positives — Must NOT match (#1428 finding 3)
+                "I've put together the comparison below.",
+                "Put that in context with the earlier result.",
+                "I've put a lot of thought into this.",
+                "I've put the documents in the folder.",
+                "Put it on the table.",
             ],
         )
         fun `returns false for normal responses`(response: String) {
@@ -590,6 +602,14 @@ class ChatTextUtilsTest {
                 "plan meals vegetarian",
                 "plan a meal",
                 "sort dinners for this week",
+                // Media-listening patterns (#1428 finding 1)
+                "I want the entire Rumours record by Fleetwood Mac from beginning to end",
+                "I want to listen to Rumours by Fleetwood Mac",
+                "I'd like to hear the whole album",
+                "Put on the new Lorde record",
+                "Can I listen to Fleetwood Mac",
+                "I want to hear some music",
+                "I would like to listen to something",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -604,6 +624,11 @@ class ChatTextUtilsTest {
                 "write me a poem",
                 "how do I cook pasta",
                 "what is the meaning of life",
+                // Media-informational queries — must NOT match as tool queries (#1428)
+                "Tell me about the album Rumours",
+                "Who produced Rumours",
+                "What year did Rumours come out",
+                "What are the lyrics to Dreams",
             ],
         )
         fun `returns false for non-tool queries`(query: String) {
@@ -691,7 +716,9 @@ class ChatTextUtilsTest {
         @Test
         fun `non tool instruction softly prefers reasoning`() {
             assertEquals(
-                "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
+                "This looks like a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning " +
+                    "when no action or external information is requested. If the user asks you to perform a supported " +
+                    "device action, use the appropriate tool.",
                 nonToolTurnInstruction(),
             )
         }

@@ -815,7 +815,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun buildToolUsePrompt(): String {
+    internal fun buildToolUsePrompt(): String {
         val skillNames = skillRegistry.buildNativeDeclarations()
         if (skillNames.isBlank()) return ""
         return buildString {
@@ -831,7 +831,33 @@ class ChatViewModel @Inject constructor(
             append("2. Call that tool directly when its name and parameters are clear from the request.\n")
             append("3. If you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
             append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
-            append("5. Output ONLY the final user-facing result when successful.\n\n")
+            append("5. Output ONLY the final user-facing result when successful.\n")
+            append("6. CRITICAL — Action requests MUST use run_intent: When the user asks you to PERFORM a device action\n")
+            append("   (create a calendar event, play music, toggle a setting, open an app, set an alarm or timer,\n")
+            append("   send a message, navigate somewhere, calculate something), use run_intent. Do NOT respond\n")
+            append("   with informational tools (get_system_info, query_wikipedia) or memory tools (save_memory).\n")
+            append("   Execute the action — do not explain or summarise it.\n")
+            append("7. Calendar creation applies when the user asks to reserve, block, book, or schedule time,\n")
+            append("   or otherwise create a calendar entry. Date/time words alone do NOT make a request\n")
+            append("   a calendar action. Use run_intent(create_calendar_event) only for calendar entries.\n")
+            append("   Parameters: title (required), date (use relative phrases like \"next friday\" as-is),\n")
+            append("   time (use HH:MM 24h format, e.g. 19:00), duration_minutes (integer minutes from start to end, e.g. 60 for 19:00\u201320:00).\n")
+            append("   Alarms, timers, reminders, and date/time queries retain their existing intents.\n")
+            append("   The word 'keep' in scheduling context ('keep Friday free', 'keep the evening open')\n")
+            append("   means RESERVE TIME, not remember a fact.\n")
+            append("8. Memory vs action: personal facts ('remember that Sarah is vegetarian') \u2192 save_memory.\n")
+            append("   Device operations with time/date context \u2192 run_intent.\n")
+            append("9. CRITICAL — Indirect action requests: even if the user does not use imperative language\n")
+            append("   ('open X', 'do Y'), if they mention wanting a specific app, function, or device capability\n")
+            append("   (calculator, hotspot, flashlight, timer, specific app name), treat it as an action request\n")
+            append("   and use run_intent. Do NOT say 'I don't have that tool' or 'I can't do that' \u2014\n")
+            append("   use run_intent(open_app, app_name=...) to launch apps, or the appropriate run_intent.\n")
+            append("10. CRITICAL — Music and media playback: if the user asks about, wants to hear, or mentions\n")
+            append("    a specific song, album, or artist by name, use run_intent with the appropriate media\n")
+            append("    intent (play_media for songs, play_media_album for albums, play_media_playlist for\n")
+            append("    playlists, play_youtube for YouTube). Do NOT provide lyrics, album information, or\n")
+            append("    Wikipedia summaries instead of playing the music. Requests like 'I want the entire\n")
+            append("    [album] record' or '[song] by [artist]' are media playback requests.\n")
             append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
