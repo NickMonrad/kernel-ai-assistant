@@ -84,7 +84,6 @@
 - Not-downloaded voices show `Not available` badge, radio button disabled
 - Downloading voices show `Preparing` badge with progress
 - `ModelCardCompact` has NO action buttons (consistent with design)
-- "Manage voice models" `TextButton` at bottom of each section navigates to Model Management
 
 ---
 
@@ -184,11 +183,10 @@
 **Steps:**
 1. From Chat onboarding → tap "Manage models" → verify navigation
 2. From Settings → tap "Model availability" row → verify navigation
-3. From Voice screen → tap "Manage voice models" → verify navigation
-4. Press back from Model Management → verify correct return screen
+3. Press back from Model Management → verify correct return screen
 
 **Expected:**
-- All three entry points navigate to Model Management
+- Both entry points navigate to Model Management
 - Back navigation returns to the correct previous screen
 - No double-navigation or crash
 

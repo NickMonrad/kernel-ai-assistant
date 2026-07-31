@@ -700,9 +700,6 @@ fun KernelNavHost(
                 composable(ROUTE_VOICE) {
                     VoiceScreen(
                         onBack = { navController.popBackOrNavigateHome() },
-                        onNavigateToModelManagement = {
-                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
-                        },
                     )
                 }
 
