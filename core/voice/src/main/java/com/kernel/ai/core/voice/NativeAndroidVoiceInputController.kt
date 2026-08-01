@@ -28,6 +28,15 @@ private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 
 /**
+ * Settle delay between destroying a dead recognizer and creating its replacement in
+ * the #1433 in-place no-speech refresh.  A back-to-back destroy() -> create() against
+ * the platform recognition service intermittently makes the new instance die
+ * immediately with ERROR_CLIENT (observed on the S21); this bound is a recognizer
+ * lifecycle settle, not a command delay, and the session watchdog covers the gap.
+ */
+private const val REFRESH_SETTLE_MS = 300L
+
+/**
  * Silence budget for an alert-mode session before any speech progress.
  *
  * Raised from 2.5 s to 10 s by #1433: the wake-command handoff must survive the
@@ -340,6 +349,35 @@ class NativeAndroidVoiceInputController @Inject constructor(
         startupFallbackJob = null
     }
 
+    /**
+     * #1433: destroy the dead recognizer now and start a replacement on the SAME
+     * capture session after a short settle, so the platform recognition service has
+     * finished tearing down the old client connection.  Emits no events and allocates
+     * no new session id — the session-level attempt count and journal correlation are
+     * unchanged.  The session watchdog continues to bound the whole window.
+     */
+    private fun scheduleInPlaceRefresh(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+    ) {
+        speechRecognizer?.apply {
+            runCatching { cancel() }
+            runCatching { destroy() }
+        }
+        speechRecognizer = null
+        kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
+            delay(REFRESH_SETTLE_MS)
+            if (activeSessionId != sessionId) return@launch
+            startRecognizer(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+                backend = RecognizerBackend.Platform,
+            )
+        }
+    }
+
 
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
@@ -487,13 +525,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
             // surfaces as a genuine recognition failure.
             if (
                 error == SpeechRecognizer.ERROR_NO_MATCH &&
-                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript) &&
-                retryWithPlatformRecognizer(
-                    sessionId = sessionId,
-                    mode = mode,
-                    availability = availability,
-                )
+                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript)
             ) {
+                // The old recognizer is dead; mark this listener terminal so its
+                // destroy()'s late ERROR_CLIENT callback cannot surface as a session
+                // error, and schedule the in-place replacement.
+                sessionCompleted = true
+                scheduleInPlaceRefresh(sessionId, mode, availability)
                 Log.w(
                     TAG,
                     "Android native STT refreshed in place after no-speech no-match for sessionId=$sessionId " +

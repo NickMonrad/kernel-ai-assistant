@@ -372,15 +372,21 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         assertTrue(events.any { it is VoiceInputEvent.ListeningStarted })
 
         // Platform no-speech timeout: no Error must surface; the recognizer is
-        // replaced in place and the same session keeps listening.
+        // replaced in place (after the settle) and the same session keeps listening.
         firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
         runCurrent()
         assertFalse(
             events.any { it is VoiceInputEvent.Error },
             "no-speech no-match must not surface as an error",
         )
-        verify(exactly = 2) { recognitionSupport.createPlatformSpeechRecognizer() }
         verify(atLeast = 1) { firstRecognizer.destroy() }
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+
+        // The in-place replacement starts after the settle and reaches readiness on
+        // the SAME capture session.
+        advanceTimeBy(300)
+        runCurrent()
+        verify(exactly = 2) { recognitionSupport.createPlatformSpeechRecognizer() }
 
         // The refreshed recognizer reaches readiness on the SAME capture session
         // and captures the command.
