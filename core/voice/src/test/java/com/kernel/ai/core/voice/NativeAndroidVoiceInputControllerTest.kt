@@ -446,6 +446,44 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `refreshed alert recognizer no-speech window is bounded by the shorter budget`() = runTest {
+        // #1433: the platform's second no-speech timeout is not guaranteed, so the
+        // refreshed recognizer's own watchdog must end a silent session within the
+        // shorter refreshed budget (5 s) — keeping the whole session (original +
+        // refresh) inside the acoustic runner's 15 s terminal window.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        // No platform no-match arrives; the refreshed watchdog must still end the
+        // silent session inside the shorter budget.
+        advanceTimeBy(4_900)
+        runCurrent()
+        assertFalse(events.any { it is VoiceInputEvent.Error })
+        advanceTimeBy(500)
+        runCurrent()
+        assertTrue(events.any { it is VoiceInputEvent.Error }, "refreshed session must end at the shorter budget")
+        collector.cancel()
+    }
+
+    @Test
     fun `alert session errors other than no-speech no-match still surface`() = runTest {
         val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         val listener = slot<RecognitionListener>()

@@ -37,6 +37,16 @@ private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 private const val REFRESH_SETTLE_MS = 300L
 
 /**
+ * No-speech budget for a REFRESHED alert recognizer (#1433).  The original
+ * recognizer already consumed most of the handoff window before the platform's
+ * no-speech timeout; the replacement only needs to cover the remaining command
+ * arrival, and must terminate early enough that the whole session re-arms within
+ * the acoustic runner's 15 s terminal window (the platform's second no-match is
+ * not guaranteed).  Speech progress still extends via the 6 s result timeout.
+ */
+private const val REFRESHED_SESSION_SILENCE_TIMEOUT_MS = 5_000L
+
+/**
  * Maximum in-place recognizer refreshes per session (#1433).  A single refresh
  * extends the first wake session's window to ~10.5 s (5.1 s platform no-speech +
  * one refreshed 5.1 s window), covering the measured 7.4-9.0 s command arrival,
@@ -317,6 +327,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
         backend: RecognizerBackend,
+        isRefreshed: Boolean = false,
     ) {
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
@@ -333,6 +344,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         recognizer.setRecognitionListener(
             SessionRecognitionListener(
                 sessionId = sessionId,
+                isRefreshed = isRefreshed,
                 mode = mode,
                 availability = availability,
                 backend = backend,
@@ -398,6 +410,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 mode = mode,
                 availability = availability,
                 backend = RecognizerBackend.Platform,
+                isRefreshed = true,
             )
         }
     }
@@ -434,6 +447,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private val mode: VoiceCaptureMode,
         private val availability: AndroidNativeRecognitionAvailability,
         private val backend: RecognizerBackend,
+        private val isRefreshed: Boolean = false,
     ) : RecognitionListener {
 
         private var sessionCompleted = false
@@ -444,7 +458,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-                delay(sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript))
+                delay(
+                    if (isRefreshed && !heardSpeech && !sawPartialTranscript) {
+                        REFRESHED_SESSION_SILENCE_TIMEOUT_MS
+                    } else {
+                        sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript)
+                    }
+                )
                 if (sessionCompleted || activeSessionId != sessionId) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(
