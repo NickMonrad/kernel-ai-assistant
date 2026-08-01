@@ -409,8 +409,8 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         // #1433: a false wake must still terminate.  After the bounded in-place
         // refreshes are exhausted, the next platform no-speech no-match surfaces as
         // a genuine session error on the same capture session.
-        val recognizers = (1..3).map { mockk<SpeechRecognizer>(relaxed = true) }
-        val listeners = (1..3).map { slot<RecognitionListener>() }
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
         every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
         listeners.forEachIndexed { i, slot ->
             every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
@@ -424,26 +424,24 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
             VoiceInputStartResult.Started
         val sessionId = result.captureSessionId
 
-        // Two in-place refreshes extend the window.
-        for (i in 0 until 2) {
-            listeners[i].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
-            runCurrent()
-            listeners[i].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
-            runCurrent()
-            advanceTimeBy(300)
-            runCurrent()
-        }
+        // One in-place refresh extends the window.
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
         assertFalse(events.any { it is VoiceInputEvent.Error })
 
-        // The third recognizer reaches readiness, then its no-speech no-match is
-        // past the budget and surfaces as an error on the same capture session.
-        listeners[2].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        // The second recognizer reaches readiness, then its no-speech no-match is
+        // past the refresh budget and surfaces as an error on the same session.
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
-        listeners[2].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        listeners[1].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
         runCurrent()
         val error = events.filterIsInstance<VoiceInputEvent.Error>().single()
         assertEquals(sessionId, error.captureSessionId)
-        verify(exactly = 3) { recognitionSupport.createPlatformSpeechRecognizer() }
+        verify(exactly = 2) { recognitionSupport.createPlatformSpeechRecognizer() }
         collector.cancel()
     }
 

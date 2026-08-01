@@ -37,13 +37,14 @@ private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 private const val REFRESH_SETTLE_MS = 300L
 
 /**
- * Maximum in-place recognizer refreshes per session (#1433).  Two refreshes extend
- * the first wake session's window to ~15 s (5.1 s platform no-speech + 2 × 5.1 s
- * refreshed windows), comfortably covering the measured 7.4-9.0 s command arrival,
- * while still bounding a false wake: the next platform no-speech timeout then
- * surfaces as a genuine error and the session terminates.
+ * Maximum in-place recognizer refreshes per session (#1433).  A single refresh
+ * extends the first wake session's window to ~10.5 s (5.1 s platform no-speech +
+ * one refreshed 5.1 s window), covering the measured 7.4-9.0 s command arrival,
+ * while still bounding a false wake: the next platform no-speech timeout surfaces
+ * as a genuine error and the session terminates within the acoustic runner's
+ * 15 s terminal window.
  */
-private const val MAX_NO_SPEECH_REFRESHES = 2
+private const val MAX_NO_SPEECH_REFRESHES = 1
 
 /**
  * Silence budget for an alert-mode session before any speech progress.
