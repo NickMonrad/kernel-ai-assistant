@@ -905,6 +905,7 @@
                   "matrix_incomplete",
                   "missing_cue_policy_evidence",
                   "build_provenance_failure",
+                  "command_outside_listening_window",
                   "unknown"
                 ]
               },

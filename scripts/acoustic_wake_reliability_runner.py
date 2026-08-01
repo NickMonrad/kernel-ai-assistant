@@ -52,6 +52,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -209,6 +210,7 @@ class InvalidReason(str, Enum):
     MATRIX_INCOMPLETE = "matrix_incomplete"
     MISSING_CUE_POLICY = "missing_cue_policy_evidence"
     BUILD_PROVENANCE_FAILURE = "build_provenance_failure"
+    COMMAND_OUTSIDE_LISTENING_WINDOW = "command_outside_listening_window"
     UNKNOWN = "unknown"
 
 
@@ -1313,6 +1315,157 @@ def classify_attempt(
             "independent cue audibility evidence is unavailable"
         ]
     return AttemptStatus.PASSED, None, None, []
+
+
+TERMINAL_SESSION_EVENT_TYPES = {"SESSION_COMPLETED", "SESSION_CANCELLED"}
+
+
+def validated_clock_alignment(
+    value: Any,
+    *,
+    source_alias: str | None = None,
+    target_alias: str | None = None,
+) -> dict[str, Any] | None:
+    """Structurally validate a persisted source↔target wall-clock alignment record.
+
+    A record is trusted only when it is persisted with the private run, names
+    the paired devices, and bounds the offset: ``offset_range_ms`` [lo, hi] =
+    possible values of (target wall clock − source wall clock), a non-negative
+    ``uncertainty_ms``, and a non-empty ``method`` describing the measurement.
+
+    Two Android devices' epoch wall clocks are NOT treated as synchronised
+    without such a record; the range is the only basis for cross-device
+    ordering.  Returns the validated record or None when untrustworthy.
+    """
+    if not isinstance(value, dict):
+        return None
+    offset_range = value.get("offset_range_ms")
+    if not isinstance(offset_range, list) or len(offset_range) != 2:
+        return None
+    lo, hi = offset_range
+    if (
+        isinstance(lo, bool) or isinstance(hi, bool)
+        or not isinstance(lo, int) or not isinstance(hi, int)
+    ):
+        return None
+    if lo > hi:
+        return None
+    uncertainty = value.get("uncertainty_ms")
+    if (
+        isinstance(uncertainty, bool)
+        or not isinstance(uncertainty, int)
+        or uncertainty < 0
+    ):
+        return None
+    method = value.get("method")
+    if not isinstance(method, str) or not method.strip():
+        return None
+    if source_alias is not None and value.get("source_alias") != source_alias:
+        return None
+    if target_alias is not None and value.get("target_alias") != target_alias:
+        return None
+    validated = {
+        "offset_range_ms": [lo, hi],
+        "uncertainty_ms": uncertainty,
+        "method": method,
+    }
+    if "source_alias" in value:
+        validated["source_alias"] = value["source_alias"]
+    if "target_alias" in value:
+        validated["target_alias"] = value["target_alias"]
+    return validated
+
+
+def command_delivery_after_session_end(
+    attempt: MatrixAttempt,
+    clock_alignment: dict[str, Any] | None = None,
+) -> bool:
+    """Return whether recorded evidence PROVES command delivery began after
+    the correlated target session ended.
+
+    Evidence priority, no cross-device clocks compared directly:
+
+    1. Same-target pre-dispatch proof: the runner persisted a target-journal
+       observation taken immediately before command invocation
+       (``target_timing.pre_dispatch_terminal_sequence``).  When that
+       observation already contained the correlated session's terminal
+       sequence, ordering is proven by the target journal alone.
+    2. Persisted bounded clock-alignment evidence: a per-run
+       ``clock_alignment`` record (validated by ``validated_clock_alignment``)
+       bounds (target − source) wall-clock offset.  The command request is
+       provably after the terminal event only when it is after it for every
+       offset in the recorded range:
+       request_wall_clock_ms + offset_range_lo > terminal_wall_clock_ms.
+    3. Unproven: return False and preserve the recorded classification.
+
+    Epoch wall clocks are a common unit, not a synchronised shared clock;
+    a raw cross-device comparison is never treated as proof.
+    """
+    if attempt.matrix_slot.wake_only:
+        return False
+    if attempt.status != AttemptStatus.FAILED:
+        return False
+    command_timing = attempt.source_timing.get("command") or {}
+    request_wall_clock_ms = command_timing.get("request_wall_clock_ms")
+    if not isinstance(request_wall_clock_ms, int):
+        return False
+    terminal_wall_clock_ms: int | None = None
+    for event in attempt.target_timing.get("events", []):
+        if event.get("t") in TERMINAL_SESSION_EVENT_TYPES:
+            candidate = event.get("w")
+            if isinstance(candidate, int):
+                terminal_wall_clock_ms = candidate
+    if not isinstance(terminal_wall_clock_ms, int):
+        return False
+
+    # Priority 1: the target journal itself showed the terminal event in a
+    # snapshot taken immediately before command invocation.
+    pre_dispatch = attempt.target_timing.get("pre_dispatch_terminal_sequence")
+    if isinstance(pre_dispatch, int):
+        return True
+
+    # Priority 2: persisted bounded clock-alignment, conclusive at every
+    # offset in the recorded range.
+    alignment = validated_clock_alignment(clock_alignment)
+    if alignment is not None:
+        offset_lo = alignment["offset_range_ms"][0]
+        if request_wall_clock_ms + offset_lo > terminal_wall_clock_ms:
+            return True
+    return False
+
+
+def reclassify_out_of_window_command_attempt(
+    attempt: MatrixAttempt,
+    clock_alignment: dict[str, Any] | None = None,
+) -> bool:
+    """Defensively invalidate a recorded command attempt whose delivery is
+    PROVEN to have begun after the correlated target session ended.
+
+    Reclassification happens only when authoritative evidence (same-target
+    pre-dispatch journal proof, or a persisted validated clock-alignment
+    record conclusive beyond its range) establishes the ordering.  Without
+    proof the recorded classification is preserved: uncalibrated cross-device
+    wall clocks are never treated as synchronised.  Returns whether the
+    attempt was reclassified.
+    """
+    if not command_delivery_after_session_end(attempt, clock_alignment):
+        return False
+    attempt.status = AttemptStatus.INVALID
+    attempt.classification = None
+    attempt.invalid_reason = InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+    detail = (
+        "command delivery is proven to have begun after the correlated "
+        "target session ended (same-target ordering or validated clock alignment)"
+    )
+    if detail not in attempt.failures:
+        attempt.failures.append(detail)
+    attempt.invalid_details["listening_window_closed"] = {
+        "evidence": (
+            "proven by target-journal pre-dispatch observation or a persisted "
+            "validated source-target clock-alignment record"
+        ),
+    }
+    return True
 # ── Evidence formatting ─────────────────────────────────────────────────
 
 def format_target_snapshot_events(envelope: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1356,6 +1509,10 @@ def public_preflight_approval(approval: dict[str, Any] | None) -> dict[str, Any]
     return {key: approval[key] for key in allowed if key in approval}
 
 
+RINGER_MODE_NAMES = {"0": "silent", "1": "vibrate", "2": "normal"}
+DND_MODE_NAMES = {"0": "off", "1": "important_only", "2": "no_interruptions", "3": "alarms"}
+
+
 def public_environment_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Expose stable environment facts while keeping boot identifiers private."""
     allowed = {
@@ -1363,7 +1520,20 @@ def public_environment_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "service_active", "media_volume", "ringer_mode", "dnd_mode",
         "bluetooth_route_active",
     }
-    return {key: value for key, value in snapshot.items() if key in allowed}
+    projected = {key: value for key, value in snapshot.items() if key in allowed}
+    # Normalise device-native values to the published evidence schema: string
+    # mode names and integer uptime seconds (schema requires string/integer).
+    if "uptime_seconds" in projected and isinstance(projected["uptime_seconds"], float):
+        projected["uptime_seconds"] = int(projected["uptime_seconds"])
+    if "ringer_mode" in projected and not isinstance(projected["ringer_mode"], str):
+        projected["ringer_mode"] = RINGER_MODE_NAMES.get(
+            str(projected["ringer_mode"]), str(projected["ringer_mode"])
+        )
+    if "dnd_mode" in projected and not isinstance(projected["dnd_mode"], str):
+        projected["dnd_mode"] = DND_MODE_NAMES.get(
+            str(projected["dnd_mode"]), str(projected["dnd_mode"])
+        )
+    return projected
 
 
 def public_run_environment(
@@ -1742,6 +1912,7 @@ class AcousticWakeReliabilityRunner:
         self.cue_audibility_evidence: dict[str, Any] | None = None
 
         self.attempts: list[MatrixAttempt] = []
+        self.clock_alignment: dict[str, Any] | None = None
         self.source_results: list[dict[str, Any]] = []
         self.completed_slots: set[str] = set()
         self.valid_failed_slots: set[str] = set()
@@ -1822,6 +1993,7 @@ class AcousticWakeReliabilityRunner:
             "completed_slots": sorted(self.completed_slots),
             "valid_failed_slots": sorted(self.valid_failed_slots),
             "invalid_attempt_count": self.invalid_attempt_count,
+            "clock_alignment": self.clock_alignment,
             "abort_reason": self.abort_reason,
             "cleanup_verified": self.cleanup_verified,
             "cleanup_failures": list(self.cleanup_failures),
@@ -1900,9 +2072,34 @@ class AcousticWakeReliabilityRunner:
                 ),
             ))
         self.source_results = list(state.get("source_results", []))
-        self.completed_slots = set(state.get("completed_slots", []))
-        self.valid_failed_slots = set(state.get("valid_failed_slots", []))
-        self.invalid_attempt_count = int(state.get("invalid_attempt_count", 0))
+        # Defensive correction for already-recorded attempts: a wake_plus_command
+        # attempt whose delivery is PROVEN (same-target pre-dispatch journal
+        # observation or a persisted validated clock-alignment record) to have
+        # begun after the correlated target session ended is a harness
+        # source-timing invalid, never a valid product failure.  Uncalibrated
+        # cross-device wall clocks are never treated as proof.
+        self.clock_alignment = validated_clock_alignment(
+            state.get("clock_alignment"),
+            source_alias=self.source_alias,
+            target_alias=self.target_alias,
+        )
+        for attempt in self.attempts:
+            reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
+        # Reconcile persisted bookkeeping with the corrected attempt statuses
+        # (scheduling decisions derive from attempts, these sets are reported
+        # and persisted only).
+        self.completed_slots = {
+            f"{attempt.required_position_id}:{attempt.attempt}"
+            for attempt in self.attempts
+        }
+        self.valid_failed_slots = {
+            attempt.required_position_id
+            for attempt in self.attempts
+            if attempt.status == AttemptStatus.FAILED
+        }
+        self.invalid_attempt_count = sum(
+            1 for attempt in self.attempts if attempt.status == AttemptStatus.INVALID
+        )
         self.abort_reason = state.get("abort_reason")
         self.cleanup_verified = bool(state.get("cleanup_verified", False))
         self.cleanup_failures = list(state.get("cleanup_failures", []))
@@ -1932,6 +2129,38 @@ class AcousticWakeReliabilityRunner:
             manifest["run_kind"] = RunKind(manifest["run_kind"])
             manifest["gate_mode"] = GateMode(manifest["gate_mode"])
             self.manifest = RunManifest(**manifest)
+
+        # Restore device identities from the approved preflight manifest so
+        # sanitised evidence can be regenerated offline (no ADB required).
+        # Only the public projection is needed for export; the raw build
+        # fingerprint is intentionally not retained.
+        approval = self.preflight_approval
+        if approval:
+            source_approval = approval.get("source_identity")
+            target_approval = approval.get("target_identity")
+            if isinstance(source_approval, dict) and isinstance(target_approval, dict):
+                self.source_identity = DeviceIdentity(
+                    alias=str(source_approval.get("alias", self.source_alias)),
+                    manufacturer=str(source_approval.get("manufacturer", "")),
+                    model=str(source_approval.get("model", "")),
+                    android_release=str(source_approval.get("android_release", "")),
+                    android_api=str(source_approval.get("android_api", "")),
+                    build_fingerprint="",
+                    package_version=source_approval.get("package_version"),
+                    package_version_code=source_approval.get("package_version_code"),
+                    device_id_sha256=str(source_approval.get("device_id_sha256", "")),
+                )
+                self.target_identity = DeviceIdentity(
+                    alias=str(target_approval.get("alias", self.target_alias)),
+                    manufacturer=str(target_approval.get("manufacturer", "")),
+                    model=str(target_approval.get("model", "")),
+                    android_release=str(target_approval.get("android_release", "")),
+                    android_api=str(target_approval.get("android_api", "")),
+                    build_fingerprint="",
+                    package_version=target_approval.get("package_version"),
+                    package_version_code=target_approval.get("package_version_code"),
+                    device_id_sha256=str(target_approval.get("device_id_sha256", "")),
+                )
 
         preflight_path = self.run_dir / "preflight-private.json"
         if self.preflight_approval is not None:
@@ -2260,6 +2489,7 @@ class AcousticWakeReliabilityRunner:
         boundary_generation: int | None = None
         parsed_source: dict[str, Any] | None = None
         command_source: dict[str, Any] | None = None
+        command_window_closed_sequence: int | None = None
         attempt.fixture_id = fixture_id
         attempt.command_fixture_id = command_fixture_id
         attempt.artifact_refs = []
@@ -2399,42 +2629,68 @@ class AcousticWakeReliabilityRunner:
                 ):
                     time.sleep(self.cue_margin_ms / 1000.0)
                 if cue_ready:
-                    command_trial_id = f"{trial_id}-cmd"
-                    attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
-                    command_source, command_events, command_envelope = (
-                        self._invoke_command_source_with_armed_wait(
-                            trial_id=command_trial_id,
-                            fixture_id=command_fixture_id,
-                            volume_index=volume,
-                            since_sequence=boundary_sequence,
-                            timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
+                    # Immediately before dispatch, confirm the correlated
+                    # listening session is still open.  When the journal
+                    # already shows its terminal event, dispatching now would
+                    # deliver the command outside the valid listening window;
+                    # skip the source, keep the wake evidence, and invalidate.
+                    command_window_closed_sequence = self._target_session_ended_sequence(
+                        since_sequence=boundary_sequence,
+                        generation=boundary_generation,
+                        session=correlated_session,
+                    )
+                    # Persist the pre-dispatch target observation so any later
+                    # retrospective review has the same-target ordering proof
+                    # (an integer terminal sequence) or its absence (None).
+                    attempt.target_timing["pre_dispatch_terminal_sequence"] = (
+                        command_window_closed_sequence
+                    )
+                    if command_window_closed_sequence is not None:
+                        attempt.invalid_reason = InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+                        attempt.invalid_details["listening_window_closed"] = {
+                            "terminal_sequence": command_window_closed_sequence,
+                            "detail": (
+                                "correlated target session emitted its terminal "
+                                "event before command dispatch"
+                            ),
+                        }
+                    else:
+                        command_trial_id = f"{trial_id}-cmd"
+                        attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
+                        command_source, command_events, command_envelope = (
+                            self._invoke_command_source_with_armed_wait(
+                                trial_id=command_trial_id,
+                                fixture_id=command_fixture_id,
+                                volume_index=volume,
+                                since_sequence=boundary_sequence,
+                                timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
+                            )
                         )
-                    )
-                    attempt.artifact_refs.append(
-                        f"trials/{command_trial_id}/source/result.json"
-                    )
-                    require_correlated_event(
-                        command_events,
-                        "COMMAND_ROUTING_RESULT",
-                        boundary_generation,
-                        correlated_session,
-                    )
-                    self._last_target_snapshot = command_envelope
-                    parsed_command_source = parse_source_result(
-                        json.dumps(command_source),
-                        expected_trial_id=command_trial_id,
-                        expected_fixture_id=command_fixture_id,
-                        expected_fixture_sha256=expected_command_hash,
-                    )
-                    attempt.command_source_outcome = {
-                        key: parsed_command_source.get(key)
-                        for key in (
-                            "completion_status", "cleanup_success",
-                            "exact_restoration_verified", "output_route_during",
-                            "focus_result", "timeout", "overlap_rejected",
+                        attempt.artifact_refs.append(
+                            f"trials/{command_trial_id}/source/result.json"
                         )
-                    }
-                    self.checkpoint("post-command")
+                        require_correlated_event(
+                            command_events,
+                            "COMMAND_ROUTING_RESULT",
+                            boundary_generation,
+                            correlated_session,
+                        )
+                        self._last_target_snapshot = command_envelope
+                        parsed_command_source = parse_source_result(
+                            json.dumps(command_source),
+                            expected_trial_id=command_trial_id,
+                            expected_fixture_id=command_fixture_id,
+                            expected_fixture_sha256=expected_command_hash,
+                        )
+                        attempt.command_source_outcome = {
+                            key: parsed_command_source.get(key)
+                            for key in (
+                                "completion_status", "cleanup_success",
+                                "exact_restoration_verified", "output_route_during",
+                                "focus_result", "timeout", "overlap_rejected",
+                            )
+                        }
+                        self.checkpoint("post-command")
 
             attempt.invalid_reason = InvalidReason.EVIDENCE_BOUNDARY_LOST
             self._wait_for_target_events(
@@ -2538,6 +2794,19 @@ class AcousticWakeReliabilityRunner:
                 attempt.invalid_reason = InvalidReason.DEVICE_ENVIRONMENT_ERROR
                 attempt.failures.extend(environment_failures)
                 attempt.invalid_details["environment_failures"] = environment_failures
+            if command_window_closed_sequence is not None:
+                # The correlated session was already terminal before command
+                # dispatch: this is a harness source-timing invalid attempt,
+                # never a product command-recognition failure.
+                attempt.status = AttemptStatus.INVALID
+                attempt.classification = None
+                attempt.invalid_reason = InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+                detail = (
+                    "command dispatch suppressed: the correlated target "
+                    "listening session ended before command delivery"
+                )
+                if detail not in attempt.failures:
+                    attempt.failures.append(detail)
         except KeyboardInterrupt:
             attempt.status = AttemptStatus.INVALID
             attempt.classification = None
@@ -3166,6 +3435,39 @@ class AcousticWakeReliabilityRunner:
             raise HarnessError("target journal wait completed before source playback was armed")
         return source_result, events, envelope
 
+    def _target_session_ended_sequence(
+        self,
+        since_sequence: int,
+        generation: int,
+        session: int,
+    ) -> int | None:
+        """Return the correlated session's terminal journal sequence when it has
+        already ended, else None.
+
+        One authoritative snapshot immediately before command dispatch: when
+        the target journal already contains the session's terminal event
+        (``SESSION_COMPLETED``/``SESSION_CANCELLED``), any command delivered
+        now would arrive outside the valid listening window and must not be
+        dispatched.  Uses target-journal order only; no cross-device clocks.
+        """
+        code, data = self._call_target_provider(
+            TARGET_METHOD_GET_SNAPSHOT,
+            extras={TARGET_EXTRA_SINCE_SEQUENCE: since_sequence},
+        )
+        if code != TARGET_RESULT_OK:
+            raise HarnessError(f"target pre-command snapshot failed: {data}")
+        envelope = parse_journal_snapshot(data)
+        terminal = next(
+            (
+                event for event in envelope["events"]
+                if event["t"] in TERMINAL_SESSION_EVENT_TYPES
+                and event["g"] == generation
+                and event["i"] == session
+            ),
+            None,
+        )
+        return terminal["s"] if terminal is not None else None
+
     def _call_target_provider(
         self,
         method: str,
@@ -3485,6 +3787,13 @@ class AcousticWakeReliabilityRunner:
         """Build the final evidence object before a single sanitised write."""
         if not self.target_identity or not self.source_identity:
             raise HarnessError("device identities not available")
+        # Defensive: an attempt whose command delivery is PROVEN to have begun
+        # after the correlated target session ended must never be exported as a
+        # valid product failure.  Without proof (same-target ordering or a
+        # persisted validated clock-alignment record) the recorded
+        # classification is preserved.
+        for attempt in self.attempts:
+            reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
         preflight = self.preflight_approval
         cue_version = self.manifest.cue_policy_version if self.manifest else None
         fixture_hashes = (preflight or {}).get("fixture_hashes", {})
@@ -3939,6 +4248,15 @@ def resume_mode(args: argparse.Namespace) -> int:
         print(f"Completed: {len(runner.completed_slots)} slots")
         print(f"Attempts: {len(runner.attempts)}")
 
+        if args.export_only:
+            # Offline regeneration: reclassify recorded attempts on load and
+            # re-render the sanitised evidence.  No ADB access and no new
+            # trials; the matrix position stays incomplete unless a compatible
+            # retry already exists in the preserved run.
+            evidence = runner.export_evidence()
+            print(f"Evidence regenerated: {runner.sanitized_dir}")
+            return 0 if not runner.primary_failure else 1
+
         # Check preflight drift
         if runner.preflight_approval:
             runner.verify_preflight_approval()
@@ -3956,7 +4274,8 @@ def resume_mode(args: argparse.Namespace) -> int:
         print("\nInterrupted")
         runner.cancel()
     finally:
-        evidence = finalize_evidence(runner)
+        if not args.export_only:
+            evidence = finalize_evidence(runner)
 
     if runner.primary_failure:
         print(f"Primary failure: {runner.primary_failure}")
@@ -4022,6 +4341,9 @@ def build_parser() -> argparse.ArgumentParser:
     # Resume
     parser.add_argument("--run-id", default="",
                         help="Run ID to resume (resume mode)")
+    parser.add_argument("--export-only", action="store_true",
+                        help="Regenerate sanitised evidence from a preserved checkpoint "
+                             "without ADB or new trials (resume mode)")
 
     # Interaction
     parser.add_argument("--interactive", action="store_true",

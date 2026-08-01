@@ -540,6 +540,7 @@ Evaluate validity first.
 |---|---|
 | Source playback, route, hash or restoration failure | invalid: `source_stimulus_failure` |
 | Target screen/state/service/reboot/ADB/evidence boundary invalid | invalid: `device_environment_error` |
+| Command dispatched after the correlated session's terminal event | invalid: `command_outside_listening_window` |
 | Source succeeded but target saw no credible audio/voiced transition | `acoustic_or_gate_miss` |
 | Gate opened and inference became ready but no activation | `classifier_model_miss` |
 | Activation occurred but callback/session did not start | `activation_handoff_failure` |
