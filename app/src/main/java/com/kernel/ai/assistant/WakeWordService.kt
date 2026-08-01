@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -112,8 +113,16 @@ internal fun playWakeCue(
 internal sealed interface WakeAttemptOutcome {
     /** Recognised and returned a transcript. */
     data class GotTranscript(val text: String) : WakeAttemptOutcome
-    /** Recogniser started but produced no useful result. */
-    data class NoTranscript(val category: String) : WakeAttemptOutcome
+
+    /**
+     * Recogniser started but produced no useful result.
+     * [skipRetry] suppresses the session-level retry: set only for the
+     * no-speech-window-exhausted case (#1433) where the command window has closed
+     * and a second attempt would only re-wait.  The journal's STT_ERROR category
+     * remains the standard "stt_recognition_failed".
+     */
+    data class NoTranscript(val category: String, val skipRetry: Boolean = false) : WakeAttemptOutcome
+
     /** STT could not be started. */
     data object Unavailable : WakeAttemptOutcome
 }
@@ -248,7 +257,14 @@ internal suspend fun runWakeAttempt(
                     AcousticEventType.STT_ERROR,
                     metadata = { mapOf("category" to "stt_recognition_failed") },
                 )
-                WakeAttemptOutcome.NoTranscript("stt_recognition_failed")
+                // #1433: when the first session's no-speech window is fully exhausted
+                // (in-place refreshes spent and the platform still heard nothing), the
+                // command window has closed — a second attempt would only re-wait.
+                // Genuine failures (any other error) still use the bounded retry.
+                WakeAttemptOutcome.NoTranscript(
+                    "stt_recognition_failed",
+                    skipRetry = terminalEvent.category == NO_SPEECH_WINDOW_EXHAUSTED,
+                )
             } else {
                 WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
             }
@@ -302,7 +318,7 @@ internal suspend fun runWakeCaptureSession(
             }
             is WakeAttemptOutcome.NoTranscript -> {
                 cancellationCategory = outcome.category
-                if (attempt < 2) continue else break
+                if (attempt < 2 && !outcome.skipRetry) continue else break
             }
             is WakeAttemptOutcome.Unavailable -> {
                 cancellationCategory = "stt_unavailable"

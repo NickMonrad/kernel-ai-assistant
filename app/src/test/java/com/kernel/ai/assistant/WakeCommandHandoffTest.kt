@@ -1,6 +1,7 @@
 package com.kernel.ai.assistant
 
 import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.StartListeningCueResult
@@ -452,6 +453,54 @@ class WakeCommandHandoffTest {
             journalEvents.map { it.first }.contains(AcousticEventType.SESSION_CANCELLED),
         )
         assertFalse(job.isActive)
+    }
+
+    @Test
+    fun `no-speech-exhausted first attempt skips the pointless retry`() = runTest {
+        // #1433: when the first session's full no-speech window elapsed (in-place
+        // refreshes spent, still no speech), the command window has closed — the
+        // session-level retry must not run and the detector re-arms promptly.
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        val journalEvents = mutableListOf<Pair<String, Long>>()
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(journalEvents),
+                routeTranscript = { true },
+                onSessionTerminal = { rearmCount++ },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        controller.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.AlertCommand,
+                message = "no speech",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        runCurrent()
+        job.join()
+
+        assertEquals(listOf(1L), controller.startCalls, "no retry after the exhausted no-speech window")
+        assertEquals(1, rearmCount)
+        val recorded = journalEvents.map { it.first }
+        assertTrue(recorded.contains(AcousticEventType.STT_ERROR))
+        assertTrue(recorded.contains(AcousticEventType.SESSION_CANCELLED))
+        assertEquals(1, recorded.count { it == AcousticEventType.STT_START_REQUESTED })
     }
 
     @Test

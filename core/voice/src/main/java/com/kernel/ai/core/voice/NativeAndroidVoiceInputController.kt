@@ -147,6 +147,15 @@ internal fun shouldRefreshAlertRecognizerOnNoSpeech(
         !heardSpeech &&
         !sawPartialTranscript
 
+/**
+ * Stable error category emitted when an alert session's no-speech window is fully
+ * exhausted (in-place refreshes spent and the platform still heard nothing).  The
+ * wake-command handoff uses this to skip the session-level retry: the command
+ * window has already closed, so a second attempt would only re-wait.  The journal's
+ * STT_ERROR category remains the standard "stt_recognition_failed".
+ */
+const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
+
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
@@ -571,6 +580,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     mode = mode,
                     captureSessionId = sessionId,
                     message = mapError(error, availability),
+                    // The no-speech window is fully exhausted (refreshes spent): the
+                    // wake-command window has closed, so the session-level retry would
+                    // only re-wait.  The journal category stays standard.
+                    category = if (
+                        error == SpeechRecognizer.ERROR_NO_MATCH &&
+                        shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript)
+                    ) {
+                        NO_SPEECH_WINDOW_EXHAUSTED
+                    } else {
+                        null
+                    },
                 ),
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
