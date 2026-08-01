@@ -37,6 +37,15 @@ private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 private const val REFRESH_SETTLE_MS = 300L
 
 /**
+ * Maximum in-place recognizer refreshes per session (#1433).  Two refreshes extend
+ * the first wake session's window to ~15 s (5.1 s platform no-speech + 2 × 5.1 s
+ * refreshed windows), comfortably covering the measured 7.4-9.0 s command arrival,
+ * while still bounding a false wake: the next platform no-speech timeout then
+ * surfaces as a genuine error and the session terminates.
+ */
+private const val MAX_NO_SPEECH_REFRESHES = 2
+
+/**
  * Silence budget for an alert-mode session before any speech progress.
  *
  * Raised from 2.5 s to 10 s by #1433: the wake-command handoff must survive the
@@ -173,6 +182,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var startupFallbackJob: Job? = null
 
+    /** #1433: in-place no-speech refreshes performed within the current capture session. */
+    @Volatile
+    private var noSpeechRefreshCount = 0
+
 
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
@@ -201,6 +214,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
                 activeSessionId = sessionId
+                noSpeechRefreshCount = 0
                 val startBackend = initialRecognizerBackend(mode)
                 try {
                     startRecognizer(
@@ -525,17 +539,20 @@ class NativeAndroidVoiceInputController @Inject constructor(
             // surfaces as a genuine recognition failure.
             if (
                 error == SpeechRecognizer.ERROR_NO_MATCH &&
-                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript)
+                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript) &&
+                this@NativeAndroidVoiceInputController.noSpeechRefreshCount < MAX_NO_SPEECH_REFRESHES
             ) {
                 // The old recognizer is dead; mark this listener terminal so its
                 // destroy()'s late ERROR_CLIENT callback cannot surface as a session
-                // error, and schedule the in-place replacement.
+                // error, and schedule the in-place replacement.  The refresh budget is
+                // bounded (MAX_NO_SPEECH_REFRESHES) so a false wake still terminates.
+                this@NativeAndroidVoiceInputController.noSpeechRefreshCount++
                 sessionCompleted = true
                 scheduleInPlaceRefresh(sessionId, mode, availability)
                 Log.w(
                     TAG,
                     "Android native STT refreshed in place after no-speech no-match for sessionId=$sessionId " +
-                        "mode=$mode",
+                        "mode=$mode (refresh ${this@NativeAndroidVoiceInputController.noSpeechRefreshCount}/$MAX_NO_SPEECH_REFRESHES)",
                 )
                 return
             }
