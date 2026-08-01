@@ -59,6 +59,73 @@ internal class SilenceGateTransitionState {
 }
 
 /**
+ * Chronological embedding ring feeding the Stage 3 classifier window (#1432).
+ *
+ * One 96-dim embedding is appended per 80 ms inference frame; the classifier
+ * input is exactly the last [capacity] embeddings in chronological order
+ * ([copyWindow]), and scoring is only permitted once the window is complete
+ * ([isWindowComplete]).
+ *
+ * The ring is allocated per detector generation, so it can never contain
+ * embeddings from an earlier generation; [reset] models the generation /
+ * re-arm boundary used by the detector (fresh allocation per
+ * [OnnxWakeWordDetector.runDetectionLoop]).
+ *
+ * **Silence-gate resume semantics:** the ring is intentionally NOT flushed on
+ * gate exit.  A complete ring holds 16 chronological, same-generation
+ * embeddings (periodic silence probes + pre-onset audio) that are valid
+ * classifier context.  The #1410 physical evidence shows the classifier scores
+ * the wake phrase only while the phrase sits at the tail of the embedding
+ * window (passing trials on both devices fire at phrase onset + ~0.9 s, before
+ * the phrase is fully inside the receptive field).  The previous unconditional
+ * 16-frame refill after gate exit therefore skipped every scoreable window and
+ * intermittently lost ACTIVATION_CANDIDATE (11 S21 + 6 S23U classified misses).
+ * Stage 3 still refuses to score an incomplete window, so initial startup and
+ * genuinely incomplete rings keep the existing wait-for-refill guarantee.
+ */
+internal class WakeWordEmbeddingRingState(
+    val capacity: Int = EMBEDDING_FRAMES,
+    val dim: Int = EMBEDDING_DIM,
+) {
+    private val ring = Array(capacity) { FloatArray(dim) }
+
+    /** Ring head: slot the next embedding will overwrite. */
+    var head: Int = 0
+        private set
+
+    /** Number of valid embeddings appended by the current generation. */
+    var accumulated: Int = 0
+        private set
+
+    /** True once [capacity] embeddings have been appended (window scoreable). */
+    val isWindowComplete: Boolean get() = accumulated >= capacity
+
+    /** Clears all state at a detector generation / re-arm boundary. */
+    fun reset() {
+        head = 0
+        accumulated = 0
+    }
+
+    /** Appends one embedding and advances the ring head. */
+    fun append(embedding: FloatArray) {
+        embedding.copyInto(ring[head], 0, 0, dim)
+        head = (head + 1) % capacity
+        if (accumulated < capacity) accumulated++
+    }
+
+    /**
+     * Copies the classifier window — the last [capacity] embeddings in
+     * chronological order — into [out] (length capacity * dim).
+     * Only meaningful when [isWindowComplete].
+     */
+    fun copyWindow(out: FloatArray) {
+        for (f in 0 until capacity) {
+            ring[(head + f) % capacity].copyInto(out, f * dim)
+        }
+    }
+}
+
+/**
  * Diagnostic summaries are only emitted when the dedicated tag's DEBUG level is enabled.
  * Checking at this cadence keeps the production detector hot loop allocation-free.
  */
@@ -427,9 +494,7 @@ class OnnxWakeWordDetector @Inject constructor(
             var melRowsFilled = 0
             var chunkCount = 0
 
-            val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
-            var embRingHead = 0
-            var embFramesAccumulated = 0
+            val embeddingRing = WakeWordEmbeddingRingState()
             val chunk    = ShortArray(FRAME_SAMPLES)
             val framePcm = FloatArray(FRAME_SAMPLES)
             val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
@@ -440,7 +505,6 @@ class OnnxWakeWordDetector @Inject constructor(
             var pcmFilled   = 0
             var silenceFrames = 0
             var voicedFrameStreak = 0
-            var wasGated = false
             runCatching { audioRecord.startRecording() }
                 .onFailure { e ->
                     Log.e(TAG, "WakeWordDetector: startRecording failed", e)
@@ -502,15 +566,20 @@ class OnnxWakeWordDetector @Inject constructor(
                 // car passing) doesn't falsely re-enter gated mode.
                 val isFrameVoiced = rms >= silenceRmsThreshold
                 if (isFrameVoiced) {
-                    // Flush the embedding ring on speech onset after gated silence.
-                    // The ring holds stale silence embeddings from before gating.
-                    // Resetting embFramesAccumulated forces a clean 16-frame refill
-                    // from live audio.  The mel ring slides naturally (Stage 1 runs
-                    // every frame even during gating), so the first speech frame
-                    // already pre-fills it with speech mel data.
-                    // Latency: 80ms + 16-frame ring fill (~1.3s) ≈ ~1.4s.
+                    // #1432: preserve the embedding ring across silence-gate exit.
+                    // The ring holds 16 chronological, same-generation embeddings
+                    // (periodic silence probes + pre-onset audio) that are valid
+                    // classifier context.  The previous unconditional
+                    // embFramesAccumulated reset forced a 16-frame (~1.28 s)
+                    // classifier blackout after gate exit; the #1410 evidence shows
+                    // the classifier scores the wake phrase only while it sits at
+                    // the tail of the embedding window (pass trials fire at
+                    // phrase onset + ~0.9 s), so the blackout skipped every
+                    // scoreable window and intermittently lost ACTIVATION_CANDIDATE.
+                    // Stage 3 still refuses to score an incomplete window (see the
+                    // isWindowComplete guard below), so startup and genuinely
+                    // incomplete rings keep the wait-for-refill guarantee.
                     if (silenceGateState.onVoicedFrame()) {
-                        embFramesAccumulated = 0
                         emittedStage3Ready = false
                         AcousticJournalBridge.record(
                             type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
@@ -527,7 +596,9 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
                 // Keeps the mel ring fresh during gated silence so that when speech
-                // resumes, only the 16-frame embedding ring needs to refill (~1.3s).
+                // resumes, the embedding ring already carries valid context and Stage 3
+                // can score the wake phrase while it is still at the tail of the
+                // window (see #1432 — no post-gate refill blackout).
                 // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
                 // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
                 // the mel output by ~88 units, putting embeddings completely out of the
@@ -618,11 +689,9 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
 
                 // Accumulate embedding in ring buffer.
-                embedding.copyInto(embeddingRing[embRingHead], 0, 0, EMBEDDING_DIM)
-                embRingHead = (embRingHead + 1) % EMBEDDING_FRAMES
-                if (embFramesAccumulated < EMBEDDING_FRAMES) embFramesAccumulated++
-                if (embFramesAccumulated < EMBEDDING_FRAMES) continue
-                if (!emittedStage3Ready && embFramesAccumulated >= EMBEDDING_FRAMES) {
+                embeddingRing.append(embedding)
+                if (!embeddingRing.isWindowComplete) continue
+                if (!emittedStage3Ready) {
                     emittedStage3Ready = true
                     AcousticJournalBridge.record(
                         type = AcousticEventType.STAGE3_READY,
@@ -633,10 +702,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 // ── Stage 3: classifier over the last 16 embedding frames ─────────────
                 // Input:  [1, 16, 96]
                 // Output: [1, 1]
-                for (f in 0 until EMBEDDING_FRAMES) {
-                    val frameIdx = (embRingHead + f) % EMBEDDING_FRAMES
-                    embeddingRing[frameIdx].copyInto(windowFlat, f * EMBEDDING_DIM)
-                }
+                embeddingRing.copyWindow(windowFlat)
 
                 diagnostics?.recordStage3Execution()
                 val confidence: Float = OnnxTensor.createTensor(
