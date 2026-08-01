@@ -45,6 +45,8 @@ dependencies {
     implementation(libs.vosk.android)
     // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
     implementation(libs.onnxruntime.android)
+    // JVM ONNX Runtime (CPU) — real-model Stage 3 classifier tests (WakeWordClassifierModelTest)
+    testImplementation(libs.onnxruntime)
 
     // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
     implementation(libs.work.runtime.ktx)
@@ -59,4 +61,17 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+}
+
+// WakeWordClassifierModelTest reads the authoritative app classifier (committed in
+// app/src/main/assets) as the JVM test resource /models/wakeword/hey_jandal.onnx.
+// AGP 9 unit-test java resources only pick up src/test/resources from the test source
+// set, so map the app asset directory into the unit-test java-res copy task directly;
+// the same committed file ships in the APK — no duplicate model binary is committed.
+// (Eager file() is required: AGP re-wires the copy spec with lazy providers during
+// task realization, which silently drops lazily-supplied from() sources.)
+tasks.withType<Sync>().configureEach {
+    if (name == "processDebugUnitTestJavaRes") {
+        from(file("../../app/src/main/assets"))
+    }
 }
