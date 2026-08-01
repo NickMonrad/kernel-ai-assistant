@@ -1438,6 +1438,9 @@ class OutOfWindowCommandTests(unittest.TestCase):
             attempt.invalid_details["listening_window_closed"]["terminal_sequence"],
             16,
         )
+        # The pre-dispatch target observation is persisted as same-target
+        # ordering evidence for any later retrospective review.
+        self.assertEqual(attempt.target_timing["pre_dispatch_terminal_sequence"], 16)
         # The wake and target events stay preserved: the attempt remains visible.
         self.assertIs(harness.attempts[-1], attempt)
         self.assertTrue(attempt.target_timing["events"])
@@ -1491,15 +1494,19 @@ class OutOfWindowCommandTests(unittest.TestCase):
             attempt.classification,
             runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
         )
+        # The pre-dispatch observation recorded no terminal: dispatch proceeded.
+        self.assertIsNone(attempt.target_timing["pre_dispatch_terminal_sequence"])
         self.assertEqual(harness.valid_failed_slots, {"1:wake_plus_command:2"})
 
-    def test_reclassify_proves_delivery_after_session_end(self) -> None:
-        """The pure defensive check uses epoch wall clocks only and never
-        mislabels in-window or unproven deliveries."""
+    def test_retrospective_reclassification_requires_proof(self) -> None:
+        """Raw cross-device wall clocks are never proof: reclassification needs
+        same-target pre-dispatch ordering or a persisted validated alignment
+        record conclusive beyond its range."""
         def attempt(request_ms: int | None, terminal_w: int | None,
                     *, wake_only: bool = False,
                     status: runner.AttemptStatus = runner.AttemptStatus.FAILED,
-                    with_command: bool = True) -> runner.MatrixAttempt:
+                    with_command: bool = True,
+                    pre_dispatch: int | None = None) -> runner.MatrixAttempt:
             events = [] if terminal_w is None else [
                 {"s": 16, "t": "SESSION_COMPLETED", "w": terminal_w, "g": 11, "i": 10}
             ]
@@ -1507,52 +1514,127 @@ class OutOfWindowCommandTests(unittest.TestCase):
                 {"command": {"request_wall_clock_ms": request_ms}}
                 if with_command else {}
             )
+            target = {"events": events}
+            if pre_dispatch is not None:
+                target["pre_dispatch_terminal_sequence"] = pre_dispatch
             return runner.MatrixAttempt(
                 "t", runner.MatrixSlot(idle_s=10, wake_only=wake_only, ordinal=1),
                 1, status,
                 classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
                 source_timing=timing,
-                target_timing={"events": events},
+                target_timing=target,
             )
 
-        # Delivery provably began after the session terminal event.
-        late = attempt(request_ms=2_000, terminal_w=1_000)
-        self.assertTrue(runner.command_delivery_after_session_end(late))
-        self.assertTrue(runner.reclassify_out_of_window_command_attempt(late))
-        self.assertEqual(late.status, runner.AttemptStatus.INVALID)
-        self.assertIsNone(late.classification)
-        self.assertEqual(
-            late.invalid_reason, runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
-        )
-        self.assertTrue(any("session ended" in f for f in late.failures), late.failures)
-        self.assertIn("listening_window_closed", late.invalid_details)
+        ALIGNED = {
+            "source_alias": "s23u", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
 
-        # Delivery inside the window: unchanged valid failure.
+        # Raw wall-clock ordering without any calibration or marker is NOT
+        # proof: an unmeasured source-ahead offset could explain it.
+        uncalibrated = attempt(request_ms=2_000, terminal_w=1_000)
+        self.assertFalse(runner.command_delivery_after_session_end(uncalibrated))
+        self.assertFalse(runner.reclassify_out_of_window_command_attempt(uncalibrated))
+        self.assertEqual(uncalibrated.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            uncalibrated.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+
+        # Priority 1: same-target pre-dispatch journal observation.
+        marked = attempt(request_ms=2_000, terminal_w=1_000, pre_dispatch=16)
+        self.assertTrue(runner.command_delivery_after_session_end(marked))
+        self.assertTrue(runner.reclassify_out_of_window_command_attempt(marked))
+        self.assertEqual(marked.status, runner.AttemptStatus.INVALID)
+        self.assertIsNone(marked.classification)
+        self.assertEqual(
+            marked.invalid_reason, runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+        )
+        self.assertTrue(any("proven" in f for f in marked.failures), marked.failures)
+        self.assertIn("listening_window_closed", marked.invalid_details)
+
+        # Priority 2: validated alignment conclusive for every offset in range.
+        conclusive = attempt(request_ms=2_000, terminal_w=1_000)
+        self.assertTrue(runner.command_delivery_after_session_end(conclusive, ALIGNED))
+        self.assertTrue(runner.reclassify_out_of_window_command_attempt(conclusive, ALIGNED))
+        self.assertEqual(conclusive.status, runner.AttemptStatus.INVALID)
+        self.assertEqual(
+            conclusive.invalid_reason, runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+        )
+
+        # Review scenario: source clock 750 ms ahead; command actually requested
+        # 300 ms before session end appears 450 ms after it.  Even with the
+        # persisted [-800, -700] range the adjusted ordering is not conclusive.
+        source_ahead = attempt(request_ms=1_450, terminal_w=1_000)
+        source_ahead_alignment = {
+            **ALIGNED, "offset_range_ms": [-800, -700],
+        }
+        self.assertFalse(runner.command_delivery_after_session_end(
+            source_ahead, source_ahead_alignment))
+        self.assertFalse(runner.reclassify_out_of_window_command_attempt(
+            source_ahead, source_ahead_alignment))
+        self.assertEqual(source_ahead.status, runner.AttemptStatus.FAILED)
+
+        # Same range but genuinely late by more than the worst-case offset:
+        # conclusive.
+        genuinely_late = attempt(request_ms=3_000, terminal_w=1_000)
+        self.assertTrue(runner.command_delivery_after_session_end(
+            genuinely_late, source_ahead_alignment))
+
+        # Delivery inside the window with aligned clocks: unchanged.
         in_window = attempt(request_ms=900, terminal_w=1_000)
-        self.assertFalse(runner.command_delivery_after_session_end(in_window))
-        self.assertFalse(runner.reclassify_out_of_window_command_attempt(in_window))
+        self.assertFalse(runner.command_delivery_after_session_end(in_window, ALIGNED))
+        self.assertFalse(runner.reclassify_out_of_window_command_attempt(in_window, ALIGNED))
         self.assertEqual(in_window.status, runner.AttemptStatus.FAILED)
         self.assertEqual(
             in_window.classification,
             runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
         )
 
+        # Untrustworthy alignment records are never used.  (Alias pairing is
+        # enforced by the runner at load time — see
+        # test_checkpoint_load_rejects_alignment_for_other_devices.)
+        for broken in (
+            None,
+            {"offset_range_ms": [-100, 100], "uncertainty_ms": 25},
+            {"offset_range_ms": [100, -100], "uncertainty_ms": 25,
+             "method": "probe"},
+            {"offset_range_ms": [-100, 100], "uncertainty_ms": -1,
+             "method": "probe"},
+            {"offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+             "method": " "},
+            {"offset_range_ms": [True, 100], "uncertainty_ms": 25,
+             "method": "probe"},
+            {"offset_range_ms": [-100, 100], "uncertainty_ms": True,
+             "method": "probe"},
+            {"offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+             "method": 7},
+        ):
+            with self.subTest(alignment=broken):
+                late = attempt(request_ms=2_000, terminal_w=1_000)
+                self.assertFalse(
+                    runner.command_delivery_after_session_end(late, broken))
+                self.assertFalse(
+                    runner.reclassify_out_of_window_command_attempt(late, broken))
+                self.assertEqual(late.status, runner.AttemptStatus.FAILED)
+
         # Missing command timing, missing terminal, wake-only and passed
         # attempts are never reclassified.
         self.assertFalse(runner.command_delivery_after_session_end(
-            attempt(None, 1_000)))
+            attempt(None, 1_000), ALIGNED))
         self.assertFalse(runner.command_delivery_after_session_end(
-            attempt(2_000, None)))
+            attempt(2_000, None), ALIGNED))
         self.assertFalse(runner.command_delivery_after_session_end(
-            attempt(2_000, 1_000, wake_only=True)))
+            attempt(2_000, 1_000, wake_only=True), ALIGNED))
         self.assertFalse(runner.command_delivery_after_session_end(
-            attempt(2_000, 1_000, status=runner.AttemptStatus.PASSED)))
+            attempt(2_000, 1_000, status=runner.AttemptStatus.PASSED), ALIGNED))
         self.assertFalse(runner.command_delivery_after_session_end(
-            attempt(2_000, 1_000, with_command=False)))
+            attempt(2_000, 1_000, with_command=False), ALIGNED))
 
-    def test_checkpoint_load_reclassifies_and_keeps_slot_retryable(self) -> None:
-        """Loading a preserved run invalidates the out-of-window attempt, keeps
-        the position incomplete, and leaves it eligible for bounded retry."""
+    def test_checkpoint_load_preserves_uncalibrated_classification(self) -> None:
+        """An uncalibrated preserved run keeps its recorded classification:
+        raw wall-clock ordering is never reclassified on load."""
         private_root = Path(tempfile.mkdtemp())
         slot = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=2)
         slot_open = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=3)
@@ -1584,26 +1666,110 @@ class OutOfWindowCommandTests(unittest.TestCase):
         consumer.load_checkpoint(producer.run_id)
 
         by_id = {attempt.trial_id: attempt for attempt in consumer.attempts}
-        self.assertEqual(by_id["trial-007"].status, runner.AttemptStatus.INVALID)
+        # No clock-alignment record and no same-target marker: preserved.
+        self.assertIsNone(consumer.clock_alignment)
+        self.assertEqual(by_id["trial-007"].status, runner.AttemptStatus.FAILED)
         self.assertEqual(
-            by_id["trial-007"].invalid_reason,
-            runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW,
+            by_id["trial-007"].classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
         )
         self.assertEqual(by_id["trial-008"].status, runner.AttemptStatus.FAILED)
-        # The required position is incomplete and stays eligible for bounded retry.
-        self.assertFalse(consumer.is_matrix_complete())
-        self.assertEqual(consumer._invalid_count_for(slot), 1)
-        self.assertLess(consumer._invalid_count_for(slot), runner.VALID_MAX_ATTEMPTS)
-        self.assertEqual(consumer.valid_failed_slots, {slot_open.position_id})
-        self.assertEqual(consumer.invalid_attempt_count, 1)
+        # Both positions remain validly complete; the slot is not retried away.
+        self.assertEqual(
+            consumer.valid_failed_slots, {slot.position_id, slot_open.position_id})
+        self.assertEqual(consumer.invalid_attempt_count, 0)
         self.assertEqual(
             consumer.completed_slots,
             {f"{slot.position_id}:1", f"{slot_open.position_id}:1"},
         )
 
-    def test_export_reclassifies_and_reconciles_summary_counts(self) -> None:
-        """Reclassification reconciles evidence summary counts and exports the
-        explicit invalid reason; schema validation passes."""
+    def test_checkpoint_load_reclassifies_with_validated_alignment(self) -> None:
+        """A persisted validated clock-alignment record conclusive beyond its
+        range reclassifies on load; the position stays retryable; the record
+        round-trips through the checkpoint."""
+        private_root = Path(tempfile.mkdtemp())
+        slot = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=2)
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        producer.clock_alignment = {
+            "source_alias": "s23u", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-007", slot, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                failures=["captured command transcript does not match the approved fixture expectation"],
+                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+        ]
+        producer.checkpoint()
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+
+        self.assertEqual(
+            consumer.clock_alignment,
+            {
+                "source_alias": "s23u", "target_alias": "s21",
+                "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+                "method": "preflight_alignment_probe",
+            },
+        )
+        attempt = consumer.attempts[0]
+        self.assertEqual(attempt.status, runner.AttemptStatus.INVALID)
+        self.assertEqual(
+            attempt.invalid_reason,
+            runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW,
+        )
+        # The required position is incomplete and stays eligible for bounded retry.
+        self.assertFalse(consumer.is_matrix_complete())
+        self.assertEqual(consumer._invalid_count_for(slot), 1)
+        self.assertLess(consumer._invalid_count_for(slot), runner.VALID_MAX_ATTEMPTS)
+        self.assertEqual(consumer.valid_failed_slots, set())
+        self.assertEqual(consumer.invalid_attempt_count, 1)
+
+    def test_checkpoint_load_rejects_alignment_for_other_devices(self) -> None:
+        """An alignment record naming a different device pair is untrustworthy."""
+        private_root = Path(tempfile.mkdtemp())
+        slot = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=2)
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        producer.clock_alignment = {
+            "source_alias": "other", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-007", slot, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+        ]
+        producer.checkpoint()
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        self.assertIsNone(consumer.clock_alignment)
+        self.assertEqual(consumer.attempts[0].status, runner.AttemptStatus.FAILED)
+
+    def test_export_reconciles_counts_without_unproven_reclassification(self) -> None:
+        """Unproven wall-clock ordering never changes exported totals: the
+        attempt stays a valid product failure and counts reconcile."""
         harness = make_runner(runner.RunKind.DIAGNOSTIC)
         harness.target_identity = runner.DeviceIdentity(
             "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
@@ -1628,10 +1794,63 @@ class OutOfWindowCommandTests(unittest.TestCase):
                 target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
             ),
             runner.MatrixAttempt(
-                "fail-out-of-window", command_slots[2], 1, runner.AttemptStatus.FAILED,
+                "fail-wall-clock-only", command_slots[2], 1, runner.AttemptStatus.FAILED,
                 classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
                 source_timing={"command": {"request_wall_clock_ms": 2_000}},
                 target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+        ]
+        evidence = harness.export_evidence()
+        summary = evidence["summary"]
+        self.assertEqual(summary["total_attempts"], 3)
+        self.assertEqual(summary["valid"], 3)
+        self.assertEqual(summary["passed"], 1)
+        self.assertEqual(summary["failed"], 2)
+        self.assertEqual(summary["invalid"], 0)
+        by_name = {case["name"]: case for case in evidence["cases"]}
+        self.assertEqual(by_name["fail-wall-clock-only"]["status"], "failed")
+        self.assertEqual(
+            by_name["fail-wall-clock-only"]["failure_classification"],
+            "command_capture_or_routing_failure",
+        )
+        self.assertEqual(by_name["fail-in-window"]["status"], "failed")
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
+    def test_export_reclassifies_only_with_persisted_proof(self) -> None:
+        """With same-target pre-dispatch proof the attempt is reclassified at
+        export and summary counts reconcile; schema validation passes."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        command_slots = [s for s in slots if not s.wake_only]
+        harness.attempts = [
+            runner.MatrixAttempt(
+                "pass-1", command_slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt(
+                "fail-in-window", command_slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 900}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+            runner.MatrixAttempt(
+                "fail-proven-out-of-window", command_slots[2], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                target_timing={
+                    "events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}],
+                    "pre_dispatch_terminal_sequence": 16,
+                },
             ),
         ]
         evidence = harness.export_evidence()
@@ -1642,16 +1861,10 @@ class OutOfWindowCommandTests(unittest.TestCase):
         self.assertEqual(summary["failed"], 1)
         self.assertEqual(summary["invalid"], 1)
         by_name = {case["name"]: case for case in evidence["cases"]}
+        self.assertEqual(by_name["fail-proven-out-of-window"]["status"], "invalid")
         self.assertEqual(
-            by_name["fail-out-of-window"]["status"], "invalid")
-        self.assertEqual(
-            by_name["fail-out-of-window"]["invalid_reason"],
+            by_name["fail-proven-out-of-window"]["invalid_reason"],
             "command_outside_listening_window",
-        )
-        self.assertEqual(by_name["fail-in-window"]["status"], "failed")
-        self.assertEqual(
-            by_name["fail-in-window"]["failure_classification"],
-            "command_capture_or_routing_failure",
         )
         self.assertFalse(evidence["wake_reliability"]["complete_valid_matrix"])
         valid, issues = evidence_metrics.validate_record(evidence, [])

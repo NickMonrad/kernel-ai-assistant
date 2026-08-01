@@ -1320,24 +1320,86 @@ def classify_attempt(
 TERMINAL_SESSION_EVENT_TYPES = {"SESSION_COMPLETED", "SESSION_CANCELLED"}
 
 
-def command_delivery_after_session_end(attempt: MatrixAttempt) -> bool:
-    """Return whether recorded evidence proves command delivery began after
+def validated_clock_alignment(
+    value: Any,
+    *,
+    source_alias: str | None = None,
+    target_alias: str | None = None,
+) -> dict[str, Any] | None:
+    """Structurally validate a persisted source↔target wall-clock alignment record.
+
+    A record is trusted only when it is persisted with the private run, names
+    the paired devices, and bounds the offset: ``offset_range_ms`` [lo, hi] =
+    possible values of (target wall clock − source wall clock), a non-negative
+    ``uncertainty_ms``, and a non-empty ``method`` describing the measurement.
+
+    Two Android devices' epoch wall clocks are NOT treated as synchronised
+    without such a record; the range is the only basis for cross-device
+    ordering.  Returns the validated record or None when untrustworthy.
+    """
+    if not isinstance(value, dict):
+        return None
+    offset_range = value.get("offset_range_ms")
+    if not isinstance(offset_range, list) or len(offset_range) != 2:
+        return None
+    lo, hi = offset_range
+    if (
+        isinstance(lo, bool) or isinstance(hi, bool)
+        or not isinstance(lo, int) or not isinstance(hi, int)
+    ):
+        return None
+    if lo > hi:
+        return None
+    uncertainty = value.get("uncertainty_ms")
+    if (
+        isinstance(uncertainty, bool)
+        or not isinstance(uncertainty, int)
+        or uncertainty < 0
+    ):
+        return None
+    method = value.get("method")
+    if not isinstance(method, str) or not method.strip():
+        return None
+    if source_alias is not None and value.get("source_alias") != source_alias:
+        return None
+    if target_alias is not None and value.get("target_alias") != target_alias:
+        return None
+    validated = {
+        "offset_range_ms": [lo, hi],
+        "uncertainty_ms": uncertainty,
+        "method": method,
+    }
+    if "source_alias" in value:
+        validated["source_alias"] = value["source_alias"]
+    if "target_alias" in value:
+        validated["target_alias"] = value["target_alias"]
+    return validated
+
+
+def command_delivery_after_session_end(
+    attempt: MatrixAttempt,
+    clock_alignment: dict[str, Any] | None = None,
+) -> bool:
+    """Return whether recorded evidence PROVES command delivery began after
     the correlated target session ended.
 
-    Authoritative evidence, in order of strength:
-    - target-journal order: the correlated session's terminal event
-      (``SESSION_COMPLETED``/``SESSION_CANCELLED``) is present in the recorded
-      event path; and
-    - the command request wall clock (``request_wall_clock_ms``, source
-      ``System.currentTimeMillis()`` epoch ms) is later than the terminal
-      event's wall clock (target ``System.currentTimeMillis()`` epoch ms).
+    Evidence priority, no cross-device clocks compared directly:
 
-    Both timestamps are epoch wall clocks (a global, contract-defined clock
-    domain); device-relative ``elapsedRealtime`` values are never compared
-    across devices.  Wall-clock skew between the paired devices was verified
-    < 200 ms during the preserved runs via speech-detected/playback
-    alignment, so a recorded request that follows the terminal event by
-    hundreds of milliseconds is authoritative.
+    1. Same-target pre-dispatch proof: the runner persisted a target-journal
+       observation taken immediately before command invocation
+       (``target_timing.pre_dispatch_terminal_sequence``).  When that
+       observation already contained the correlated session's terminal
+       sequence, ordering is proven by the target journal alone.
+    2. Persisted bounded clock-alignment evidence: a per-run
+       ``clock_alignment`` record (validated by ``validated_clock_alignment``)
+       bounds (target − source) wall-clock offset.  The command request is
+       provably after the terminal event only when it is after it for every
+       offset in the recorded range:
+       request_wall_clock_ms + offset_range_lo > terminal_wall_clock_ms.
+    3. Unproven: return False and preserve the recorded classification.
+
+    Epoch wall clocks are a common unit, not a synchronised shared clock;
+    a raw cross-device comparison is never treated as proof.
     """
     if attempt.matrix_slot.wake_only:
         return False
@@ -1355,33 +1417,52 @@ def command_delivery_after_session_end(attempt: MatrixAttempt) -> bool:
                 terminal_wall_clock_ms = candidate
     if not isinstance(terminal_wall_clock_ms, int):
         return False
-    return request_wall_clock_ms > terminal_wall_clock_ms
+
+    # Priority 1: the target journal itself showed the terminal event in a
+    # snapshot taken immediately before command invocation.
+    pre_dispatch = attempt.target_timing.get("pre_dispatch_terminal_sequence")
+    if isinstance(pre_dispatch, int):
+        return True
+
+    # Priority 2: persisted bounded clock-alignment, conclusive at every
+    # offset in the recorded range.
+    alignment = validated_clock_alignment(clock_alignment)
+    if alignment is not None:
+        offset_lo = alignment["offset_range_ms"][0]
+        if request_wall_clock_ms + offset_lo > terminal_wall_clock_ms:
+            return True
+    return False
 
 
-def reclassify_out_of_window_command_attempt(attempt: MatrixAttempt) -> bool:
-    """Defensively invalidate a recorded command attempt whose delivery began
-    after the correlated target session ended.
+def reclassify_out_of_window_command_attempt(
+    attempt: MatrixAttempt,
+    clock_alignment: dict[str, Any] | None = None,
+) -> bool:
+    """Defensively invalidate a recorded command attempt whose delivery is
+    PROVEN to have begun after the correlated target session ended.
 
-    The harness had no opportunity to recognise the command because the
-    stimulus was delivered outside the valid listening window; such an
-    attempt must never be exported as a valid product failure.  Returns
-    whether the attempt was reclassified.
+    Reclassification happens only when authoritative evidence (same-target
+    pre-dispatch journal proof, or a persisted validated clock-alignment
+    record conclusive beyond its range) establishes the ordering.  Without
+    proof the recorded classification is preserved: uncalibrated cross-device
+    wall clocks are never treated as synchronised.  Returns whether the
+    attempt was reclassified.
     """
-    if not command_delivery_after_session_end(attempt):
+    if not command_delivery_after_session_end(attempt, clock_alignment):
         return False
     attempt.status = AttemptStatus.INVALID
     attempt.classification = None
     attempt.invalid_reason = InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
     detail = (
-        "command delivery began after the correlated target session ended "
-        "(session terminal event precedes the command request wall clock)"
+        "command delivery is proven to have begun after the correlated "
+        "target session ended (same-target ordering or validated clock alignment)"
     )
     if detail not in attempt.failures:
         attempt.failures.append(detail)
     attempt.invalid_details["listening_window_closed"] = {
         "evidence": (
-            "target journal terminal event precedes command request "
-            "wall clock in the epoch clock domain"
+            "proven by target-journal pre-dispatch observation or a persisted "
+            "validated source-target clock-alignment record"
         ),
     }
     return True
@@ -1831,6 +1912,7 @@ class AcousticWakeReliabilityRunner:
         self.cue_audibility_evidence: dict[str, Any] | None = None
 
         self.attempts: list[MatrixAttempt] = []
+        self.clock_alignment: dict[str, Any] | None = None
         self.source_results: list[dict[str, Any]] = []
         self.completed_slots: set[str] = set()
         self.valid_failed_slots: set[str] = set()
@@ -1911,6 +1993,7 @@ class AcousticWakeReliabilityRunner:
             "completed_slots": sorted(self.completed_slots),
             "valid_failed_slots": sorted(self.valid_failed_slots),
             "invalid_attempt_count": self.invalid_attempt_count,
+            "clock_alignment": self.clock_alignment,
             "abort_reason": self.abort_reason,
             "cleanup_verified": self.cleanup_verified,
             "cleanup_failures": list(self.cleanup_failures),
@@ -1990,11 +2073,18 @@ class AcousticWakeReliabilityRunner:
             ))
         self.source_results = list(state.get("source_results", []))
         # Defensive correction for already-recorded attempts: a wake_plus_command
-        # attempt whose delivery provably began after the correlated target
-        # session ended is a harness source-timing invalid, never a valid
-        # product failure.  Apply before any scheduler or export decision.
+        # attempt whose delivery is PROVEN (same-target pre-dispatch journal
+        # observation or a persisted validated clock-alignment record) to have
+        # begun after the correlated target session ended is a harness
+        # source-timing invalid, never a valid product failure.  Uncalibrated
+        # cross-device wall clocks are never treated as proof.
+        self.clock_alignment = validated_clock_alignment(
+            state.get("clock_alignment"),
+            source_alias=self.source_alias,
+            target_alias=self.target_alias,
+        )
         for attempt in self.attempts:
-            reclassify_out_of_window_command_attempt(attempt)
+            reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
         # Reconcile persisted bookkeeping with the corrected attempt statuses
         # (scheduling decisions derive from attempts, these sets are reported
         # and persisted only).
@@ -2548,6 +2638,12 @@ class AcousticWakeReliabilityRunner:
                         since_sequence=boundary_sequence,
                         generation=boundary_generation,
                         session=correlated_session,
+                    )
+                    # Persist the pre-dispatch target observation so any later
+                    # retrospective review has the same-target ordering proof
+                    # (an integer terminal sequence) or its absence (None).
+                    attempt.target_timing["pre_dispatch_terminal_sequence"] = (
+                        command_window_closed_sequence
                     )
                     if command_window_closed_sequence is not None:
                         attempt.invalid_reason = InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
@@ -3691,11 +3787,13 @@ class AcousticWakeReliabilityRunner:
         """Build the final evidence object before a single sanitised write."""
         if not self.target_identity or not self.source_identity:
             raise HarnessError("device identities not available")
-        # Defensive: an attempt whose command delivery provably began after the
-        # correlated target session ended must never be exported as a valid
-        # product failure, even when a race slipped past the pre-dispatch check.
+        # Defensive: an attempt whose command delivery is PROVEN to have begun
+        # after the correlated target session ended must never be exported as a
+        # valid product failure.  Without proof (same-target ordering or a
+        # persisted validated clock-alignment record) the recorded
+        # classification is preserved.
         for attempt in self.attempts:
-            reclassify_out_of_window_command_attempt(attempt)
+            reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
         preflight = self.preflight_approval
         cue_version = self.manifest.cue_policy_version if self.manifest else None
         fixture_hashes = (preflight or {}).get("fixture_hashes", {})
