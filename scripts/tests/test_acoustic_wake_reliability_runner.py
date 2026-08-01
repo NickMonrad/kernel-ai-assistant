@@ -648,7 +648,21 @@ setBluetoothActiveDevice active bt_a2dp routed
         boundary_envelope = envelope([
             event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
         ], lowest=3)
-        provider_snapshots = iter((boundary_envelope, final_envelope))
+        # Snapshot observed immediately before command dispatch: the correlated
+        # session is still open (no terminal event yet).
+        pre_command_events = [
+            item for item in final_events
+            if item["t"] in {
+                "DETECTOR_GENERATION_STARTED", "SILENCE_GATE_ENTERED",
+                "VOICED_FRAME_AFTER_SILENCE", "STAGE2_RESUMED", "STAGE3_READY",
+                "ACTIVATION_CANDIDATE", "VERIFIED_ACTIVATION",
+                "WAKE_CALLBACK_INVOKED", "VOICE_SESSION_STARTED",
+                "STT_START_REQUESTED", "STT_READY", "CUE_REQUESTED",
+            }
+        ]
+        provider_snapshots = iter(
+            (boundary_envelope, envelope(pre_command_events), final_envelope)
+        )
 
         def provider_call(method, extras=None, timeout=15.0):
             if method == runner.TARGET_METHOD_GET_SEQUENCE:
@@ -1305,6 +1319,344 @@ class EvidenceAndModeTests(unittest.TestCase):
             runner.public_environment_snapshot({**raw, "ringer_mode": "normal", "dnd_mode": "off"})["ringer_mode"],
             "normal",
         )
+
+class OutOfWindowCommandTests(unittest.TestCase):
+    """Harness source-timing invalidation for out-of-window command delivery."""
+
+    def _command_harness(self) -> tuple[Any, dict, dict]:
+        harness = make_runner()
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {
+            "natural_wake": fixture_sha256,
+            "qwen_command": fixture_sha256,
+        }
+        harness.installed_command_transcript_hashes = {"qwen_command": "b" * 64}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        final_events = complete_events(runner.TrialType.WAKE_PLUS_COMMAND)
+        final_envelope = envelope(final_events)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        pre_command_open_events = [
+            item for item in final_events
+            if item["t"] in {
+                "DETECTOR_GENERATION_STARTED", "SILENCE_GATE_ENTERED",
+                "VOICED_FRAME_AFTER_SILENCE", "STAGE2_RESUMED", "STAGE3_READY",
+                "ACTIVATION_CANDIDATE", "VERIFIED_ACTIVATION",
+                "WAKE_CALLBACK_INVOKED", "VOICE_SESSION_STARTED",
+                "STT_START_REQUESTED", "STT_READY", "CUE_REQUESTED",
+            }
+        ]
+        return harness, {
+            "boundary": boundary_envelope,
+            "open": envelope(pre_command_open_events),
+            "final": final_envelope,
+        }, final_events
+
+    def _provider_snapshots(self, envelopes: dict[str, dict], order: list[str]):
+        provider_snapshots = iter([envelopes[key] for key in order])
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(provider_snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        return provider_call
+
+    def _target_wait(self, call_order: list[str]):
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            if event_type == "STT_READY":
+                call_order.append("wait-STT_READY")
+            elif event_type == "CUE_REQUESTED":
+                call_order.append("wait-CUE_REQUESTED")
+            waited = event(
+                {"STT_READY": 11, "CUE_REQUESTED": 12, "DETECTOR_REARMED": 18}[event_type],
+                event_type,
+            )
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        return target_wait
+
+    def _invoke_wake(self, call_order: list[str]):
+        def invoke_wake_source(trial_id: str, fixture_id: str, volume_index: int) -> dict:
+            call_order.append("wake-completed")
+            return source_result(trial_id, fixture_id)
+
+        return invoke_wake_source
+
+    def test_terminal_before_dispatch_suppresses_command_and_invalidates(self) -> None:
+        """A SESSION_COMPLETED observed before dispatch prevents source invocation
+        and the attempt becomes INVALID with the explicit harness-timing reason."""
+        harness, envelopes, _ = self._command_harness()
+        call_order: list[str] = []
+        provider_call = self._provider_snapshots(
+            envelopes, ["boundary", "final", "final"]
+        )
+
+        def invoke_command_source(**kwargs):
+            self.fail("command source must not be invoked after the session ended")
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=self._invoke_wake(call_order)), \
+                patch.object(harness, "_invoke_command_source_with_armed_wait", side_effect=invoke_command_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=self._target_wait(call_order)), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-window-closed",
+                runner.MatrixSlot(idle_s=1, wake_only=False, ordinal=2),
+                "natural_wake",
+                "qwen_command",
+            )
+
+        self.assertEqual(attempt.status, runner.AttemptStatus.INVALID, attempt.__dict__)
+        self.assertIsNone(attempt.classification)
+        self.assertEqual(
+            attempt.invalid_reason,
+            runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW,
+        )
+        self.assertTrue(
+            any("listening session ended before command delivery" in failure
+                for failure in attempt.failures),
+            attempt.failures,
+        )
+        self.assertIn("listening_window_closed", attempt.invalid_details)
+        self.assertEqual(
+            attempt.invalid_details["listening_window_closed"]["terminal_sequence"],
+            16,
+        )
+        # The wake and target events stay preserved: the attempt remains visible.
+        self.assertIs(harness.attempts[-1], attempt)
+        self.assertTrue(attempt.target_timing["events"])
+
+    def test_command_inside_window_failure_stays_valid_product_failure(self) -> None:
+        """A command delivered while the session is open continues through the
+        existing path; a genuine capture/routing failure remains a valid failure."""
+        harness, envelopes, final_events = self._command_harness()
+        broken_final = copy.deepcopy(envelopes["final"])
+        broken_final["events"] = [
+            item for item in broken_final["events"] if item["t"] != "STT_FINAL"
+        ]
+        broken_final["highestSequence"] = broken_final["events"][-1]["s"]
+        provider_call = self._provider_snapshots(
+            {
+                "boundary": envelopes["boundary"],
+                "open": envelopes["open"],
+                "final": broken_final,
+            },
+            ["boundary", "open", "final"],
+        )
+        call_order: list[str] = []
+
+        def invoke_command_source(**kwargs):
+            call_order.append("command-dispatched")
+            command_events = [event(15, "COMMAND_ROUTING_RESULT")]
+            command_result = source_result("trial-window-open-cmd", "qwen_command")
+            command_result["command_transcript_sha256"] = "b" * 64
+            return command_result, command_events, envelope(command_events, lowest=15)
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=self._invoke_wake(call_order)), \
+                patch.object(harness, "_invoke_command_source_with_armed_wait", side_effect=invoke_command_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=self._target_wait(call_order)), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-window-open",
+                runner.MatrixSlot(idle_s=1, wake_only=False, ordinal=2),
+                "natural_wake",
+                "qwen_command",
+            )
+
+        self.assertIn("command-dispatched", call_order)
+        self.assertEqual(attempt.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            attempt.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+        self.assertEqual(harness.valid_failed_slots, {"1:wake_plus_command:2"})
+
+    def test_reclassify_proves_delivery_after_session_end(self) -> None:
+        """The pure defensive check uses epoch wall clocks only and never
+        mislabels in-window or unproven deliveries."""
+        def attempt(request_ms: int | None, terminal_w: int | None,
+                    *, wake_only: bool = False,
+                    status: runner.AttemptStatus = runner.AttemptStatus.FAILED,
+                    with_command: bool = True) -> runner.MatrixAttempt:
+            events = [] if terminal_w is None else [
+                {"s": 16, "t": "SESSION_COMPLETED", "w": terminal_w, "g": 11, "i": 10}
+            ]
+            timing = (
+                {"command": {"request_wall_clock_ms": request_ms}}
+                if with_command else {}
+            )
+            return runner.MatrixAttempt(
+                "t", runner.MatrixSlot(idle_s=10, wake_only=wake_only, ordinal=1),
+                1, status,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing=timing,
+                target_timing={"events": events},
+            )
+
+        # Delivery provably began after the session terminal event.
+        late = attempt(request_ms=2_000, terminal_w=1_000)
+        self.assertTrue(runner.command_delivery_after_session_end(late))
+        self.assertTrue(runner.reclassify_out_of_window_command_attempt(late))
+        self.assertEqual(late.status, runner.AttemptStatus.INVALID)
+        self.assertIsNone(late.classification)
+        self.assertEqual(
+            late.invalid_reason, runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW
+        )
+        self.assertTrue(any("session ended" in f for f in late.failures), late.failures)
+        self.assertIn("listening_window_closed", late.invalid_details)
+
+        # Delivery inside the window: unchanged valid failure.
+        in_window = attempt(request_ms=900, terminal_w=1_000)
+        self.assertFalse(runner.command_delivery_after_session_end(in_window))
+        self.assertFalse(runner.reclassify_out_of_window_command_attempt(in_window))
+        self.assertEqual(in_window.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            in_window.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+
+        # Missing command timing, missing terminal, wake-only and passed
+        # attempts are never reclassified.
+        self.assertFalse(runner.command_delivery_after_session_end(
+            attempt(None, 1_000)))
+        self.assertFalse(runner.command_delivery_after_session_end(
+            attempt(2_000, None)))
+        self.assertFalse(runner.command_delivery_after_session_end(
+            attempt(2_000, 1_000, wake_only=True)))
+        self.assertFalse(runner.command_delivery_after_session_end(
+            attempt(2_000, 1_000, status=runner.AttemptStatus.PASSED)))
+        self.assertFalse(runner.command_delivery_after_session_end(
+            attempt(2_000, 1_000, with_command=False)))
+
+    def test_checkpoint_load_reclassifies_and_keeps_slot_retryable(self) -> None:
+        """Loading a preserved run invalidates the out-of-window attempt, keeps
+        the position incomplete, and leaves it eligible for bounded retry."""
+        private_root = Path(tempfile.mkdtemp())
+        slot = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=2)
+        slot_open = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=3)
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-007", slot, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                failures=["captured command transcript does not match the approved fixture expectation"],
+                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+            runner.MatrixAttempt(
+                "trial-008", slot_open, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 900}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+        ]
+        producer.checkpoint()
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+
+        by_id = {attempt.trial_id: attempt for attempt in consumer.attempts}
+        self.assertEqual(by_id["trial-007"].status, runner.AttemptStatus.INVALID)
+        self.assertEqual(
+            by_id["trial-007"].invalid_reason,
+            runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW,
+        )
+        self.assertEqual(by_id["trial-008"].status, runner.AttemptStatus.FAILED)
+        # The required position is incomplete and stays eligible for bounded retry.
+        self.assertFalse(consumer.is_matrix_complete())
+        self.assertEqual(consumer._invalid_count_for(slot), 1)
+        self.assertLess(consumer._invalid_count_for(slot), runner.VALID_MAX_ATTEMPTS)
+        self.assertEqual(consumer.valid_failed_slots, {slot_open.position_id})
+        self.assertEqual(consumer.invalid_attempt_count, 1)
+        self.assertEqual(
+            consumer.completed_slots,
+            {f"{slot.position_id}:1", f"{slot_open.position_id}:1"},
+        )
+
+    def test_export_reclassifies_and_reconciles_summary_counts(self) -> None:
+        """Reclassification reconciles evidence summary counts and exports the
+        explicit invalid reason; schema validation passes."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        slots = runner.matrix_slots_for_target("s21")
+        command_slots = [s for s in slots if not s.wake_only]
+        harness.attempts = [
+            runner.MatrixAttempt(
+                "pass-1", command_slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt(
+                "fail-in-window", command_slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 900}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+            runner.MatrixAttempt(
+                "fail-out-of-window", command_slots[2], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
+            ),
+        ]
+        evidence = harness.export_evidence()
+        summary = evidence["summary"]
+        self.assertEqual(summary["total_attempts"], 3)
+        self.assertEqual(summary["valid"], 2)
+        self.assertEqual(summary["passed"], 1)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["invalid"], 1)
+        by_name = {case["name"]: case for case in evidence["cases"]}
+        self.assertEqual(
+            by_name["fail-out-of-window"]["status"], "invalid")
+        self.assertEqual(
+            by_name["fail-out-of-window"]["invalid_reason"],
+            "command_outside_listening_window",
+        )
+        self.assertEqual(by_name["fail-in-window"]["status"], "failed")
+        self.assertEqual(
+            by_name["fail-in-window"]["failure_classification"],
+            "command_capture_or_routing_failure",
+        )
+        self.assertFalse(evidence["wake_reliability"]["complete_valid_matrix"])
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
 
 if __name__ == "__main__":
     unittest.main()
