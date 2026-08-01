@@ -52,6 +52,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1356,6 +1357,10 @@ def public_preflight_approval(approval: dict[str, Any] | None) -> dict[str, Any]
     return {key: approval[key] for key in allowed if key in approval}
 
 
+RINGER_MODE_NAMES = {"0": "silent", "1": "vibrate", "2": "normal"}
+DND_MODE_NAMES = {"0": "off", "1": "important_only", "2": "no_interruptions", "3": "alarms"}
+
+
 def public_environment_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Expose stable environment facts while keeping boot identifiers private."""
     allowed = {
@@ -1363,7 +1368,20 @@ def public_environment_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "service_active", "media_volume", "ringer_mode", "dnd_mode",
         "bluetooth_route_active",
     }
-    return {key: value for key, value in snapshot.items() if key in allowed}
+    projected = {key: value for key, value in snapshot.items() if key in allowed}
+    # Normalise device-native values to the published evidence schema: string
+    # mode names and integer uptime seconds (schema requires string/integer).
+    if "uptime_seconds" in projected and isinstance(projected["uptime_seconds"], float):
+        projected["uptime_seconds"] = int(projected["uptime_seconds"])
+    if "ringer_mode" in projected and not isinstance(projected["ringer_mode"], str):
+        projected["ringer_mode"] = RINGER_MODE_NAMES.get(
+            str(projected["ringer_mode"]), str(projected["ringer_mode"])
+        )
+    if "dnd_mode" in projected and not isinstance(projected["dnd_mode"], str):
+        projected["dnd_mode"] = DND_MODE_NAMES.get(
+            str(projected["dnd_mode"]), str(projected["dnd_mode"])
+        )
+    return projected
 
 
 def public_run_environment(

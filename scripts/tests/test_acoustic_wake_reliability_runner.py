@@ -1278,5 +1278,33 @@ class EvidenceAndModeTests(unittest.TestCase):
         self.assertIn(expected_fraction, wake_html,
                       "dashboard must display the same completed/required fraction as producer")
 
+    def test_public_environment_snapshot_normalises_to_evidence_schema_types(self) -> None:
+        """Device-native int modes and float uptime must become schema types (string/int)."""
+        raw = {
+            "reachable": True,
+            "uptime_seconds": 2207985.31,
+            "screen_off": True,
+            "charging": False,
+            "service_active": True,
+            "media_volume": 11,
+            "ringer_mode": 0,
+            "dnd_mode": 0,
+            "bluetooth_route_active": False,
+            "boot_id": "private-boot-id",
+        }
+        projected = runner.public_environment_snapshot(raw)
+        self.assertEqual(projected["uptime_seconds"], 2207985)
+        self.assertEqual(projected["ringer_mode"], "silent")
+        self.assertEqual(projected["dnd_mode"], "off")
+        self.assertNotIn("boot_id", projected)
+        # All ringer/dnd enum names stay strings.
+        self.assertEqual(runner.public_environment_snapshot({**raw, "ringer_mode": 2})["ringer_mode"], "normal")
+        self.assertEqual(runner.public_environment_snapshot({**raw, "dnd_mode": 3})["dnd_mode"], "alarms")
+        # Already-normalised strings pass through unchanged.
+        self.assertEqual(
+            runner.public_environment_snapshot({**raw, "ringer_mode": "normal", "dnd_mode": "off"})["ringer_mode"],
+            "normal",
+        )
+
 if __name__ == "__main__":
     unittest.main()
