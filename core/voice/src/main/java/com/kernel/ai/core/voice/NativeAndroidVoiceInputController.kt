@@ -38,8 +38,11 @@ private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
  * a retry session to become the normal path (the observed 7–9 s delay and, on one
  * trial, command playback after the session ended).  10 s matches the legacy Vosk
  * session bound (LISTEN_TIMEOUT_MS) and covers the measured command-arrival latency.
- * A human responds to the cue within this budget as well.  The session still ends
- * promptly on speech progress (6 s result timeout) and on genuine platform errors.
+ * The platform recognizer's own shorter no-speech timeout is handled by an in-place
+ * recognizer refresh (see [shouldRefreshAlertRecognizerOnNoSpeech]) that keeps the
+ * same capture session.  A human responds to the cue within this budget as well.
+ * The session still ends promptly on speech progress (6 s result timeout) and on
+ * genuine platform errors.
  */
 private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 10_000L
 
@@ -103,6 +106,27 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
             }
             else -> false
         }
+
+/**
+ * #1433: refresh an alert-session platform recognizer IN PLACE after its own
+ * no-speech timeout (ERROR_NO_MATCH with no speech heard at all).  The platform
+ * recognizer's no-speech window (~5 s observed on the S21) is shorter than the
+ * cue-to-command handoff, so without the refresh the first wake session would
+ * terminate before the command arrives and a retry session would become the
+ * normal path.  The refresh reuses the same capture session id and emits no
+ * events, so the session-level attempt count and journal correlation are
+ * unchanged.
+ */
+internal fun shouldRefreshAlertRecognizerOnNoSpeech(
+    backend: RecognizerBackend,
+    mode: VoiceCaptureMode,
+    heardSpeech: Boolean,
+    sawPartialTranscript: Boolean,
+): Boolean =
+    backend == RecognizerBackend.Platform &&
+        mode == VoiceCaptureMode.AlertCommand &&
+        !heardSpeech &&
+        !sawPartialTranscript
 
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
@@ -449,6 +473,31 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     TAG,
                     "Android native STT retried with platform recognizer after error=$error for sessionId=$sessionId " +
                         "heardSpeech=$heardSpeech sawPartialTranscript=$sawPartialTranscript",
+                )
+                return
+            }
+            // #1433: the platform recognizer has its own no-speech timeout (~5 s
+            // observed on the S21) that fires ERROR_NO_MATCH before the app's
+            // alert-session budget when the wake command arrives after the cue
+            // (measured 7.4-9.0 s after readiness under the acoustic runner
+            // contract).  Refresh the recognizer IN PLACE — same capture session, no
+            // new STT_START_REQUESTED — so the first wake session still accepts the
+            // command and no attempt-2 session becomes the normal path.  Only for
+            // alert sessions that heard nothing at all; any other error still
+            // surfaces as a genuine recognition failure.
+            if (
+                error == SpeechRecognizer.ERROR_NO_MATCH &&
+                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript) &&
+                retryWithPlatformRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "Android native STT refreshed in place after no-speech no-match for sessionId=$sessionId " +
+                        "mode=$mode",
                 )
                 return
             }
