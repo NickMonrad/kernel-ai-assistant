@@ -26,7 +26,22 @@ import kotlinx.coroutines.withContext
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
-private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 2_500L
+
+/**
+ * Silence budget for an alert-mode session before any speech progress.
+ *
+ * Raised from 2.5 s to 10 s by #1433: the wake-command handoff must survive the
+ * cue-to-command gap.  Physical evidence (S21 + S23U, diagnostic matrix) shows the
+ * wake session reaches readiness, plays the cue, and then receives the command
+ * fixture 7.4–9.0 s after readiness (runner cue margin + orchestration latency);
+ * the old 2.5 s budget expired the FIRST attempt before the command arrived, forcing
+ * a retry session to become the normal path (the observed 7–9 s delay and, on one
+ * trial, command playback after the session ended).  10 s matches the legacy Vosk
+ * session bound (LISTEN_TIMEOUT_MS) and covers the measured command-arrival latency.
+ * A human responds to the cue within this budget as well.  The session still ends
+ * promptly on speech progress (6 s result timeout) and on genuine platform errors.
+ */
+private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 10_000L
 
 internal fun sessionResultTimeoutMs(
     mode: VoiceCaptureMode,

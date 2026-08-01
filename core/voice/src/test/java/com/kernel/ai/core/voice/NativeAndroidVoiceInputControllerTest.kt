@@ -16,13 +16,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -52,10 +55,13 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
-    fun `sessionResultTimeoutMs keeps alert pre-speech timeout short but allows more time after progress`() {
+    fun `sessionResultTimeoutMs keeps alert pre-speech timeout within the cue-to-command handoff but allows more time after progress`() {
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.Command))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.SlotReply))
-        assertEquals(2_500L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
+        // #1433: the first wake-command attempt must survive the cue-to-command
+        // handoff (measured command arrival 7.4-9.0 s after readiness on both
+        // devices), so the pre-speech alert budget is 10 s, not 2.5 s.
+        assertEquals(10_000L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand, hasSpeechProgress = true))
     }
 
@@ -264,5 +270,52 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val result = controller.startListening(VoiceCaptureMode.Command)
 
         assertEquals(true, result is VoiceInputStartResult.Unavailable)
+    }
+
+    @Test
+    fun `alert session survives the cue-to-command handoff and errors only at the extended budget`() = runTest {
+        // #1433: the first wake-command attempt reaches readiness, plays the cue, and
+        // then must still be listening when the command arrives (measured 7.4-9.0 s
+        // after readiness on both devices).  The pre-fix 2.5 s budget expired the
+        // first attempt before the command, forcing a retry session to become the
+        // normal path.  This test pins the corrected budget: no error at the old
+        // 2.5 s point, terminal error only at the extended alert budget.
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { platformRecognizer.setRecognitionListener(capture(listener)) } just runs
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        assertTrue(
+            events.any { it is VoiceInputEvent.ListeningStarted },
+            "attempt must reach readiness",
+        )
+
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertFalse(
+            events.any { it is VoiceInputEvent.Error },
+            "first attempt must still be listening at the old 2.5 s deadline",
+        )
+
+        advanceTimeBy(7_000)
+        runCurrent()
+        assertTrue(
+            events.any { it is VoiceInputEvent.Error },
+            "session must end at the extended alert budget",
+        )
+        assertTrue(
+            events.filterIsInstance<VoiceInputEvent.Error>()
+                .all { it.captureSessionId == result.captureSessionId },
+            "the terminal error must belong to the same capture session",
+        )
+        collector.cancel()
     }
 }

@@ -323,6 +323,104 @@ internal fun finalizeWakeSession(
         journal.cancel(cancellationCategory)
     }
 }
+
+/** Outcome of one wake-command handoff (session + routing). */
+internal data class WakeCommandHandoffResult(
+    val completed: Boolean,
+    val cancellationCategory: String,
+)
+
+/**
+ * Execute the full wake-command handoff for one confirmed activation.
+ *
+ * #1433 ordering contract:
+ * 1. The wake detector is stopped FIRST, and its strengthened `stop()` returns only
+ *    after the detection loop has terminated and released its AudioRecord — so
+ *    attempt-1 live STT capture is never requested while the detector still owns
+ *    the microphone.
+ * 2. `VOICE_SESSION_STARTED` is recorded only after that release.
+ * 3. The first STT attempt must reach readiness; the alert-session silence budget
+ *    (see `NativeAndroidVoiceInputController.ALERT_SESSION_SILENCE_TIMEOUT_MS`)
+ *    keeps the session open across the cue-to-command handoff so the runner's
+ *    command is captured in attempt 1 and no retry is needed on the normal path.
+ *
+ * The bounded retry still runs for genuine post-readiness recognition failures.
+ * On cancellation the active recognizer is stopped so no microphone owner or
+ * recognizer is left behind.  [rearmDetector] is invoked exactly once, after the
+ * session is terminal (including on cancellation, matching the previous service
+ * behaviour).  Throws [CancellationException].
+ */
+internal suspend fun runWakeCommandHandoff(
+    wakeWordDetector: WakeWordDetector,
+    voiceInputController: VoiceInputController,
+    cuePlayer: StartListeningCuePlayer,
+    generationId: Long,
+    sessionId: Long,
+    onError: (String) -> Unit = {},
+    routeTranscript: (String) -> Boolean,
+    onSessionTerminal: () -> Unit,
+    journal: WakeSessionJournal? = null,
+): WakeCommandHandoffResult {
+    // #1433: a confirmed wake activation must not request live STT capture until the
+    // wake detector has completed microphone-resource release.
+    wakeWordDetector.stop()
+
+    val sessionJournal = journal ?: WakeSessionJournal(generationId, sessionId)
+    sessionJournal.start()
+    var completed = false
+    var cancellationCategory = "stt_no_final_result"
+
+    try {
+        val sessionResult = runWakeCaptureSession { attempt ->
+            runWakeAttempt(
+                voiceInputController = voiceInputController,
+                journal = sessionJournal,
+                cuePlayer = cuePlayer,
+                attempt = attempt,
+                onError = onError,
+            )
+        }
+
+        cancellationCategory = sessionResult.cancellationCategory
+        val transcript = sessionResult.transcript
+
+        if (transcript != null) {
+            if (routeTranscript(transcript)) {
+                sessionJournal.record(
+                    AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = { mapOf("outcome" to "handed_off") },
+                )
+                completed = true
+            } else {
+                sessionJournal.record(
+                    AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = {
+                        mapOf(
+                            "outcome" to "failed",
+                            "category" to "route_activity_failed",
+                        )
+                    },
+                )
+                cancellationCategory = "route_activity_failed"
+            }
+        }
+    } catch (e: WakeAttemptCollectionException) {
+        cancellationCategory = e.category
+        Log.w(TAG, "WakeWordService: collection ${e.category} (attempt)", e)
+    } catch (e: CancellationException) {
+        cancellationCategory = "session_cancelled"
+        // No microphone owner or recognizer may survive a cancelled handoff.
+        voiceInputController.stopListening()
+        throw e
+    } catch (e: Exception) {
+        cancellationCategory = "session_failed"
+        Log.e(TAG, "WakeWordService: wake session failed", e)
+    } finally {
+        finalizeWakeSession(sessionJournal, completed, cancellationCategory)
+        onSessionTerminal()
+    }
+    return WakeCommandHandoffResult(completed, cancellationCategory)
+}
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
@@ -450,66 +548,26 @@ class WakeWordService : Service() {
 
     // ── Detection handoff ──────────────────────────────────────────────────────
 
-
-
     private fun handleDetection(generationId: Long, sessionId: Long) {
         serviceScope.launch {
             isHandlingDetection = true
-            val journal = WakeSessionJournal(generationId, sessionId)
-            journal.start()
-            var completed = false
-            var cancellationCategory = "stt_no_final_result"
-
             try {
-                val sessionResult = runWakeCaptureSession { attempt ->
-                    runWakeAttempt(
-                        voiceInputController = voiceInputController,
-                        journal = journal,
-                        cuePlayer = cuePlayer,
-                        attempt = attempt,
-                        onError = { msg ->
-                            if (msg.isNotBlank()) showWakeWordError(msg)
-                        },
-                    )
-                }
-
-                cancellationCategory = sessionResult.cancellationCategory
-                val transcript = sessionResult.transcript
-
-                if (transcript != null) {
-                    Log.d(TAG, "WakeWordService: routing final transcript")
-                    if (routeTranscript(transcript)) {
-                        journal.record(
-                            AcousticEventType.COMMAND_ROUTING_RESULT,
-                            metadata = { mapOf("outcome" to "handed_off") },
-                        )
-                        completed = true
-                    } else {
-                        journal.record(
-                            AcousticEventType.COMMAND_ROUTING_RESULT,
-                            metadata = {
-                                mapOf(
-                                    "outcome" to "failed",
-                                    "category" to "route_activity_failed",
-                                )
-                            },
-                        )
-                        cancellationCategory = "route_activity_failed"
-                    }
-                }
-            } catch (e: WakeAttemptCollectionException) {
-                cancellationCategory = e.category
-                Log.w(TAG, "WakeWordService: collection ${e.category} (attempt)", e)
+                runWakeCommandHandoff(
+                    wakeWordDetector = wakeWordDetector,
+                    voiceInputController = voiceInputController,
+                    cuePlayer = cuePlayer,
+                    generationId = generationId,
+                    sessionId = sessionId,
+                    onError = { msg -> if (msg.isNotBlank()) showWakeWordError(msg) },
+                    routeTranscript = ::routeTranscript,
+                    onSessionTerminal = {
+                        isHandlingDetection = false
+                        rearmDetector()
+                    },
+                )
             } catch (e: CancellationException) {
-                cancellationCategory = "session_cancelled"
-                throw e
-            } catch (e: Exception) {
-                cancellationCategory = "session_failed"
-                Log.e(TAG, "WakeWordService: wake session failed", e)
-            } finally {
-                finalizeWakeSession(journal, completed, cancellationCategory)
                 isHandlingDetection = false
-                rearmDetector()
+                throw e
             }
         }
     }

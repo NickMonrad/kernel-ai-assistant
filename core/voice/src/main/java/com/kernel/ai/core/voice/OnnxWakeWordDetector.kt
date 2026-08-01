@@ -171,6 +171,28 @@ private const val MEL_RING_SIZE = 76
 private const val EMBEDDING_FRAMES = 16
 private const val EMBEDDING_DIM = 96
 
+/**
+ * Upper bound for [OnnxWakeWordDetector.stop]'s join on the detection thread.
+ * The loop exits immediately after a wake callback (running is already cleared),
+ * so this is only a safety bound for a pathological in-flight read.
+ */
+private const val STOP_TEARDOWN_TIMEOUT_MS = 2_000L
+
+/**
+ * Wait (bounded) for [thread] to terminate.  Never joins the caller's own thread,
+ * so this is safe even when invoked from the thread being stopped.  Interruptions
+ * of the caller are preserved rather than swallowed.
+ */
+internal fun awaitThreadTermination(thread: Thread?, timeoutMs: Long) {
+    if (thread != null && thread !== Thread.currentThread() && thread.isAlive) {
+        try {
+            thread.join(timeoutMs)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+}
+
 // ── PCM verification ring buffer ─────────────────────────────────────────────
 /**
  * Number of PCM samples to retain for STT verification on a LOW_THRESHOLD crossing.
@@ -376,8 +398,17 @@ class OnnxWakeWordDetector @Inject constructor(
     override fun stop() {
         running.set(false)
         runCatching { activeAudioRecord?.stop() }
-        runCatching { detectionThread?.interrupt() }
+        val thread = detectionThread
+        runCatching { thread?.interrupt() }
         detectionThread = null
+        // #1433: return only after the detection loop has terminated and released its
+        // AudioRecord, so callers know microphone ownership is handed over when stop()
+        // completes.  The loop exits promptly: onDetected runs after `running` has
+        // already been cleared and the next loop iteration checks it, and an
+        // in-progress read is unblocked by the AudioRecord.stop() above.  The join is
+        // bounded and never joins the caller's own thread, so stop() cannot deadlock
+        // even if it were invoked from the detection thread itself.
+        awaitThreadTermination(thread, STOP_TEARDOWN_TIMEOUT_MS)
         Log.d(TAG, "WakeWordDetector: stopped")
     }
     @Suppress("LongMethod")
