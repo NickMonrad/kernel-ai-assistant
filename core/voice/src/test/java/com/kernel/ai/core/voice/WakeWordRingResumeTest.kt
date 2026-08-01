@@ -30,9 +30,12 @@ import org.junit.jupiter.api.Test
  *
  * The deterministic simulator below mirrors the detector loop ordering and
  * reuses the production [SilenceGateTransitionState] and
- * [WakeWordEmbeddingRingState] classes.  The scoring stub encodes only the
- * empirically observed firing position (phrase end 0.15–0.35 s beyond the
- * window's receptive-field end); it is never used to assert a score value.
+ * [WakeWordEmbeddingRingState] classes.  It proves ring state, window
+ * ordering, event timing and cadence properties ONLY.  Classifier-recall and
+ * false-positive behaviour is validated against the real committed Stage 3
+ * model in [WakeWordClassifierModelTest] (which uses the same production ring
+ * mechanics with real embeddings); the scoring stub here exists solely to
+ * drive the state machine deterministically and is not classifier evidence.
  */
 class WakeWordRingResumeTest {
 

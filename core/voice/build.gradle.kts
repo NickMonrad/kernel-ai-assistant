@@ -45,6 +45,8 @@ dependencies {
     implementation(libs.vosk.android)
     // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
     implementation(libs.onnxruntime.android)
+    // JVM ONNX Runtime (CPU) — real-model Stage 3 classifier tests (WakeWordClassifierModelTest)
+    testImplementation(libs.onnxruntime)
 
     // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
     implementation(libs.work.runtime.ktx)

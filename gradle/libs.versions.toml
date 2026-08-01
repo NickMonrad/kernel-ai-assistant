@@ -107,6 +107,7 @@ tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.r
 
 # ONNX Runtime (for OnnxWakeWordDetector — openWakeWord pipeline)
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+onnxruntime = { group = "com.microsoft.onnxruntime", name = "onnxruntime", version.ref = "onnxruntime" }
 
 # WorkManager
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
