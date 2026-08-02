@@ -67,7 +67,14 @@ android {
     }
 
     testOptions {
-        unitTests.all { it.useJUnitPlatform() }
+        unitTests {
+            // Allow Android framework stubs (e.g. android.util.Log) to return default
+            // values in JVM unit tests rather than throwing "not mocked" RuntimeExceptions.
+            // The controller-to-wake integration tests drive the real
+            // NativeAndroidVoiceInputController, which logs through android.util.Log.
+            isReturnDefaultValues = true
+            all { it.useJUnitPlatform() }
+        }
     }
 
     lint {

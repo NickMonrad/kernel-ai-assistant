@@ -14,6 +14,7 @@ import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -202,9 +203,28 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var startupFallbackJob: Job? = null
 
+    /**
+     * #1433: owned, cancellable pending in-place recognizer refresh.  Cancelled by
+     * [stopListeningInternal], before scheduling a new refresh, and whenever the
+     * capture session is replaced; the job re-checks [activeSessionId] after its
+     * settle delay so it can never start for a stale session.
+     */
+    @Volatile
+    private var inPlaceRefreshJob: Job? = null
+
     /** #1433: in-place no-speech refreshes performed within the current capture session. */
     @Volatile
     private var noSpeechRefreshCount = 0
+
+    /**
+     * #1433: whether `ListeningStarted` has already been emitted for the current
+     * capture session.  An in-place recognizer refresh must not re-emit readiness
+     * (the wake-command path has already played its cue and the clock-alert path
+     * plays its listening cue per readiness event).  Reset whenever the session is
+     * allocated, replaced or terminated.
+     */
+    @Volatile
+    private var readinessEmittedForSession = false
 
 
 
@@ -235,6 +255,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 currentMode = mode
                 activeSessionId = sessionId
                 noSpeechRefreshCount = 0
+                readinessEmittedForSession = false
                 val startBackend = initialRecognizerBackend(mode)
                 try {
                     startRecognizer(
@@ -295,9 +316,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         val recognizer = speechRecognizer
         startupFallbackJob?.cancel()
         startupFallbackJob = null
+        inPlaceRefreshJob?.cancel()
+        inPlaceRefreshJob = null
         speechRecognizer = null
         currentMode = null
         activeSessionId = 0L
+        readinessEmittedForSession = false
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -388,31 +412,66 @@ class NativeAndroidVoiceInputController @Inject constructor(
     /**
      * #1433: destroy the dead recognizer now and start a replacement on the SAME
      * capture session after a short settle, so the platform recognition service has
-     * finished tearing down the old client connection.  Emits no events and allocates
-     * no new session id — the session-level attempt count and journal correlation are
-     * unchanged.  The session watchdog continues to bound the whole window.
+     * finished tearing down the old client connection.  The pending refresh is
+     * tracked as [inPlaceRefreshJob]: it is cancelled before scheduling another
+     * refresh, by [stopListeningInternal], and whenever the session is replaced; it
+     * re-checks [activeSessionId] after the settle so it can never start for a stale
+     * session.  Emits no events and allocates no new session id — the session-level
+     * attempt count and journal correlation are unchanged.
      */
     private fun scheduleInPlaceRefresh(
         sessionId: Long,
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
     ) {
+        inPlaceRefreshJob?.cancel()
         speechRecognizer?.apply {
             runCatching { cancel() }
             runCatching { destroy() }
         }
         speechRecognizer = null
-        kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-            delay(REFRESH_SETTLE_MS)
-            if (activeSessionId != sessionId) return@launch
-            startRecognizer(
-                sessionId = sessionId,
-                mode = mode,
-                availability = availability,
-                backend = RecognizerBackend.Platform,
-                isRefreshed = true,
-            )
+        var job: Job? = null
+        job = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
+            try {
+                delay(REFRESH_SETTLE_MS)
+                if (activeSessionId != sessionId) return@launch
+                startRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                    backend = RecognizerBackend.Platform,
+                    isRefreshed = true,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A genuine refresh-start failure for the still-active session must
+                // not strand it: clean up any partially created recognizer and emit
+                // exactly one terminal error + stopped event, then clear the session
+                // and release audio focus.  The wake-level bounded retry policy then
+                // handles this as a genuine startup failure (NOT the exhausted
+                // no-speech category).
+                if (activeSessionId != sessionId) return@launch
+                Log.e(TAG, "In-place refresh failed for sessionId=$sessionId", e)
+                speechRecognizer?.apply {
+                    runCatching { cancel() }
+                    runCatching { destroy() }
+                }
+                speechRecognizer = null
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        captureSessionId = sessionId,
+                        message = e.message ?: "Android speech recognition failed to restart.",
+                    ),
+                )
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+            } finally {
+                if (inPlaceRefreshJob === job) inPlaceRefreshJob = null
+            }
         }
+        inPlaceRefreshJob = job
     }
 
 
@@ -499,6 +558,22 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "Android speech recognition stopped responding before it returned a result.",
+                        // #1433: when the refreshed recognizer's own no-speech watchdog
+                        // expires (alert command, refreshed recognizer, no speech, no
+                        // partials), the entire command window has elapsed — classify it
+                        // as NO_SPEECH_WINDOW_EXHAUSTED so the wake session skips the
+                        // pointless attempt-2 and re-arms.  Everything else (speech
+                        // progress, non-alert modes, genuine errors) stays generic.
+                        category = if (
+                            isRefreshed &&
+                            mode == VoiceCaptureMode.AlertCommand &&
+                            !heardSpeech &&
+                            !sawPartialTranscript
+                        ) {
+                            NO_SPEECH_WINDOW_EXHAUSTED
+                        } else {
+                            null
+                        },
                     ),
                 )
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
@@ -517,7 +592,16 @@ class NativeAndroidVoiceInputController @Inject constructor(
             cancelStartupFallback()
             resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
-            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
+            // #1433: readiness is idempotent per capture session.  An in-place
+            // recognizer refresh must not re-emit ListeningStarted (the wake-command
+            // path already played its cue, and ClockAlertService plays its listening
+            // cue per readiness event).  The first readiness of a session is always
+            // emitted — including from a replacement recognizer when the original
+            // failed before ever becoming ready.
+            if (!readinessEmittedForSession) {
+                readinessEmittedForSession = true
+                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
+            }
         }
 
         override fun onBeginningOfSpeech() {
