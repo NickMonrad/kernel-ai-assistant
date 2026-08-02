@@ -1,0 +1,263 @@
+{
+  "lowestSequence": 1,
+  "highestSequence": 253,
+  "overflowed": false,
+  "events": [
+    {
+      "s": 230,
+      "m": 2376950605,
+      "w": 1785661355596,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 8,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 231,
+      "m": 2376950613,
+      "w": 1785661355603,
+      "t": "STAGE2_RESUMED",
+      "g": 8,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 232,
+      "m": 2376950639,
+      "w": 1785661355630,
+      "t": "STAGE3_READY",
+      "g": 8,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 233,
+      "m": 2376981024,
+      "w": 1785661386014,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 8,
+      "i": 0,
+      "d": {
+        "confidence": "0.9151058",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 234,
+      "m": 2376981024,
+      "w": 1785661386015,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 8,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 235,
+      "m": 2376981024,
+      "w": 1785661386015,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 236,
+      "m": 2376981131,
+      "w": 1785661386121,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 237,
+      "m": 2376981134,
+      "w": 1785661386125,
+      "t": "STT_START_REQUESTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 238,
+      "m": 2376981318,
+      "w": 1785661386309,
+      "t": "STT_READY",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 239,
+      "m": 2376981318,
+      "w": 1785661386309,
+      "t": "CUE_REQUESTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 240,
+      "m": 2376981345,
+      "w": 1785661386335,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 241,
+      "m": 2376982254,
+      "w": 1785661387244,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 242,
+      "m": 2376988259,
+      "w": 1785661393250,
+      "t": "STT_ERROR",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 243,
+      "m": 2376988275,
+      "w": 1785661393266,
+      "t": "STT_START_REQUESTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "attempt": "2"
+      }
+    },
+    {
+      "s": 244,
+      "m": 2376988514,
+      "w": 1785661393505,
+      "t": "STT_READY",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 245,
+      "m": 2376988515,
+      "w": 1785661393505,
+      "t": "CUE_REQUESTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 246,
+      "m": 2376988540,
+      "w": 1785661393531,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 247,
+      "m": 2376989051,
+      "w": 1785661394041,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 8,
+      "i": 8,
+      "d": {}
+    },
+    {
+      "s": 248,
+      "m": 2376989745,
+      "w": 1785661394736,
+      "t": "STT_PARTIAL",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "length": "14"
+      }
+    },
+    {
+      "s": 249,
+      "m": 2376993569,
+      "w": 1785661398560,
+      "t": "STT_PARTIAL",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "length": "5"
+      }
+    },
+    {
+      "s": 250,
+      "m": 2376996898,
+      "w": 1785661401889,
+      "t": "STT_ERROR",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 251,
+      "m": 2376996909,
+      "w": 1785661401899,
+      "t": "SESSION_CANCELLED",
+      "g": 8,
+      "i": 8,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 252,
+      "m": 2376996937,
+      "w": 1785661401927,
+      "t": "DETECTOR_REARMED",
+      "g": 9,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 253,
+      "m": 2376997128,
+      "w": 1785661402118,
+      "t": "DETECTOR_GENERATION_STARTED",
+      "g": 9,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 229
+}

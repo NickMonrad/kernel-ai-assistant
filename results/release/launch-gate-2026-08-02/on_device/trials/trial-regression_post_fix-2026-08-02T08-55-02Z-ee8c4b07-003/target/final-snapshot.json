@@ -1,0 +1,164 @@
+{
+  "lowestSequence": 1,
+  "highestSequence": 124,
+  "overflowed": false,
+  "events": [
+    {
+      "s": 110,
+      "m": 2376599002,
+      "w": 1785661003993,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 111,
+      "m": 2376599007,
+      "w": 1785661003997,
+      "t": "STAGE2_RESUMED",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 112,
+      "m": 2376599023,
+      "w": 1785661004014,
+      "t": "STAGE3_READY",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 113,
+      "m": 2376599976,
+      "w": 1785661004966,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 4,
+      "i": 0,
+      "d": {
+        "confidence": "0.90230024",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 114,
+      "m": 2376599976,
+      "w": 1785661004967,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 4,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 115,
+      "m": 2376599976,
+      "w": 1785661004967,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 4,
+      "i": 4,
+      "d": {}
+    },
+    {
+      "s": 116,
+      "m": 2376600053,
+      "w": 1785661005044,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 4,
+      "i": 4,
+      "d": {}
+    },
+    {
+      "s": 117,
+      "m": 2376600055,
+      "w": 1785661005046,
+      "t": "STT_START_REQUESTED",
+      "g": 4,
+      "i": 4,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 118,
+      "m": 2376600269,
+      "w": 1785661005260,
+      "t": "STT_READY",
+      "g": 4,
+      "i": 4,
+      "d": {}
+    },
+    {
+      "s": 119,
+      "m": 2376600275,
+      "w": 1785661005265,
+      "t": "CUE_REQUESTED",
+      "g": 4,
+      "i": 4,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 120,
+      "m": 2376600308,
+      "w": 1785661005298,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 4,
+      "i": 4,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 121,
+      "m": 2376610908,
+      "w": 1785661015898,
+      "t": "STT_ERROR",
+      "g": 4,
+      "i": 4,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 122,
+      "m": 2376610914,
+      "w": 1785661015904,
+      "t": "SESSION_CANCELLED",
+      "g": 4,
+      "i": 4,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 123,
+      "m": 2376610947,
+      "w": 1785661015937,
+      "t": "DETECTOR_REARMED",
+      "g": 5,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 124,
+      "m": 2376611069,
+      "w": 1785661016059,
+      "t": "DETECTOR_GENERATION_STARTED",
+      "g": 5,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 109
+}

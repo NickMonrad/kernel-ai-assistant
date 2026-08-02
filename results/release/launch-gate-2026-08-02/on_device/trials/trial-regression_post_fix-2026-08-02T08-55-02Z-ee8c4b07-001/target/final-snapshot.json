@@ -1,0 +1,210 @@
+{
+  "lowestSequence": 1,
+  "highestSequence": 86,
+  "overflowed": false,
+  "events": [
+    {
+      "s": 68,
+      "m": 2376516282,
+      "w": 1785660921273,
+      "t": "SILENCE_GATE_ENTERED",
+      "g": 2,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 69,
+      "m": 2376523877,
+      "w": 1785660928868,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 2,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 70,
+      "m": 2376523885,
+      "w": 1785660928875,
+      "t": "STAGE2_RESUMED",
+      "g": 2,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 71,
+      "m": 2376523915,
+      "w": 1785660928905,
+      "t": "STAGE3_READY",
+      "g": 2,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 72,
+      "m": 2376524940,
+      "w": 1785660929930,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 2,
+      "i": 0,
+      "d": {
+        "confidence": "0.7387187",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 73,
+      "m": 2376524940,
+      "w": 1785660929931,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 2,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 74,
+      "m": 2376524941,
+      "w": 1785660929931,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 75,
+      "m": 2376525064,
+      "w": 1785660930055,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 76,
+      "m": 2376525072,
+      "w": 1785660930062,
+      "t": "STT_START_REQUESTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 77,
+      "m": 2376526644,
+      "w": 1785660931635,
+      "t": "STT_READY",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 78,
+      "m": 2376526645,
+      "w": 1785660931635,
+      "t": "CUE_REQUESTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 79,
+      "m": 2376526712,
+      "w": 1785660931702,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 80,
+      "m": 2376533111,
+      "w": 1785660938102,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 81,
+      "m": 2376539112,
+      "w": 1785660944103,
+      "t": "STT_ERROR",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 82,
+      "m": 2376539125,
+      "w": 1785660944115,
+      "t": "STT_START_REQUESTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "attempt": "2"
+      }
+    },
+    {
+      "s": 83,
+      "m": 2376539357,
+      "w": 1785660944347,
+      "t": "STT_READY",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 84,
+      "m": 2376539358,
+      "w": 1785660944348,
+      "t": "CUE_REQUESTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 85,
+      "m": 2376539400,
+      "w": 1785660944391,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 2,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 86,
+      "m": 2376540962,
+      "w": 1785660945952,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 2,
+      "i": 2,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 67
+}

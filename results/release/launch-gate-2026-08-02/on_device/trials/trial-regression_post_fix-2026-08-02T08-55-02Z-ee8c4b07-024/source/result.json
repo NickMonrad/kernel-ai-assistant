@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "trial_id": "trial-regression_post_fix-2026-08-02T08-55-02Z-ee8c4b07-024",
+  "fixture_id": "natural_wake",
+  "fixture_sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45",
+  "fixture_duration_ms": 1984,
+  "request_wall_clock_ms": 1785666551074,
+  "request_monotonic_ms": 192456644,
+  "prepare_monotonic_ms": 192456707,
+  "playback_start_monotonic_ms": 192456721,
+  "completion_monotonic_ms": 192458841,
+  "cleanup_monotonic_ms": 192458871,
+  "volume_before": 12,
+  "requested_volume": 9,
+  "applied_volume": 9,
+  "maximum_volume": 15,
+  "restored_volume": 12,
+  "output_route_before": "BUILT_IN_SPEAKER",
+  "output_route_during": "BUILT_IN_SPEAKER",
+  "focus_result": "granted",
+  "completion_status": "completed",
+  "evidence_persistence_failed": false,
+  "timeout": false,
+  "overlap_rejected": false,
+  "cleanup_success": true,
+  "exact_restoration_verified": true,
+  "events": [
+    {
+      "name": "prepared",
+      "monotonic_ms": 192456707,
+      "wall_clock_ms": 1785666551137
+    },
+    {
+      "name": "started",
+      "monotonic_ms": 192456721,
+      "wall_clock_ms": 1785666551151
+    },
+    {
+      "name": "completed",
+      "monotonic_ms": 192458841,
+      "wall_clock_ms": 1785666553271
+    },
+    {
+      "name": "cleanup_completed",
+      "monotonic_ms": 192458871,
+      "wall_clock_ms": 1785666553301,
+      "cleanup_success": true,
+      "exact_restoration_verified": true
+    }
+  ]
+}
