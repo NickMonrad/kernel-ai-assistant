@@ -41,6 +41,11 @@ sealed interface VoiceInputEvent {
         override val mode: VoiceCaptureMode,
         val message: String,
         override val captureSessionId: Long = 0L,
+        /**
+         * Stable machine category for flow decisions (e.g. skip the session-level
+         * retry after the no-speech window is exhausted).  Null = generic error.
+         */
+        val category: String? = null,
     ) : VoiceInputEvent
     data class ListeningStopped(
         override val mode: VoiceCaptureMode,

@@ -14,6 +14,7 @@ import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,7 +27,54 @@ import kotlinx.coroutines.withContext
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
-private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 2_500L
+
+/**
+ * Settle delay between destroying a dead recognizer and creating its replacement in
+ * the #1433 in-place no-speech refresh.  A back-to-back destroy() -> create() against
+ * the platform recognition service intermittently makes the new instance die
+ * immediately with ERROR_CLIENT (observed on the S21); this bound is a recognizer
+ * lifecycle settle, not a command delay, and the session watchdog covers the gap.
+ */
+private const val REFRESH_SETTLE_MS = 300L
+
+/**
+ * No-speech budget for a REFRESHED alert recognizer (#1433).  The original
+ * recognizer already consumed most of the handoff window before the platform's
+ * no-speech timeout; the replacement only needs to cover the remaining command
+ * arrival, and must terminate early enough that the whole session re-arms within
+ * the acoustic runner's 15 s terminal window (the platform's second no-match is
+ * not guaranteed).  Speech progress still extends via the 6 s result timeout.
+ */
+private const val REFRESHED_SESSION_SILENCE_TIMEOUT_MS = 5_000L
+
+/**
+ * Maximum in-place recognizer refreshes per session (#1433).  A single refresh
+ * extends the first wake session's window to ~10.5 s (5.1 s platform no-speech +
+ * one refreshed 5.1 s window), covering the measured 7.4-9.0 s command arrival,
+ * while still bounding a false wake: the next platform no-speech timeout surfaces
+ * as a genuine error and the session terminates within the acoustic runner's
+ * 15 s terminal window.
+ */
+private const val MAX_NO_SPEECH_REFRESHES = 1
+
+/**
+ * Silence budget for an alert-mode session before any speech progress.
+ *
+ * Raised from 2.5 s to 10 s by #1433: the wake-command handoff must survive the
+ * cue-to-command gap.  Physical evidence (S21 + S23U, diagnostic matrix) shows the
+ * wake session reaches readiness, plays the cue, and then receives the command
+ * fixture 7.4–9.0 s after readiness (runner cue margin + orchestration latency);
+ * the old 2.5 s budget expired the FIRST attempt before the command arrived, forcing
+ * a retry session to become the normal path (the observed 7–9 s delay and, on one
+ * trial, command playback after the session ended).  10 s matches the legacy Vosk
+ * session bound (LISTEN_TIMEOUT_MS) and covers the measured command-arrival latency.
+ * The platform recognizer's own shorter no-speech timeout is handled by an in-place
+ * recognizer refresh (see [shouldRefreshAlertRecognizerOnNoSpeech]) that keeps the
+ * same capture session.  A human responds to the cue within this budget as well.
+ * The session still ends promptly on speech progress (6 s result timeout) and on
+ * genuine platform errors.
+ */
+private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 10_000L
 
 internal fun sessionResultTimeoutMs(
     mode: VoiceCaptureMode,
@@ -89,6 +137,36 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
             else -> false
         }
 
+/**
+ * #1433: refresh an alert-session platform recognizer IN PLACE after its own
+ * no-speech timeout (ERROR_NO_MATCH with no speech heard at all).  The platform
+ * recognizer's no-speech window (~5 s observed on the S21) is shorter than the
+ * cue-to-command handoff, so without the refresh the first wake session would
+ * terminate before the command arrives and a retry session would become the
+ * normal path.  The refresh reuses the same capture session id and emits no
+ * events, so the session-level attempt count and journal correlation are
+ * unchanged.
+ */
+internal fun shouldRefreshAlertRecognizerOnNoSpeech(
+    backend: RecognizerBackend,
+    mode: VoiceCaptureMode,
+    heardSpeech: Boolean,
+    sawPartialTranscript: Boolean,
+): Boolean =
+    backend == RecognizerBackend.Platform &&
+        mode == VoiceCaptureMode.AlertCommand &&
+        !heardSpeech &&
+        !sawPartialTranscript
+
+/**
+ * Stable error category emitted when an alert session's no-speech window is fully
+ * exhausted (in-place refreshes spent and the platform still heard nothing).  The
+ * wake-command handoff uses this to skip the session-level retry: the command
+ * window has already closed, so a second attempt would only re-wait.  The journal's
+ * STT_ERROR category remains the standard "stt_recognition_failed".
+ */
+const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
+
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
@@ -125,6 +203,29 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var startupFallbackJob: Job? = null
 
+    /**
+     * #1433: owned, cancellable pending in-place recognizer refresh.  Cancelled by
+     * [stopListeningInternal], before scheduling a new refresh, and whenever the
+     * capture session is replaced; the job re-checks [activeSessionId] after its
+     * settle delay so it can never start for a stale session.
+     */
+    @Volatile
+    private var inPlaceRefreshJob: Job? = null
+
+    /** #1433: in-place no-speech refreshes performed within the current capture session. */
+    @Volatile
+    private var noSpeechRefreshCount = 0
+
+    /**
+     * #1433: whether `ListeningStarted` has already been emitted for the current
+     * capture session.  An in-place recognizer refresh must not re-emit readiness
+     * (the wake-command path has already played its cue and the clock-alert path
+     * plays its listening cue per readiness event).  Reset whenever the session is
+     * allocated, replaced or terminated.
+     */
+    @Volatile
+    private var readinessEmittedForSession = false
+
 
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
@@ -153,6 +254,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
                 activeSessionId = sessionId
+                noSpeechRefreshCount = 0
+                readinessEmittedForSession = false
                 val startBackend = initialRecognizerBackend(mode)
                 try {
                     startRecognizer(
@@ -213,9 +316,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         val recognizer = speechRecognizer
         startupFallbackJob?.cancel()
         startupFallbackJob = null
+        inPlaceRefreshJob?.cancel()
+        inPlaceRefreshJob = null
         speechRecognizer = null
         currentMode = null
         activeSessionId = 0L
+        readinessEmittedForSession = false
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -245,6 +351,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
         backend: RecognizerBackend,
+        isRefreshed: Boolean = false,
     ) {
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
@@ -261,6 +368,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         recognizer.setRecognitionListener(
             SessionRecognitionListener(
                 sessionId = sessionId,
+                isRefreshed = isRefreshed,
                 mode = mode,
                 availability = availability,
                 backend = backend,
@@ -301,6 +409,71 @@ class NativeAndroidVoiceInputController @Inject constructor(
         startupFallbackJob = null
     }
 
+    /**
+     * #1433: destroy the dead recognizer now and start a replacement on the SAME
+     * capture session after a short settle, so the platform recognition service has
+     * finished tearing down the old client connection.  The pending refresh is
+     * tracked as [inPlaceRefreshJob]: it is cancelled before scheduling another
+     * refresh, by [stopListeningInternal], and whenever the session is replaced; it
+     * re-checks [activeSessionId] after the settle so it can never start for a stale
+     * session.  Emits no events and allocates no new session id — the session-level
+     * attempt count and journal correlation are unchanged.
+     */
+    private fun scheduleInPlaceRefresh(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+    ) {
+        inPlaceRefreshJob?.cancel()
+        speechRecognizer?.apply {
+            runCatching { cancel() }
+            runCatching { destroy() }
+        }
+        speechRecognizer = null
+        var job: Job? = null
+        job = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
+            try {
+                delay(REFRESH_SETTLE_MS)
+                if (activeSessionId != sessionId) return@launch
+                startRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                    backend = RecognizerBackend.Platform,
+                    isRefreshed = true,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A genuine refresh-start failure for the still-active session must
+                // not strand it: clean up any partially created recognizer and emit
+                // exactly one terminal error + stopped event, then clear the session
+                // and release audio focus.  The wake-level bounded retry policy then
+                // handles this as a genuine startup failure (NOT the exhausted
+                // no-speech category).
+                if (activeSessionId != sessionId) return@launch
+                Log.e(TAG, "In-place refresh failed for sessionId=$sessionId", e)
+                speechRecognizer?.apply {
+                    runCatching { cancel() }
+                    runCatching { destroy() }
+                }
+                speechRecognizer = null
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        captureSessionId = sessionId,
+                        message = e.message ?: "Android speech recognition failed to restart.",
+                    ),
+                )
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+            } finally {
+                if (inPlaceRefreshJob === job) inPlaceRefreshJob = null
+            }
+        }
+        inPlaceRefreshJob = job
+    }
+
 
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
@@ -333,6 +506,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private val mode: VoiceCaptureMode,
         private val availability: AndroidNativeRecognitionAvailability,
         private val backend: RecognizerBackend,
+        private val isRefreshed: Boolean = false,
     ) : RecognitionListener {
 
         private var sessionCompleted = false
@@ -343,7 +517,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-                delay(sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript))
+                delay(
+                    if (isRefreshed && !heardSpeech && !sawPartialTranscript) {
+                        REFRESHED_SESSION_SILENCE_TIMEOUT_MS
+                    } else {
+                        sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript)
+                    }
+                )
                 if (sessionCompleted || activeSessionId != sessionId) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(
@@ -378,6 +558,22 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "Android speech recognition stopped responding before it returned a result.",
+                        // #1433: when the refreshed recognizer's own no-speech watchdog
+                        // expires (alert command, refreshed recognizer, no speech, no
+                        // partials), the entire command window has elapsed — classify it
+                        // as NO_SPEECH_WINDOW_EXHAUSTED so the wake session skips the
+                        // pointless attempt-2 and re-arms.  Everything else (speech
+                        // progress, non-alert modes, genuine errors) stays generic.
+                        category = if (
+                            isRefreshed &&
+                            mode == VoiceCaptureMode.AlertCommand &&
+                            !heardSpeech &&
+                            !sawPartialTranscript
+                        ) {
+                            NO_SPEECH_WINDOW_EXHAUSTED
+                        } else {
+                            null
+                        },
                     ),
                 )
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
@@ -396,7 +592,16 @@ class NativeAndroidVoiceInputController @Inject constructor(
             cancelStartupFallback()
             resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
-            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
+            // #1433: readiness is idempotent per capture session.  An in-place
+            // recognizer refresh must not re-emit ListeningStarted (the wake-command
+            // path already played its cue, and ClockAlertService plays its listening
+            // cue per readiness event).  The first readiness of a session is always
+            // emitted — including from a replacement recognizer when the original
+            // failed before ever becoming ready.
+            if (!readinessEmittedForSession) {
+                readinessEmittedForSession = true
+                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
+            }
         }
 
         override fun onBeginningOfSpeech() {
@@ -437,6 +642,34 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 )
                 return
             }
+            // #1433: the platform recognizer has its own no-speech timeout (~5 s
+            // observed on the S21) that fires ERROR_NO_MATCH before the app's
+            // alert-session budget when the wake command arrives after the cue
+            // (measured 7.4-9.0 s after readiness under the acoustic runner
+            // contract).  Refresh the recognizer IN PLACE — same capture session, no
+            // new STT_START_REQUESTED — so the first wake session still accepts the
+            // command and no attempt-2 session becomes the normal path.  Only for
+            // alert sessions that heard nothing at all; any other error still
+            // surfaces as a genuine recognition failure.
+            if (
+                error == SpeechRecognizer.ERROR_NO_MATCH &&
+                shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript) &&
+                this@NativeAndroidVoiceInputController.noSpeechRefreshCount < MAX_NO_SPEECH_REFRESHES
+            ) {
+                // The old recognizer is dead; mark this listener terminal so its
+                // destroy()'s late ERROR_CLIENT callback cannot surface as a session
+                // error, and schedule the in-place replacement.  The refresh budget is
+                // bounded (MAX_NO_SPEECH_REFRESHES) so a false wake still terminates.
+                this@NativeAndroidVoiceInputController.noSpeechRefreshCount++
+                sessionCompleted = true
+                scheduleInPlaceRefresh(sessionId, mode, availability)
+                Log.w(
+                    TAG,
+                    "Android native STT refreshed in place after no-speech no-match for sessionId=$sessionId " +
+                        "mode=$mode (refresh ${this@NativeAndroidVoiceInputController.noSpeechRefreshCount}/$MAX_NO_SPEECH_REFRESHES)",
+                )
+                return
+            }
             sessionCompleted = true
             cancelStartupFallback()
             cancelSessionWatchdog()
@@ -451,6 +684,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     mode = mode,
                     captureSessionId = sessionId,
                     message = mapError(error, availability),
+                    // The no-speech window is fully exhausted (refreshes spent): the
+                    // wake-command window has closed, so the session-level retry would
+                    // only re-wait.  The journal category stays standard.
+                    category = if (
+                        error == SpeechRecognizer.ERROR_NO_MATCH &&
+                        shouldRefreshAlertRecognizerOnNoSpeech(backend, mode, heardSpeech, sawPartialTranscript)
+                    ) {
+                        NO_SPEECH_WINDOW_EXHAUSTED
+                    } else {
+                        null
+                    },
                 ),
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))

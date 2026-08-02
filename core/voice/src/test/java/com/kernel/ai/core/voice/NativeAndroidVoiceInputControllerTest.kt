@@ -16,13 +16,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -52,10 +55,13 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
-    fun `sessionResultTimeoutMs keeps alert pre-speech timeout short but allows more time after progress`() {
+    fun `sessionResultTimeoutMs keeps alert pre-speech timeout within the cue-to-command handoff but allows more time after progress`() {
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.Command))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.SlotReply))
-        assertEquals(2_500L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
+        // #1433: the first wake-command attempt must survive the cue-to-command
+        // handoff (measured command arrival 7.4-9.0 s after readiness on both
+        // devices), so the pre-speech alert budget is 10 s, not 2.5 s.
+        assertEquals(10_000L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand, hasSpeechProgress = true))
     }
 
@@ -65,6 +71,32 @@ class NativeAndroidVoiceInputControllerTest {
         assertEquals(true, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, false))
         assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, true))
         assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.Platform, false))
+    }
+
+    @Test
+    fun `shouldRefreshAlertRecognizerOnNoSpeech refreshes only silent platform alert sessions`() {
+        // #1433: platform no-speech ERROR_NO_MATCH within an alert session is the
+        // only in-place-refresh case.
+        assertEquals(true, shouldRefreshAlertRecognizerOnNoSpeech(
+            RecognizerBackend.Platform, VoiceCaptureMode.AlertCommand,
+            heardSpeech = false, sawPartialTranscript = false,
+        ))
+        assertEquals(false, shouldRefreshAlertRecognizerOnNoSpeech(
+            RecognizerBackend.Platform, VoiceCaptureMode.AlertCommand,
+            heardSpeech = true, sawPartialTranscript = false,
+        ))
+        assertEquals(false, shouldRefreshAlertRecognizerOnNoSpeech(
+            RecognizerBackend.Platform, VoiceCaptureMode.AlertCommand,
+            heardSpeech = false, sawPartialTranscript = true,
+        ))
+        assertEquals(false, shouldRefreshAlertRecognizerOnNoSpeech(
+            RecognizerBackend.OnDevice, VoiceCaptureMode.AlertCommand,
+            heardSpeech = false, sawPartialTranscript = false,
+        ))
+        assertEquals(false, shouldRefreshAlertRecognizerOnNoSpeech(
+            RecognizerBackend.Platform, VoiceCaptureMode.Command,
+            heardSpeech = false, sawPartialTranscript = false,
+        ))
     }
 
 
@@ -168,6 +200,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var context: Context
+    private lateinit var audioManager: AudioManager
     private lateinit var recognitionSupport: AndroidNativeRecognitionSupport
     private lateinit var controller: NativeAndroidVoiceInputController
 
@@ -184,8 +217,11 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         Dispatchers.setMain(testDispatcher)
 
         context = mockk(relaxed = true)
-        val audioManager = mockk<AudioManager>(relaxed = true)
+        audioManager = mockk<AudioManager>(relaxed = true)
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
+        val mainExecutor = mockk<java.util.concurrent.Executor>(relaxed = true)
+        every { context.mainExecutor } returns mainExecutor
+        every { mainExecutor.execute(any()) } answers { firstArg<Runnable>().run() }
         recognitionSupport = mockk(relaxed = true)
 
         // getAvailability / getCaptureAvailability both return the ready availability
@@ -264,5 +300,437 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val result = controller.startListening(VoiceCaptureMode.Command)
 
         assertEquals(true, result is VoiceInputStartResult.Unavailable)
+    }
+
+    @Test
+    fun `alert session survives the cue-to-command handoff and errors only at the extended budget`() = runTest {
+        // #1433: the first wake-command attempt reaches readiness, plays the cue, and
+        // then must still be listening when the command arrives (measured 7.4-9.0 s
+        // after readiness on both devices).  The pre-fix 2.5 s budget expired the
+        // first attempt before the command, forcing a retry session to become the
+        // normal path.  This test pins the corrected budget: no error at the old
+        // 2.5 s point, terminal error only at the extended alert budget.
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { platformRecognizer.setRecognitionListener(capture(listener)) } just runs
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        assertTrue(
+            events.any { it is VoiceInputEvent.ListeningStarted },
+            "attempt must reach readiness",
+        )
+
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertFalse(
+            events.any { it is VoiceInputEvent.Error },
+            "first attempt must still be listening at the old 2.5 s deadline",
+        )
+
+        advanceTimeBy(7_000)
+        runCurrent()
+        assertTrue(
+            events.any { it is VoiceInputEvent.Error },
+            "session must end at the extended alert budget",
+        )
+        assertTrue(
+            events.filterIsInstance<VoiceInputEvent.Error>()
+                .all { it.captureSessionId == result.captureSessionId },
+            "the terminal error must belong to the same capture session",
+        )
+        collector.cancel()
+    }
+
+    @Test
+    fun `alert session no-speech no-match refreshes the recognizer in place without erroring`() = runTest {
+        // #1433: the platform recognizer's own ~5 s no-speech timeout fires
+        // ERROR_NO_MATCH before the alert-session budget.  The controller must
+        // refresh the recognizer in place (same capture session, no Error event,
+        // no session-level retry) so the first wake session accepts the command.
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val firstListener = slot<RecognitionListener>()
+        val secondListener = slot<RecognitionListener>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany
+            listOf(firstRecognizer, secondRecognizer)
+        every { firstRecognizer.setRecognitionListener(capture(firstListener)) } just runs
+        every { secondRecognizer.setRecognitionListener(capture(secondListener)) } just runs
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        val sessionId = result.captureSessionId
+        firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        assertTrue(events.any { it is VoiceInputEvent.ListeningStarted })
+
+        // Platform no-speech timeout: no Error must surface; the recognizer is
+        // replaced in place (after the settle) and the same session keeps listening.
+        firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        assertFalse(
+            events.any { it is VoiceInputEvent.Error },
+            "no-speech no-match must not surface as an error",
+        )
+        verify(atLeast = 1) { firstRecognizer.destroy() }
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+
+        // The in-place replacement starts after the settle and reaches readiness on
+        // the SAME capture session.
+        advanceTimeBy(300)
+        runCurrent()
+        verify(exactly = 2) { recognitionSupport.createPlatformSpeechRecognizer() }
+
+        // The refreshed recognizer reaches readiness on the SAME capture session
+        // and captures the command.
+        secondListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        secondListener.captured.onResults(
+            mockk<Bundle>(relaxed = true).apply {
+                every { getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) } returns
+                    arrayListOf("what time is it")
+            },
+        )
+        runCurrent()
+        val transcript = events.filterIsInstance<VoiceInputEvent.Transcript>().single()
+        assertEquals(sessionId, transcript.captureSessionId)
+        assertEquals("what time is it", transcript.text)
+        collector.cancel()
+    }
+
+    @Test
+    fun `alert session no-speech refresh budget is bounded and then surfaces the error`() = runTest {
+        // #1433: a false wake must still terminate.  After the bounded in-place
+        // refreshes are exhausted, the next platform no-speech no-match surfaces as
+        // a genuine session error on the same capture session.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        val sessionId = result.captureSessionId
+
+        // One in-place refresh extends the window.
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        assertFalse(events.any { it is VoiceInputEvent.Error })
+
+        // The second recognizer reaches readiness, then its no-speech no-match is
+        // past the refresh budget and surfaces as an error on the same session.
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[1].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        val error = events.filterIsInstance<VoiceInputEvent.Error>().single()
+        assertEquals(sessionId, error.captureSessionId)
+        verify(exactly = 2) { recognitionSupport.createPlatformSpeechRecognizer() }
+        collector.cancel()
+    }
+
+    @Test
+    fun `refreshed alert recognizer no-speech window is bounded by the shorter budget`() = runTest {
+        // #1433: the platform's second no-speech timeout is not guaranteed, so the
+        // refreshed recognizer's own watchdog must end a silent session within the
+        // shorter refreshed budget (5 s) — keeping the whole session (original +
+        // refresh) inside the acoustic runner's 15 s terminal window.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        // No platform no-match arrives; the refreshed watchdog must still end the
+        // silent session inside the shorter budget.
+        advanceTimeBy(4_900)
+        runCurrent()
+        assertFalse(events.any { it is VoiceInputEvent.Error })
+        advanceTimeBy(500)
+        runCurrent()
+        assertTrue(events.any { it is VoiceInputEvent.Error }, "refreshed session must end at the shorter budget")
+        collector.cancel()
+    }
+
+    @Test
+    fun `refreshed watchdog exhaustion emits the exhausted category and stops the session`() = runTest {
+        // #1433 (review 4836608504 finding 1): the refreshed recognizer's own
+        // no-speech watchdog expiry must be classified as NO_SPEECH_WINDOW_EXHAUSTED
+        // (alert command, refreshed recognizer, no speech, no partials) so the wake
+        // session skips attempt 2, with exactly one error + one stopped event and
+        // normal cleanup.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        val sessionId = result.captureSessionId
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        advanceTimeBy(4_900)
+        runCurrent()
+        assertFalse(events.any { it is VoiceInputEvent.Error })
+        advanceTimeBy(500)
+        runCurrent()
+
+        val errors = events.filterIsInstance<VoiceInputEvent.Error>()
+        assertEquals(1, errors.size, "exactly one terminal error")
+        assertEquals(NO_SPEECH_WINDOW_EXHAUSTED, errors.single().category)
+        assertEquals(sessionId, errors.single().captureSessionId)
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.ListeningStopped>().size)
+        assertEquals(sessionId, events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single().captureSessionId)
+        verify(atLeast = 1) { recognizers[1].destroy() }
+        collector.cancel()
+    }
+
+    @Test
+    fun `refresh recognizer creation throwing emits one error and one stopped event and clears the session`() = runTest {
+        // #1433 (review 4836608504 finding 2): a refresh-start failure for the
+        // still-active session must not strand it — one error (NOT the exhausted
+        // category), one stopped event, recognizer/audio-focus cleanup, and the
+        // exception must not escape the scheduler.
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val firstListener = slot<RecognitionListener>()
+        var createCalls = 0
+        every { recognitionSupport.createPlatformSpeechRecognizer() } answers {
+            createCalls++
+            if (createCalls == 1) {
+                firstRecognizer
+            } else {
+                throw RuntimeException("platform recognizer creation failed")
+            }
+        }
+        every { firstRecognizer.setRecognitionListener(capture(firstListener)) } just runs
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+
+        val errors = events.filterIsInstance<VoiceInputEvent.Error>()
+        assertEquals(1, errors.size)
+        assertEquals(null, errors.single().category, "startup failure must not be labelled exhausted")
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.ListeningStopped>().size)
+        verify(atLeast = 1) { firstRecognizer.destroy() }
+        // JVM unit tests run below API 26, so audio focus release uses the
+        // deprecated abandonAudioFocus(null) path.
+        verify(atLeast = 1) { audioManager.abandonAudioFocus(null) }
+        collector.cancel()
+    }
+
+    @Test
+    fun `refresh startListening throwing cleans up the partial recognizer`() = runTest {
+        // #1433 (review 4836608504 finding 2): if startListening() throws after the
+        // replacement recognizer was created, the partial recognizer is destroyed and
+        // exactly one terminal error + stopped event are emitted.
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val firstListener = slot<RecognitionListener>()
+        val secondListener = slot<RecognitionListener>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany
+            listOf(firstRecognizer, secondRecognizer)
+        every { firstRecognizer.setRecognitionListener(capture(firstListener)) } just runs
+        every { secondRecognizer.setRecognitionListener(capture(secondListener)) } just runs
+        every { secondRecognizer.startListening(any()) } throws RuntimeException("start failed")
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+
+        val errors = events.filterIsInstance<VoiceInputEvent.Error>()
+        assertEquals(1, errors.size)
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.ListeningStopped>().size)
+        verify(atLeast = 1) { secondRecognizer.destroy() }
+        collector.cancel()
+    }
+
+    @Test
+    fun `refreshed readiness is emitted once per capture session`() = runTest {
+        // #1433 (review 4836608504 finding 3): an in-place refresh must not re-emit
+        // ListeningStarted for the same capture session.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+            VoiceInputStartResult.Started
+        val sessionId = result.captureSessionId
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        val ready = events.filterIsInstance<VoiceInputEvent.ListeningStarted>()
+        assertEquals(1, ready.size, "one readiness per capture session")
+        assertEquals(sessionId, ready.single().captureSessionId)
+        collector.cancel()
+    }
+
+    @Test
+    fun `replacement ready emits the first readiness when the original never became ready`() = runTest {
+        // #1433 (review 4836608504 finding 3): suppressing duplicates must not
+        // suppress the FIRST readiness — a replacement recognizer that becomes ready
+        // when the original failed before readiness still emits it.
+        val recognizers = (1..2).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..2).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        // The original recognizer errors with no-speech before ever becoming ready.
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        val ready = events.filterIsInstance<VoiceInputEvent.ListeningStarted>()
+        assertEquals(1, ready.size)
+        collector.cancel()
+    }
+
+    @Test
+    fun `pending refresh is cancelled by stopListening and stale refresh cannot start after a new session`() = runTest {
+        // #1433 (review 4836608504 finding 2): the pending refresh job is cancelled
+        // by stopListening, and a stale refresh can never start for a replaced session.
+        val recognizers = (1..3).map { mockk<SpeechRecognizer>(relaxed = true) }
+        val listeners = (1..3).map { slot<RecognitionListener>() }
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returnsMany recognizers
+        listeners.forEachIndexed { i, slot ->
+            every { recognizers[i].setRecognitionListener(capture(slot)) } just runs
+        }
+        val collector = launch { controller.events.collect { } }
+        runCurrent()
+
+        // Session 1: ready, then a no-match schedules an in-place refresh.
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+
+        // stopListening() cancels the pending refresh.
+        controller.stopListening()
+        advanceTimeBy(300)
+        runCurrent()
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+
+        // Session 2 replaces session 1 while another refresh is pending; the stale
+        // refresh must not create a recognizer for the old session.
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        listeners[1].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        runCurrent()
+        advanceTimeBy(300)
+        runCurrent()
+        verify(exactly = 3) { recognitionSupport.createPlatformSpeechRecognizer() }
+        collector.cancel()
+    }
+
+    @Test
+    fun `alert session errors other than no-speech no-match still surface`() = runTest {
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { platformRecognizer.setRecognitionListener(capture(listener)) } just runs
+
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.AlertCommand)
+        listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+
+        listener.captured.onError(SpeechRecognizer.ERROR_AUDIO)
+        runCurrent()
+
+        assertTrue(events.any { it is VoiceInputEvent.Error })
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.Error>().size)
+        collector.cancel()
     }
 }
