@@ -1506,14 +1506,16 @@ class OutOfWindowCommandTests(unittest.TestCase):
                     *, wake_only: bool = False,
                     status: runner.AttemptStatus = runner.AttemptStatus.FAILED,
                     with_command: bool = True,
-                    pre_dispatch: int | None = None) -> runner.MatrixAttempt:
+                    pre_dispatch: int | None = None,
+                    playback_ms: int | None = None) -> runner.MatrixAttempt:
             events = [] if terminal_w is None else [
                 {"s": 16, "t": "SESSION_COMPLETED", "w": terminal_w, "g": 11, "i": 10}
             ]
-            timing = (
-                {"command": {"request_wall_clock_ms": request_ms}}
-                if with_command else {}
-            )
+            timing = {}
+            if with_command:
+                timing = {"command": {"request_wall_clock_ms": request_ms}}
+                if playback_ms is not None:
+                    timing["command"]["playback_start_wall_clock_ms"] = playback_ms
             target = {"events": events}
             if pre_dispatch is not None:
                 target["pre_dispatch_terminal_sequence"] = pre_dispatch
@@ -1532,8 +1534,9 @@ class OutOfWindowCommandTests(unittest.TestCase):
         }
 
         # Raw wall-clock ordering without any calibration or marker is NOT
-        # proof: an unmeasured source-ahead offset could explain it.
-        uncalibrated = attempt(request_ms=2_000, terminal_w=1_000)
+        # proof: an unmeasured source-ahead offset could explain it, even when
+        # the playback-start evidence is present.
+        uncalibrated = attempt(request_ms=2_000, terminal_w=1_000, playback_ms=2_000)
         self.assertFalse(runner.command_delivery_after_session_end(uncalibrated))
         self.assertFalse(runner.reclassify_out_of_window_command_attempt(uncalibrated))
         self.assertEqual(uncalibrated.status, runner.AttemptStatus.FAILED)
@@ -1554,8 +1557,9 @@ class OutOfWindowCommandTests(unittest.TestCase):
         self.assertTrue(any("proven" in f for f in marked.failures), marked.failures)
         self.assertIn("listening_window_closed", marked.invalid_details)
 
-        # Priority 2: validated alignment conclusive for every offset in range.
-        conclusive = attempt(request_ms=2_000, terminal_w=1_000)
+        # Priority 2: validated alignment conclusive for every offset in range,
+        # based on the source helper's actual playback start.
+        conclusive = attempt(request_ms=2_000, terminal_w=1_000, playback_ms=2_000)
         self.assertTrue(runner.command_delivery_after_session_end(conclusive, ALIGNED))
         self.assertTrue(runner.reclassify_out_of_window_command_attempt(conclusive, ALIGNED))
         self.assertEqual(conclusive.status, runner.AttemptStatus.INVALID)
@@ -1566,7 +1570,7 @@ class OutOfWindowCommandTests(unittest.TestCase):
         # Review scenario: source clock 750 ms ahead; command actually requested
         # 300 ms before session end appears 450 ms after it.  Even with the
         # persisted [-800, -700] range the adjusted ordering is not conclusive.
-        source_ahead = attempt(request_ms=1_450, terminal_w=1_000)
+        source_ahead = attempt(request_ms=1_450, terminal_w=1_000, playback_ms=1_450)
         source_ahead_alignment = {
             **ALIGNED, "offset_range_ms": [-800, -700],
         }
@@ -1578,12 +1582,12 @@ class OutOfWindowCommandTests(unittest.TestCase):
 
         # Same range but genuinely late by more than the worst-case offset:
         # conclusive.
-        genuinely_late = attempt(request_ms=3_000, terminal_w=1_000)
+        genuinely_late = attempt(request_ms=3_000, terminal_w=1_000, playback_ms=3_000)
         self.assertTrue(runner.command_delivery_after_session_end(
             genuinely_late, source_ahead_alignment))
 
         # Delivery inside the window with aligned clocks: unchanged.
-        in_window = attempt(request_ms=900, terminal_w=1_000)
+        in_window = attempt(request_ms=900, terminal_w=1_000, playback_ms=900)
         self.assertFalse(runner.command_delivery_after_session_end(in_window, ALIGNED))
         self.assertFalse(runner.reclassify_out_of_window_command_attempt(in_window, ALIGNED))
         self.assertEqual(in_window.status, runner.AttemptStatus.FAILED)
@@ -1612,7 +1616,7 @@ class OutOfWindowCommandTests(unittest.TestCase):
              "method": 7},
         ):
             with self.subTest(alignment=broken):
-                late = attempt(request_ms=2_000, terminal_w=1_000)
+                late = attempt(request_ms=2_000, terminal_w=1_000, playback_ms=2_000)
                 self.assertFalse(
                     runner.command_delivery_after_session_end(late, broken))
                 self.assertFalse(
@@ -1703,7 +1707,10 @@ class OutOfWindowCommandTests(unittest.TestCase):
                 "trial-007", slot, 1, runner.AttemptStatus.FAILED,
                 classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
                 failures=["captured command transcript does not match the approved fixture expectation"],
-                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                source_timing={"command": {
+                    "request_wall_clock_ms": 2_000,
+                    "playback_start_wall_clock_ms": 2_000,
+                }},
                 target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
             ),
         ]
@@ -1796,7 +1803,10 @@ class OutOfWindowCommandTests(unittest.TestCase):
             runner.MatrixAttempt(
                 "fail-wall-clock-only", command_slots[2], 1, runner.AttemptStatus.FAILED,
                 classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
-                source_timing={"command": {"request_wall_clock_ms": 2_000}},
+                source_timing={"command": {
+                    "request_wall_clock_ms": 2_000,
+                    "playback_start_wall_clock_ms": 2_000,
+                }},
                 target_timing={"events": [{"s": 16, "t": "SESSION_COMPLETED", "w": 1_000}]},
             ),
         ]
@@ -1867,6 +1877,235 @@ class OutOfWindowCommandTests(unittest.TestCase):
             "command_outside_listening_window",
         )
         self.assertFalse(evidence["wake_reliability"]["complete_valid_matrix"])
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+    def test_run_trial_persists_playback_start_wall_clock_ms(self) -> None:
+        """run_trial() persists the source helper's validated
+        playback_started.wall_clock_ms as playback_start_wall_clock_ms while
+        keeping the request fields unchanged."""
+        harness, envelopes, _ = self._command_harness()
+        broken_final = copy.deepcopy(envelopes["final"])
+        broken_final["events"] = [
+            item for item in broken_final["events"] if item["t"] != "STT_FINAL"
+        ]
+        broken_final["highestSequence"] = broken_final["events"][-1]["s"]
+        provider_call = self._provider_snapshots(
+            {
+                "boundary": envelopes["boundary"],
+                "open": envelopes["open"],
+                "final": broken_final,
+            },
+            ["boundary", "open", "final"],
+        )
+        call_order: list[str] = []
+
+        def invoke_command_source(**kwargs):
+            command_result = source_result("trial-persist-cmd", "qwen_command")
+            command_result["command_transcript_sha256"] = "b" * 64
+            command_events = [event(15, "COMMAND_ROUTING_RESULT")]
+            return command_result, command_events, envelope(command_events, lowest=15)
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=self._invoke_wake(call_order)), \
+                patch.object(harness, "_invoke_command_source_with_armed_wait", side_effect=invoke_command_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=self._target_wait(call_order)), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-persist",
+                runner.MatrixSlot(idle_s=1, wake_only=False, ordinal=2),
+                "natural_wake",
+                "qwen_command",
+            )
+
+        command_timing = attempt.source_timing["command"]
+        # The validated playback_started event's wall clock is persisted under
+        # the dedicated field; request timing is kept untouched.
+        self.assertEqual(command_timing["playback_start_wall_clock_ms"], 1_705_300_000_423)
+        self.assertEqual(command_timing["request_wall_clock_ms"], 1_705_300_000_123)
+        self.assertEqual(
+            attempt.source_timing["clock_domain"], "source_device_elapsed_realtime"
+        )
+
+    def test_request_inside_window_but_playback_after_terminal_reclassifies(self) -> None:
+        """A request submitted while the session was still open is not proof:
+        when the source helper's playback start is conclusively after the
+        terminal event under a validated alignment, the attempt is
+        reclassified INVALID with the explicit out-of-window reason and the
+        matrix slot remains retryable."""
+        def attempt(request_ms: int, playback_ms: int) -> runner.MatrixAttempt:
+            return runner.MatrixAttempt(
+                "t", runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=1),
+                1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {
+                    "request_wall_clock_ms": request_ms,
+                    "playback_start_wall_clock_ms": playback_ms,
+                }},
+                target_timing={"events": [
+                    {"s": 16, "t": "SESSION_COMPLETED", "w": 1_000, "g": 11, "i": 10},
+                ]},
+            )
+
+        ALIGNED = {
+            "source_alias": "s23u", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
+        # Request submitted 100 ms BEFORE the terminal event, but the audible
+        # playback only began 200 ms AFTER it (audio preparation lagged).
+        late_playback = attempt(request_ms=900, playback_ms=1_200)
+        self.assertTrue(runner.command_delivery_after_session_end(late_playback, ALIGNED))
+        self.assertTrue(
+            runner.reclassify_out_of_window_command_attempt(late_playback, ALIGNED)
+        )
+        self.assertEqual(late_playback.status, runner.AttemptStatus.INVALID)
+        self.assertIsNone(late_playback.classification)
+        self.assertEqual(
+            late_playback.invalid_reason,
+            runner.InvalidReason.COMMAND_OUTSIDE_LISTENING_WINDOW,
+        )
+        self.assertTrue(any("proven" in f for f in late_playback.failures))
+        self.assertIn("listening_window_closed", late_playback.invalid_details)
+
+        # The same request time with playback start inside the window is not
+        # reclassified: a genuine in-window failure remains a valid product
+        # failure.
+        in_window_playback = attempt(request_ms=900, playback_ms=700)
+        self.assertFalse(
+            runner.command_delivery_after_session_end(in_window_playback, ALIGNED)
+        )
+        self.assertFalse(
+            runner.reclassify_out_of_window_command_attempt(in_window_playback, ALIGNED)
+        )
+        self.assertEqual(in_window_playback.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            in_window_playback.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+
+    def test_missing_playback_start_preserves_classification_even_when_request_late(self) -> None:
+        """Historical attempts without playback-start wall-clock evidence are
+        never reclassified using request submission time."""
+        ALIGNED = {
+            "source_alias": "s23u", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
+        late_request_only = runner.MatrixAttempt(
+            "t", runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=1),
+            1, runner.AttemptStatus.FAILED,
+            classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+            source_timing={"command": {"request_wall_clock_ms": 2_000}},
+            target_timing={"events": [
+                {"s": 16, "t": "SESSION_COMPLETED", "w": 1_000, "g": 11, "i": 10},
+            ]},
+        )
+        self.assertFalse(
+            runner.command_delivery_after_session_end(late_request_only, ALIGNED)
+        )
+        self.assertFalse(
+            runner.reclassify_out_of_window_command_attempt(late_request_only, ALIGNED)
+        )
+        self.assertEqual(late_request_only.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            late_request_only.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+
+    def test_playback_start_late_without_validated_alignment_preserves_classification(self) -> None:
+        """Playback start after the raw target terminal timestamp is never
+        proof without a validated clock-alignment record: the classification
+        is preserved."""
+        late_playback = runner.MatrixAttempt(
+            "t", runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=1),
+            1, runner.AttemptStatus.FAILED,
+            classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+            source_timing={"command": {
+                "request_wall_clock_ms": 2_000,
+                "playback_start_wall_clock_ms": 2_000,
+            }},
+            target_timing={"events": [
+                {"s": 16, "t": "SESSION_COMPLETED", "w": 1_000, "g": 11, "i": 10},
+            ]},
+        )
+        self.assertFalse(runner.command_delivery_after_session_end(late_playback))
+        self.assertFalse(
+            runner.reclassify_out_of_window_command_attempt(late_playback)
+        )
+        self.assertEqual(late_playback.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            late_playback.classification,
+            runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+        )
+        # An alignment record naming a different device pair is never loaded
+        # into the runner (see test_checkpoint_load_rejects_alignment_for_other_devices)
+        # and an inconclusive range is likewise ignored.
+        self.assertFalse(runner.command_delivery_after_session_end(
+            late_playback, {
+                "offset_range_ms": [-1_200, -1_100], "uncertainty_ms": 25,
+                "method": "probe",
+            }))
+
+    def test_export_reclassifies_playback_out_of_window_with_validated_alignment(self) -> None:
+        """Export reclassifies a playback-start-proven out-of-window attempt
+        using the persisted validated alignment; summary totals and schema /
+        privacy validation reconcile."""
+        harness = make_runner(runner.RunKind.DIAGNOSTIC)
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.source_identity = runner.DeviceIdentity(
+            "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+        )
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.DIAGNOSTIC, runner.GateMode.DIAGNOSTIC,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "hash"}, None, None,
+        )
+        harness.clock_alignment = {
+            "source_alias": "s23u", "target_alias": "s21",
+            "offset_range_ms": [-100, 100], "uncertainty_ms": 25,
+            "method": "preflight_alignment_probe",
+        }
+        slots = runner.matrix_slots_for_target("s21")
+        command_slots = [s for s in slots if not s.wake_only]
+        harness.attempts = [
+            runner.MatrixAttempt(
+                "pass-1", command_slots[0], 1, runner.AttemptStatus.PASSED),
+            runner.MatrixAttempt(
+                "fail-playback-out-of-window", command_slots[1], 1,
+                runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                source_timing={"command": {
+                    "request_wall_clock_ms": 900,
+                    "playback_start_wall_clock_ms": 1_200,
+                }},
+                target_timing={"events": [
+                    {"s": 16, "t": "SESSION_COMPLETED", "w": 1_000, "g": 11, "i": 10},
+                ]},
+            ),
+        ]
+        evidence = harness.export_evidence()
+        summary = evidence["summary"]
+        self.assertEqual(summary["total_attempts"], 2)
+        self.assertEqual(summary["valid"], 1)
+        self.assertEqual(summary["passed"], 1)
+        self.assertEqual(summary["failed"], 0)
+        self.assertEqual(summary["invalid"], 1)
+        by_name = {case["name"]: case for case in evidence["cases"]}
+        self.assertEqual(by_name["fail-playback-out-of-window"]["status"], "invalid")
+        self.assertEqual(
+            by_name["fail-playback-out-of-window"]["invalid_reason"],
+            "command_outside_listening_window",
+        )
+        # The sanitised case still carries the persisted playback-start field.
+        command_timing = by_name["fail-playback-out-of-window"]["source_timing"]["command"]
+        self.assertEqual(command_timing["playback_start_wall_clock_ms"], 1_200)
         valid, issues = evidence_metrics.validate_record(evidence, [])
         self.assertTrue(valid, issues)
 
