@@ -1392,10 +1392,15 @@ def command_delivery_after_session_end(
        sequence, ordering is proven by the target journal alone.
     2. Persisted bounded clock-alignment evidence: a per-run
        ``clock_alignment`` record (validated by ``validated_clock_alignment``)
-       bounds (target − source) wall-clock offset.  The command request is
+       bounds (target − source) wall-clock offset.  The command's ACTUAL
+       AUDIBLE PLAYBACK START (``command.playback_start_wall_clock_ms``, the
+       source helper's validated ``playback_started`` event wall clock) is
        provably after the terminal event only when it is after it for every
        offset in the recorded range:
-       request_wall_clock_ms + offset_range_lo > terminal_wall_clock_ms.
+       playback_start_wall_clock_ms + offset_range_lo > terminal_wall_clock_ms.
+       Request submission time is NOT a substitute: audio preparation can
+       start while the session is open and playback only begin after it has
+       ended, so request time is never conclusive and never falls back.
     3. Unproven: return False and preserve the recorded classification.
 
     Epoch wall clocks are a common unit, not a synchronised shared clock;
@@ -1425,11 +1430,19 @@ def command_delivery_after_session_end(
         return True
 
     # Priority 2: persisted bounded clock-alignment, conclusive at every
-    # offset in the recorded range.
+    # offset in the recorded range.  Ordering is based on when the audible
+    # command PLAYBACK began, not when the request was submitted: the source
+    # may prepare audio for a while after dispatch, so a request inside the
+    # window does not prove the playback was audible inside it.  When
+    # playback-start evidence is missing it is never inferred from request or
+    # monotonic time; without it the recorded classification is preserved.
+    playback_start_wall_clock_ms = command_timing.get("playback_start_wall_clock_ms")
+    if not isinstance(playback_start_wall_clock_ms, int):
+        return False
     alignment = validated_clock_alignment(clock_alignment)
     if alignment is not None:
         offset_lo = alignment["offset_range_ms"][0]
-        if request_wall_clock_ms + offset_lo > terminal_wall_clock_ms:
+        if playback_start_wall_clock_ms + offset_lo > terminal_wall_clock_ms:
             return True
     return False
 
@@ -2788,6 +2801,23 @@ class AcousticWakeReliabilityRunner:
                         "completion_monotonic_ms",
                     )
                 }
+                # #1431 review 4837126355: persist the wall clock of the
+                # validated playback_started source event so retrospective
+                # ordering compares actual audible playback start rather than
+                # request submission time.  Missing evidence stays None and is
+                # never inferred from request or monotonic time.
+                playback_started_events = [
+                    event for event in (parsed_command_source.get("events") or [])
+                    if event.get("name") == "playback_started"
+                ]
+                playback_start_wall_clock_ms: int | None = None
+                if len(playback_started_events) == 1:
+                    candidate = playback_started_events[0].get("wall_clock_ms")
+                    if isinstance(candidate, int) and not isinstance(candidate, bool):
+                        playback_start_wall_clock_ms = candidate
+                attempt.source_timing["command"]["playback_start_wall_clock_ms"] = (
+                    playback_start_wall_clock_ms
+                )
             if environment_failures:
                 attempt.status = AttemptStatus.INVALID
                 attempt.classification = None
