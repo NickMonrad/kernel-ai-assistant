@@ -101,6 +101,27 @@ TARGET_ERROR_UNKNOWN_REQUEST_ID = "argument_error:unknown_request_id"
 TARGET_WAIT_DEFAULT_TIMEOUT_MS = 15_000
 TARGET_WAIT_MIN_TIMEOUT_MS = 500
 TARGET_WAIT_MAX_TIMEOUT_MS = 60_000
+# Bounded terminal/re-arm observation for the DETECTOR_REARMED wait (#1409).
+# The default 15 s wait expired while a supported STT retry was still active
+# (preserved regression trials 001/017: attempt-1 recognition failure, the
+# attempt-2 session still finalising when the observation ended).  The bound
+# below covers the complete supported bounded lifecycle, derived from the
+# production constants in NativeAndroidVoiceInputController.kt and the
+# wake-command handoff in WakeWordService.kt (max 2 session attempts):
+#   attempt-1 result envelope:
+#     ALERT_SESSION_SILENCE_TIMEOUT_MS (10 s speech budget)
+#     + SESSION_RESULT_TIMEOUT_MS (6 s speech-progress result)          = 16 s
+#     (the in-place no-speech refresh chain, ~5 s platform no-speech + 0.3 s
+#     REFRESH_SETTLE_MS + 5 s REFRESHED_SESSION_SILENCE_TIMEOUT_MS + 6 s
+#     result, is bounded within the same envelope)
+#   attempt-2 recogniser readiness: ON_DEVICE_READY_TIMEOUT_MS (1.5 s)
+#   attempt-2 result envelope: same 16 s bound                        = 17.5 s
+#   session terminal -> detector re-arm: <= 2 s budget
+#     (observed 12-63 ms across the preserved 31-trial run)
+#   total worst supported chain: 16 + 1.5 + 16 + 2 = 35.5 s
+# Rounded to 40 s: the smallest round bound above the derived worst case,
+# deterministic (never open-ended), within the provider's 60 s maximum.
+TARGET_WAIT_TERMINAL_REARM_MS = 40_000
 # Retained only for non-blocking legacy reads on older debug APKs.
 TARGET_RECEIVER_CLS = "com.kernel.ai.debug.journal.TargetEventJournalReceiver"
 TARGET_ACTION_GET_SEQUENCE = "com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE"
@@ -837,6 +858,34 @@ def parse_source_result(
 
 
 
+def source_playback_start_wall_clock_ms(
+    source_result: dict[str, Any],
+) -> int | None:
+    """Resolve the validated audible playback-start wall clock from a source result.
+
+    The Android source helper (``AcousticStimulusEngine``) records the
+    physical playback-start event with ``name == "started"`` (issue #1409
+    review: the runner previously searched for a Python-only
+    ``playback_started`` name that no physical producer emits, so physical
+    command trials persisted a null value).
+
+    Exactly one ``started`` event is authoritative.  Zero events produce no
+    value, and multiple matching events are ambiguous and also fail closed;
+    the request wall clock is never substituted and playback start is never
+    inferred from source monotonic time.
+    """
+    started_events = [
+        event for event in (source_result.get("events") or [])
+        if event.get("name") == "started"
+    ]
+    if len(started_events) != 1:
+        return None
+    candidate = started_events[0].get("wall_clock_ms")
+    if isinstance(candidate, bool) or not isinstance(candidate, int):
+        return None
+    return candidate
+
+
 def service_active(client: AdbClient, package: str) -> bool:
     """Check whether WakeWordService is running on the device."""
     return "WakeWordService" in client.shell("dumpsys", "activity", "services", package)
@@ -1394,7 +1443,7 @@ def command_delivery_after_session_end(
        ``clock_alignment`` record (validated by ``validated_clock_alignment``)
        bounds (target − source) wall-clock offset.  The command's ACTUAL
        AUDIBLE PLAYBACK START (``command.playback_start_wall_clock_ms``, the
-       source helper's validated ``playback_started`` event wall clock) is
+       source helper's validated ``started`` event wall clock) is
        provably after the terminal event only when it is after it for every
        offset in the recorded range:
        playback_start_wall_clock_ms + offset_range_lo > terminal_wall_clock_ms.
@@ -1496,6 +1545,39 @@ def format_target_snapshot_events(envelope: dict[str, Any]) -> list[dict[str, An
         }
         for ev in events
     ]
+
+
+def deduplicate_projected_events(
+    events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse repeated projection of the same authoritative journal event.
+
+    The correlated path projects some journal events twice: e.g.
+    ``ACTIVATION_CANDIDATE`` appears both in ``gate_activity`` (its type is
+    in ``MEANINGFUL_WAKE_EVENTS``) and as its own named path entry (#1409).
+    Normalised evidence must contain one record per authoritative journal
+    sequence number.
+
+    - journal sequence order is preserved;
+    - distinct events are never removed merely because they share an event
+      type (the key is the sequence number);
+    - an identical repeated projection is dropped;
+    - the same sequence with conflicting content fails closed instead of
+      silently choosing one record.
+    """
+    deduplicated: list[dict[str, Any]] = []
+    by_sequence: dict[int, dict[str, Any]] = {}
+    for event in events:
+        sequence = event["s"]
+        previous = by_sequence.get(sequence)
+        if previous is None:
+            by_sequence[sequence] = event
+            deduplicated.append(event)
+        elif previous != event:
+            raise HarnessError(
+                f"conflicting journal projections for sequence {sequence}"
+            )
+    return deduplicated
 
 
 def public_preflight_approval(approval: dict[str, Any] | None) -> dict[str, Any]:
@@ -2098,6 +2180,45 @@ class AcousticWakeReliabilityRunner:
         )
         for attempt in self.attempts:
             reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
+            # #1409: normalise already-recorded projections to one record per
+            # authoritative journal sequence (old checkpoints captured
+            # ACTIVATION_CANDIDATE twice).  Conflicting projections of the
+            # same sequence fail closed.
+            stored_events = attempt.target_timing.get("events")
+            if stored_events is not None:
+                attempt.target_timing["events"] = deduplicate_projected_events(
+                    stored_events
+                )
+            # #1409: re-derive the command playback-start wall clock from the
+            # preserved source results.  The pre-fix runner searched for a
+            # Python-only ``playback_started`` event name and persisted null;
+            # the preserved artifacts carry the physical ``started`` event, so
+            # offline evidence regeneration can populate the actual audible
+            # playback-start wall clock.  Request time is never substituted.
+            command_timing = attempt.source_timing.get("command")
+            if command_timing is not None:
+                command_trial_id = f"{attempt.trial_id}-cmd"
+                command_result = next(
+                    (
+                        result for result in self.source_results
+                        if result.get("trial_id") == command_trial_id
+                    ),
+                    None,
+                )
+                if command_result is None:
+                    # No preserved source result for this checkpoint (e.g.
+                    # synthetic fixtures): keep the recorded value untouched
+                    # rather than fabricating one.
+                    continue
+                parsed_command = parse_source_result(
+                    json.dumps(command_result),
+                    expected_trial_id=command_trial_id,
+                    expected_fixture_id=attempt.command_fixture_id,
+                    expected_fixture_sha256=attempt.command_fixture_sha256,
+                )
+                command_timing["playback_start_wall_clock_ms"] = (
+                    source_playback_start_wall_clock_ms(parsed_command)
+                )
         # Reconcile persisted bookkeeping with the corrected attempt statuses
         # (scheduling decisions derive from attempts, these sets are reported
         # and persisted only).
@@ -2706,10 +2827,15 @@ class AcousticWakeReliabilityRunner:
                         self.checkpoint("post-command")
 
             attempt.invalid_reason = InvalidReason.EVIDENCE_BOUNDARY_LOST
+            # Bounded terminal/re-arm observation covering the complete
+            # supported STT lifecycle (see TARGET_WAIT_TERMINAL_REARM_MS for
+            # the derivation).  A genuinely exhausted bound keeps the existing
+            # failure semantics: the final snapshot simply lacks the terminal
+            # and the attempt classifies UNCLASSIFIED.
             self._wait_for_target_events(
                 since_sequence=boundary_sequence,
                 event_type="DETECTOR_REARMED",
-                timeout_ms=TARGET_WAIT_DEFAULT_TIMEOUT_MS,
+                timeout_ms=TARGET_WAIT_TERMINAL_REARM_MS,
             )
             final_code, final_data = self._call_target_provider(
                 TARGET_METHOD_GET_SNAPSHOT,
@@ -2745,6 +2871,11 @@ class AcousticWakeReliabilityRunner:
                 else:
                     correlated_events.append(value)
             correlated_events.sort(key=lambda event: event["s"])
+            # One record per authoritative journal sequence: the correlated
+            # path projects ACTIVATION_CANDIDATE through both gate_activity
+            # and its named entry (#1409).  Conflicting projections of the
+            # same sequence fail closed.
+            correlated_events = deduplicate_projected_events(correlated_events)
             attempt.target_timing["events"] = format_target_snapshot_events(
                 {"events": correlated_events}
             )
@@ -2801,22 +2932,14 @@ class AcousticWakeReliabilityRunner:
                         "completion_monotonic_ms",
                     )
                 }
-                # #1431 review 4837126355: persist the wall clock of the
-                # validated playback_started source event so retrospective
-                # ordering compares actual audible playback start rather than
-                # request submission time.  Missing evidence stays None and is
-                # never inferred from request or monotonic time.
-                playback_started_events = [
-                    event for event in (parsed_command_source.get("events") or [])
-                    if event.get("name") == "playback_started"
-                ]
-                playback_start_wall_clock_ms: int | None = None
-                if len(playback_started_events) == 1:
-                    candidate = playback_started_events[0].get("wall_clock_ms")
-                    if isinstance(candidate, int) and not isinstance(candidate, bool):
-                        playback_start_wall_clock_ms = candidate
+                # #1431 review 4837126355 / #1409 review: persist the wall
+                # clock of the source helper's validated ``started`` playback
+                # event so retrospective ordering compares actual audible
+                # playback start rather than request submission time.  Missing
+                # or ambiguous evidence stays None and is never inferred from
+                # request or monotonic time.
                 attempt.source_timing["command"]["playback_start_wall_clock_ms"] = (
-                    playback_start_wall_clock_ms
+                    source_playback_start_wall_clock_ms(parsed_command_source)
                 )
             if environment_failures:
                 attempt.status = AttemptStatus.INVALID
