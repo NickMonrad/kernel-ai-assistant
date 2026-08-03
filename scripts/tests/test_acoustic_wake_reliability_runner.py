@@ -916,12 +916,160 @@ class EvidenceAndModeTests(unittest.TestCase):
         order: list[str] = []
         harness = Mock()
         harness.cleanup.side_effect = lambda: order.append("cleanup")
+        harness.checkpoint.side_effect = lambda: order.append("checkpoint")
         harness.export_evidence.side_effect = lambda: order.append("export") or {"ok": True}
 
         evidence = runner.finalize_evidence(harness)
 
-        self.assertEqual(order, ["cleanup", "export"])
+        # #1409 review 4840085897: the final checkpoint is written only after
+        # cleanup completes so later offline re-renders retain final state.
+        self.assertEqual(order, ["cleanup", "checkpoint", "export"])
         self.assertEqual(evidence, {"ok": True})
+
+    def _finalize_harness(self, private_root: Path, *,
+                          restoration_failures: list[str] | None = None):
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        manifest = preflight_manifest(
+            source_identity={
+                "alias": "s23u", "manufacturer": "samsung",
+                "model": "SM-S918B", "android_release": "15",
+                "android_api": "35", "package_version": "1.0",
+                "package_version_code": 1,
+                "build_fingerprint_sha256": "a" * 64,
+                "device_id_sha256": "b" * 64,
+            },
+            target_identity={
+                "alias": "s21", "manufacturer": "samsung",
+                "model": "SM-G991B", "android_release": "15",
+                "android_api": "35", "package_version": "1.0",
+                "package_version_code": 1,
+                "build_fingerprint_sha256": "c" * 64,
+                "device_id_sha256": "d" * 64,
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "preflight.json"
+            path.write_text(json.dumps(manifest))
+            producer.load_preflight_manifest(path)
+        producer.run_environment_before = {
+            "source": {"reachable": True, "alias": "s23u", "media_volume": 12},
+            "target": {"reachable": True, "alias": "s21", "media_volume": 10},
+        }
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-001",
+                runner.MatrixSlot(idle_s=10, wake_only=True, ordinal=1),
+                1, runner.AttemptStatus.PASSED,
+            ),
+        ]
+        failures = restoration_failures if restoration_failures is not None else []
+        with patch.object(producer, "_cancel_active_wait"), \
+                patch.object(producer, "_cancel_active_source_playback", return_value=[]), \
+                patch.object(producer, "_recover_active_source_result", return_value=[]), \
+                patch.object(producer, "_verify_source_restoration", return_value=failures), \
+                patch.object(producer, "_snapshot_source_state",
+                             return_value={"reachable": True, "alias": "s23u",
+                                           "media_volume": 12}), \
+                patch.object(producer, "_snapshot_target_state",
+                             return_value={"reachable": True, "alias": "s21",
+                                           "media_volume": 10}), \
+                patch.object(producer, "_environment_failures", return_value=[]), \
+                patch.object(producer, "_source_environment_failures", return_value=[]):
+            yield producer
+
+    def test_finalize_persists_post_cleanup_checkpoint(self) -> None:
+        """A completed run's final checkpoint contains the post-cleanup result
+        and post-run environment, not the pre-cleanup defaults."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(private_root):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        self.assertTrue(consumer.cleanup_verified)
+        self.assertEqual(consumer.cleanup_failures, [])
+        self.assertEqual(
+            consumer.run_environment_after,
+            {
+                "source": {"reachable": True, "alias": "s23u", "media_volume": 12},
+                "target": {"reachable": True, "alias": "s21", "media_volume": 10},
+            },
+        )
+        self.assertIsNone(consumer.abort_reason)
+        self.assertIsNone(consumer.primary_failure)
+
+    def test_export_only_preserves_post_cleanup_state_without_device_calls(self) -> None:
+        """Loading the final checkpoint and running export-only retains the
+        authoritative cleanup and final-environment values, performs no live
+        ADB/device calls, and never runs cleanup again."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(private_root):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        with patch.object(consumer, "cleanup",
+                          side_effect=AssertionError("cleanup must not run during export-only")), \
+                patch.object(consumer.source, "shell",
+                             side_effect=AssertionError("no device calls during export-only")), \
+                patch.object(consumer.target, "shell",
+                             side_effect=AssertionError("no device calls during export-only")):
+            evidence = consumer.export_evidence()
+        reliability = evidence["wake_reliability"]
+        self.assertTrue(reliability["cleanup_verified"])
+        self.assertEqual(reliability["cleanup_failures"], [])
+        # The export projects the environment through the public snapshot
+        # allow-list (alias and other private fields are intentionally dropped).
+        self.assertEqual(
+            reliability["run_environment_after"],
+            {
+                "source": {"reachable": True, "media_volume": 12},
+                "target": {"reachable": True, "media_volume": 10},
+            },
+        )
+        self.assertTrue(reliability["completion"]["cleanup_verified"])
+        self.assertEqual(reliability["completion"]["status"], "completed")
+
+    def test_failed_cleanup_is_preserved_truthfully(self) -> None:
+        """A failed cleanup is never converted into a successful result: the
+        final checkpoint and the offline export keep the failure visible."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(
+            private_root,
+            restoration_failures=["source volume restoration failed"],
+        ):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        self.assertFalse(consumer.cleanup_verified)
+        self.assertEqual(consumer.cleanup_failures, ["source volume restoration failed"])
+        with patch.object(consumer.source, "shell",
+                          side_effect=AssertionError("no device calls during export-only")), \
+                patch.object(consumer.target, "shell",
+                             side_effect=AssertionError("no device calls during export-only")):
+            evidence = consumer.export_evidence()
+        reliability = evidence["wake_reliability"]
+        self.assertFalse(reliability["cleanup_verified"])
+        self.assertEqual(
+            reliability["cleanup_failures"], ["source volume restoration failed"]
+        )
+        self.assertFalse(reliability["completion"]["cleanup_verified"])
 
     def test_fixed_delay_is_feasibility_only(self) -> None:
         with self.assertRaisesRegex(runner.HarnessError, "feasibility"):

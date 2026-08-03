@@ -4147,8 +4147,16 @@ def load_later_run_preflight(
         )
 
 def finalize_evidence(runner: AcousticWakeReliabilityRunner) -> dict[str, Any]:
-    """Capture final cleanup state before serialising public evidence."""
+    """Capture final cleanup state before serialising public evidence.
+
+    #1409 review 4840085897: the final checkpoint is persisted only after
+    cleanup completes, so a later offline ``resume --export-only`` re-render
+    retains the authoritative post-cleanup state (``cleanup_verified``,
+    ``cleanup_failures``, ``run_environment_after``, final ``abort_reason``
+    and ``primary_failure``) instead of the pre-cleanup checkpoint defaults.
+    """
     runner.cleanup()
+    runner.checkpoint()
     return runner.export_evidence()
 
 
