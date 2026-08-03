@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -14,6 +15,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -129,5 +131,156 @@ class SelectableVoiceInputControllerTest {
 
         verify(exactly = 1) { voskOfflineVoiceInputController.stopListening() }
         verify(exactly = 1) { nativeAndroidVoiceInputController.stopListening() }
+    }
+
+    // ── wake-window verification delegation (#1432) ────────────────────────
+
+    @Test
+    fun `transcribeBlocking forwards the wake-window PCM exactly once to the Sherpa verifier`() = runTest(dispatcher) {
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        val pcm = shortArrayOf(1, 2, 3, 4)
+        coEvery { sherpaOnnxVoiceInputController.transcribeBlocking(pcm) } returns "hey jandal"
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        )
+
+        assertEquals("hey jandal", controller.transcribeBlocking(pcm))
+
+        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.transcribeBlocking(pcm) }
+    }
+
+    @Test
+    fun `transcribeBlocking propagates the returned wake transcript`() = runTest(dispatcher) {
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        val pcm = shortArrayOf(9, 8, 7)
+        coEvery { sherpaOnnxVoiceInputController.transcribeBlocking(pcm) } returns "a jandel"
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        )
+
+        assertEquals("a jandel", controller.transcribeBlocking(pcm))
+    }
+
+    @Test
+    fun `transcribeBlocking propagates null truthfully`() = runTest(dispatcher) {
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        val pcm = shortArrayOf(5, 5, 5)
+        coEvery { sherpaOnnxVoiceInputController.transcribeBlocking(pcm) } returns null
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        )
+
+        assertNull(controller.transcribeBlocking(pcm))
+    }
+
+    @Test
+    fun `transcribeBlocking never starts or stops interactive controllers`() = runTest(dispatcher) {
+        every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.Vosk)
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { voskOfflineVoiceInputController.stopListening() } just runs
+        every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
+        coEvery { sherpaOnnxVoiceInputController.transcribeBlocking(any()) } returns null
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        )
+
+        controller.transcribeBlocking(shortArrayOf(1, 2))
+
+        coVerify(exactly = 0) { voskOfflineVoiceInputController.startListening(any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any()) }
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any()) }
+        verify(exactly = 0) { voskOfflineVoiceInputController.stopListening() }
+        verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
+        verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `transcribeBlocking leaves the interactive engine selection untouched`() = runTest(dispatcher) {
+        val selectedEngine = MutableStateFlow(VoiceInputEngine.Vosk)
+        every { voiceInputPreferences.selectedEngine } returns selectedEngine
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { voskOfflineVoiceInputController.stopListening() } just runs
+        every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
+        coEvery { voskOfflineVoiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
+        coEvery { sherpaOnnxVoiceInputController.transcribeBlocking(any()) } returns "hey jandal"
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        )
+
+        // Verification runs while Vosk is selected; the interactive selection must survive.
+        assertEquals("hey jandal", controller.transcribeBlocking(shortArrayOf(1, 2)))
+        assertEquals(VoiceInputEngine.Vosk, selectedEngine.value)
+        assertEquals(VoiceInputStartResult.Started(1L), controller.startListening(VoiceCaptureMode.Command))
+        coVerify(exactly = 1) { voskOfflineVoiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any()) }
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any()) }
+    }
+
+    @Test
+    fun `every interactive engine selection keeps its normal capture behaviour`() = runTest(dispatcher) {
+        every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
+        every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { voskOfflineVoiceInputController.stopListening() } just runs
+        every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
+
+        val engines = listOf(
+            VoiceInputEngine.Vosk to voskOfflineVoiceInputController,
+            VoiceInputEngine.AndroidNative to nativeAndroidVoiceInputController,
+            VoiceInputEngine.SherpaZipformer to sherpaOnnxVoiceInputController,
+        )
+        for ((engine, expected) in engines) {
+            every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(engine)
+            coEvery { expected.startListening(VoiceCaptureMode.Command) } returns
+                VoiceInputStartResult.Started(1L)
+
+            val controller = SelectableVoiceInputController(
+                voiceInputPreferences = voiceInputPreferences,
+                voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+                nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+                sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+            )
+
+            assertEquals(
+                VoiceInputStartResult.Started(1L),
+                controller.startListening(VoiceCaptureMode.Command),
+                "capture must route to $engine",
+            )
+            coVerify(exactly = 1) { expected.startListening(VoiceCaptureMode.Command) }
+        }
     }
 }

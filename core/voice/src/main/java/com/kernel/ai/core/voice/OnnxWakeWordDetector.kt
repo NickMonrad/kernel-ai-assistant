@@ -466,6 +466,10 @@ class OnnxWakeWordDetector @Inject constructor(
         // ── Target event journal tracking ──────────────────────────────────────
         val silenceGateState = SilenceGateTransitionState()
         var emittedStage3Ready = false
+        // Per-gate-exit confidence summary (#1432 bounded reproduction).
+        // Debug-gated: only instantiated when the WakeWordDiag tag is
+        // DEBUG-enabled; zero allocations or branches otherwise.
+        val gateExitDiag = if (diagnosticsEnabled) WakeWordGateExitDiagnostics(generationId) else null
 
         try {
             val env = OrtEnvironment.getEnvironment()
@@ -616,6 +620,7 @@ class OnnxWakeWordDetector @Inject constructor(
                             type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
                             generationId = generationId,
                         )
+                        gateExitDiag?.onGateExited(chunkCount)
                     }
                     silenceFrames = 0
                     voicedFrameStreak = 0
@@ -688,6 +693,9 @@ class OnnxWakeWordDetector @Inject constructor(
                             type = AcousticEventType.SILENCE_GATE_ENTERED,
                             generationId = generationId,
                         )
+                        gateExitDiag?.onGateEntered(chunkCount)?.let { summary ->
+                            Log.d(DIAGNOSTIC_TAG, summary)
+                        }
                     }
                     continue  // wake word not expected — skip expensive Stage 2/3
                 }
@@ -699,12 +707,16 @@ class OnnxWakeWordDetector @Inject constructor(
                 // melRing is already [76 × 32] row-major.  We reinterpret as [76 × 32 × 1] by
                 // passing the same flat array with shape [1, 76, 32, 1] — the channel is implicit
                 // (every element maps to exactly one channel-1 position).
+                // Capture whether this execution is a gated periodic probe before
+                // any state transition may clear the gated state.
+                val wasGatedProbe = gateExitDiag != null && silenceGateState.isGated
                 if (silenceGateState.onStage2Execution()) {
                     AcousticJournalBridge.record(
                         type = AcousticEventType.STAGE2_RESUMED,
                         generationId = generationId,
                     )
                 }
+                if (wasGatedProbe) gateExitDiag?.onGatedProbeExecution()
                 melRing.copyInto(embedInput4D)
                 diagnostics?.recordStage2Execution()
                 val embedding: FloatArray = OnnxTensor.createTensor(
@@ -747,6 +759,7 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
                 // Stage 3 count is retained in low-frequency diagnostics; avoid per-second logs.
+                gateExitDiag?.onStage3Evaluation(confidence, chunkCount)
 
 
                 when {
@@ -784,6 +797,7 @@ class OnnxWakeWordDetector @Inject constructor(
                         val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
                         val verified = verifyWindow(snapshot)
                         diagnostics?.recordVerifierResult(verified)
+                        gateExitDiag?.onLowVerify(verified)
                         if (verified) {
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
                             if (running.compareAndSet(true, false)) {
@@ -821,6 +835,9 @@ class OnnxWakeWordDetector @Inject constructor(
             diagnostics?.let {
                 val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
                 Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
+            }
+            gateExitDiag?.finish()?.let { summary ->
+                Log.d(DIAGNOSTIC_TAG, summary)
             }
         }
     }
@@ -892,3 +909,148 @@ internal fun calculateRms(chunk: ShortArray): Double {
 
 internal fun secondsToFrames(seconds: Float): Int =
     kotlin.math.ceil(seconds / WAKE_WORD_FRAME_DURATION_SECONDS).toInt().coerceAtLeast(1)
+
+/**
+ * Debug-gated per-gate-exit diagnostic lifecycle (#1432 bounded reproduction).
+ *
+ * Models exactly one real detector lifecycle:
+ *
+ * ```
+ * gate entered
+ * → zero or more periodic gated Stage-2 probes
+ * → gate exited on voiced audio
+ * → zero or more Stage-3 evaluations / verifier attempts
+ * → gate entered again or detector generation ended
+ * → one summary emitted
+ * ```
+ *
+ * Every emitted summary describes exactly one exit episode: its own Stage-3
+ * evaluation count, its own maximum classifier confidence and the offset of
+ * that maximum relative to the gate-exit frame (exit frame = offset 0), its
+ * own low-verification entry/outcome, and the probe executions from the
+ * immediately preceding gated interval only.  Initial gate entry emits
+ * nothing; gate re-entry without an intervening exit emits nothing; detector
+ * shutdown emits only when a real exit episode is open.
+ *
+ * The holder is only instantiated when the WakeWordDiag DEBUG tag is enabled
+ * (same gate as the existing aggregate counters), so it has zero cost in
+ * production.  It never touches silence-gate, Stage-2/3, threshold, verifier
+ * or activation behaviour.  No PCM, transcripts or per-frame output.
+ */
+internal class WakeWordGateExitDiagnostics(
+    private val generationId: Long,
+) {
+    /** True while a gate-exit episode is open (exit occurred, gate not re-entered). */
+    var episodeOpen: Boolean = false
+        private set
+
+    /** Periodic Stage-2 probe executions since the last gate entry. */
+    var gatedProbeExecutions: Long = 0
+        private set
+
+    private var stage3Evaluations = 0
+    private var maxConfidence = -1f
+    private var maxConfidenceOffsetFrames = -1
+    private var lowVerifyEntered = false
+    private var lowVerifyAccepted = false
+    private var exitChunk = 0
+
+    /**
+     * Records a gate entry.  Returns the summary of the just-closed exit
+     * episode, or `null` when no exit episode was open (initial gate entry or
+     * a re-entry without an intervening exit).  Always starts a fresh gated
+     * interval, so probe counts never bleed between gated intervals.
+     */
+    fun onGateEntered(chunk: Int): String? {
+        val summary = if (episodeOpen) currentSummary() else null
+        episodeOpen = false
+        resetEpisode()
+        gatedProbeExecutions = 0
+        return summary
+    }
+
+    /** Records the gate exit on voiced audio that starts an exit episode. */
+    fun onGateExited(chunk: Int) {
+        resetEpisode()
+        exitChunk = chunk
+        episodeOpen = true
+    }
+
+    /** Records one Stage-3 evaluation at [chunk], tracked only for the open episode. */
+    fun onStage3Evaluation(confidence: Float, chunk: Int) {
+        if (!episodeOpen) return
+        stage3Evaluations++
+        if (confidence > maxConfidence) {
+            maxConfidence = confidence
+            maxConfidenceOffsetFrames = chunk - exitChunk
+        }
+    }
+
+    /** Records the outcome of a low-band verifier attempt within the open episode. */
+    fun onLowVerify(accepted: Boolean) {
+        if (!episodeOpen) return
+        lowVerifyEntered = true
+        lowVerifyAccepted = accepted
+    }
+
+    /** Records one gated periodic Stage-2 probe execution (pre-episode interval). */
+    fun onGatedProbeExecution() {
+        gatedProbeExecutions++
+    }
+
+    /**
+     * Detector shutdown.  Returns the final summary when a real exit episode
+     * is still open, otherwise `null`.
+     */
+    fun finish(): String? = if (episodeOpen) currentSummary() else null
+
+    private fun currentSummary(): String = buildGateExitSummary(
+        generationId = generationId,
+        stage3Evaluations = stage3Evaluations,
+        maxConfidence = maxConfidence,
+        maxConfidenceOffsetFrames = maxConfidenceOffsetFrames,
+        lowVerifyEntered = lowVerifyEntered,
+        lowVerifyAccepted = lowVerifyAccepted,
+        gatedProbeExecutions = gatedProbeExecutions,
+    )
+
+    private fun resetEpisode() {
+        stage3Evaluations = 0
+        maxConfidence = -1f
+        maxConfidenceOffsetFrames = -1
+        lowVerifyEntered = false
+        lowVerifyAccepted = false
+        exitChunk = 0
+    }
+}
+
+/**
+ * One bounded aggregate summary per silence-gate exit episode (#1432
+ * reproduction): how many Stage-3 evaluations the classifier performed during
+ * that exit episode, the maximum confidence observed, its offset in detector
+ * frames from the gate-exit frame (exit frame = offset 0), whether a low-band
+ * STT verification was entered and its boolean outcome, and how many gated
+ * periodic probe executions preceded the episode from the immediately
+ * preceding gated interval only (ring composition context).  No PCM, no
+ * transcripts and no per-frame output; emitted only when WakeWordDiag DEBUG
+ * is enabled.
+ */
+internal fun buildGateExitSummary(
+    generationId: Long,
+    stage3Evaluations: Int,
+    maxConfidence: Float,
+    maxConfidenceOffsetFrames: Int,
+    lowVerifyEntered: Boolean,
+    lowVerifyAccepted: Boolean,
+    gatedProbeExecutions: Long,
+): String = buildString {
+    append("WakeWordDetector: gateExitSummary")
+    append(" gen=").append(generationId)
+    append(" stage3Evals=").append(stage3Evaluations)
+    append(" maxConfidence=")
+    if (maxConfidence >= 0f) append(maxConfidence.toString()) else append("none")
+    append(" maxConfidenceOffsetFrames=").append(maxConfidenceOffsetFrames)
+    append(" lowVerifyEntered=").append(lowVerifyEntered)
+    append(" lowVerifyAccepted=").append(lowVerifyAccepted)
+    append(" gatedProbeExecutions=").append(gatedProbeExecutions)
+}

@@ -57,6 +57,16 @@ internal fun transcriptEvidenceSha256(text: String): String {
         .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 }
 
+/**
+ * Low-confidence wake-candidate verification wiring used by [WakeWordService]:
+ * the delegated wake transcript must contain a supported Hey Jandal form.
+ * `null` (no wake-verification support or transcription failure) rejects.
+ */
+internal suspend fun verifyWakeWindow(
+    voiceInputController: VoiceInputController,
+    pcm: ShortArray,
+): Boolean = voiceInputController.transcribeBlocking(pcm)?.containsWakePhrase() ?: false
+
 /** Build consistent cue-journal metadata from a playback result. */
 internal fun cueMetadata(
     cueResult: StartListeningCueResult,
@@ -627,7 +637,7 @@ class WakeWordService : Service() {
             verifyWindow = { pcm ->
                 try {
                     kotlinx.coroutines.runBlocking {
-                        voiceInputController.transcribeBlocking(pcm)?.containsWakePhrase() ?: false
+                        verifyWakeWindow(voiceInputController, pcm)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "WakeWordService: wake word verification failed", e)
