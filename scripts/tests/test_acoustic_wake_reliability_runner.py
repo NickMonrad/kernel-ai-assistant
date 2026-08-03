@@ -916,12 +916,160 @@ class EvidenceAndModeTests(unittest.TestCase):
         order: list[str] = []
         harness = Mock()
         harness.cleanup.side_effect = lambda: order.append("cleanup")
+        harness.checkpoint.side_effect = lambda: order.append("checkpoint")
         harness.export_evidence.side_effect = lambda: order.append("export") or {"ok": True}
 
         evidence = runner.finalize_evidence(harness)
 
-        self.assertEqual(order, ["cleanup", "export"])
+        # #1409 review 4840085897: the final checkpoint is written only after
+        # cleanup completes so later offline re-renders retain final state.
+        self.assertEqual(order, ["cleanup", "checkpoint", "export"])
         self.assertEqual(evidence, {"ok": True})
+
+    def _finalize_harness(self, private_root: Path, *,
+                          restoration_failures: list[str] | None = None):
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        manifest = preflight_manifest(
+            source_identity={
+                "alias": "s23u", "manufacturer": "samsung",
+                "model": "SM-S918B", "android_release": "15",
+                "android_api": "35", "package_version": "1.0",
+                "package_version_code": 1,
+                "build_fingerprint_sha256": "a" * 64,
+                "device_id_sha256": "b" * 64,
+            },
+            target_identity={
+                "alias": "s21", "manufacturer": "samsung",
+                "model": "SM-G991B", "android_release": "15",
+                "android_api": "35", "package_version": "1.0",
+                "package_version_code": 1,
+                "build_fingerprint_sha256": "c" * 64,
+                "device_id_sha256": "d" * 64,
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "preflight.json"
+            path.write_text(json.dumps(manifest))
+            producer.load_preflight_manifest(path)
+        producer.run_environment_before = {
+            "source": {"reachable": True, "alias": "s23u", "media_volume": 12},
+            "target": {"reachable": True, "alias": "s21", "media_volume": 10},
+        }
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-001",
+                runner.MatrixSlot(idle_s=10, wake_only=True, ordinal=1),
+                1, runner.AttemptStatus.PASSED,
+            ),
+        ]
+        failures = restoration_failures if restoration_failures is not None else []
+        with patch.object(producer, "_cancel_active_wait"), \
+                patch.object(producer, "_cancel_active_source_playback", return_value=[]), \
+                patch.object(producer, "_recover_active_source_result", return_value=[]), \
+                patch.object(producer, "_verify_source_restoration", return_value=failures), \
+                patch.object(producer, "_snapshot_source_state",
+                             return_value={"reachable": True, "alias": "s23u",
+                                           "media_volume": 12}), \
+                patch.object(producer, "_snapshot_target_state",
+                             return_value={"reachable": True, "alias": "s21",
+                                           "media_volume": 10}), \
+                patch.object(producer, "_environment_failures", return_value=[]), \
+                patch.object(producer, "_source_environment_failures", return_value=[]):
+            yield producer
+
+    def test_finalize_persists_post_cleanup_checkpoint(self) -> None:
+        """A completed run's final checkpoint contains the post-cleanup result
+        and post-run environment, not the pre-cleanup defaults."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(private_root):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        self.assertTrue(consumer.cleanup_verified)
+        self.assertEqual(consumer.cleanup_failures, [])
+        self.assertEqual(
+            consumer.run_environment_after,
+            {
+                "source": {"reachable": True, "alias": "s23u", "media_volume": 12},
+                "target": {"reachable": True, "alias": "s21", "media_volume": 10},
+            },
+        )
+        self.assertIsNone(consumer.abort_reason)
+        self.assertIsNone(consumer.primary_failure)
+
+    def test_export_only_preserves_post_cleanup_state_without_device_calls(self) -> None:
+        """Loading the final checkpoint and running export-only retains the
+        authoritative cleanup and final-environment values, performs no live
+        ADB/device calls, and never runs cleanup again."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(private_root):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        with patch.object(consumer, "cleanup",
+                          side_effect=AssertionError("cleanup must not run during export-only")), \
+                patch.object(consumer.source, "shell",
+                             side_effect=AssertionError("no device calls during export-only")), \
+                patch.object(consumer.target, "shell",
+                             side_effect=AssertionError("no device calls during export-only")):
+            evidence = consumer.export_evidence()
+        reliability = evidence["wake_reliability"]
+        self.assertTrue(reliability["cleanup_verified"])
+        self.assertEqual(reliability["cleanup_failures"], [])
+        # The export projects the environment through the public snapshot
+        # allow-list (alias and other private fields are intentionally dropped).
+        self.assertEqual(
+            reliability["run_environment_after"],
+            {
+                "source": {"reachable": True, "media_volume": 12},
+                "target": {"reachable": True, "media_volume": 10},
+            },
+        )
+        self.assertTrue(reliability["completion"]["cleanup_verified"])
+        self.assertEqual(reliability["completion"]["status"], "completed")
+
+    def test_failed_cleanup_is_preserved_truthfully(self) -> None:
+        """A failed cleanup is never converted into a successful result: the
+        final checkpoint and the offline export keep the failure visible."""
+        private_root = Path(tempfile.mkdtemp())
+        for producer in self._finalize_harness(
+            private_root,
+            restoration_failures=["source volume restoration failed"],
+        ):
+            with patch.object(producer, "export_evidence", return_value={"ok": True}):
+                runner.finalize_evidence(producer)
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.REGRESSION, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        self.assertFalse(consumer.cleanup_verified)
+        self.assertEqual(consumer.cleanup_failures, ["source volume restoration failed"])
+        with patch.object(consumer.source, "shell",
+                          side_effect=AssertionError("no device calls during export-only")), \
+                patch.object(consumer.target, "shell",
+                             side_effect=AssertionError("no device calls during export-only")):
+            evidence = consumer.export_evidence()
+        reliability = evidence["wake_reliability"]
+        self.assertFalse(reliability["cleanup_verified"])
+        self.assertEqual(
+            reliability["cleanup_failures"], ["source volume restoration failed"]
+        )
+        self.assertFalse(reliability["completion"]["cleanup_verified"])
 
     def test_fixed_delay_is_feasibility_only(self) -> None:
         with self.assertRaisesRegex(runner.HarnessError, "feasibility"):
@@ -1319,6 +1467,430 @@ class EvidenceAndModeTests(unittest.TestCase):
             runner.public_environment_snapshot({**raw, "ringer_mode": "normal", "dnd_mode": "off"})["ringer_mode"],
             "normal",
         )
+
+class SourcePlaybackStartContractTests(unittest.TestCase):
+    """Physical source-helper playback-start event contract (#1409)."""
+
+    def test_single_started_event_is_persisted(self) -> None:
+        """Exactly one physical ``started`` event yields its validated wall
+        clock; the request wall clock is never substituted."""
+        result = source_result()
+        self.assertEqual(
+            runner.source_playback_start_wall_clock_ms(result),
+            1_705_300_000_423,
+        )
+        self.assertEqual(result["request_wall_clock_ms"], 1_705_300_000_123)
+
+    def test_zero_started_events_produce_no_value(self) -> None:
+        """A source result without the physical ``started`` event yields no
+        playback-start value even when request timing exists."""
+        result = source_result()
+        result["events"] = [
+            event for event in result["events"]
+            if event["name"] != "started"
+        ]
+        self.assertIsNone(runner.source_playback_start_wall_clock_ms(result))
+
+    def test_multiple_started_events_fail_closed(self) -> None:
+        """Ambiguous playback-start evidence stays None; nothing is inferred."""
+        result = source_result()
+        result["events"].append(
+            {"name": "started", "monotonic_ms": 1400, "wall_clock_ms": 999}
+        )
+        self.assertIsNone(runner.source_playback_start_wall_clock_ms(result))
+
+    def test_started_event_with_invalid_wall_clock_fails_closed(self) -> None:
+        result = source_result()
+        result["events"] = [
+            {"name": "started", "monotonic_ms": 1300, "wall_clock_ms": "not-an-int"}
+        ]
+        self.assertIsNone(runner.source_playback_start_wall_clock_ms(result))
+
+    def test_run_trial_never_falls_back_to_request_time(self) -> None:
+        """When the preserved command source result has no ``started`` event,
+        the persisted playback-start stays None while request timing is kept
+        unchanged (never substituted)."""
+        harness = make_runner()
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {
+            "natural_wake": fixture_sha256,
+            "qwen_command": fixture_sha256,
+        }
+        harness.installed_command_transcript_hashes = {"qwen_command": "b" * 64}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        final_events = complete_events(runner.TrialType.WAKE_PLUS_COMMAND)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        pre_command_open_events = [
+            item for item in final_events
+            if item["t"] not in {"STT_SPEECH_DETECTED", "STT_FINAL",
+                                  "COMMAND_ROUTING_RESULT", "SESSION_COMPLETED",
+                                  "DETECTOR_REARMED"}
+        ]
+        provider_call = self._provider_snapshots(
+            {
+                "boundary": boundary_envelope,
+                "open": envelope(pre_command_open_events),
+                "final": envelope(final_events),
+            },
+            ["boundary", "open", "final"],
+        )
+        call_order: list[str] = []
+
+        def invoke_command_source(**kwargs):
+            command_result = source_result("trial-nofallback-cmd", "qwen_command")
+            command_result["events"] = [
+                event_item for event_item in command_result["events"]
+                if event_item["name"] != "started"
+            ]
+            command_events = [event(15, "COMMAND_ROUTING_RESULT")]
+            return command_result, command_events, envelope(command_events, lowest=15)
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=self._invoke_wake(call_order)), \
+                patch.object(harness, "_invoke_command_source_with_armed_wait", side_effect=invoke_command_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=self._target_wait(call_order)), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-nofallback",
+                runner.MatrixSlot(idle_s=1, wake_only=False, ordinal=2),
+                "natural_wake",
+                "qwen_command",
+            )
+
+        command_timing = attempt.source_timing["command"]
+        self.assertIsNone(command_timing["playback_start_wall_clock_ms"])
+        self.assertEqual(command_timing["request_wall_clock_ms"], 1_705_300_000_123)
+
+    def _provider_snapshots(self, envelopes: dict[str, dict], order: list[str]):
+        provider_snapshots = iter([envelopes[key] for key in order])
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(provider_snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        return provider_call
+
+    def _target_wait(self, call_order: list[str]):
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            if event_type == "STT_READY":
+                call_order.append("wait-STT_READY")
+            elif event_type == "CUE_REQUESTED":
+                call_order.append("wait-CUE_REQUESTED")
+            waited = event(
+                {"STT_READY": 11, "CUE_REQUESTED": 12, "DETECTOR_REARMED": 18}[event_type],
+                event_type,
+            )
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        return target_wait
+
+    def _invoke_wake(self, call_order: list[str]):
+        def invoke_wake_source(trial_id: str, fixture_id: str, volume_index: int) -> dict:
+            call_order.append("wake-completed")
+            return source_result(trial_id, fixture_id)
+
+        return invoke_wake_source
+
+
+class TerminalRearmObservationTests(unittest.TestCase):
+    """Bounded terminal/re-arm observation covering the supported STT
+    lifecycle (#1409)."""
+
+    def _harness(self) -> tuple[Any, dict]:
+        harness = make_runner()
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {"natural_wake": fixture_sha256}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        return harness, boundary_envelope
+
+    def _provider_snapshots(self, envelopes: dict[str, dict], order: list[str]):
+        provider_snapshots = iter([envelopes[key] for key in order])
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(provider_snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        return provider_call
+
+    def _terminal_wait(self, timeout_observed: list[int], rearm_found: bool = True):
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            if event_type == "DETECTOR_REARMED":
+                timeout_observed.append(kwargs["timeout_ms"])
+                if not rearm_found:
+                    # Provider timeout: no matching event before the bound.
+                    return [], envelope([], lowest=1)
+                rearm_event = event(14, "DETECTOR_REARMED", generation=5)
+                return [rearm_event], envelope([rearm_event], lowest=1)
+            waited = event(11, "STT_READY")
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        return target_wait
+
+    def test_rearm_after_old_bound_within_new_bound_classifies_normally(self) -> None:
+        """The terminal/re-arm lands 18 s after STT_READY: beyond the old 15 s
+        bound but inside the derived bound.  The wait observes it (the fake
+        provider only reports it for timeout >= 18 s) and the attempt
+        classifies normally instead of unclassified."""
+        harness, boundary_envelope = self._harness()
+        final_events = complete_events(runner.TrialType.WAKE_ONLY)
+        timeout_observed: list[int] = []
+        provider_call = self._provider_snapshots(
+            {
+                "boundary": boundary_envelope,
+                "final": envelope(final_events),
+            },
+            ["boundary", "final"],
+        )
+
+        def terminal_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            if event_type == "DETECTOR_REARMED":
+                timeout_observed.append(kwargs["timeout_ms"])
+                if kwargs["timeout_ms"] < 18_000:
+                    # The old 15 s bound would have expired before the re-arm.
+                    return [], envelope([], lowest=1)
+                rearm_event = event(14, "DETECTOR_REARMED", generation=5)
+                return [rearm_event], envelope([rearm_event], lowest=1)
+            waited = event(11, "STT_READY")
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source",
+                             side_effect=lambda trial_id, fixture_id, volume_index:
+                             source_result(trial_id, fixture_id)), \
+                patch.object(harness, "_wait_for_target_events", side_effect=terminal_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-rearm-late",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(timeout_observed, [runner.TARGET_WAIT_TERMINAL_REARM_MS])
+        self.assertEqual(attempt.status, runner.AttemptStatus.PASSED)
+        self.assertIsNone(attempt.classification)
+        self.assertNotIn("missing correlated session terminal", attempt.failures)
+
+    def test_no_terminal_before_new_bound_stops_deterministically(self) -> None:
+        """A genuinely exhausted bound keeps the existing failure semantics:
+        the final snapshot lacks the terminal and the attempt is UNCLASSIFIED
+        with the correlated-terminal failure, never treated as success."""
+        harness, boundary_envelope = self._harness()
+        retry_events = complete_events(runner.TrialType.WAKE_ONLY)[:-2]
+        retry_events += [
+            event(13, "STT_SPEECH_DETECTED"),
+            event(14, "STT_ERROR", data={"category": "stt_recognition_failed"}),
+            event(15, "STT_START_REQUESTED", data={"attempt": "2"}),
+            event(16, "STT_READY"),
+            event(17, "CUE_REQUESTED"),
+            event(18, "STT_SPEECH_DETECTED"),
+        ]
+        timeout_observed: list[int] = []
+        provider_call = self._provider_snapshots(
+            {
+                "boundary": boundary_envelope,
+                "final": envelope(retry_events),
+            },
+            ["boundary", "final"],
+        )
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source",
+                             side_effect=lambda trial_id, fixture_id, volume_index:
+                             source_result(trial_id, fixture_id)), \
+                patch.object(harness, "_wait_for_target_events",
+                             side_effect=self._terminal_wait(timeout_observed, rearm_found=False)), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-rearm-exhausted",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(timeout_observed, [runner.TARGET_WAIT_TERMINAL_REARM_MS])
+        self.assertEqual(attempt.status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            attempt.classification, runner.FailureClassification.UNCLASSIFIED
+        )
+        self.assertIn("missing correlated session terminal", attempt.failures)
+
+    def test_terminal_wait_provider_error_remains_fail_closed(self) -> None:
+        """Provider errors during the terminal observation keep the existing
+        deterministic invalid-attempt semantics."""
+        harness, boundary_envelope = self._harness()
+        provider_call = self._provider_snapshots(
+            {"boundary": boundary_envelope, "final": envelope([])},
+            ["boundary", "final"],
+        )
+
+        def error_wait(**kwargs):
+            if kwargs["event_type"] == "DETECTOR_REARMED":
+                raise runner.HarnessError("target wait status failed: provider unavailable")
+            waited = event(11, "STT_READY")
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source",
+                             side_effect=lambda trial_id, fixture_id, volume_index:
+                             source_result(trial_id, fixture_id)), \
+                patch.object(harness, "_wait_for_target_events", side_effect=error_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-rearm-error",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(attempt.status, runner.AttemptStatus.INVALID)
+        self.assertEqual(
+            attempt.invalid_reason, runner.InvalidReason.EVIDENCE_BOUNDARY_LOST
+        )
+        self.assertIn("provider unavailable", attempt.operational_failure)
+
+
+class NormalisedEventDeduplicationTests(unittest.TestCase):
+    """Normalised target events: one record per authoritative sequence (#1409)."""
+
+    def test_duplicated_candidate_projection_collapses(self) -> None:
+        candidate = event(6, "ACTIVATION_CANDIDATE")
+        events = [
+            event(4, "STAGE3_READY"),
+            candidate,
+            event(7, "VERIFIED_ACTIVATION"),
+            candidate,
+        ]
+        result = runner.deduplicate_projected_events(events)
+        self.assertEqual([item["s"] for item in result], [4, 6, 7])
+
+    def test_distinct_events_sharing_type_are_kept(self) -> None:
+        events = [
+            event(6, "ACTIVATION_CANDIDATE", data={"confidence": "0.9"}),
+            event(9, "ACTIVATION_CANDIDATE", data={"confidence": "0.7"}),
+        ]
+        result = runner.deduplicate_projected_events(events)
+        self.assertEqual([item["s"] for item in result], [6, 9])
+
+    def test_conflicting_records_for_one_sequence_fail_closed(self) -> None:
+        events = [
+            event(6, "ACTIVATION_CANDIDATE", data={"confidence": "0.9"}),
+            event(6, "ACTIVATION_CANDIDATE", data={"confidence": "0.8"}),
+        ]
+        with self.assertRaisesRegex(
+            runner.HarnessError, "conflicting journal projections for sequence 6"
+        ):
+            runner.deduplicate_projected_events(events)
+
+    def test_sequence_order_is_preserved(self) -> None:
+        candidate = event(6, "ACTIVATION_CANDIDATE")
+        events = [
+            event(7, "VERIFIED_ACTIVATION"),
+            candidate,
+            event(4, "STAGE3_READY"),
+            candidate,
+        ]
+        result = runner.deduplicate_projected_events(events)
+        self.assertEqual([item["s"] for item in result], [7, 6, 4])
+
+    def test_checkpoint_load_deduplicates_and_repopulates_playback_start(self) -> None:
+        """Offline regeneration: a preserved checkpoint with duplicated
+        projections and null playback-start wall clocks is normalised on load
+        from the preserved source results alone."""
+        private_root = Path(tempfile.mkdtemp())
+        slot = runner.MatrixSlot(idle_s=10, wake_only=False, ordinal=2)
+        command_result = source_result("trial-007-cmd", "qwen_command")
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        candidate = event(6, "ACTIVATION_CANDIDATE")
+        producer.source_results = [command_result]
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-007", slot, 1, runner.AttemptStatus.PASSED,
+                source_timing={"command": {
+                    "request_wall_clock_ms": 1_705_300_000_123,
+                    "playback_start_wall_clock_ms": None,
+                }},
+                target_timing={"events": [
+                    event(5, "STAGE3_READY"),
+                    candidate,
+                    event(7, "VERIFIED_ACTIVATION"),
+                    candidate,
+                ]},
+                command_fixture_id="qwen_command",
+                command_fixture_sha256=command_result["fixture_sha256"],
+            ),
+        ]
+        producer.checkpoint()
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+
+        attempt = consumer.attempts[0]
+        self.assertEqual(
+            [item["s"] for item in attempt.target_timing["events"]],
+            [5, 6, 7],
+        )
+        self.assertEqual(
+            attempt.source_timing["command"]["playback_start_wall_clock_ms"],
+            1_705_300_000_423,
+        )
+        self.assertEqual(
+            attempt.source_timing["command"]["request_wall_clock_ms"],
+            1_705_300_000_123,
+        )
+
 
 class OutOfWindowCommandTests(unittest.TestCase):
     """Harness source-timing invalidation for out-of-window command delivery."""
@@ -1880,8 +2452,8 @@ class OutOfWindowCommandTests(unittest.TestCase):
         valid, issues = evidence_metrics.validate_record(evidence, [])
         self.assertTrue(valid, issues)
     def test_run_trial_persists_playback_start_wall_clock_ms(self) -> None:
-        """run_trial() persists the source helper's validated
-        playback_started.wall_clock_ms as playback_start_wall_clock_ms while
+        """run_trial() persists the source helper's validated physical
+        ``started`` event wall clock as playback_start_wall_clock_ms while
         keeping the request fields unchanged."""
         harness, envelopes, _ = self._command_harness()
         broken_final = copy.deepcopy(envelopes["final"])
@@ -1923,8 +2495,8 @@ class OutOfWindowCommandTests(unittest.TestCase):
             )
 
         command_timing = attempt.source_timing["command"]
-        # The validated playback_started event's wall clock is persisted under
-        # the dedicated field; request timing is kept untouched.
+        # The validated physical ``started`` event's wall clock is persisted
+        # under the dedicated field; request timing is kept untouched.
         self.assertEqual(command_timing["playback_start_wall_clock_ms"], 1_705_300_000_423)
         self.assertEqual(command_timing["request_wall_clock_ms"], 1_705_300_000_123)
         self.assertEqual(

@@ -30,8 +30,8 @@
     {"name": "request_submitted", "monotonic_ms": 1000, "wall_clock_ms": 1705300000123},
     {"name": "prepare_started", "monotonic_ms": 1100, "wall_clock_ms": 1705300000223},
     {"name": "prepared", "monotonic_ms": 1200, "wall_clock_ms": 1705300000323},
-    {"name": "playback_started", "monotonic_ms": 1300, "wall_clock_ms": 1705300000423},
-    {"name": "playback_completed", "monotonic_ms": 3200, "wall_clock_ms": 1705300002323},
+    {"name": "started", "monotonic_ms": 1300, "wall_clock_ms": 1705300000423},
+    {"name": "completed", "monotonic_ms": 3200, "wall_clock_ms": 1705300002323},
     {"name": "cleanup_completed", "monotonic_ms": 3400, "wall_clock_ms": 1705300002523,
      "cleanup_success": true, "exact_restoration_verified": true}
   ]
