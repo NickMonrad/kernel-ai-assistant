@@ -87,6 +87,13 @@ class WakeVerifierProbeReceiver : BroadcastReceiver() {
         pendingResult.finish()
     }
 
+    private fun readLeInt(raf: RandomAccessFile): Int {
+        val b = ByteArray(4)
+        raf.readFully(b)
+        return (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or
+            ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24)
+    }
+
     private fun isExplicitReceiverInvocation(context: Context, intent: Intent): Boolean =
         intent.component?.packageName == context.packageName &&
             intent.component?.className == WakeVerifierProbeReceiver::class.java.name
@@ -98,7 +105,7 @@ class WakeVerifierProbeReceiver : BroadcastReceiver() {
                 val riff = ByteArray(4)
                 raf.readFully(riff)
                 if (String(riff) != "RIFF") return null
-                raf.readInt() // chunk size
+                readLeInt(raf) // chunk size
                 raf.readFully(riff)
                 if (String(riff) != "WAVE") return null
                 var channels = -1
@@ -109,7 +116,7 @@ class WakeVerifierProbeReceiver : BroadcastReceiver() {
                 while (raf.filePointer < raf.length()) {
                     val id = ByteArray(4)
                     raf.readFully(id)
-                    val size = raf.readInt()
+                    val size = readLeInt(raf)
                     when (String(id)) {
                         "fmt " -> {
                             val fmt = ByteArray(size.coerceAtMost(64))
