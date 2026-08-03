@@ -219,6 +219,69 @@ class WakeWordClassifierModelTest {
     }
 
     @Test
+    fun `every window of every negative stream stays at the classifier floor`() {
+        // Full sweep over all 16-frame windows (the existing negative tests
+        // only check window [0:16]).  Measured max across all negative streams
+        // is ~0.001 (pink-noise window 33); the ceiling below pins the
+        // no-phrase-content response of the real classifier: an exit episode
+        // whose maximum confidence is ~0.001 (the #1432 physical
+        // no-candidate trials, e.g. 0.001 on S23U at b9360af) never contained
+        // any window with audible phrase content.
+        val negatives = listOf(
+            "silence" to silence,
+            "white" to noiseWhite,
+            "pink" to noisePink,
+            "speech-noise" to noiseSpeech,
+            "formant" to formant,
+        )
+        for ((name, stream) in negatives) {
+            for (i in 0..(stream.size - 16)) {
+                val s = score(flatten(stream.subList(i, i + 16)))
+                assertTrue(s < 0.002f, "$name window [$i:${i + 16}] scored $s")
+            }
+        }
+    }
+
+    @Test
+    fun `trailing silence windows of the fixture stay at the classifier floor`() {
+        // Frames 6+ of the fixture stream are appended digital silence
+        // (GENERATION.md).  The windows starting at 7+ contain no phrase
+        // content and must stay at the floor; [6:22] is the phase-collapse
+        // boundary window (see below) and is excluded here.
+        for (i in 7..(fixture.size - 16)) {
+            val s = score(flatten(fixture.subList(i, i + 16)))
+            assertTrue(s < 0.002f, "fixture trailing window [$i:${i + 16}] scored $s")
+        }
+    }
+
+    @Test
+    fun `worst non-collapsed phrase alignment still clears the floor by two orders`() {
+        // Window [1:17] places the phrase one frame off its optimal band and
+        // is the lowest-scoring phrase-containing window that is still inside
+        // the recognisable band (measured 0.2106).  It clears the no-phrase
+        // ceiling (~0.001) by ~200x: a captured phrase at any audible level
+        // necessarily produces at least one window above the floor.  The
+        // physical no-candidate max of 0.001 therefore cannot come from any
+        // window containing the phrase.
+        assertTrue(score(flatten(fixture.subList(1, 17))) >= 0.2f)
+    }
+
+    @Test
+    fun `phrase windows at collapsed alignments fall back to the floor`() {
+        // The classifier only fires in a narrow alignment band: shifting the
+        // window one frame beyond the band collapses the score to the floor
+        // ([0:16] and [6:22] contain phrase-edge content at the wrong
+        // position; measured 0.0016 / 0.0033).  In production the detector
+        // slides the window 80 ms per frame, so a present phrase always
+        // traverses its optimal band within a few frames (the #1438
+        // production-feed parity: >= 0.78 at all 32 phase positions); these
+        // collapsed windows are the training-feed analogue of a phrase that
+        // is absent or far below the training level.
+        assertTrue(score(flatten(fixture.subList(0, 16))) < 0.01f)
+        assertTrue(score(flatten(fixture.subList(6, 22))) < 0.01f)
+    }
+
+    @Test
     fun `committed classifier asset is the pinned model`() {
         // Guards against drift of the test-resource copy vs the deployed
         // asset (app/src/main/assets/models/wakeword/hey_jandal.onnx).

@@ -574,6 +574,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 diagnostics?.recordAudioFrame()
                 chunkCount++
                 val rms = calculateRms(chunk)
+                gateExitDiag?.onFrameRms(rms.toFloat())
 
 
 
@@ -927,10 +928,12 @@ internal fun secondsToFrames(seconds: Float): Int =
  * Every emitted summary describes exactly one exit episode: its own Stage-3
  * evaluation count, its own maximum classifier confidence and the offset of
  * that maximum relative to the gate-exit frame (exit frame = offset 0), its
- * own low-verification entry/outcome, and the probe executions from the
- * immediately preceding gated interval only.  Initial gate entry emits
- * nothing; gate re-entry without an intervening exit emits nothing; detector
- * shutdown emits only when a real exit episode is open.
+ * own low-verification entry/outcome, the probe executions from the
+ * immediately preceding gated interval only, and the captured-audio energy
+ * around the maximum-confidence window (the #1432 level discriminator).
+ * Initial gate entry emits nothing; gate re-entry without an intervening exit
+ * emits nothing; detector shutdown emits only when a real exit episode is
+ * open.
  *
  * The holder is only instantiated when the WakeWordDiag DEBUG tag is enabled
  * (same gate as the existing aggregate counters), so it has zero cost in
@@ -954,6 +957,33 @@ internal class WakeWordGateExitDiagnostics(
     private var lowVerifyEntered = false
     private var lowVerifyAccepted = false
     private var exitChunk = 0
+
+    /** Peak RMS of the frames captured while the episode was open (-1 = none). */
+    private var episodePeakRms = -1f
+
+    /** Peak / mean RMS of the 16 frames feeding the max-confidence window (-1 = none). */
+    private var maxWindowPeakRms = -1f
+    private var maxWindowMeanRms = -1f
+
+    // Rolling RMS of the last EMBEDDING_FRAMES processed chunks — the audio
+    // that produced the classifier window at the moment a new maximum is
+    // recorded.  Peak/mean are order-independent, so the ring is not kept
+    // chronologically ordered.
+    private val frameRmsRing = FloatArray(EMBEDDING_FRAMES)
+    private var frameRmsHead = 0
+    private var frameRmsFilled = 0
+
+    /**
+     * Records the RMS of one processed audio frame.  The ring always holds the
+     * last [EMBEDDING_FRAMES] frames; [episodePeakRms] only counts frames
+     * captured while an exit episode is open.
+     */
+    fun onFrameRms(rms: Float) {
+        frameRmsRing[frameRmsHead] = rms
+        frameRmsHead = (frameRmsHead + 1) % EMBEDDING_FRAMES
+        if (frameRmsFilled < EMBEDDING_FRAMES) frameRmsFilled++
+        if (episodeOpen && rms > episodePeakRms) episodePeakRms = rms
+    }
 
     /**
      * Records a gate entry.  Returns the summary of the just-closed exit
@@ -983,6 +1013,21 @@ internal class WakeWordGateExitDiagnostics(
         if (confidence > maxConfidence) {
             maxConfidence = confidence
             maxConfidenceOffsetFrames = chunk - exitChunk
+            // Snapshot the audio energy of the classifier window: the last
+            // EMBEDDING_FRAMES chunks are exactly the frames whose embeddings
+            // produced this window.
+            val n = frameRmsFilled.coerceAtMost(EMBEDDING_FRAMES)
+            if (n > 0) {
+                var peak = 0f
+                var sum = 0f
+                for (i in 0 until n) {
+                    val v = frameRmsRing[i]
+                    sum += v
+                    if (v > peak) peak = v
+                }
+                maxWindowPeakRms = peak
+                maxWindowMeanRms = sum / n
+            }
         }
     }
 
@@ -1012,6 +1057,9 @@ internal class WakeWordGateExitDiagnostics(
         lowVerifyEntered = lowVerifyEntered,
         lowVerifyAccepted = lowVerifyAccepted,
         gatedProbeExecutions = gatedProbeExecutions,
+        episodePeakRms = episodePeakRms,
+        maxWindowPeakRms = maxWindowPeakRms,
+        maxWindowMeanRms = maxWindowMeanRms,
     )
 
     private fun resetEpisode() {
@@ -1021,6 +1069,9 @@ internal class WakeWordGateExitDiagnostics(
         lowVerifyEntered = false
         lowVerifyAccepted = false
         exitChunk = 0
+        episodePeakRms = -1f
+        maxWindowPeakRms = -1f
+        maxWindowMeanRms = -1f
     }
 }
 
@@ -1029,11 +1080,12 @@ internal class WakeWordGateExitDiagnostics(
  * reproduction): how many Stage-3 evaluations the classifier performed during
  * that exit episode, the maximum confidence observed, its offset in detector
  * frames from the gate-exit frame (exit frame = offset 0), whether a low-band
- * STT verification was entered and its boolean outcome, and how many gated
+ * STT verification was entered and its boolean outcome, how many gated
  * periodic probe executions preceded the episode from the immediately
- * preceding gated interval only (ring composition context).  No PCM, no
- * transcripts and no per-frame output; emitted only when WakeWordDiag DEBUG
- * is enabled.
+ * preceding gated interval only (ring composition context), and the captured
+ * audio energy (peak RMS of the episode and peak/mean RMS of the
+ * max-confidence window's frames).  No PCM, no transcripts and no per-frame
+ * output; emitted only when WakeWordDiag DEBUG is enabled.
  */
 internal fun buildGateExitSummary(
     generationId: Long,
@@ -1043,6 +1095,9 @@ internal fun buildGateExitSummary(
     lowVerifyEntered: Boolean,
     lowVerifyAccepted: Boolean,
     gatedProbeExecutions: Long,
+    episodePeakRms: Float = -1f,
+    maxWindowPeakRms: Float = -1f,
+    maxWindowMeanRms: Float = -1f,
 ): String = buildString {
     append("WakeWordDetector: gateExitSummary")
     append(" gen=").append(generationId)
@@ -1053,4 +1108,10 @@ internal fun buildGateExitSummary(
     append(" lowVerifyEntered=").append(lowVerifyEntered)
     append(" lowVerifyAccepted=").append(lowVerifyAccepted)
     append(" gatedProbeExecutions=").append(gatedProbeExecutions)
+    append(" episodePeakRms=")
+    if (episodePeakRms >= 0f) append(episodePeakRms.toString()) else append("none")
+    append(" maxWindowPeakRms=")
+    if (maxWindowPeakRms >= 0f) append(maxWindowPeakRms.toString()) else append("none")
+    append(" maxWindowMeanRms=")
+    if (maxWindowMeanRms >= 0f) append(maxWindowMeanRms.toString()) else append("none")
 }

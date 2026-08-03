@@ -196,6 +196,64 @@ class WakeWordGateExitSummaryTest {
         assertTrue(second.contains("gatedProbeExecutions=0"))
     }
 
+    // ── Captured-audio energy (the #1432 level discriminator) ────────────────
+
+    @Test
+    fun `max window energy is captured from the frames around the maximum`() {
+        val diag = newDiag()
+        diag.onGateEntered(0)
+        // 21 frames before/at the exit: ring = frames 6..21, episode not open.
+        for (i in 1..21) diag.onFrameRms(i.toFloat())
+        diag.onGateExited(21)
+        // Post-exit frames: episode open; ring now 11..30 by the second eval.
+        for (i in 22..30) diag.onFrameRms(i.toFloat())
+        diag.onStage3Evaluation(0.2f, 25)
+        diag.onStage3Evaluation(0.9f, 26)
+
+        val s = diag.onGateEntered(100)!!
+        // Window at eval 26 = last 16 of the 30 fed frames = 15..30 → peak 30, mean 22.5.
+        assertTrue(s.contains("maxConfidence=0.9"))
+        assertTrue(s.contains("maxWindowPeakRms=30.0"), s)
+        assertTrue(s.contains("maxWindowMeanRms=22.5"), s)
+        // Episode peak counts post-exit frames only (22..30).
+        assertTrue(s.contains("episodePeakRms=30.0"), s)
+    }
+
+    @Test
+    fun `episode peak rms excludes loud frames captured before the exit`() {
+        val diag = newDiag()
+        diag.onGateEntered(0)
+        repeat(10) { diag.onFrameRms(100f) } // loud gated-interval frames
+        diag.onGateExited(10)
+        diag.onFrameRms(5f)
+        diag.onStage3Evaluation(0.5f, 11)
+
+        val s = diag.onGateEntered(100)!!
+        assertTrue(s.contains("episodePeakRms=5.0"), s)
+        // The max-confidence window's ring holds 11 frames (10×100 + 5) — the
+        // classifier window's own audio (mean = 1005/11).
+        assertTrue(s.contains("maxWindowPeakRms=100.0"), s)
+        assertTrue(s.contains("maxWindowMeanRms=91.36364"), s)
+    }
+
+    @Test
+    fun `energy fields reset between episodes`() {
+        val diag = newDiag()
+        diag.onGateEntered(0)
+        diag.onGateExited(10)
+        diag.onFrameRms(9f)
+        diag.onStage3Evaluation(0.5f, 11)
+        val first = diag.onGateEntered(100)!!
+        assertTrue(first.contains("episodePeakRms=9.0"))
+
+        // Second episode without evaluations: energy fields must be "none".
+        diag.onGateExited(200)
+        val second = diag.onGateEntered(300)!!
+        assertTrue(second.contains("episodePeakRms=none"), second)
+        assertTrue(second.contains("maxWindowPeakRms=none"), second)
+        assertTrue(second.contains("maxWindowMeanRms=none"), second)
+    }
+
     // ── Formatting contract ────────────────────────────────────────────────
 
     @Test
@@ -208,12 +266,18 @@ class WakeWordGateExitSummaryTest {
             lowVerifyEntered = true,
             lowVerifyAccepted = true,
             gatedProbeExecutions = 5L,
+            episodePeakRms = 7.25f,
+            maxWindowPeakRms = 6.5f,
+            maxWindowMeanRms = 4.125f,
         )
 
         assertTrue(s.startsWith("WakeWordDetector: gateExitSummary"))
         // Float.toString() is locale-independent; a comma decimal separator
         // would break logcat parsing.
         assertEquals("0.6", s.substringAfter("maxConfidence=").substringBefore(" maxConfidenceOffsetFrames="))
+        assertEquals("7.25", s.substringAfter("episodePeakRms=").substringBefore(" maxWindowPeakRms="))
+        assertEquals("6.5", s.substringAfter("maxWindowPeakRms=").substringBefore(" maxWindowMeanRms="))
+        assertEquals("4.125", s.substringAfter("maxWindowMeanRms="))
     }
 
     @Test
@@ -233,5 +297,8 @@ class WakeWordGateExitSummaryTest {
         assertTrue(s.contains("maxConfidenceOffsetFrames=-1"))
         assertTrue(s.contains("lowVerifyEntered=false"))
         assertTrue(s.contains("gatedProbeExecutions=0"))
+        assertTrue(s.contains("episodePeakRms=none"))
+        assertTrue(s.contains("maxWindowPeakRms=none"))
+        assertTrue(s.contains("maxWindowMeanRms=none"))
     }
 }
