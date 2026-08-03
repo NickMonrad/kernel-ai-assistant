@@ -466,6 +466,16 @@ class OnnxWakeWordDetector @Inject constructor(
         // ── Target event journal tracking ──────────────────────────────────────
         val silenceGateState = SilenceGateTransitionState()
         var emittedStage3Ready = false
+        // Per-gate-exit confidence summary (#1432 bounded reproduction).
+        // Debug-gated: only maintained and logged when the WakeWordDiag tag
+        // is DEBUG-enabled; zero allocations or branches otherwise.
+        var exitEpisodeOpen = false
+        var exitStage3Evaluations = 0
+        var exitMaxConfidence = -1f
+        var exitMaxConfidenceChunk = 0
+        var exitLowVerifyEntered = false
+        var exitLowVerifyAccepted = false
+        var gatedStage2Executions = 0L
 
         try {
             val env = OrtEnvironment.getEnvironment()
@@ -616,6 +626,14 @@ class OnnxWakeWordDetector @Inject constructor(
                             type = AcousticEventType.VOICED_FRAME_AFTER_SILENCE,
                             generationId = generationId,
                         )
+                        if (diagnostics != null) {
+                            exitEpisodeOpen = true
+                            exitStage3Evaluations = 0
+                            exitMaxConfidence = -1f
+                            exitMaxConfidenceChunk = chunkCount
+                            exitLowVerifyEntered = false
+                            exitLowVerifyAccepted = false
+                        }
                     }
                     silenceFrames = 0
                     voicedFrameStreak = 0
@@ -688,6 +706,22 @@ class OnnxWakeWordDetector @Inject constructor(
                             type = AcousticEventType.SILENCE_GATE_ENTERED,
                             generationId = generationId,
                         )
+                        if (diagnostics != null) {
+                            Log.d(
+                                DIAGNOSTIC_TAG,
+                                buildGateExitSummary(
+                                    generationId = generationId,
+                                    episodeOpen = exitEpisodeOpen,
+                                    stage3Evaluations = exitStage3Evaluations,
+                                    maxConfidence = exitMaxConfidence,
+                                    maxConfidenceChunk = exitMaxConfidenceChunk,
+                                    lowVerifyEntered = exitLowVerifyEntered,
+                                    lowVerifyAccepted = exitLowVerifyAccepted,
+                                    gatedStage2Executions = gatedStage2Executions,
+                                ),
+                            )
+                            exitEpisodeOpen = false
+                        }
                     }
                     continue  // wake word not expected — skip expensive Stage 2/3
                 }
@@ -705,6 +739,7 @@ class OnnxWakeWordDetector @Inject constructor(
                         generationId = generationId,
                     )
                 }
+                if (diagnostics != null && silenceGateState.isGated) gatedStage2Executions++
                 melRing.copyInto(embedInput4D)
                 diagnostics?.recordStage2Execution()
                 val embedding: FloatArray = OnnxTensor.createTensor(
@@ -747,6 +782,13 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
                 // Stage 3 count is retained in low-frequency diagnostics; avoid per-second logs.
+                if (diagnostics != null && exitEpisodeOpen) {
+                    exitStage3Evaluations++
+                    if (confidence > exitMaxConfidence) {
+                        exitMaxConfidence = confidence
+                        exitMaxConfidenceChunk = chunkCount
+                    }
+                }
 
 
                 when {
@@ -784,6 +826,10 @@ class OnnxWakeWordDetector @Inject constructor(
                         val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
                         val verified = verifyWindow(snapshot)
                         diagnostics?.recordVerifierResult(verified)
+                        if (diagnostics != null) {
+                            exitLowVerifyEntered = true
+                            exitLowVerifyAccepted = verified
+                        }
                         if (verified) {
                             Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
                             if (running.compareAndSet(true, false)) {
@@ -821,6 +867,21 @@ class OnnxWakeWordDetector @Inject constructor(
             diagnostics?.let {
                 val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
                 Log.d(DIAGNOSTIC_TAG, formatDiagnosticSummary(it.snapshot(elapsedMillis), nnapiStatus, final = true))
+                if (exitEpisodeOpen) {
+                    Log.d(
+                        DIAGNOSTIC_TAG,
+                        buildGateExitSummary(
+                            generationId = generationId,
+                            episodeOpen = exitEpisodeOpen,
+                            stage3Evaluations = exitStage3Evaluations,
+                            maxConfidence = exitMaxConfidence,
+                            maxConfidenceChunk = exitMaxConfidenceChunk,
+                            lowVerifyEntered = exitLowVerifyEntered,
+                            lowVerifyAccepted = exitLowVerifyAccepted,
+                            gatedStage2Executions = gatedStage2Executions,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -892,3 +953,34 @@ internal fun calculateRms(chunk: ShortArray): Double {
 
 internal fun secondsToFrames(seconds: Float): Int =
     kotlin.math.ceil(seconds / WAKE_WORD_FRAME_DURATION_SECONDS).toInt().coerceAtLeast(1)
+
+/**
+ * One bounded aggregate summary per silence-gate exit episode (#1432
+ * reproduction): how many Stage-3 evaluations the classifier performed while
+ * the detector was un-gated, the maximum confidence observed, the frame offset
+ * of that maximum, whether a low-band STT verification was entered and its
+ * boolean outcome, and how many gated probe embeddings preceded the episode
+ * (ring composition context).  No PCM, no transcripts and no per-frame output;
+ * emitted only when WakeWordDiag DEBUG is enabled.
+ */
+internal fun buildGateExitSummary(
+    generationId: Long,
+    episodeOpen: Boolean,
+    stage3Evaluations: Int,
+    maxConfidence: Float,
+    maxConfidenceChunk: Int,
+    lowVerifyEntered: Boolean,
+    lowVerifyAccepted: Boolean,
+    gatedStage2Executions: Long,
+): String = buildString {
+    append("WakeWordDetector: gateExitSummary")
+    append(" gen=").append(generationId)
+    append(" episodeOpen=").append(episodeOpen)
+    append(" stage3Evals=").append(stage3Evaluations)
+    append(" maxConfidence=")
+    if (maxConfidence >= 0f) append(maxConfidence.toString()) else append("none")
+    append(" maxConfidenceChunk=").append(maxConfidenceChunk)
+    append(" lowVerifyEntered=").append(lowVerifyEntered)
+    append(" lowVerifyAccepted=").append(lowVerifyAccepted)
+    append(" gatedStage2Executions=").append(gatedStage2Executions)
+}

@@ -364,6 +364,36 @@ class WakeWordRingResumeTest {
     }
 
     @Test
+    fun `accepted low band candidate records candidate before verified and invokes the wake callback exactly once`() {
+        val sim = DetectorSim(
+            phraseTimeline(exitNoiseFrame = null),
+            flushRingOnGateExit = false,
+            scorer = { end, phraseEnd -> if (tailLagSeconds(end, phraseEnd) in 0.15..0.35) 0.55f else 0.05f },
+            verifierAccepts = true,
+        ).apply { run() }
+
+        assertNotNull(sim.candidateFrame)
+        assertTrue(sim.events.indexOf("ACTIVATION_CANDIDATE") < sim.events.indexOf("VERIFIED_ACTIVATION"))
+        assertEquals(1, sim.verifierInvocations)
+        assertEquals(1, sim.onDetectedCount, "wake callback must fire exactly once on success")
+    }
+
+    @Test
+    fun `rejected low band candidate records no verified activation and no wake callback`() {
+        val sim = DetectorSim(
+            phraseTimeline(exitNoiseFrame = null),
+            flushRingOnGateExit = false,
+            scorer = { end, phraseEnd -> if (tailLagSeconds(end, phraseEnd) in 0.15..0.35) 0.55f else 0.05f },
+            verifierAccepts = false,
+        ).apply { run() }
+
+        assertNotNull(sim.candidateFrame)
+        assertFalse("VERIFIED_ACTIVATION" in sim.events)
+        assertTrue(sim.verifierInvocations >= 1, "every low-band crossing invokes the verifier")
+        assertEquals(0, sim.onDetectedCount)
+    }
+
+    @Test
     fun `silence gate cadence and probe cadence unchanged by the fix`() {
         // Negative timeline: both behaviours run to completion identically, so
         // gating/probe counters are directly comparable (the fixed behaviour
@@ -456,6 +486,7 @@ class WakeWordRingResumeTest {
         private val timeline: Timeline,
         private val flushRingOnGateExit: Boolean,
         private val scorer: (windowEndFrame: Int, phraseEndFrame: Int) -> Float = ::tailScorer,
+        private val verifierAccepts: Boolean = true,
     ) {
         private val ring = WakeWordEmbeddingRingState()
         private val gate = SilenceGateTransitionState()
@@ -479,6 +510,9 @@ class WakeWordRingResumeTest {
             private set
         var verifierInvocations = 0
             private set
+        var onDetectedCount = 0
+            private set
+        private var activated = false
 
         fun run() {
             var chunkCount = 0
@@ -487,7 +521,7 @@ class WakeWordRingResumeTest {
             var emittedStage3Ready = false
             var lastGateExitFrame = Int.MAX_VALUE
 
-            while (chunkCount < timeline.totalFrames && candidateFrame == null) {
+            while (chunkCount < timeline.totalFrames && !activated) {
                 chunkCount++
                 val frame = chunkCount - 1
                 val audioClass = timeline.audioClass(frame)
@@ -550,12 +584,18 @@ class WakeWordRingResumeTest {
                         candidateFrame = frame
                         events += "ACTIVATION_CANDIDATE"
                         events += "VERIFIED_ACTIVATION"
+                        onDetectedCount++
+                        activated = true
                     }
                     confidence >= WAKE_WORD_DEFAULT_LOW_THRESHOLD -> {
                         candidateFrame = frame
                         verifierInvocations++
                         events += "ACTIVATION_CANDIDATE"
-                        events += "VERIFIED_ACTIVATION"
+                        if (verifierAccepts) {
+                            events += "VERIFIED_ACTIVATION"
+                            onDetectedCount++
+                            activated = true
+                        }
                     }
                     else -> Unit
                 }

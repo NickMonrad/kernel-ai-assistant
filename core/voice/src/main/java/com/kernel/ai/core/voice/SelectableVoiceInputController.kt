@@ -45,6 +45,16 @@ class SelectableVoiceInputController @Inject constructor(
         stopAllControllers()
     }
 
+    /**
+     * Wake-word verification always runs through the dedicated Sherpa wake
+     * recognizer ([SherpaOnnxVoiceInputController.transcribeBlocking]),
+     * independent of the selected interactive STT engine. The interactive
+     * selection and [activeController] are deliberately untouched so the
+     * currently selected engine keeps its normal capture behaviour.
+     */
+    override suspend fun transcribeBlocking(pcm: ShortArray): String? =
+        sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+
     private fun stopInactiveControllers(active: VoiceInputController) {
         if (active !== voskOfflineVoiceInputController) voskOfflineVoiceInputController.stopListening()
         if (active !== nativeAndroidVoiceInputController) nativeAndroidVoiceInputController.stopListening()
