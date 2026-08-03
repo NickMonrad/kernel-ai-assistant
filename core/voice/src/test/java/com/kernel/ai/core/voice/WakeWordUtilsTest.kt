@@ -46,4 +46,40 @@ class WakeWordUtilsTest {
         assertTrue("oh heyjandal who".containsWakePhrase())
         assertTrue("say hey jandal now".containsWakePhrase())
     }
+
+    // ── #1439: Whisper verifier forms ─────────────────────────────────────────
+
+    @Test
+    fun `containsWakePhrase matches Whisper verifier prefix and punctuation`() {
+        // Whisper tiny.en transcribes the fixed natural fixture as "hi, jandal"
+        // (deterministic reproduction, exact catalogue files).
+        assertTrue("hi, jandal".containsWakePhrase())
+        assertTrue("hi jandal".containsWakePhrase())
+        assertTrue("hi, jandel".containsWakePhrase())
+        assertTrue("hey, jandal".containsWakePhrase())
+        assertTrue("hi. jandal".containsWakePhrase())
+    }
+
+    @Test
+    fun `containsWakePhrase matches jando truncation`() {
+        // Whisper emits "hi, jando" at candidate-window edge placements — same
+        // truncation class as the already-accepted "hando".
+        assertTrue("hi, jando".containsWakePhrase())
+        assertTrue("hey jando".containsWakePhrase())
+    }
+
+    @Test
+    fun `containsWakePhrase still rejects fragments and negatives`() {
+        // #1439 constraint: generic fragments such as "gen" must never match.
+        assertFalse("hy gen".containsWakePhrase())
+        assertFalse("hy general".containsWakePhrase())
+        assertFalse("gen".containsWakePhrase())
+        assertFalse("i gen".containsWakePhrase())
+        assertFalse("hi".containsWakePhrase())
+        assertFalse("hi gentle".containsWakePhrase())
+        assertFalse("hi, sandal".containsWakePhrase())
+        assertFalse("hi yandal".containsWakePhrase())
+        assertFalse("hi, jandalicious".containsWakePhrase())
+        assertFalse("[ silence ]".containsWakePhrase())
+    }
 }

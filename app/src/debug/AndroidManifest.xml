@@ -42,6 +42,13 @@
             android:name="com.kernel.ai.debug.journal.TargetEventJournalProvider"
             android:authorities="com.kernel.ai.debug.target-event-journal"
             android:exported="true" />
+        <receiver
+            android:name="com.kernel.ai.debug.verifier.WakeVerifierProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

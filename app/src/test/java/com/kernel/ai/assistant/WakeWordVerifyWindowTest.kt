@@ -75,4 +75,43 @@ class WakeWordVerifyWindowTest {
         assertTrue(verifyWakeWindow(voiceInputController, pcm))
         coVerify(exactly = 1) { voiceInputController.transcribeBlocking(pcm) }
     }
+
+    // ── #1439: Whisper verifier transcripts ────────────────────────────────────
+
+    @Test
+    fun `accepts the Whisper verifier transcript of the genuine wake phrase`() = runTest {
+        // Exact catalogue Whisper tiny.en files transcribe the fixed natural
+        // fixture (detector-equivalent window) deterministically as "hi, jandal".
+        val pcm = shortArrayOf(11, 12, 13)
+        coEvery { voiceInputController.transcribeBlocking(pcm) } returns "hi, jandal"
+
+        assertTrue(verifyWakeWindow(voiceInputController, pcm))
+    }
+
+    @Test
+    fun `accepts the jando truncation variant`() = runTest {
+        val pcm = shortArrayOf(14, 15)
+        coEvery { voiceInputController.transcribeBlocking(pcm) } returns "hi, jando"
+
+        assertTrue(verifyWakeWindow(voiceInputController, pcm))
+    }
+
+    @Test
+    fun `rejects Whisper fragments and non-wake transcripts`() = runTest {
+        val pcm = shortArrayOf(16, 17, 18)
+        listOf(
+            "hi, gentle",
+            "hi, sandal",
+            "hy gen",
+            "hy general",
+            "[ silence ]",
+            "[blank_audio]",
+            "what time is it",
+            "again",
+            "play some music",
+        ).forEach { transcript ->
+            coEvery { voiceInputController.transcribeBlocking(pcm) } returns transcript
+            assertFalse(verifyWakeWindow(voiceInputController, pcm), "must reject $transcript")
+        }
+    }
 }
