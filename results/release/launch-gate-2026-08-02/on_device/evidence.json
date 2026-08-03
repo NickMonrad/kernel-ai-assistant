@@ -113,18 +113,6 @@
             }
           },
           {
-            "s": 72,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 2,
-            "i": 0,
-            "m": 2376524940,
-            "w": 1785660929930,
-            "d": {
-              "confidence": "0.7387187",
-              "mode": "high"
-            }
-          },
-          {
             "s": 73,
             "t": "VERIFIED_ACTIVATION",
             "g": 2,
@@ -320,18 +308,6 @@
             "m": 2376566186,
             "w": 1785660971176,
             "d": {}
-          },
-          {
-            "s": 96,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 3,
-            "i": 0,
-            "m": 2376567073,
-            "w": 1785660972063,
-            "d": {
-              "confidence": "0.68958044",
-              "mode": "high"
-            }
           },
           {
             "s": 96,
@@ -559,18 +535,6 @@
             }
           },
           {
-            "s": 113,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 4,
-            "i": 0,
-            "m": 2376599976,
-            "w": 1785661004966,
-            "d": {
-              "confidence": "0.90230024",
-              "mode": "high"
-            }
-          },
-          {
             "s": 114,
             "t": "VERIFIED_ACTIVATION",
             "g": 4,
@@ -770,18 +734,6 @@
             "m": 2376632266,
             "w": 1785661037256,
             "d": {}
-          },
-          {
-            "s": 130,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 5,
-            "i": 0,
-            "m": 2376633228,
-            "w": 1785661038219,
-            "d": {
-              "confidence": "0.56929123",
-              "mode": "low"
-            }
           },
           {
             "s": 130,
@@ -1007,18 +959,6 @@
             "m": 2376665065,
             "w": 1785661070055,
             "d": {}
-          },
-          {
-            "s": 148,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 6,
-            "i": 0,
-            "m": 2376666025,
-            "w": 1785661071015,
-            "d": {
-              "confidence": "0.9181955",
-              "mode": "high"
-            }
           },
           {
             "s": 148,
@@ -1415,7 +1355,7 @@
           "request_monotonic_ms": 187098001,
           "playback_start_monotonic_ms": 187098057,
           "completion_monotonic_ms": 187099676,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785661192487
         }
       },
       "target_timing": {
@@ -1460,18 +1400,6 @@
             "m": 2376768565,
             "w": 1785661173555,
             "d": {}
-          },
-          {
-            "s": 184,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 7,
-            "i": 0,
-            "m": 2376779679,
-            "w": 1785661184670,
-            "d": {
-              "confidence": "0.8730266",
-              "mode": "high"
-            }
           },
           {
             "s": 184,
@@ -2169,18 +2097,6 @@
             }
           },
           {
-            "s": 233,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 8,
-            "i": 0,
-            "m": 2376981024,
-            "w": 1785661386014,
-            "d": {
-              "confidence": "0.9151058",
-              "mode": "high"
-            }
-          },
-          {
             "s": 234,
             "t": "VERIFIED_ACTIVATION",
             "g": 8,
@@ -2389,18 +2305,6 @@
             "m": 2377025939,
             "w": 1785661430929,
             "d": {}
-          },
-          {
-            "s": 259,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 9,
-            "i": 0,
-            "m": 2377039126,
-            "w": 1785661444116,
-            "d": {
-              "confidence": "0.9161495",
-              "mode": "high"
-            }
           },
           {
             "s": 259,
@@ -3179,18 +3083,6 @@
             "m": 2377334879,
             "w": 1785661739869,
             "d": {}
-          },
-          {
-            "s": 323,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 10,
-            "i": 0,
-            "m": 2377335831,
-            "w": 1785661740821,
-            "d": {
-              "confidence": "0.7510295",
-              "mode": "high"
-            }
           },
           {
             "s": 323,
@@ -4523,18 +4415,6 @@
             }
           },
           {
-            "s": 447,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 11,
-            "i": 0,
-            "m": 2377816703,
-            "w": 1785662221694,
-            "d": {
-              "confidence": "0.9190604",
-              "mode": "high"
-            }
-          },
-          {
             "s": 448,
             "t": "VERIFIED_ACTIVATION",
             "g": 11,
@@ -4802,18 +4682,6 @@
             "m": 2377965518,
             "w": 1785662370508,
             "d": {}
-          },
-          {
-            "s": 493,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 12,
-            "i": 0,
-            "m": 2377966462,
-            "w": 1785662371453,
-            "d": {
-              "confidence": "0.9015428",
-              "mode": "high"
-            }
           },
           {
             "s": 493,
@@ -5148,18 +5016,6 @@
             }
           },
           {
-            "s": 530,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 13,
-            "i": 0,
-            "m": 2378117190,
-            "w": 1785662522180,
-            "d": {
-              "confidence": "0.51654834",
-              "mode": "low"
-            }
-          },
-          {
             "s": 531,
             "t": "SILENCE_GATE_ENTERED",
             "g": 13,
@@ -5304,7 +5160,7 @@
           "request_monotonic_ms": 188619736,
           "playback_start_monotonic_ms": 188619796,
           "completion_monotonic_ms": 188621392,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785662714226
         }
       },
       "target_timing": {
@@ -5579,18 +5435,6 @@
             }
           },
           {
-            "s": 563,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 13,
-            "i": 0,
-            "m": 2378300549,
-            "w": 1785662705539,
-            "d": {
-              "confidence": "0.75841665",
-              "mode": "high"
-            }
-          },
-          {
             "s": 564,
             "t": "VERIFIED_ACTIVATION",
             "g": 13,
@@ -5806,7 +5650,7 @@
           "request_monotonic_ms": 188765547,
           "playback_start_monotonic_ms": 188765622,
           "completion_monotonic_ms": 188767225,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785662860052
         }
       },
       "target_timing": {
@@ -6022,18 +5866,6 @@
             "m": 2378380318,
             "w": 1785662785309,
             "d": {}
-          },
-          {
-            "s": 615,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 14,
-            "i": 0,
-            "m": 2378446059,
-            "w": 1785662851050,
-            "d": {
-              "confidence": "0.84354484",
-              "mode": "high"
-            }
           },
           {
             "s": 615,
@@ -9553,18 +9385,6 @@
             }
           },
           {
-            "s": 995,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 15,
-            "i": 0,
-            "m": 2380317145,
-            "w": 1785664722136,
-            "d": {
-              "confidence": "0.8242092",
-              "mode": "high"
-            }
-          },
-          {
             "s": 996,
             "t": "VERIFIED_ACTIVATION",
             "g": 15,
@@ -10435,18 +10255,6 @@
             }
           },
           {
-            "s": 1094,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 16,
-            "i": 0,
-            "m": 2382148584,
-            "w": 1785666553574,
-            "d": {
-              "confidence": "0.8833444",
-              "mode": "high"
-            }
-          },
-          {
             "s": 1095,
             "t": "VERIFIED_ACTIVATION",
             "g": 16,
@@ -10912,18 +10720,6 @@
             }
           },
           {
-            "s": 1139,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 17,
-            "i": 0,
-            "m": 2383972747,
-            "w": 1785668377737,
-            "d": {
-              "confidence": "0.8992501",
-              "mode": "high"
-            }
-          },
-          {
             "s": 1140,
             "t": "VERIFIED_ACTIVATION",
             "g": 17,
@@ -11280,18 +11076,6 @@
             }
           },
           {
-            "s": 1172,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 18,
-            "i": 0,
-            "m": 2385799171,
-            "w": 1785670204161,
-            "d": {
-              "confidence": "0.6001978",
-              "mode": "low"
-            }
-          },
-          {
             "s": 1173,
             "t": "SILENCE_GATE_ENTERED",
             "g": 18,
@@ -11409,7 +11193,7 @@
           "request_monotonic_ms": 197981714,
           "playback_start_monotonic_ms": 197981785,
           "completion_monotonic_ms": 197983398,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785672076215
         }
       },
       "target_timing": {
@@ -11445,18 +11229,6 @@
             "m": 2387661338,
             "w": 1785672066329,
             "d": {}
-          },
-          {
-            "s": 1177,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 18,
-            "i": 0,
-            "m": 2387662284,
-            "w": 1785672067275,
-            "d": {
-              "confidence": "0.8862684",
-              "mode": "high"
-            }
           },
           {
             "s": 1177,
@@ -11692,7 +11464,7 @@
           "request_monotonic_ms": 199807237,
           "playback_start_monotonic_ms": 199807310,
           "completion_monotonic_ms": 199808915,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785673901740
         }
       },
       "target_timing": {
@@ -11764,18 +11536,6 @@
             "m": 2389487785,
             "w": 1785673892776,
             "d": {}
-          },
-          {
-            "s": 1207,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 19,
-            "i": 0,
-            "m": 2389488728,
-            "w": 1785673893718,
-            "d": {
-              "confidence": "0.9174086",
-              "mode": "high"
-            }
           },
           {
             "s": 1207,
@@ -12011,7 +11771,7 @@
           "request_monotonic_ms": 201633690,
           "playback_start_monotonic_ms": 201633756,
           "completion_monotonic_ms": 201635355,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785675728186
         }
       },
       "target_timing": {
@@ -12047,18 +11807,6 @@
             "m": 2391313248,
             "w": 1785675718238,
             "d": {}
-          },
-          {
-            "s": 1233,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 20,
-            "i": 0,
-            "m": 2391314211,
-            "w": 1785675719202,
-            "d": {
-              "confidence": "0.9131776",
-              "mode": "high"
-            }
           },
           {
             "s": 1233,
@@ -12294,7 +12042,7 @@
           "request_monotonic_ms": 203458948,
           "playback_start_monotonic_ms": 203459012,
           "completion_monotonic_ms": 203460605,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785677553442
         }
       },
       "target_timing": {
@@ -12330,18 +12078,6 @@
             "m": 2393139510,
             "w": 1785677543860,
             "d": {}
-          },
-          {
-            "s": 1259,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 21,
-            "i": 0,
-            "m": 2393140447,
-            "w": 1785677544796,
-            "d": {
-              "confidence": "0.67659336",
-              "mode": "high"
-            }
           },
           {
             "s": 1259,
@@ -12579,7 +12315,7 @@
           "request_monotonic_ms": 205284282,
           "playback_start_monotonic_ms": 205284346,
           "completion_monotonic_ms": 205285962,
-          "playback_start_wall_clock_ms": null
+          "playback_start_wall_clock_ms": 1785679378776
         }
       },
       "target_timing": {
@@ -12615,18 +12351,6 @@
             "m": 2394960060,
             "w": 1785679364409,
             "d": {}
-          },
-          {
-            "s": 1285,
-            "t": "ACTIVATION_CANDIDATE",
-            "g": 22,
-            "i": 0,
-            "m": 2394966050,
-            "w": 1785679370399,
-            "d": {
-              "confidence": "0.79014224",
-              "mode": "high"
-            }
           },
           {
             "s": 1285,
