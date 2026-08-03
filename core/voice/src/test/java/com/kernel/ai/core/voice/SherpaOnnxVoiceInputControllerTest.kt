@@ -7,6 +7,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -79,6 +80,53 @@ class SherpaOnnxVoiceInputControllerTest {
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
     }
 
+    // ── #1439: wake-verifier model selection ───────────────────────────────────
+
+    @Test
+    fun `resolveWakeVerifierSpec prefers Whisper when its files are present`() = runTest {
+        createWhisperStubModelFiles()
+        // Whisper verifier wins regardless of the interactive engine selection.
+        listOf(
+            VoiceInputEngine.Vosk,
+            VoiceInputEngine.SherpaZipformer,
+            VoiceInputEngine.SherpaWhisper,
+            VoiceInputEngine.SherpaParaformer,
+        ).forEach { engine ->
+            selectedEngine.value = engine
+            assertEquals(SherpaSttModelSpec.WHISPER, controller.resolveWakeVerifierSpec())
+        }
+    }
+
+    @Test
+    fun `resolveWakeVerifierSpec falls back to the selected online engine without Whisper`() = runTest {
+        createAllStubModelFiles() // Zipformer only
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
+
+        selectedEngine.value = VoiceInputEngine.SherpaParaformer
+        assertEquals(SherpaSttModelSpec.PARAFORMER, controller.resolveWakeVerifierSpec())
+    }
+
+    @Test
+    fun `resolveWakeVerifierSpec falls back to Zipformer default without Whisper or online engine`() = runTest {
+        createAllStubModelFiles() // Zipformer only
+        listOf(
+            VoiceInputEngine.Vosk,
+            VoiceInputEngine.AndroidNative,
+            VoiceInputEngine.SherpaWhisper,
+            VoiceInputEngine.SherpaSenseVoice,
+        ).forEach { engine ->
+            selectedEngine.value = engine
+            assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
+        }
+    }
+
+    @Test
+    fun `transcribeBlocking rejects empty PCM`() = runTest {
+        createAllStubModelFiles()
+        assertEquals(null, controller.transcribeBlocking(shortArrayOf()))
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun createAllStubModelFiles() {
@@ -87,6 +135,14 @@ class SherpaOnnxVoiceInputControllerTest {
             "sherpa-stt-decoder.int8.onnx",
             "sherpa-stt-joiner.int8.onnx",
             "sherpa-stt-tokens.txt",
+        ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
+    }
+
+    private fun createWhisperStubModelFiles() {
+        listOf(
+            "sherpa-whisper-tiny.en-encoder.int8.onnx",
+            "sherpa-whisper-tiny.en-decoder.int8.onnx",
+            "sherpa-whisper-tiny.en-tokens.txt",
         ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
     }
 }

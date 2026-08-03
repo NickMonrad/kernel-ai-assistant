@@ -27,7 +27,12 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.inference.download.DownloadSource
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
+import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
@@ -66,6 +71,24 @@ internal suspend fun verifyWakeWindow(
     voiceInputController: VoiceInputController,
     pcm: ShortArray,
 ): Boolean = voiceInputController.transcribeBlocking(pcm)?.containsWakePhrase() ?: false
+
+/**
+ * #1439: names of the wake-verifier model files (Whisper tiny.en catalogue
+ * entries) that are missing on device. Mirrors [SherpaSttModelSpec.requiredFileNames]
+ * and the controller's models directory (`getExternalFilesDir("models")`).
+ */
+internal fun missingWakeVerifierModelFiles(context: Context): List<String> {
+    val modelsDir = context.getExternalFilesDir("models") ?: File(context.filesDir, "models")
+    return SherpaSttModelSpec.WHISPER.requiredFileNames.filter { name ->
+        !File(modelsDir, name).exists()
+    }
+}
+
+/** Catalogue entries backing the wake-verifier model files (#1439). */
+internal fun wakeVerifierKernelModels(): List<KernelModel> =
+    SherpaSttModelSpec.WHISPER.requiredFileNames.mapNotNull { name ->
+        KernelModel.entries.firstOrNull { it.fileName == name }
+    }
 
 /** Build consistent cue-journal metadata from a playback result. */
 internal fun cueMetadata(
@@ -487,11 +510,35 @@ class WakeWordService : Service() {
     @Inject lateinit var wakeWordDetector: WakeWordDetector
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var cuePlayer: StartListeningCuePlayer
+    @Inject lateinit var modelDownloadManager: ModelDownloadManager
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var eventCollectorJob: Job? = null
 
     /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
     @Volatile private var isHandlingDetection = false
+
+    /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
+    @Volatile private var wakeVerifierProvisionRequested = false
+
+    /**
+     * #1439: the low-band wake verifier prefers the Whisper tiny.en catalogue model
+     * (the only model that recognises the fixed wake phrase). Queue the download
+     * through the existing catalogue flow when the files are missing; verification
+     * falls back to the online recognizer until they arrive.
+     */
+    private fun ensureWakeVerifierModels() {
+        if (wakeVerifierProvisionRequested) return
+        wakeVerifierProvisionRequested = true
+        val missing = missingWakeVerifierModelFiles(this)
+        if (missing.isEmpty()) return
+        val models = wakeVerifierKernelModels()
+        if (models.isEmpty()) {
+            Log.w(TAG, "WakeWordService: wake-verifier catalogue entries missing for $missing")
+            return
+        }
+        models.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
+        Log.i(TAG, "WakeWordService: queued wake-verifier model download(s): $models")
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -606,6 +653,7 @@ class WakeWordService : Service() {
 
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
+        ensureWakeVerifierModels()
         if (!wakeWordDetector.isAvailable) {
             AcousticJournalBridge.record(
                 type = AcousticEventType.SERVICE_ERROR,
