@@ -574,7 +574,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 diagnostics?.recordAudioFrame()
                 chunkCount++
                 val rms = calculateRms(chunk)
-                gateExitDiag?.onFrameRms(rms.toFloat())
 
 
 
@@ -631,6 +630,11 @@ class OnnxWakeWordDetector @Inject constructor(
                         silenceFrames++
                     }
                 }
+                // Episode audio energy: recorded after the silence-gate transition
+                // for this frame, so the voiced frame that triggered
+                // onGateExited() is included in episodePeakRms and gated pre-exit
+                // frames are excluded (debug-gated; no-op when disabled).
+                gateExitDiag?.onEpisodeFrameRms(rms.toFloat())
                 // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
                 // Keeps the mel ring fresh during gated silence so that when speech
                 // resumes, the embedding ring already carries valid context and Stage 3
@@ -734,6 +738,11 @@ class OnnxWakeWordDetector @Inject constructor(
 
                 // Accumulate embedding in ring buffer.
                 embeddingRing.append(embedding)
+                // Classifier-context audio energy: advances only on frames whose
+                // Stage-2 embedding was appended, in lockstep with
+                // WakeWordEmbeddingRingState membership (debug-gated; no-op when
+                // disabled).  Gated frames where Stage 2 was skipped never enter.
+                gateExitDiag?.onEmbeddingFrameRms(rms.toFloat())
                 if (!embeddingRing.isWindowComplete) continue
                 if (!emittedStage3Ready) {
                     emittedStage3Ready = true
@@ -930,7 +939,10 @@ internal fun secondsToFrames(seconds: Float): Int =
  * that maximum relative to the gate-exit frame (exit frame = offset 0), its
  * own low-verification entry/outcome, the probe executions from the
  * immediately preceding gated interval only, and the captured-audio energy
- * around the maximum-confidence window (the #1432 level discriminator).
+ * around the maximum-confidence window (the #1432 level discriminator):
+ * episode peak RMS over every audio frame from the voiced gate-exit frame
+ * through gate re-entry, and peak/mean RMS of the exact 16 embedding-
+ * associated frames passed to Stage 3.
  * Initial gate entry emits nothing; gate re-entry without an intervening exit
  * emits nothing; detector shutdown emits only when a real exit episode is
  * open.
@@ -961,28 +973,40 @@ internal class WakeWordGateExitDiagnostics(
     /** Peak RMS of the frames captured while the episode was open (-1 = none). */
     private var episodePeakRms = -1f
 
-    /** Peak / mean RMS of the 16 frames feeding the max-confidence window (-1 = none). */
+    /** Peak / mean RMS of the 16 embedding-associated frames of the max-confidence window (-1 = none). */
     private var maxWindowPeakRms = -1f
     private var maxWindowMeanRms = -1f
 
-    // Rolling RMS of the last EMBEDDING_FRAMES processed chunks — the audio
-    // that produced the classifier window at the moment a new maximum is
-    // recorded.  Peak/mean are order-independent, so the ring is not kept
-    // chronologically ordered.
-    private val frameRmsRing = FloatArray(EMBEDDING_FRAMES)
-    private var frameRmsHead = 0
-    private var frameRmsFilled = 0
+    // Rolling RMS of the last EMBEDDING_FRAMES frames whose Stage-2 embedding
+    // was appended to the production embedding ring — the audio that produced
+    // the classifier window.  Membership mirrors WakeWordEmbeddingRingState:
+    // same capacity, head-overwrite and completeness semantics; the ring
+    // advances only on embedding appends (gated frames where Stage 2 is
+    // skipped never enter).  Peak/mean are order-independent, so the ring is
+    // not kept chronologically ordered.
+    private val embeddingRmsRing = FloatArray(EMBEDDING_FRAMES)
+    private var embeddingRmsHead = 0
+    private var embeddingRmsFilled = 0
 
     /**
-     * Records the RMS of one processed audio frame.  The ring always holds the
-     * last [EMBEDDING_FRAMES] frames; [episodePeakRms] only counts frames
-     * captured while an exit episode is open.
+     * Records the RMS of one processed audio frame against the open episode.
+     * Called after the silence-gate transition for that frame, so the voiced
+     * frame that triggers [onGateExited] is included in [episodePeakRms] and
+     * gated pre-exit frames are excluded.
      */
-    fun onFrameRms(rms: Float) {
-        frameRmsRing[frameRmsHead] = rms
-        frameRmsHead = (frameRmsHead + 1) % EMBEDDING_FRAMES
-        if (frameRmsFilled < EMBEDDING_FRAMES) frameRmsFilled++
+    fun onEpisodeFrameRms(rms: Float) {
         if (episodeOpen && rms > episodePeakRms) episodePeakRms = rms
+    }
+
+    /**
+     * Records the RMS of one frame whose Stage-2 embedding was appended to
+     * the production embedding ring.  Called immediately after the append so
+     * the diagnostic ring advances in lockstep with the classifier window.
+     */
+    fun onEmbeddingFrameRms(rms: Float) {
+        embeddingRmsRing[embeddingRmsHead] = rms
+        embeddingRmsHead = (embeddingRmsHead + 1) % EMBEDDING_FRAMES
+        if (embeddingRmsFilled < EMBEDDING_FRAMES) embeddingRmsFilled++
     }
 
     /**
@@ -1013,20 +1037,24 @@ internal class WakeWordGateExitDiagnostics(
         if (confidence > maxConfidence) {
             maxConfidence = confidence
             maxConfidenceOffsetFrames = chunk - exitChunk
-            // Snapshot the audio energy of the classifier window: the last
-            // EMBEDDING_FRAMES chunks are exactly the frames whose embeddings
-            // produced this window.
-            val n = frameRmsFilled.coerceAtMost(EMBEDDING_FRAMES)
-            if (n > 0) {
+            // Snapshot the audio energy of the classifier window only when the
+            // embedding-context ring is complete.  Stage 3 only runs on a
+            // complete 16-embedding window, so the RMS context must be complete
+            // too; fail closed (report none) rather than averaging a partial
+            // ring that would misrepresent the window.
+            if (embeddingRmsFilled >= EMBEDDING_FRAMES) {
                 var peak = 0f
                 var sum = 0f
-                for (i in 0 until n) {
-                    val v = frameRmsRing[i]
+                for (i in 0 until EMBEDDING_FRAMES) {
+                    val v = embeddingRmsRing[i]
                     sum += v
                     if (v > peak) peak = v
                 }
                 maxWindowPeakRms = peak
-                maxWindowMeanRms = sum / n
+                maxWindowMeanRms = sum / EMBEDDING_FRAMES
+            } else {
+                maxWindowPeakRms = -1f
+                maxWindowMeanRms = -1f
             }
         }
     }
@@ -1083,9 +1111,12 @@ internal class WakeWordGateExitDiagnostics(
  * STT verification was entered and its boolean outcome, how many gated
  * periodic probe executions preceded the episode from the immediately
  * preceding gated interval only (ring composition context), and the captured
- * audio energy (peak RMS of the episode and peak/mean RMS of the
- * max-confidence window's frames).  No PCM, no transcripts and no per-frame
- * output; emitted only when WakeWordDiag DEBUG is enabled.
+ * audio energy: peak RMS over every audio frame of the episode (voiced
+ * gate-exit frame through gate re-entry) and peak/mean RMS of the exact 16
+ * embedding-associated frames passed to Stage 3 for the max-confidence
+ * window (reported `none` when the classifier context was incomplete).  No
+ * PCM, no transcripts and no per-frame output; emitted only when WakeWordDiag
+ * DEBUG is enabled.
  */
 internal fun buildGateExitSummary(
     generationId: Long,

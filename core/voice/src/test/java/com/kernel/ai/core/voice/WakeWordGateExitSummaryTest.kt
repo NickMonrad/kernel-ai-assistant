@@ -199,59 +199,132 @@ class WakeWordGateExitSummaryTest {
     // ── Captured-audio energy (the #1432 level discriminator) ────────────────
 
     @Test
-    fun `max window energy is captured from the frames around the maximum`() {
+    fun `classifier context rms tracks only embedding frames and includes the voiced exit frame`() {
+        // Realistic gated sequence: startup embeddings, gated frames where
+        // Stage 2 is skipped (loud, deliberately distinctive), gated probe
+        // frames that do produce embeddings, a voiced gate-exit frame, and
+        // fewer than 16 post-exit embeddings — the Stage 3 maximum is
+        // recorded once the combined pre-exit probes + post-exit embeddings
+        // form the complete 16-embedding classifier window.
         val diag = newDiag()
-        diag.onGateEntered(0)
-        // 21 frames before/at the exit: ring = frames 6..21, episode not open.
-        for (i in 1..21) diag.onFrameRms(i.toFloat())
-        diag.onGateExited(21)
-        // Post-exit frames: episode open; ring now 11..30 by the second eval.
-        for (i in 22..30) diag.onFrameRms(i.toFloat())
-        diag.onStage3Evaluation(0.2f, 25)
-        diag.onStage3Evaluation(0.9f, 26)
 
+        // Startup frames (embeddings produced): RMS 1..4.
+        for (i in 1..4) diag.onEmbeddingFrameRms(i.toFloat())
+        diag.onGateEntered(4)
+
+        // Gated frames, Stage 2 SKIPPED — loud (1000..1006) but must never
+        // enter the classifier context.
+        for (i in 0..6) diag.onEpisodeFrameRms((1000 + i).toFloat())
+        // Gated probe (embedding produced): RMS 200.
+        diag.onEmbeddingFrameRms(200f)
+        // Gated frames, Stage 2 SKIPPED — loud again (1007..1008).
+        diag.onEpisodeFrameRms(1007f)
+        diag.onEpisodeFrameRms(1008f)
+        // Gated probe (embedding produced): RMS 300.
+        diag.onEmbeddingFrameRms(300f)
+
+        // Voiced gate-exit frame: opens the episode AND produces an embedding.
+        diag.onGateExited(16)
+        diag.onEpisodeFrameRms(400f)
+        diag.onEmbeddingFrameRms(400f)
+
+        // Post-exit open-gate frames (embeddings produced), quieter than the
+        // exit frame: RMS 50..58.
+        for (i in 0..8) {
+            diag.onEpisodeFrameRms((50 + i).toFloat())
+            diag.onEmbeddingFrameRms((50 + i).toFloat())
+        }
+
+        // Classifier window now complete: 16 embedding-associated values
+        // [1,2,3,4,200,300,400,50..58].  Skipped frames (1000..1008) absent.
+        diag.onStage3Evaluation(0.6f, 26)
         val s = diag.onGateEntered(100)!!
-        // Window at eval 26 = last 16 of the 30 fed frames = 15..30 → peak 30, mean 22.5.
-        assertTrue(s.contains("maxConfidence=0.9"))
-        assertTrue(s.contains("maxWindowPeakRms=30.0"), s)
-        assertTrue(s.contains("maxWindowMeanRms=22.5"), s)
-        // Episode peak counts post-exit frames only (22..30).
-        assertTrue(s.contains("episodePeakRms=30.0"), s)
+
+        assertTrue(s.contains("maxConfidence=0.6"))
+        // Peak = 400 (the voiced exit frame); mean = 1396/16 = 87.25 — the
+        // exact 16 embedding-associated values, no skipped-gated audio.
+        assertTrue(s.contains("maxWindowPeakRms=400.0"), s)
+        assertTrue(s.contains("maxWindowMeanRms=87.25"), s)
+        // Episode peak = 400: the voiced exit frame is included (post-exit
+        // frames are quieter), gated pre-exit frames (1000+) are excluded.
+        assertTrue(s.contains("episodePeakRms=400.0"), s)
     }
 
     @Test
-    fun `episode peak rms excludes loud frames captured before the exit`() {
+    fun `incomplete classifier context reports no window energy`() {
+        // Fail closed: a Stage 3 maximum with fewer than 16 embedding-
+        // associated frames must report none, not average a partial ring.
         val diag = newDiag()
         diag.onGateEntered(0)
-        repeat(10) { diag.onFrameRms(100f) } // loud gated-interval frames
         diag.onGateExited(10)
-        diag.onFrameRms(5f)
-        diag.onStage3Evaluation(0.5f, 11)
+        repeat(5) { diag.onEpisodeFrameRms((it + 1).toFloat()) }
+        repeat(5) { diag.onEmbeddingFrameRms((it + 1).toFloat()) }
+        diag.onStage3Evaluation(0.5f, 15)
 
         val s = diag.onGateEntered(100)!!
+        assertTrue(s.contains("maxConfidence=0.5"))
+        assertTrue(s.contains("maxWindowPeakRms=none"), s)
+        assertTrue(s.contains("maxWindowMeanRms=none"), s)
+        // Episode peak is independent and still reported.
         assertTrue(s.contains("episodePeakRms=5.0"), s)
-        // The max-confidence window's ring holds 11 frames (10×100 + 5) — the
-        // classifier window's own audio (mean = 1005/11).
-        assertTrue(s.contains("maxWindowPeakRms=100.0"), s)
-        assertTrue(s.contains("maxWindowMeanRms=91.36364"), s)
     }
 
     @Test
-    fun `energy fields reset between episodes`() {
+    fun `episode peak includes the voiced exit frame and excludes gated frames`() {
         val diag = newDiag()
         diag.onGateEntered(0)
+        // Loud gated-interval frames — episode not open, must be excluded.
+        repeat(5) { diag.onEpisodeFrameRms(1000f) }
         diag.onGateExited(10)
-        diag.onFrameRms(9f)
-        diag.onStage3Evaluation(0.5f, 11)
-        val first = diag.onGateEntered(100)!!
-        assertTrue(first.contains("episodePeakRms=9.0"))
+        // The voiced exit frame itself — must be included.
+        diag.onEpisodeFrameRms(500f)
+        diag.onEmbeddingFrameRms(500f)
+        // Quiet open-episode frames — included but below the exit peak.
+        diag.onEpisodeFrameRms(10f)
+        diag.onEpisodeFrameRms(20f)
+        diag.onEmbeddingFrameRms(10f)
+        diag.onEmbeddingFrameRms(20f)
+        diag.onStage3Evaluation(0.5f, 13)
 
-        // Second episode without evaluations: energy fields must be "none".
+        val s = diag.onGateEntered(100)!!
+        assertTrue(s.contains("episodePeakRms=500.0"), s)
+        // Classifier context ring (3 values) is incomplete → fail closed.
+        assertTrue(s.contains("maxWindowPeakRms=none"), s)
+        assertTrue(s.contains("maxWindowMeanRms=none"), s)
+    }
+
+    @Test
+    fun `energy fields reset between episodes while the context ring mirrors the production ring`() {
+        val diag = newDiag()
+        // Episode 1: 16 embedding frames RMS 1..16 (window complete).
+        diag.onGateEntered(0)
+        diag.onGateExited(10)
+        for (i in 1..16) {
+            diag.onEpisodeFrameRms(i.toFloat())
+            diag.onEmbeddingFrameRms(i.toFloat())
+        }
+        diag.onStage3Evaluation(0.7f, 26)
+        val first = diag.onGateEntered(100)!!
+        assertTrue(first.contains("episodePeakRms=16.0"))
+        assertTrue(first.contains("maxWindowPeakRms=16.0"))
+        assertTrue(first.contains("maxWindowMeanRms=8.5"))
+
+        // Episode 2: episode state must reset (peak = episode-2 frames only);
+        // the classifier-context ring persists like WakeWordEmbeddingRingState
+        // (the window genuinely contains pre-exit embeddings).
         diag.onGateExited(200)
+        diag.onEpisodeFrameRms(9f)
+        diag.onEpisodeFrameRms(8f)
+        diag.onEpisodeFrameRms(7f)
+        diag.onEmbeddingFrameRms(9f)
+        diag.onEmbeddingFrameRms(8f)
+        diag.onEmbeddingFrameRms(7f)
+        diag.onStage3Evaluation(0.4f, 203)
         val second = diag.onGateEntered(300)!!
-        assertTrue(second.contains("episodePeakRms=none"), second)
-        assertTrue(second.contains("maxWindowPeakRms=none"), second)
-        assertTrue(second.contains("maxWindowMeanRms=none"), second)
+        assertTrue(second.contains("episodePeakRms=9.0"), second)
+        // Ring = [4..16, 7, 8, 9]: peak 16, mean (130 + 24) / 16 = 9.625.
+        assertTrue(second.contains("maxWindowPeakRms=16.0"), second)
+        assertTrue(second.contains("maxWindowMeanRms=9.625"), second)
     }
 
     // ── Formatting contract ────────────────────────────────────────────────
