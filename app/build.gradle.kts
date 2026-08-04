@@ -272,10 +272,6 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
-    // Debug-only feature-pipeline probe (FeaturePipelineProbeReceiver) needs
-    // compile-time access to the ONNX Runtime API; the runtime library is
-    // already shipped via :core:voice (implementation).  Never in release.
-    debugImplementation(libs.onnxruntime.android)
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)

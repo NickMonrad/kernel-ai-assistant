@@ -49,13 +49,6 @@
                 <action android:name="com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW" />
             </intent-filter>
         </receiver>
-        <receiver
-            android:name="com.kernel.ai.debug.verifier.FeaturePipelineProbeReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.kernel.ai.debug.action.FEATURE_PIPELINE_PROBE" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>
