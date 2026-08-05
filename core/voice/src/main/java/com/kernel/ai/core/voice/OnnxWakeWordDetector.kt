@@ -143,33 +143,249 @@ private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
  * openWakeWord processes audio in 80ms frames = 1280 samples at 16kHz.
  * This is the fundamental unit fed to the melspectrogram frontend.
  */
-private const val FRAME_SAMPLES = WAKE_WORD_FRAME_SAMPLES
+internal const val FRAME_SAMPLES = WAKE_WORD_FRAME_SAMPLES
 
 /**
- * Number of mel-spectrogram rows produced by melspectrogram.onnx for one 1280-sample chunk.
- * Empirically verified: input [1, 1280] → output [1, 1, 5, 32], so 5 rows per chunk.
+ * Number of raw samples of the previous chunk that the openWakeWord streaming
+ * mel path re-uses as lead-in context: the reference always computes mel over
+ * the last `n + 160*3` buffered samples (current chunk + previous 480).
  */
-private const val MEL_ROWS_PER_CHUNK = 5
+internal const val MEL_LEAD_SAMPLES = 480
+
+/**
+ * Number of mel-spectrogram rows produced by melspectrogram.onnx for the
+ * openWakeWord streaming window (current 1280-sample chunk plus the previous
+ * 480 samples).  Empirically verified: input [1, 1760] → output [1, 1, 8, 32],
+ * so 8 rows per chunk (the first chunk, with only 1280 samples buffered,
+ * yields 5 rows).  The mel model has a dynamic sample axis; feeding exactly
+ * 1280 samples would return only the 5 rows over the current chunk and skip
+ * the 3 boundary rows the reference pipeline computes over the previous
+ * chunk's tail (#1432 parity).
+ */
+internal const val MEL_ROWS_PER_CHUNK = 8
 
 /** Number of mel frequency bins — mel model output dim 3. */
-private const val MEL_BINS = 32
+internal const val MEL_BINS = 32
 
 /**
  * The embedding backbone (embedding_model.onnx) expects input shape [batch, 76, 32, 1].
- * 76 mel rows = 15.2 chunks = ~1,216ms of audio history.
+ * 76 mel rows = 9.5 chunks = ~1,216ms of audio history (8 rows per chunk).
  */
-private const val MEL_RING_SIZE = 76
+internal const val MEL_RING_SIZE = 76
 
 // ── Embedding ring buffer ─────────────────────────────────────────────────────
 /**
  * Number of embedding frames fed to the classifier at each step.
  *
  * hey_jandal.onnx input shape: [1, 16, 96] — confirmed from model introspection.
- * Each embedding covers ~1.2s of audio (76 mel rows × 80ms / 5 rows per chunk).
+ * Each embedding covers ~1.2s of audio (76 mel rows × 80ms / 8 rows per chunk).
  * 16 overlapping frames yield ~2.4s of effective receptive field, not 19.5s.
  */
-private const val EMBEDDING_FRAMES = 16
-private const val EMBEDDING_DIM = 96
+internal const val EMBEDDING_FRAMES = 16
+internal const val EMBEDDING_DIM = 96
+
+// ── Extracted production feature-pipeline steps ──────────────────────────────
+// These functions ARE the production Stage 1/2/3 tensor logic (the detector hot
+// loop calls them; the #1432 parity test drives the same functions on fixed
+// PCM).  They must stay behaviour-identical to the detector loop — any change
+// here changes on-device detection.
+
+/**
+ * Runs the production Stage 1 mel frontend on [pcm] (raw 16-bit PCM values
+ * cast to float32, ±32768 scale — NOT normalised to [-1, 1]; the openWakeWord
+ * mel model is trained on the raw scale) and applies the openWakeWord
+ * transform (value/10 + 2) to every output row.
+ *
+ * Returns the first [maxRows] output rows flattened to [rows*32] float32.
+ * melspectrogram.onnx has a dynamic sample axis: a 1280-sample input yields
+ * 5 rows and a 1760-sample input yields 8 rows (verified empirically;
+ * mel(1760)[3:8] == mel(1280)[0:5] bit-exactly).
+ */
+internal fun computeMelRows(
+    env: OrtEnvironment,
+    melsSession: OrtSession,
+    melsInputName: String,
+    melsOutputName: String,
+    pcm: FloatArray,
+    samples: Int,
+    maxRows: Int,
+): FloatArray {
+    val tensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(pcm, 0, samples), longArrayOf(1L, samples.toLong()))
+    return tensor.use { melIn ->
+        melsSession.run(mapOf(melsInputName to melIn)).use { melOut ->
+            val t = melOut[melsOutputName].get() as OnnxTensor
+            val rows = (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)
+            val rowCount = minOf(maxRows, rows.size)
+            val flat = FloatArray(rowCount * MEL_BINS)
+            for (r in 0 until rowCount) {
+                val row = rows[r] as FloatArray
+                val base = r * MEL_BINS
+                for (b in 0 until MEL_BINS) {
+                    flat[base + b] = row[b] / 10.0f + 2.0f
+                }
+            }
+            flat
+        }
+    }
+}
+
+/**
+ * Slides the production 76×32 mel ring: appends [melRows] ([rowsPerChunk]*32
+ * values) and drops the oldest rows once the ring is full.  The drop count is
+ * the exact overflow (filled + appended − 76), so the ring always holds the
+ * last 76 rows of the mel-row stream — a capacity-76 sliding window, exactly
+ * the window the openWakeWord streaming reference presents to the embedding
+ * model at every chunk (#1432 parity).  Returns the new filled count.
+ */
+internal fun appendMelRows(
+    melRing: FloatArray,
+    melRowsFilled: Int,
+    melRows: FloatArray,
+    rowsPerChunk: Int,
+): Int {
+    val rowsToAppend = melRows.size / MEL_BINS
+    val overflow = melRowsFilled + rowsToAppend - MEL_RING_SIZE
+    if (overflow > 0) {
+        melRing.copyInto(melRing, 0, overflow * MEL_BINS, melRowsFilled * MEL_BINS)
+        melRows.copyInto(melRing, (melRowsFilled - overflow) * MEL_BINS)
+        return MEL_RING_SIZE
+    }
+    val rowsToInsert = minOf(rowsToAppend, MEL_RING_SIZE - melRowsFilled)
+    melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
+    return melRowsFilled + rowsToInsert
+}
+
+/**
+ * Production Stage-1 mel feature state: the 76×32 mel ring plus the
+ * 480-sample lead-in tail retained from the previous chunk.
+ *
+ * [stage1] reproduces the openWakeWord streaming mel framing exactly (#1432
+ * parity): the mel model is fed the last `n + 480` buffered samples — the
+ * current chunk plus the tail of the previous chunk — which yields 5 rows for
+ * the very first chunk (only 1280 samples buffered) and 8 rows per chunk
+ * afterwards.  All rows are appended to the ring; [filled] reaches 76 at
+ * chunk 10, so the first embedding is computed at the same chunk and from the
+ * same 76-row window as the Python reference.
+ *
+ * [input] is a caller-owned scratch buffer of at least
+ * [FRAME_SAMPLES] + [MEL_LEAD_SAMPLES] floats (preallocated by the detector
+ * loop to keep the hot path allocation-free).
+ */
+internal class WakeWordMelFeatureState {
+    private val ring = FloatArray(MEL_RING_SIZE * MEL_BINS)
+    private val tail = FloatArray(MEL_LEAD_SAMPLES)
+    private var tailFilled = 0
+
+    /** Number of valid mel rows in the ring (76 once Stage 2 can run). */
+    var filled = 0
+        private set
+
+    /** Samples fed to the mel model by the last [stage1] call (1280 or 1760). */
+    var lastInputSamples = 0
+        private set
+
+    /** Mel rows appended by the last [stage1] call (5 or 8). */
+    var lastRowsAppended = 0
+        private set
+
+    /** Clears ring and tail at a detector generation / re-arm boundary. */
+    fun reset() {
+        ring.fill(0f)
+        tail.fill(0f)
+        tailFilled = 0
+        filled = 0
+        lastInputSamples = 0
+        lastRowsAppended = 0
+    }
+
+    /**
+     * Runs the production Stage 1 on [framePcm] (one 1280-sample chunk, raw
+     * int16-scale float32) and appends the resulting mel rows to the ring.
+     * Returns the appended rows flattened ([lastRowsAppended]*32 floats).
+     */
+    fun stage1(
+        env: OrtEnvironment,
+        melsSession: OrtSession,
+        melsInputName: String,
+        melsOutputName: String,
+        framePcm: FloatArray,
+        input: FloatArray,
+    ): FloatArray {
+        val inputSamples: Int
+        if (tailFilled >= MEL_LEAD_SAMPLES) {
+            tail.copyInto(input, 0)
+            framePcm.copyInto(input, MEL_LEAD_SAMPLES)
+            inputSamples = FRAME_SAMPLES + MEL_LEAD_SAMPLES
+        } else {
+            framePcm.copyInto(input, 0, 0, FRAME_SAMPLES)
+            inputSamples = FRAME_SAMPLES
+        }
+        lastInputSamples = inputSamples
+        val melRows = computeMelRows(
+            env, melsSession, melsInputName, melsOutputName, input, inputSamples, MEL_ROWS_PER_CHUNK,
+        )
+        framePcm.copyInto(tail, 0, FRAME_SAMPLES - MEL_LEAD_SAMPLES, FRAME_SAMPLES)
+        tailFilled = MEL_LEAD_SAMPLES
+        lastRowsAppended = melRows.size / MEL_BINS
+        filled = appendMelRows(ring, filled, melRows, lastRowsAppended)
+        return melRows
+    }
+
+    /** Copies the current 76×32 ring into [out] for the Stage 2 input. */
+    fun copyStage2Input(out: FloatArray) {
+        ring.copyInto(out)
+    }
+}
+
+/**
+ * Runs the production Stage 2 embedding backbone on the 76×32 [melRing]:
+ * input [1, 76, 32, 1] (row-major ring reinterpreted with the channel dim
+ * implicit), output [1, 1, 1, 96] → one 96-dim embedding vector.
+ */
+internal fun computeEmbedding(
+    env: OrtEnvironment,
+    embedSession: OrtSession,
+    embedInputName: String,
+    embedOutputName: String,
+    melRing: FloatArray,
+): FloatArray {
+    val tensor = OnnxTensor.createTensor(
+        env,
+        FloatBuffer.wrap(melRing),
+        longArrayOf(1L, MEL_RING_SIZE.toLong(), MEL_BINS.toLong(), 1L),
+    )
+    return tensor.use { embedIn ->
+        embedSession.run(mapOf(embedInputName to embedIn)).use { embedOut ->
+            val t = embedOut[embedOutputName].get() as OnnxTensor
+            // Output shape [1,1,1,96] — innermost array is FloatArray(96).
+            (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)[0] as FloatArray
+        }
+    }
+}
+
+/**
+ * Runs the production Stage 3 classifier on the flattened 16×96 [windowFlat]
+ * embedding window: input [1, 16, 96], output [1, 1] → confidence in [0, 1].
+ */
+internal fun computeClassifierConfidence(
+    env: OrtEnvironment,
+    classSession: OrtSession,
+    classInputName: String,
+    classOutputName: String,
+    windowFlat: FloatArray,
+): Float {
+    val tensor = OnnxTensor.createTensor(
+        env,
+        FloatBuffer.wrap(windowFlat),
+        longArrayOf(1L, EMBEDDING_FRAMES.toLong(), EMBEDDING_DIM.toLong()),
+    )
+    return tensor.use { classIn ->
+        classSession.run(mapOf(classInputName to classIn)).use { classOut ->
+            val t = classOut[classOutputName].get() as OnnxTensor
+            ((t.value as Array<*>)[0] as FloatArray)[0]
+        }
+    }
+}
 
 /**
  * Upper bound for [OnnxWakeWordDetector.stop]'s join on the detection thread.
@@ -224,7 +440,7 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  * ```
  * AudioRecord (16kHz mono)
  *   → 80ms chunks (1280 samples)
-  *   → 80ms chunks (1280 samples) → Stage 1: mel spectrogram (5 rows per chunk)
+  *   → 80ms chunks (1280 samples) → Stage 1: mel spectrogram (5 rows for the first chunk, 8 rows per chunk over the 1760-sample streaming window)
   *   → mel ring buffer (last 76 rows) — ~1.2s of acoustic context
   *   → [Stage 2] embedding_model.onnx   — [1,76,32,1] mel patch → 96-dim embedding vector
   *   → embedding ring buffer (last 16 frames) — ~19.5s of context
@@ -249,8 +465,11 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  * ## Model contracts
  *
   * ### Stage 1 — melspectrogram.onnx
-  * - Input:  `float32[1, 1280]` — one 80ms frame of normalised PCM in [-1, 1]
-  * - Output: `float32[1, 1, 5, 32]` — 5 mel rows × 32 bins per 80ms chunk
+  * - Input:  `float32[1, 1760]` — one 80ms frame plus the previous 480-sample
+  *   tail (openWakeWord streaming window), raw 16-bit PCM values as float32
+  *   (±32768, not [-1, 1]); the very first chunk is `[1, 1280]`
+  * - Output: `float32[1, 1, 8, 32]` — 8 mel rows × 32 bins per 80ms chunk
+  *   (5 rows for the first chunk)
   *
   * ### Stage 2 — embedding_model.onnx (Google Speech Embedding)
   * - Input:  `float32[1, 76, 32, 1]` — ring of 76 mel rows (last ~1.2s)
@@ -525,8 +744,8 @@ class OnnxWakeWordDetector @Inject constructor(
             val classOutputName = classSession.outputNames.first()
 
             // Pre-allocate all hot-loop buffers — zero heap churn during detection.
-            val melRing = FloatArray(MEL_RING_SIZE * MEL_BINS)
-            var melRowsFilled = 0
+            val melState = WakeWordMelFeatureState()
+            val melInputPcm = FloatArray(FRAME_SAMPLES + MEL_LEAD_SAMPLES)
             var chunkCount = 0
 
             val embeddingRing = WakeWordEmbeddingRingState()
@@ -647,39 +866,16 @@ class OnnxWakeWordDetector @Inject constructor(
                 for (i in 0 until FRAME_SAMPLES) {
                     framePcm[i] = chunk[i].toFloat()
                 }
-                // Input:  [1, 1280] float32 PCM
-                // Output: [1, 1, 5, 32] mel spectrogram patch (5 rows × 32 bins per chunk)
+                // Input:  the openWakeWord streaming window — the current
+                // 1280-sample chunk plus the previous chunk's 480-sample tail
+                // ([1, 1760] → [1, 1, 8, 32]; the first chunk is [1, 1280] →
+                // [1, 1, 5, 32]).  Feeding only the 1280-sample chunk would
+                // compute 5 rows and never the 3 boundary rows over the
+                // previous tail, diverging from the training/reference mel
+                // ring (#1432 parity).
                 diagnostics?.recordStage1Execution()
-                val melRows: FloatArray = OnnxTensor.createTensor(
-                    env,
-                    FloatBuffer.wrap(framePcm),
-                    longArrayOf(1L, FRAME_SAMPLES.toLong()),
-                ).use { melIn ->
-                    melsSession.run(mapOf(melsInputName to melIn)).use { melOut ->
-                        val t = melOut[melsOutputName].get() as OnnxTensor
-                        val rows = (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)
-                        val flat = FloatArray(MEL_ROWS_PER_CHUNK * MEL_BINS)
-                        for (r in 0 until MEL_ROWS_PER_CHUNK) {
-                            val row = rows[r] as FloatArray
-                            val base = r * MEL_BINS
-                            for (b in 0 until MEL_BINS) {
-                                flat[base + b] = row[b] / 10.0f + 2.0f
-                            }
-                        }
-                        flat
-                    }
-                }
-
-                // Slide mel ring: drop oldest MEL_ROWS_PER_CHUNK rows, append new rows.
-                if (melRowsFilled >= MEL_RING_SIZE) {
-                    melRing.copyInto(melRing, 0, MEL_ROWS_PER_CHUNK * MEL_BINS, MEL_RING_SIZE * MEL_BINS)
-                    melRows.copyInto(melRing, (MEL_RING_SIZE - MEL_ROWS_PER_CHUNK) * MEL_BINS)
-                } else {
-                    val rowsToInsert = minOf(MEL_ROWS_PER_CHUNK, MEL_RING_SIZE - melRowsFilled)
-                    melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
-                    melRowsFilled += rowsToInsert
-                }
-                if (melRowsFilled < MEL_RING_SIZE) continue
+                melState.stage1(env, melsSession, melsInputName, melsOutputName, framePcm, melInputPcm)
+                if (melState.filled < MEL_RING_SIZE) continue
 
                 if (diagnostics != null && chunkCount % DIAGNOSTIC_REPORT_CHECK_FRAMES == 0L) {
                     val elapsedMillis = SystemClock.elapsedRealtime() - diagnosticsStartedAt
@@ -722,19 +918,11 @@ class OnnxWakeWordDetector @Inject constructor(
                     )
                 }
                 if (wasGatedProbe) gateExitDiag?.onGatedProbeExecution()
-                melRing.copyInto(embedInput4D)
+                melState.copyStage2Input(embedInput4D)
                 diagnostics?.recordStage2Execution()
-                val embedding: FloatArray = OnnxTensor.createTensor(
-                    env,
-                    FloatBuffer.wrap(embedInput4D),
-                    longArrayOf(1L, MEL_RING_SIZE.toLong(), MEL_BINS.toLong(), 1L),
-                ).use { embedIn ->
-                    embedSession.run(mapOf(embedInputName to embedIn)).use { embedOut ->
-                        val t = embedOut[embedOutputName].get() as OnnxTensor
-                        // Output shape [1,1,1,96] — innermost array is FloatArray(96).
-                        (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)[0] as FloatArray
-                    }
-                }
+                val embedding: FloatArray = computeEmbedding(
+                    env, embedSession, embedInputName, embedOutputName, embedInput4D,
+                )
 
                 // Accumulate embedding in ring buffer.
                 embeddingRing.append(embedding)
@@ -758,16 +946,9 @@ class OnnxWakeWordDetector @Inject constructor(
                 embeddingRing.copyWindow(windowFlat)
 
                 diagnostics?.recordStage3Execution()
-                val confidence: Float = OnnxTensor.createTensor(
-                    env,
-                    FloatBuffer.wrap(windowFlat),
-                    longArrayOf(1L, EMBEDDING_FRAMES.toLong(), EMBEDDING_DIM.toLong()),
-                ).use { classIn ->
-                    classSession.run(mapOf(classInputName to classIn)).use { classOut ->
-                        val t = classOut[classOutputName].get() as OnnxTensor
-                        ((t.value as Array<*>)[0] as FloatArray)[0]
-                    }
-                }
+                val confidence: Float = computeClassifierConfidence(
+                    env, classSession, classInputName, classOutputName, windowFlat,
+                )
                 // Stage 3 count is retained in low-frequency diagnostics; avoid per-second logs.
                 gateExitDiag?.onStage3Evaluation(confidence, chunkCount)
 
