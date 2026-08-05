@@ -343,7 +343,7 @@ class WakeWordFeaturePipelineParityTest {
         val expected = mapOf(
             "melspectrogram.onnx" to "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
             "embedding_model.onnx" to "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
-            "hey_jandal.onnx" to "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
+            "hey_jandal.onnx" to "3a920e291662d4b58e10432b5c7f686f00073c45972763d55552200b97f9c4a8",
         )
         for ((name, hash) in expected) {
             val bytes = checkNotNull(javaClass.getResourceAsStream("/models/wakeword/$name"))

@@ -126,6 +126,17 @@ class WakeWordClassifierModelTest {
     }
 
     @Test
+    fun `full phrase onset band reaches the activation band`() {
+        // #1444 robustness regression: the retrained classifier fires across
+        // the whole onset band [2:18]-[5:21] (the #1432 S21 captures land at
+        // any of these alignments; the committed model's band was narrower).
+        for (i in 2..5) {
+            val w = flatten(fixture.subList(i, i + 16))
+            assertTrue(score(w) >= highThreshold, "fs[$i:${i + 16}] below high (${score(w)})")
+        }
+    }
+
+    @Test
     fun `real classifier keeps silence below the low threshold`() {
         assertTrue(score(flatten(silence.subList(0, 16))) < lowThreshold)
     }
@@ -290,7 +301,7 @@ class WakeWordClassifierModelTest {
         val sha = java.security.MessageDigest.getInstance("SHA-256")
             .digest(bytes).joinToString("") { "%02x".format(it) }
         assertEquals(
-            "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
+            "3a920e291662d4b58e10432b5c7f686f00073c45972763d55552200b97f9c4a8",
             sha,
         )
     }

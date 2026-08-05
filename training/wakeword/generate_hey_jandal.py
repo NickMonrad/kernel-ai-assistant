@@ -110,10 +110,19 @@ def augment(wav: np.ndarray, sr: int, rng: random.Random) -> np.ndarray:
     noise = np.random.normal(0, np.sqrt(noise_power), wav_aug.shape).astype(np.float32)
     wav_aug = wav_aug + noise
 
-    # Normalise to peak 0.9
+    # Sub-frame phase jitter (issue #1444): shift the clip by a random
+    # 0..(frame-1) sample offset so the phrase crosses the 1280-sample mel
+    # chunk grid at every sub-frame phase (see generate_tts_clips.py).
+    phase = rng.randrange(0, 1280)
+    if phase:
+        wav_aug = np.concatenate([np.zeros(phase, dtype=np.float32), wav_aug[:-phase]])
+
+    # Moderate amplitude variation spanning the measured S21 capture range
+    # (issue #1444): peaks 0.03–0.51 of full scale in the #1432 captures;
+    # previously normalised to a fixed 0.9 peak.
     peak = np.abs(wav_aug).max()
     if peak > 0:
-        wav_aug = wav_aug / peak * 0.9
+        wav_aug = wav_aug / peak * rng.uniform(0.05, 0.95)
 
     return wav_aug.astype(np.float32)
 
