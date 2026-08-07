@@ -1,0 +1,44 @@
+{
+  "lowestSequence": 209,
+  "highestSequence": 464,
+  "overflowed": true,
+  "events": [
+    {
+      "s": 461,
+      "m": 2803428936,
+      "w": 1786087830134,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 462,
+      "m": 2803428944,
+      "w": 1786087830142,
+      "t": "STAGE2_RESUMED",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 463,
+      "m": 2803428976,
+      "w": 1786087830174,
+      "t": "STAGE3_READY",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 464,
+      "m": 2803434695,
+      "w": 1786087835893,
+      "t": "SILENCE_GATE_ENTERED",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 460
+}

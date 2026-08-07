@@ -1,0 +1,164 @@
+{
+  "lowestSequence": 1191,
+  "highestSequence": 1446,
+  "overflowed": true,
+  "events": [
+    {
+      "s": 1432,
+      "m": 429803632,
+      "w": 1786143001493,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 7,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 1433,
+      "m": 429803634,
+      "w": 1786143001496,
+      "t": "STAGE2_RESUMED",
+      "g": 7,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 1434,
+      "m": 429803655,
+      "w": 1786143001516,
+      "t": "STAGE3_READY",
+      "g": 7,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 1435,
+      "m": 429804385,
+      "w": 1786143002246,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 7,
+      "i": 0,
+      "d": {
+        "confidence": "0.8895986",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 1436,
+      "m": 429804388,
+      "w": 1786143002250,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 7,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 1437,
+      "m": 429804388,
+      "w": 1786143002250,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 7,
+      "i": 7,
+      "d": {}
+    },
+    {
+      "s": 1438,
+      "m": 429804550,
+      "w": 1786143002411,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 7,
+      "i": 7,
+      "d": {}
+    },
+    {
+      "s": 1439,
+      "m": 429804570,
+      "w": 1786143002431,
+      "t": "STT_START_REQUESTED",
+      "g": 7,
+      "i": 7,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 1440,
+      "m": 429804698,
+      "w": 1786143002559,
+      "t": "STT_READY",
+      "g": 7,
+      "i": 7,
+      "d": {}
+    },
+    {
+      "s": 1441,
+      "m": 429804698,
+      "w": 1786143002559,
+      "t": "CUE_REQUESTED",
+      "g": 7,
+      "i": 7,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 1442,
+      "m": 429804726,
+      "w": 1786143002587,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 7,
+      "i": 7,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "11",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 1443,
+      "m": 429815150,
+      "w": 1786143013011,
+      "t": "STT_ERROR",
+      "g": 7,
+      "i": 7,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 1444,
+      "m": 429815163,
+      "w": 1786143013024,
+      "t": "SESSION_CANCELLED",
+      "g": 7,
+      "i": 7,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 1445,
+      "m": 429815174,
+      "w": 1786143013036,
+      "t": "DETECTOR_REARMED",
+      "g": 8,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 1446,
+      "m": 429815287,
+      "w": 1786143013148,
+      "t": "DETECTOR_GENERATION_STARTED",
+      "g": 8,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 1431
+}

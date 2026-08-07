@@ -1,0 +1,5459 @@
+{
+  "schema_version": "1.1",
+  "source": "on_device",
+  "suite": "wake_word_acoustic_reliability",
+  "timestamp": "2026-08-07T23:25:33+00:00",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "evidence/1410-release-v1.0-2026-08-07",
+  "commit": "fc04ffe35b0a9936549c58242e5e7f914631ccdc",
+  "pr": null,
+  "release": null,
+  "run_id": "regression_post_fix-2026-08-07T21-36-15Z-97f2d605",
+  "device": {
+    "id": "s23-ultra",
+    "serial": null,
+    "label": "S23 Ultra",
+    "manufacturer": "Samsung",
+    "model": "SM-S918B",
+    "soc": "Snapdragon 8 Gen 2",
+    "tier": "reference",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "wake_word",
+    "runtime": "ONNX",
+    "backend": null
+  },
+  "summary": {
+    "total": 8,
+    "total_attempts": 8,
+    "valid": 8,
+    "passed": 7,
+    "failed": 1,
+    "invalid": 0,
+    "pass_rate": 0.875
+  },
+  "cases": [
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001",
+      "required_position_id": "120:wake_only:1",
+      "matrix_slot": {
+        "idle_s": 120,
+        "trial_type": "wake_only",
+        "ordinal": 1
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 120,
+      "trial_type": "wake_only",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786138704549,
+        "request_monotonic_ms": 2854304378,
+        "prepare_monotonic_ms": 2854304425,
+        "playback_start_monotonic_ms": 2854304427,
+        "completion_monotonic_ms": 2854306633,
+        "cleanup_monotonic_ms": 2854306681,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1017,
+        "boundary_generation": 2,
+        "generation_id": 2,
+        "session_id": 2,
+        "events": [
+          {
+            "s": 1018,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 2,
+            "i": 0,
+            "m": 425425290,
+            "w": 1786138623152,
+            "d": {}
+          },
+          {
+            "s": 1019,
+            "t": "STAGE2_RESUMED",
+            "g": 2,
+            "i": 0,
+            "m": 425425294,
+            "w": 1786138623156,
+            "d": {}
+          },
+          {
+            "s": 1020,
+            "t": "STAGE3_READY",
+            "g": 2,
+            "i": 0,
+            "m": 425425330,
+            "w": 1786138623192,
+            "d": {}
+          },
+          {
+            "s": 1021,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 2,
+            "i": 0,
+            "m": 425449613,
+            "w": 1786138647474,
+            "d": {}
+          },
+          {
+            "s": 1022,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 2,
+            "i": 0,
+            "m": 425461851,
+            "w": 1786138659713,
+            "d": {}
+          },
+          {
+            "s": 1023,
+            "t": "STAGE2_RESUMED",
+            "g": 2,
+            "i": 0,
+            "m": 425461855,
+            "w": 1786138659716,
+            "d": {}
+          },
+          {
+            "s": 1024,
+            "t": "STAGE3_READY",
+            "g": 2,
+            "i": 0,
+            "m": 425461887,
+            "w": 1786138659748,
+            "d": {}
+          },
+          {
+            "s": 1025,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 2,
+            "i": 0,
+            "m": 425487771,
+            "w": 1786138685633,
+            "d": {}
+          },
+          {
+            "s": 1026,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 2,
+            "i": 0,
+            "m": 425488010,
+            "w": 1786138685872,
+            "d": {}
+          },
+          {
+            "s": 1027,
+            "t": "STAGE2_RESUMED",
+            "g": 2,
+            "i": 0,
+            "m": 425488014,
+            "w": 1786138685875,
+            "d": {}
+          },
+          {
+            "s": 1028,
+            "t": "STAGE3_READY",
+            "g": 2,
+            "i": 0,
+            "m": 425488045,
+            "w": 1786138685907,
+            "d": {}
+          },
+          {
+            "s": 1029,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 2,
+            "i": 0,
+            "m": 425504412,
+            "w": 1786138702274,
+            "d": {}
+          },
+          {
+            "s": 1030,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 2,
+            "i": 0,
+            "m": 425508248,
+            "w": 1786138706110,
+            "d": {}
+          },
+          {
+            "s": 1031,
+            "t": "STAGE2_RESUMED",
+            "g": 2,
+            "i": 0,
+            "m": 425508249,
+            "w": 1786138706111,
+            "d": {}
+          },
+          {
+            "s": 1032,
+            "t": "STAGE3_READY",
+            "g": 2,
+            "i": 0,
+            "m": 425508265,
+            "w": 1786138706126,
+            "d": {}
+          },
+          {
+            "s": 1033,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 2,
+            "i": 0,
+            "m": 425508927,
+            "w": 1786138706789,
+            "d": {
+              "confidence": "0.8322724",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1034,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 2,
+            "i": 0,
+            "m": 425508928,
+            "w": 1786138706789,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1035,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 2,
+            "i": 2,
+            "m": 425508928,
+            "w": 1786138706789,
+            "d": {}
+          },
+          {
+            "s": 1036,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 2,
+            "i": 2,
+            "m": 425508998,
+            "w": 1786138706860,
+            "d": {}
+          },
+          {
+            "s": 1037,
+            "t": "STT_START_REQUESTED",
+            "g": 2,
+            "i": 2,
+            "m": 425509000,
+            "w": 1786138706861,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1038,
+            "t": "STT_READY",
+            "g": 2,
+            "i": 2,
+            "m": 425509184,
+            "w": 1786138707046,
+            "d": {}
+          },
+          {
+            "s": 1039,
+            "t": "CUE_REQUESTED",
+            "g": 2,
+            "i": 2,
+            "m": 425509184,
+            "w": 1786138707046,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1048,
+            "t": "SESSION_COMPLETED",
+            "g": 2,
+            "i": 2,
+            "m": 425520996,
+            "w": 1786138718858,
+            "d": {}
+          },
+          {
+            "s": 1049,
+            "t": "DETECTOR_REARMED",
+            "g": 3,
+            "i": 0,
+            "m": 425521000,
+            "w": 1786138718861,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425384,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425524,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/target/final-snapshot.json"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002",
+      "required_position_id": "120:wake_only:2",
+      "matrix_slot": {
+        "idle_s": 120,
+        "trial_type": "wake_only",
+        "ordinal": 2
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 120,
+      "trial_type": "wake_only",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786138846722,
+        "request_monotonic_ms": 2854446552,
+        "prepare_monotonic_ms": 2854446604,
+        "playback_start_monotonic_ms": 2854446609,
+        "completion_monotonic_ms": 2854448786,
+        "cleanup_monotonic_ms": 2854448839,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1051,
+        "boundary_generation": 3,
+        "generation_id": 3,
+        "session_id": 3,
+        "events": [
+          {
+            "s": 1052,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425530554,
+            "w": 1786138728415,
+            "d": {}
+          },
+          {
+            "s": 1053,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425543914,
+            "w": 1786138741775,
+            "d": {}
+          },
+          {
+            "s": 1054,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425543918,
+            "w": 1786138741779,
+            "d": {}
+          },
+          {
+            "s": 1055,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425543941,
+            "w": 1786138741803,
+            "d": {}
+          },
+          {
+            "s": 1056,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425558393,
+            "w": 1786138756255,
+            "d": {}
+          },
+          {
+            "s": 1057,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425562713,
+            "w": 1786138760575,
+            "d": {}
+          },
+          {
+            "s": 1058,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425562717,
+            "w": 1786138760578,
+            "d": {}
+          },
+          {
+            "s": 1059,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425562737,
+            "w": 1786138760598,
+            "d": {}
+          },
+          {
+            "s": 1060,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425567995,
+            "w": 1786138765856,
+            "d": {}
+          },
+          {
+            "s": 1061,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425583192,
+            "w": 1786138781054,
+            "d": {}
+          },
+          {
+            "s": 1062,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425583196,
+            "w": 1786138781058,
+            "d": {}
+          },
+          {
+            "s": 1063,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425583220,
+            "w": 1786138781081,
+            "d": {}
+          },
+          {
+            "s": 1064,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425588476,
+            "w": 1786138786338,
+            "d": {}
+          },
+          {
+            "s": 1065,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425594712,
+            "w": 1786138792573,
+            "d": {}
+          },
+          {
+            "s": 1066,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425594713,
+            "w": 1786138792574,
+            "d": {}
+          },
+          {
+            "s": 1067,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425594726,
+            "w": 1786138792588,
+            "d": {}
+          },
+          {
+            "s": 1068,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425624714,
+            "w": 1786138822576,
+            "d": {}
+          },
+          {
+            "s": 1069,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425631593,
+            "w": 1786138829455,
+            "d": {}
+          },
+          {
+            "s": 1070,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425631597,
+            "w": 1786138829459,
+            "d": {}
+          },
+          {
+            "s": 1071,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425631619,
+            "w": 1786138829481,
+            "d": {}
+          },
+          {
+            "s": 1072,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 3,
+            "i": 0,
+            "m": 425648477,
+            "w": 1786138846338,
+            "d": {}
+          },
+          {
+            "s": 1073,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 3,
+            "i": 0,
+            "m": 425650394,
+            "w": 1786138848255,
+            "d": {}
+          },
+          {
+            "s": 1074,
+            "t": "STAGE2_RESUMED",
+            "g": 3,
+            "i": 0,
+            "m": 425650397,
+            "w": 1786138848258,
+            "d": {}
+          },
+          {
+            "s": 1075,
+            "t": "STAGE3_READY",
+            "g": 3,
+            "i": 0,
+            "m": 425650420,
+            "w": 1786138848282,
+            "d": {}
+          },
+          {
+            "s": 1076,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 3,
+            "i": 0,
+            "m": 425651142,
+            "w": 1786138849003,
+            "d": {
+              "confidence": "0.8704122",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1077,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 3,
+            "i": 0,
+            "m": 425651142,
+            "w": 1786138849003,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1078,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 3,
+            "i": 3,
+            "m": 425651142,
+            "w": 1786138849004,
+            "d": {}
+          },
+          {
+            "s": 1079,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 3,
+            "i": 3,
+            "m": 425651353,
+            "w": 1786138849215,
+            "d": {}
+          },
+          {
+            "s": 1080,
+            "t": "STT_START_REQUESTED",
+            "g": 3,
+            "i": 3,
+            "m": 425651354,
+            "w": 1786138849216,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1081,
+            "t": "STT_READY",
+            "g": 3,
+            "i": 3,
+            "m": 425651506,
+            "w": 1786138849368,
+            "d": {}
+          },
+          {
+            "s": 1082,
+            "t": "CUE_REQUESTED",
+            "g": 3,
+            "i": 3,
+            "m": 425651506,
+            "w": 1786138849368,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1092,
+            "t": "SESSION_CANCELLED",
+            "g": 3,
+            "i": 3,
+            "m": 425671724,
+            "w": 1786138869585,
+            "d": {
+              "category": "stt_recognition_failed"
+            }
+          },
+          {
+            "s": 1093,
+            "t": "DETECTOR_REARMED",
+            "g": 4,
+            "i": 0,
+            "m": 425671749,
+            "w": 1786138869610,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425526,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425675,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/target/final-snapshot.json"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003",
+      "required_position_id": "120:wake_only:3",
+      "matrix_slot": {
+        "idle_s": 120,
+        "trial_type": "wake_only",
+        "ordinal": 3
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 120,
+      "trial_type": "wake_only",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786138997571,
+        "request_monotonic_ms": 2854597401,
+        "prepare_monotonic_ms": 2854597460,
+        "playback_start_monotonic_ms": 2854597464,
+        "completion_monotonic_ms": 2854599674,
+        "cleanup_monotonic_ms": 2854599695,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1096,
+        "boundary_generation": 4,
+        "generation_id": 4,
+        "session_id": 4,
+        "events": [
+          {
+            "s": 1097,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 4,
+            "i": 0,
+            "m": 425685397,
+            "w": 1786138883259,
+            "d": {}
+          },
+          {
+            "s": 1098,
+            "t": "STAGE2_RESUMED",
+            "g": 4,
+            "i": 0,
+            "m": 425685400,
+            "w": 1786138883262,
+            "d": {}
+          },
+          {
+            "s": 1099,
+            "t": "STAGE3_READY",
+            "g": 4,
+            "i": 0,
+            "m": 425685426,
+            "w": 1786138883287,
+            "d": {}
+          },
+          {
+            "s": 1100,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 4,
+            "i": 0,
+            "m": 425693480,
+            "w": 1786138891341,
+            "d": {}
+          },
+          {
+            "s": 1101,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 4,
+            "i": 0,
+            "m": 425712277,
+            "w": 1786138910139,
+            "d": {}
+          },
+          {
+            "s": 1102,
+            "t": "STAGE2_RESUMED",
+            "g": 4,
+            "i": 0,
+            "m": 425712281,
+            "w": 1786138910142,
+            "d": {}
+          },
+          {
+            "s": 1103,
+            "t": "STAGE3_READY",
+            "g": 4,
+            "i": 0,
+            "m": 425712306,
+            "w": 1786138910168,
+            "d": {}
+          },
+          {
+            "s": 1104,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 4,
+            "i": 0,
+            "m": 425718201,
+            "w": 1786138916062,
+            "d": {}
+          },
+          {
+            "s": 1105,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 4,
+            "i": 0,
+            "m": 425752371,
+            "w": 1786138950232,
+            "d": {}
+          },
+          {
+            "s": 1106,
+            "t": "STAGE2_RESUMED",
+            "g": 4,
+            "i": 0,
+            "m": 425752387,
+            "w": 1786138950248,
+            "d": {}
+          },
+          {
+            "s": 1107,
+            "t": "STAGE3_READY",
+            "g": 4,
+            "i": 0,
+            "m": 425752415,
+            "w": 1786138950277,
+            "d": {}
+          },
+          {
+            "s": 1108,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 4,
+            "i": 0,
+            "m": 425760440,
+            "w": 1786138958301,
+            "d": {}
+          },
+          {
+            "s": 1109,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 4,
+            "i": 0,
+            "m": 425766196,
+            "w": 1786138964058,
+            "d": {}
+          },
+          {
+            "s": 1110,
+            "t": "STAGE2_RESUMED",
+            "g": 4,
+            "i": 0,
+            "m": 425766199,
+            "w": 1786138964061,
+            "d": {}
+          },
+          {
+            "s": 1111,
+            "t": "STAGE3_READY",
+            "g": 4,
+            "i": 0,
+            "m": 425766225,
+            "w": 1786138964087,
+            "d": {}
+          },
+          {
+            "s": 1112,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 4,
+            "i": 0,
+            "m": 425784599,
+            "w": 1786138982460,
+            "d": {}
+          },
+          {
+            "s": 1113,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 4,
+            "i": 0,
+            "m": 425798357,
+            "w": 1786138996218,
+            "d": {}
+          },
+          {
+            "s": 1114,
+            "t": "STAGE2_RESUMED",
+            "g": 4,
+            "i": 0,
+            "m": 425798360,
+            "w": 1786138996222,
+            "d": {}
+          },
+          {
+            "s": 1115,
+            "t": "STAGE3_READY",
+            "g": 4,
+            "i": 0,
+            "m": 425798385,
+            "w": 1786138996247,
+            "d": {}
+          },
+          {
+            "s": 1116,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 4,
+            "i": 0,
+            "m": 425801987,
+            "w": 1786138999849,
+            "d": {
+              "confidence": "0.8669126",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1117,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 4,
+            "i": 0,
+            "m": 425801989,
+            "w": 1786138999850,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1118,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 4,
+            "i": 4,
+            "m": 425801989,
+            "w": 1786138999851,
+            "d": {}
+          },
+          {
+            "s": 1119,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 4,
+            "i": 4,
+            "m": 425802308,
+            "w": 1786139000170,
+            "d": {}
+          },
+          {
+            "s": 1120,
+            "t": "STT_START_REQUESTED",
+            "g": 4,
+            "i": 4,
+            "m": 425802327,
+            "w": 1786139000188,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1121,
+            "t": "STT_READY",
+            "g": 4,
+            "i": 4,
+            "m": 425802518,
+            "w": 1786139000379,
+            "d": {}
+          },
+          {
+            "s": 1122,
+            "t": "CUE_REQUESTED",
+            "g": 4,
+            "i": 4,
+            "m": 425802518,
+            "w": 1786139000379,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1132,
+            "t": "SESSION_CANCELLED",
+            "g": 4,
+            "i": 4,
+            "m": 425817726,
+            "w": 1786139015588,
+            "d": {
+              "category": "stt_recognition_failed"
+            }
+          },
+          {
+            "s": 1133,
+            "t": "DETECTOR_REARMED",
+            "g": 5,
+            "i": 0,
+            "m": 425817748,
+            "w": 1786139015609,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425677,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425821,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/target/final-snapshot.json"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004",
+      "required_position_id": "120:wake_plus_command:1",
+      "matrix_slot": {
+        "idle_s": 120,
+        "trial_type": "wake_plus_command",
+        "ordinal": 1
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 120,
+      "trial_type": "wake_plus_command",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786139143564,
+        "request_monotonic_ms": 2854743393,
+        "prepare_monotonic_ms": 2854743463,
+        "playback_start_monotonic_ms": 2854743467,
+        "completion_monotonic_ms": 2854745705,
+        "cleanup_monotonic_ms": 2854745753,
+        "clock_domain": "source_device_elapsed_realtime",
+        "command": {
+          "request_wall_clock_ms": 1786139156069,
+          "request_monotonic_ms": 2854755898,
+          "playback_start_monotonic_ms": 2854755971,
+          "completion_monotonic_ms": 2854757689,
+          "playback_start_wall_clock_ms": 1786139156142
+        }
+      },
+      "target_timing": {
+        "boundary_sequence": 1136,
+        "boundary_generation": 5,
+        "pre_dispatch_terminal_sequence": null,
+        "generation_id": 5,
+        "session_id": 5,
+        "events": [
+          {
+            "s": 1137,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425827574,
+            "w": 1786139025436,
+            "d": {}
+          },
+          {
+            "s": 1138,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425827579,
+            "w": 1786139025441,
+            "d": {}
+          },
+          {
+            "s": 1139,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425827603,
+            "w": 1786139025465,
+            "d": {}
+          },
+          {
+            "s": 1140,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425843736,
+            "w": 1786139041598,
+            "d": {}
+          },
+          {
+            "s": 1141,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425844454,
+            "w": 1786139042316,
+            "d": {}
+          },
+          {
+            "s": 1142,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425844458,
+            "w": 1786139042319,
+            "d": {}
+          },
+          {
+            "s": 1143,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425844482,
+            "w": 1786139042344,
+            "d": {}
+          },
+          {
+            "s": 1144,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425849736,
+            "w": 1786139047598,
+            "d": {}
+          },
+          {
+            "s": 1145,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425850216,
+            "w": 1786139048078,
+            "d": {}
+          },
+          {
+            "s": 1146,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425850220,
+            "w": 1786139048081,
+            "d": {}
+          },
+          {
+            "s": 1147,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425850247,
+            "w": 1786139048108,
+            "d": {}
+          },
+          {
+            "s": 1148,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425856619,
+            "w": 1786139054480,
+            "d": {}
+          },
+          {
+            "s": 1149,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425867656,
+            "w": 1786139065517,
+            "d": {}
+          },
+          {
+            "s": 1150,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425867658,
+            "w": 1786139065520,
+            "d": {}
+          },
+          {
+            "s": 1151,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425867682,
+            "w": 1786139065544,
+            "d": {}
+          },
+          {
+            "s": 1152,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425873018,
+            "w": 1786139070880,
+            "d": {}
+          },
+          {
+            "s": 1153,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425873813,
+            "w": 1786139071675,
+            "d": {}
+          },
+          {
+            "s": 1154,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425873817,
+            "w": 1786139071678,
+            "d": {}
+          },
+          {
+            "s": 1155,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425873842,
+            "w": 1786139071704,
+            "d": {}
+          },
+          {
+            "s": 1156,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425886057,
+            "w": 1786139083919,
+            "d": {}
+          },
+          {
+            "s": 1157,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425894774,
+            "w": 1786139092636,
+            "d": {}
+          },
+          {
+            "s": 1158,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425894779,
+            "w": 1786139092640,
+            "d": {}
+          },
+          {
+            "s": 1159,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425894803,
+            "w": 1786139092665,
+            "d": {}
+          },
+          {
+            "s": 1160,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425908057,
+            "w": 1786139105919,
+            "d": {}
+          },
+          {
+            "s": 1161,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425910373,
+            "w": 1786139108235,
+            "d": {}
+          },
+          {
+            "s": 1162,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425910377,
+            "w": 1786139108238,
+            "d": {}
+          },
+          {
+            "s": 1163,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425910403,
+            "w": 1786139108264,
+            "d": {}
+          },
+          {
+            "s": 1164,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425915662,
+            "w": 1786139113524,
+            "d": {}
+          },
+          {
+            "s": 1165,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425921014,
+            "w": 1786139118876,
+            "d": {}
+          },
+          {
+            "s": 1166,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425921020,
+            "w": 1786139118881,
+            "d": {}
+          },
+          {
+            "s": 1167,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425921047,
+            "w": 1786139118909,
+            "d": {}
+          },
+          {
+            "s": 1168,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 5,
+            "i": 0,
+            "m": 425938059,
+            "w": 1786139135920,
+            "d": {}
+          },
+          {
+            "s": 1169,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 5,
+            "i": 0,
+            "m": 425938618,
+            "w": 1786139136480,
+            "d": {}
+          },
+          {
+            "s": 1170,
+            "t": "STAGE2_RESUMED",
+            "g": 5,
+            "i": 0,
+            "m": 425938623,
+            "w": 1786139136485,
+            "d": {}
+          },
+          {
+            "s": 1171,
+            "t": "STAGE3_READY",
+            "g": 5,
+            "i": 0,
+            "m": 425938648,
+            "w": 1786139136510,
+            "d": {}
+          },
+          {
+            "s": 1172,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 5,
+            "i": 0,
+            "m": 425948001,
+            "w": 1786139145863,
+            "d": {
+              "confidence": "0.5894541",
+              "mode": "low"
+            }
+          },
+          {
+            "s": 1173,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 5,
+            "i": 0,
+            "m": 425948838,
+            "w": 1786139146700,
+            "d": {
+              "confidence": "0.887621",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1174,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 5,
+            "i": 0,
+            "m": 425948838,
+            "w": 1786139146700,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1175,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 5,
+            "i": 5,
+            "m": 425948839,
+            "w": 1786139146700,
+            "d": {}
+          },
+          {
+            "s": 1176,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 5,
+            "i": 5,
+            "m": 425948901,
+            "w": 1786139146762,
+            "d": {}
+          },
+          {
+            "s": 1177,
+            "t": "STT_START_REQUESTED",
+            "g": 5,
+            "i": 5,
+            "m": 425948902,
+            "w": 1786139146763,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1178,
+            "t": "STT_READY",
+            "g": 5,
+            "i": 5,
+            "m": 425949032,
+            "w": 1786139146894,
+            "d": {}
+          },
+          {
+            "s": 1179,
+            "t": "CUE_REQUESTED",
+            "g": 5,
+            "i": 5,
+            "m": 425949032,
+            "w": 1786139146894,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1181,
+            "t": "STT_SPEECH_DETECTED",
+            "g": 5,
+            "i": 5,
+            "m": 425949838,
+            "w": 1786139147699,
+            "d": {}
+          },
+          {
+            "s": 1196,
+            "t": "STT_FINAL",
+            "g": 5,
+            "i": 5,
+            "m": 425960841,
+            "w": 1786139158702,
+            "d": {
+              "length": "15",
+              "normalized_transcript_sha256": "cbe649f8e0039474b8f9860b9c39e740883affb4f1c0ac850404572172a08a9a"
+            }
+          },
+          {
+            "s": 1197,
+            "t": "COMMAND_ROUTING_RESULT",
+            "g": 5,
+            "i": 5,
+            "m": 425960908,
+            "w": 1786139158770,
+            "d": {
+              "outcome": "handed_off"
+            }
+          },
+          {
+            "s": 1198,
+            "t": "SESSION_COMPLETED",
+            "g": 5,
+            "i": 5,
+            "m": 425960908,
+            "w": 1786139158770,
+            "d": {}
+          },
+          {
+            "s": 1199,
+            "t": "DETECTOR_REARMED",
+            "g": 6,
+            "i": 0,
+            "m": 425960920,
+            "w": 1786139158781,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425823,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425966,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004-cmd/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/target/final-snapshot.json"
+      ],
+      "command_fixture": {
+        "id": "qwen_command",
+        "sha256": "9acaa2ef5eabcb2f8a131624f91eee44537daf7ef61cc5c73718bae42f005c02"
+      },
+      "command_source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      }
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005",
+      "required_position_id": "120:wake_plus_command:2",
+      "matrix_slot": {
+        "idle_s": 120,
+        "trial_type": "wake_plus_command",
+        "ordinal": 2
+      },
+      "passed": false,
+      "status": "failed",
+      "idle_seconds": 120,
+      "trial_type": "wake_plus_command",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786139288514,
+        "request_monotonic_ms": 2854888344,
+        "prepare_monotonic_ms": 2854888396,
+        "playback_start_monotonic_ms": 2854888399,
+        "completion_monotonic_ms": 2854890604,
+        "cleanup_monotonic_ms": 2854890641,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1202,
+        "boundary_generation": 6,
+        "generation_id": 6,
+        "events": [
+          {
+            "s": 1203,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 425972775,
+            "w": 1786139170637,
+            "d": {}
+          },
+          {
+            "s": 1204,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 425972780,
+            "w": 1786139170641,
+            "d": {}
+          },
+          {
+            "s": 1205,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 425972804,
+            "w": 1786139170666,
+            "d": {}
+          },
+          {
+            "s": 1206,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 425978058,
+            "w": 1786139175919,
+            "d": {}
+          },
+          {
+            "s": 1207,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 425997896,
+            "w": 1786139195757,
+            "d": {}
+          },
+          {
+            "s": 1208,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 425997899,
+            "w": 1786139195760,
+            "d": {}
+          },
+          {
+            "s": 1209,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 425997923,
+            "w": 1786139195785,
+            "d": {}
+          },
+          {
+            "s": 1210,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426012939,
+            "w": 1786139210800,
+            "d": {}
+          },
+          {
+            "s": 1211,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426035093,
+            "w": 1786139232955,
+            "d": {}
+          },
+          {
+            "s": 1212,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426035094,
+            "w": 1786139232956,
+            "d": {}
+          },
+          {
+            "s": 1213,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426035097,
+            "w": 1786139232959,
+            "d": {}
+          },
+          {
+            "s": 1214,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426042616,
+            "w": 1786139240477,
+            "d": {}
+          },
+          {
+            "s": 1215,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426060294,
+            "w": 1786139258155,
+            "d": {}
+          },
+          {
+            "s": 1216,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426060296,
+            "w": 1786139258157,
+            "d": {}
+          },
+          {
+            "s": 1217,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426060309,
+            "w": 1786139258171,
+            "d": {}
+          },
+          {
+            "s": 1218,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426065736,
+            "w": 1786139263598,
+            "d": {}
+          },
+          {
+            "s": 1219,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426067175,
+            "w": 1786139265037,
+            "d": {}
+          },
+          {
+            "s": 1220,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426067177,
+            "w": 1786139265039,
+            "d": {}
+          },
+          {
+            "s": 1221,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426067199,
+            "w": 1786139265061,
+            "d": {}
+          },
+          {
+            "s": 1222,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426137658,
+            "w": 1786139335520,
+            "d": {}
+          },
+          {
+            "s": 1223,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426152057,
+            "w": 1786139349919,
+            "d": {}
+          },
+          {
+            "s": 1224,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426152061,
+            "w": 1786139349922,
+            "d": {}
+          },
+          {
+            "s": 1225,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426152090,
+            "w": 1786139349952,
+            "d": {}
+          },
+          {
+            "s": 1226,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426160777,
+            "w": 1786139358639,
+            "d": {}
+          },
+          {
+            "s": 1227,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426162616,
+            "w": 1786139360478,
+            "d": {}
+          },
+          {
+            "s": 1228,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426162619,
+            "w": 1786139360481,
+            "d": {}
+          },
+          {
+            "s": 1229,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426162656,
+            "w": 1786139360518,
+            "d": {}
+          }
+        ],
+        "correlation_failures": [
+          "missing correlated ACTIVATION_CANDIDATE",
+          "missing correlated VERIFIED_ACTIVATION",
+          "missing correlated WAKE_CALLBACK_INVOKED",
+          "missing correlated VOICE_SESSION_STARTED",
+          "missing correlated session terminal"
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425968,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 426172,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/target/final-snapshot.json"
+      ],
+      "command_fixture": {
+        "id": "qwen_command",
+        "sha256": "9acaa2ef5eabcb2f8a131624f91eee44537daf7ef61cc5c73718bae42f005c02"
+      },
+      "command_source_outcome": {},
+      "failure_classification": "classifier_model_miss",
+      "failures": [
+        "missing correlated ACTIVATION_CANDIDATE",
+        "missing correlated VERIFIED_ACTIVATION",
+        "missing correlated WAKE_CALLBACK_INVOKED",
+        "missing correlated VOICE_SESSION_STARTED",
+        "missing correlated session terminal"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006",
+      "required_position_id": "1800:wake_only:1",
+      "matrix_slot": {
+        "idle_s": 1800,
+        "trial_type": "wake_only",
+        "ordinal": 1
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 1800,
+      "trial_type": "wake_only",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786141175581,
+        "request_monotonic_ms": 2856775410,
+        "prepare_monotonic_ms": 2856775814,
+        "playback_start_monotonic_ms": 2856775838,
+        "completion_monotonic_ms": 2856778169,
+        "cleanup_monotonic_ms": 2856778213,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1229,
+        "boundary_generation": 6,
+        "generation_id": 6,
+        "session_id": 6,
+        "events": [
+          {
+            "s": 1230,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426190938,
+            "w": 1786139388800,
+            "d": {}
+          },
+          {
+            "s": 1231,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426226616,
+            "w": 1786139424477,
+            "d": {}
+          },
+          {
+            "s": 1232,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426226619,
+            "w": 1786139424480,
+            "d": {}
+          },
+          {
+            "s": 1233,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426226642,
+            "w": 1786139424503,
+            "d": {}
+          },
+          {
+            "s": 1234,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426232616,
+            "w": 1786139430478,
+            "d": {}
+          },
+          {
+            "s": 1235,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426235015,
+            "w": 1786139432876,
+            "d": {}
+          },
+          {
+            "s": 1236,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426235019,
+            "w": 1786139432881,
+            "d": {}
+          },
+          {
+            "s": 1237,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426235043,
+            "w": 1786139432904,
+            "d": {}
+          },
+          {
+            "s": 1238,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426260219,
+            "w": 1786139458080,
+            "d": {}
+          },
+          {
+            "s": 1239,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426262297,
+            "w": 1786139460158,
+            "d": {}
+          },
+          {
+            "s": 1240,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426262300,
+            "w": 1786139460161,
+            "d": {}
+          },
+          {
+            "s": 1241,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426262323,
+            "w": 1786139460185,
+            "d": {}
+          },
+          {
+            "s": 1242,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426267577,
+            "w": 1786139465439,
+            "d": {}
+          },
+          {
+            "s": 1243,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426270935,
+            "w": 1786139468796,
+            "d": {}
+          },
+          {
+            "s": 1244,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426270940,
+            "w": 1786139468801,
+            "d": {}
+          },
+          {
+            "s": 1245,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426270964,
+            "w": 1786139468826,
+            "d": {}
+          },
+          {
+            "s": 1246,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426299500,
+            "w": 1786139497362,
+            "d": {}
+          },
+          {
+            "s": 1247,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426305334,
+            "w": 1786139503196,
+            "d": {}
+          },
+          {
+            "s": 1248,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426305337,
+            "w": 1786139503198,
+            "d": {}
+          },
+          {
+            "s": 1249,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426305360,
+            "w": 1786139503221,
+            "d": {}
+          },
+          {
+            "s": 1250,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426310619,
+            "w": 1786139508481,
+            "d": {}
+          },
+          {
+            "s": 1251,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426320215,
+            "w": 1786139518077,
+            "d": {}
+          },
+          {
+            "s": 1252,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426320218,
+            "w": 1786139518080,
+            "d": {}
+          },
+          {
+            "s": 1253,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426320243,
+            "w": 1786139518104,
+            "d": {}
+          },
+          {
+            "s": 1254,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426330618,
+            "w": 1786139528480,
+            "d": {}
+          },
+          {
+            "s": 1255,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426330695,
+            "w": 1786139528557,
+            "d": {}
+          },
+          {
+            "s": 1256,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426330698,
+            "w": 1786139528560,
+            "d": {}
+          },
+          {
+            "s": 1257,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426330722,
+            "w": 1786139528584,
+            "d": {}
+          },
+          {
+            "s": 1258,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426375019,
+            "w": 1786139572881,
+            "d": {}
+          },
+          {
+            "s": 1259,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426386216,
+            "w": 1786139584077,
+            "d": {}
+          },
+          {
+            "s": 1260,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426386218,
+            "w": 1786139584080,
+            "d": {}
+          },
+          {
+            "s": 1261,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426386243,
+            "w": 1786139584104,
+            "d": {}
+          },
+          {
+            "s": 1262,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426391499,
+            "w": 1786139589360,
+            "d": {}
+          },
+          {
+            "s": 1263,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426401334,
+            "w": 1786139599196,
+            "d": {}
+          },
+          {
+            "s": 1264,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426401338,
+            "w": 1786139599200,
+            "d": {}
+          },
+          {
+            "s": 1265,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426401366,
+            "w": 1786139599227,
+            "d": {}
+          },
+          {
+            "s": 1266,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426406617,
+            "w": 1786139604478,
+            "d": {}
+          },
+          {
+            "s": 1267,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426408856,
+            "w": 1786139606717,
+            "d": {}
+          },
+          {
+            "s": 1268,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426408859,
+            "w": 1786139606721,
+            "d": {}
+          },
+          {
+            "s": 1269,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426408887,
+            "w": 1786139606748,
+            "d": {}
+          },
+          {
+            "s": 1270,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426415176,
+            "w": 1786139613037,
+            "d": {}
+          },
+          {
+            "s": 1271,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426437337,
+            "w": 1786139635198,
+            "d": {}
+          },
+          {
+            "s": 1272,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426437340,
+            "w": 1786139635201,
+            "d": {}
+          },
+          {
+            "s": 1273,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426437364,
+            "w": 1786139635225,
+            "d": {}
+          },
+          {
+            "s": 1274,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426469018,
+            "w": 1786139666879,
+            "d": {}
+          },
+          {
+            "s": 1275,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426470053,
+            "w": 1786139667915,
+            "d": {}
+          },
+          {
+            "s": 1276,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426470054,
+            "w": 1786139667916,
+            "d": {}
+          },
+          {
+            "s": 1277,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426470068,
+            "w": 1786139667930,
+            "d": {}
+          },
+          {
+            "s": 1278,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426475500,
+            "w": 1786139673361,
+            "d": {}
+          },
+          {
+            "s": 1279,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426481334,
+            "w": 1786139679196,
+            "d": {}
+          },
+          {
+            "s": 1280,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426481338,
+            "w": 1786139679199,
+            "d": {}
+          },
+          {
+            "s": 1281,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426481364,
+            "w": 1786139679225,
+            "d": {}
+          },
+          {
+            "s": 1282,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426489178,
+            "w": 1786139687039,
+            "d": {}
+          },
+          {
+            "s": 1283,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426496696,
+            "w": 1786139694557,
+            "d": {}
+          },
+          {
+            "s": 1284,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426496699,
+            "w": 1786139694561,
+            "d": {}
+          },
+          {
+            "s": 1285,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426496723,
+            "w": 1786139694585,
+            "d": {}
+          },
+          {
+            "s": 1286,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426506143,
+            "w": 1786139704004,
+            "d": {}
+          },
+          {
+            "s": 1287,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426517656,
+            "w": 1786139715518,
+            "d": {}
+          },
+          {
+            "s": 1288,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426517658,
+            "w": 1786139715520,
+            "d": {}
+          },
+          {
+            "s": 1289,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426517682,
+            "w": 1786139715544,
+            "d": {}
+          },
+          {
+            "s": 1290,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426549027,
+            "w": 1786139746888,
+            "d": {}
+          },
+          {
+            "s": 1291,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426576614,
+            "w": 1786139774475,
+            "d": {}
+          },
+          {
+            "s": 1292,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426576614,
+            "w": 1786139774476,
+            "d": {}
+          },
+          {
+            "s": 1293,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426576619,
+            "w": 1786139774481,
+            "d": {}
+          },
+          {
+            "s": 1294,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426585098,
+            "w": 1786139782959,
+            "d": {}
+          },
+          {
+            "s": 1295,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426589897,
+            "w": 1786139787758,
+            "d": {}
+          },
+          {
+            "s": 1296,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426589900,
+            "w": 1786139787762,
+            "d": {}
+          },
+          {
+            "s": 1297,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426589927,
+            "w": 1786139787788,
+            "d": {}
+          },
+          {
+            "s": 1298,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426598617,
+            "w": 1786139796479,
+            "d": {}
+          },
+          {
+            "s": 1299,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426606540,
+            "w": 1786139804401,
+            "d": {}
+          },
+          {
+            "s": 1300,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426606544,
+            "w": 1786139804406,
+            "d": {}
+          },
+          {
+            "s": 1301,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426606574,
+            "w": 1786139804436,
+            "d": {}
+          },
+          {
+            "s": 1302,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426611817,
+            "w": 1786139809679,
+            "d": {}
+          },
+          {
+            "s": 1303,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426691095,
+            "w": 1786139888957,
+            "d": {}
+          },
+          {
+            "s": 1304,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426691100,
+            "w": 1786139888962,
+            "d": {}
+          },
+          {
+            "s": 1305,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426691123,
+            "w": 1786139888985,
+            "d": {}
+          },
+          {
+            "s": 1306,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426714299,
+            "w": 1786139912161,
+            "d": {}
+          },
+          {
+            "s": 1307,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426735416,
+            "w": 1786139933278,
+            "d": {}
+          },
+          {
+            "s": 1308,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426735422,
+            "w": 1786139933283,
+            "d": {}
+          },
+          {
+            "s": 1309,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426735449,
+            "w": 1786139933310,
+            "d": {}
+          },
+          {
+            "s": 1310,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426748540,
+            "w": 1786139946401,
+            "d": {}
+          },
+          {
+            "s": 1311,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426757253,
+            "w": 1786139955115,
+            "d": {}
+          },
+          {
+            "s": 1312,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426757255,
+            "w": 1786139955117,
+            "d": {}
+          },
+          {
+            "s": 1313,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426757266,
+            "w": 1786139955128,
+            "d": {}
+          },
+          {
+            "s": 1314,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426771099,
+            "w": 1786139968962,
+            "d": {}
+          },
+          {
+            "s": 1315,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426773737,
+            "w": 1786139971598,
+            "d": {}
+          },
+          {
+            "s": 1316,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426773740,
+            "w": 1786139971602,
+            "d": {}
+          },
+          {
+            "s": 1317,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426773767,
+            "w": 1786139971629,
+            "d": {}
+          },
+          {
+            "s": 1318,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426779258,
+            "w": 1786139977120,
+            "d": {}
+          },
+          {
+            "s": 1319,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426793416,
+            "w": 1786139991278,
+            "d": {}
+          },
+          {
+            "s": 1320,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426793421,
+            "w": 1786139991282,
+            "d": {}
+          },
+          {
+            "s": 1321,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426793443,
+            "w": 1786139991305,
+            "d": {}
+          },
+          {
+            "s": 1322,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426802217,
+            "w": 1786140000078,
+            "d": {}
+          },
+          {
+            "s": 1323,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426809175,
+            "w": 1786140007036,
+            "d": {}
+          },
+          {
+            "s": 1324,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426809177,
+            "w": 1786140007038,
+            "d": {}
+          },
+          {
+            "s": 1325,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426809180,
+            "w": 1786140007041,
+            "d": {}
+          },
+          {
+            "s": 1326,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426814455,
+            "w": 1786140012317,
+            "d": {}
+          },
+          {
+            "s": 1327,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426816693,
+            "w": 1786140014555,
+            "d": {}
+          },
+          {
+            "s": 1328,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426816694,
+            "w": 1786140014556,
+            "d": {}
+          },
+          {
+            "s": 1329,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426816697,
+            "w": 1786140014559,
+            "d": {}
+          },
+          {
+            "s": 1330,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426821974,
+            "w": 1786140019836,
+            "d": {}
+          },
+          {
+            "s": 1331,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426822933,
+            "w": 1786140020795,
+            "d": {}
+          },
+          {
+            "s": 1332,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426822934,
+            "w": 1786140020796,
+            "d": {}
+          },
+          {
+            "s": 1333,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426822937,
+            "w": 1786140020799,
+            "d": {}
+          },
+          {
+            "s": 1334,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426828694,
+            "w": 1786140026556,
+            "d": {}
+          },
+          {
+            "s": 1335,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426833254,
+            "w": 1786140031116,
+            "d": {}
+          },
+          {
+            "s": 1336,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426833255,
+            "w": 1786140031117,
+            "d": {}
+          },
+          {
+            "s": 1337,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426833258,
+            "w": 1786140031120,
+            "d": {}
+          },
+          {
+            "s": 1338,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426838535,
+            "w": 1786140036396,
+            "d": {}
+          },
+          {
+            "s": 1339,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426842053,
+            "w": 1786140039915,
+            "d": {}
+          },
+          {
+            "s": 1340,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426842055,
+            "w": 1786140039916,
+            "d": {}
+          },
+          {
+            "s": 1341,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426842058,
+            "w": 1786140039919,
+            "d": {}
+          },
+          {
+            "s": 1342,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426848857,
+            "w": 1786140046719,
+            "d": {}
+          },
+          {
+            "s": 1343,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426864294,
+            "w": 1786140062155,
+            "d": {}
+          },
+          {
+            "s": 1344,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426864296,
+            "w": 1786140062158,
+            "d": {}
+          },
+          {
+            "s": 1345,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426864313,
+            "w": 1786140062174,
+            "d": {}
+          },
+          {
+            "s": 1346,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426883177,
+            "w": 1786140081039,
+            "d": {}
+          },
+          {
+            "s": 1347,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426885337,
+            "w": 1786140083199,
+            "d": {}
+          },
+          {
+            "s": 1348,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426885343,
+            "w": 1786140083204,
+            "d": {}
+          },
+          {
+            "s": 1349,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426885365,
+            "w": 1786140083227,
+            "d": {}
+          },
+          {
+            "s": 1350,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426893578,
+            "w": 1786140091440,
+            "d": {}
+          },
+          {
+            "s": 1351,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426900056,
+            "w": 1786140097918,
+            "d": {}
+          },
+          {
+            "s": 1352,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426900060,
+            "w": 1786140097922,
+            "d": {}
+          },
+          {
+            "s": 1353,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426900088,
+            "w": 1786140097950,
+            "d": {}
+          },
+          {
+            "s": 1354,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426920540,
+            "w": 1786140118401,
+            "d": {}
+          },
+          {
+            "s": 1355,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426921655,
+            "w": 1786140119516,
+            "d": {}
+          },
+          {
+            "s": 1356,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426921659,
+            "w": 1786140119520,
+            "d": {}
+          },
+          {
+            "s": 1357,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426921684,
+            "w": 1786140119546,
+            "d": {}
+          },
+          {
+            "s": 1358,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426927095,
+            "w": 1786140124956,
+            "d": {}
+          },
+          {
+            "s": 1359,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426936455,
+            "w": 1786140134317,
+            "d": {}
+          },
+          {
+            "s": 1360,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426936458,
+            "w": 1786140134319,
+            "d": {}
+          },
+          {
+            "s": 1361,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426936470,
+            "w": 1786140134332,
+            "d": {}
+          },
+          {
+            "s": 1362,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426942217,
+            "w": 1786140140079,
+            "d": {}
+          },
+          {
+            "s": 1363,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426956936,
+            "w": 1786140154798,
+            "d": {}
+          },
+          {
+            "s": 1364,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426956939,
+            "w": 1786140154801,
+            "d": {}
+          },
+          {
+            "s": 1365,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426956964,
+            "w": 1786140154826,
+            "d": {}
+          },
+          {
+            "s": 1366,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426976219,
+            "w": 1786140174081,
+            "d": {}
+          },
+          {
+            "s": 1367,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426979255,
+            "w": 1786140177117,
+            "d": {}
+          },
+          {
+            "s": 1368,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426979258,
+            "w": 1786140177119,
+            "d": {}
+          },
+          {
+            "s": 1369,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426979281,
+            "w": 1786140177142,
+            "d": {}
+          },
+          {
+            "s": 1370,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426984617,
+            "w": 1786140182479,
+            "d": {}
+          },
+          {
+            "s": 1371,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 426988696,
+            "w": 1786140186557,
+            "d": {}
+          },
+          {
+            "s": 1372,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 426988699,
+            "w": 1786140186561,
+            "d": {}
+          },
+          {
+            "s": 1373,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 426988722,
+            "w": 1786140186584,
+            "d": {}
+          },
+          {
+            "s": 1374,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 426995581,
+            "w": 1786140193442,
+            "d": {}
+          },
+          {
+            "s": 1375,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427012374,
+            "w": 1786140210236,
+            "d": {}
+          },
+          {
+            "s": 1376,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427012377,
+            "w": 1786140210239,
+            "d": {}
+          },
+          {
+            "s": 1377,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427012404,
+            "w": 1786140210265,
+            "d": {}
+          },
+          {
+            "s": 1378,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427017739,
+            "w": 1786140215601,
+            "d": {}
+          },
+          {
+            "s": 1379,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427020616,
+            "w": 1786140218477,
+            "d": {}
+          },
+          {
+            "s": 1380,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427020619,
+            "w": 1786140218481,
+            "d": {}
+          },
+          {
+            "s": 1381,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427020646,
+            "w": 1786140218508,
+            "d": {}
+          },
+          {
+            "s": 1382,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427026858,
+            "w": 1786140224720,
+            "d": {}
+          },
+          {
+            "s": 1383,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427039095,
+            "w": 1786140236957,
+            "d": {}
+          },
+          {
+            "s": 1384,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427039098,
+            "w": 1786140236960,
+            "d": {}
+          },
+          {
+            "s": 1385,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427039123,
+            "w": 1786140236984,
+            "d": {}
+          },
+          {
+            "s": 1386,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427044536,
+            "w": 1786140242398,
+            "d": {}
+          },
+          {
+            "s": 1387,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427071734,
+            "w": 1786140269596,
+            "d": {}
+          },
+          {
+            "s": 1388,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427071738,
+            "w": 1786140269599,
+            "d": {}
+          },
+          {
+            "s": 1389,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427071762,
+            "w": 1786140269624,
+            "d": {}
+          },
+          {
+            "s": 1390,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427077019,
+            "w": 1786140274880,
+            "d": {}
+          },
+          {
+            "s": 1391,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427096217,
+            "w": 1786140294079,
+            "d": {}
+          },
+          {
+            "s": 1392,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427096221,
+            "w": 1786140294082,
+            "d": {}
+          },
+          {
+            "s": 1393,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427096243,
+            "w": 1786140294105,
+            "d": {}
+          },
+          {
+            "s": 1394,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427105579,
+            "w": 1786140303440,
+            "d": {}
+          },
+          {
+            "s": 1395,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427110937,
+            "w": 1786140308798,
+            "d": {}
+          },
+          {
+            "s": 1396,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427110942,
+            "w": 1786140308803,
+            "d": {}
+          },
+          {
+            "s": 1397,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427110964,
+            "w": 1786140308826,
+            "d": {}
+          },
+          {
+            "s": 1398,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427121097,
+            "w": 1786140318958,
+            "d": {}
+          },
+          {
+            "s": 1399,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427130296,
+            "w": 1786140328158,
+            "d": {}
+          },
+          {
+            "s": 1400,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427130300,
+            "w": 1786140328162,
+            "d": {}
+          },
+          {
+            "s": 1401,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427130323,
+            "w": 1786140328185,
+            "d": {}
+          },
+          {
+            "s": 1402,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427135657,
+            "w": 1786140333519,
+            "d": {}
+          },
+          {
+            "s": 1403,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427153576,
+            "w": 1786140351437,
+            "d": {}
+          },
+          {
+            "s": 1404,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427153579,
+            "w": 1786140351441,
+            "d": {}
+          },
+          {
+            "s": 1405,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427153603,
+            "w": 1786140351464,
+            "d": {}
+          },
+          {
+            "s": 1406,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427159337,
+            "w": 1786140357199,
+            "d": {}
+          },
+          {
+            "s": 1407,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427227576,
+            "w": 1786140425437,
+            "d": {}
+          },
+          {
+            "s": 1408,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427227580,
+            "w": 1786140425441,
+            "d": {}
+          },
+          {
+            "s": 1409,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427227607,
+            "w": 1786140425469,
+            "d": {}
+          },
+          {
+            "s": 1410,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427239020,
+            "w": 1786140436882,
+            "d": {}
+          },
+          {
+            "s": 1411,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427440376,
+            "w": 1786140638237,
+            "d": {}
+          },
+          {
+            "s": 1412,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427440379,
+            "w": 1786140638240,
+            "d": {}
+          },
+          {
+            "s": 1413,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427440403,
+            "w": 1786140638265,
+            "d": {}
+          },
+          {
+            "s": 1414,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 6,
+            "i": 0,
+            "m": 427445657,
+            "w": 1786140643519,
+            "d": {}
+          },
+          {
+            "s": 1415,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 6,
+            "i": 0,
+            "m": 427979735,
+            "w": 1786141177597,
+            "d": {}
+          },
+          {
+            "s": 1416,
+            "t": "STAGE2_RESUMED",
+            "g": 6,
+            "i": 0,
+            "m": 427979738,
+            "w": 1786141177600,
+            "d": {}
+          },
+          {
+            "s": 1417,
+            "t": "STAGE3_READY",
+            "g": 6,
+            "i": 0,
+            "m": 427979762,
+            "w": 1786141177624,
+            "d": {}
+          },
+          {
+            "s": 1418,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 6,
+            "i": 0,
+            "m": 427980478,
+            "w": 1786141178339,
+            "d": {
+              "confidence": "0.90709674",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1419,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 6,
+            "i": 0,
+            "m": 427980485,
+            "w": 1786141178347,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1420,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 6,
+            "i": 6,
+            "m": 427980488,
+            "w": 1786141178350,
+            "d": {}
+          },
+          {
+            "s": 1421,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 6,
+            "i": 6,
+            "m": 427980868,
+            "w": 1786141178729,
+            "d": {}
+          },
+          {
+            "s": 1422,
+            "t": "STT_START_REQUESTED",
+            "g": 6,
+            "i": 6,
+            "m": 427980878,
+            "w": 1786141178740,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1423,
+            "t": "STT_READY",
+            "g": 6,
+            "i": 6,
+            "m": 427981164,
+            "w": 1786141179026,
+            "d": {}
+          },
+          {
+            "s": 1424,
+            "t": "CUE_REQUESTED",
+            "g": 6,
+            "i": 6,
+            "m": 427981164,
+            "w": 1786141179026,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1427,
+            "t": "SESSION_CANCELLED",
+            "g": 6,
+            "i": 6,
+            "m": 427991623,
+            "w": 1786141189484,
+            "d": {
+              "category": "stt_recognition_failed"
+            }
+          },
+          {
+            "s": 1428,
+            "t": "DETECTOR_REARMED",
+            "g": 7,
+            "i": 0,
+            "m": 427991642,
+            "w": 1786141189503,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 426173,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 427995,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/target/final-snapshot.json"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007",
+      "required_position_id": "1800:wake_only:2",
+      "matrix_slot": {
+        "idle_s": 1800,
+        "trial_type": "wake_only",
+        "ordinal": 2
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 1800,
+      "trial_type": "wake_only",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786142999627,
+        "request_monotonic_ms": 2858599456,
+        "prepare_monotonic_ms": 2858599777,
+        "playback_start_monotonic_ms": 2858599792,
+        "completion_monotonic_ms": 2858602090,
+        "cleanup_monotonic_ms": 2858602165,
+        "clock_domain": "source_device_elapsed_realtime"
+      },
+      "target_timing": {
+        "boundary_sequence": 1431,
+        "boundary_generation": 7,
+        "generation_id": 7,
+        "session_id": 7,
+        "events": [
+          {
+            "s": 1432,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 7,
+            "i": 0,
+            "m": 429803632,
+            "w": 1786143001493,
+            "d": {}
+          },
+          {
+            "s": 1433,
+            "t": "STAGE2_RESUMED",
+            "g": 7,
+            "i": 0,
+            "m": 429803634,
+            "w": 1786143001496,
+            "d": {}
+          },
+          {
+            "s": 1434,
+            "t": "STAGE3_READY",
+            "g": 7,
+            "i": 0,
+            "m": 429803655,
+            "w": 1786143001516,
+            "d": {}
+          },
+          {
+            "s": 1435,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 7,
+            "i": 0,
+            "m": 429804385,
+            "w": 1786143002246,
+            "d": {
+              "confidence": "0.8895986",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1436,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 7,
+            "i": 0,
+            "m": 429804388,
+            "w": 1786143002250,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1437,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 7,
+            "i": 7,
+            "m": 429804388,
+            "w": 1786143002250,
+            "d": {}
+          },
+          {
+            "s": 1438,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 7,
+            "i": 7,
+            "m": 429804550,
+            "w": 1786143002411,
+            "d": {}
+          },
+          {
+            "s": 1439,
+            "t": "STT_START_REQUESTED",
+            "g": 7,
+            "i": 7,
+            "m": 429804570,
+            "w": 1786143002431,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1440,
+            "t": "STT_READY",
+            "g": 7,
+            "i": 7,
+            "m": 429804698,
+            "w": 1786143002559,
+            "d": {}
+          },
+          {
+            "s": 1441,
+            "t": "CUE_REQUESTED",
+            "g": 7,
+            "i": 7,
+            "m": 429804698,
+            "w": 1786143002559,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1444,
+            "t": "SESSION_CANCELLED",
+            "g": 7,
+            "i": 7,
+            "m": 429815163,
+            "w": 1786143013024,
+            "d": {
+              "category": "stt_recognition_failed"
+            }
+          },
+          {
+            "s": 1445,
+            "t": "DETECTOR_REARMED",
+            "g": 8,
+            "i": 0,
+            "m": 429815174,
+            "w": 1786143013036,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 427997,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 429819,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/target/final-snapshot.json"
+      ]
+    },
+    {
+      "name": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008",
+      "trial_id": "trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008",
+      "required_position_id": "1800:wake_plus_command:1",
+      "matrix_slot": {
+        "idle_s": 1800,
+        "trial_type": "wake_plus_command",
+        "ordinal": 1
+      },
+      "passed": true,
+      "status": "passed",
+      "idle_seconds": 1800,
+      "trial_type": "wake_plus_command",
+      "attempt": 1,
+      "source_timing": {
+        "request_wall_clock_ms": 1786144823371,
+        "request_monotonic_ms": 2860423200,
+        "prepare_monotonic_ms": 2860423495,
+        "playback_start_monotonic_ms": 2860423521,
+        "completion_monotonic_ms": 2860425838,
+        "cleanup_monotonic_ms": 2860425873,
+        "clock_domain": "source_device_elapsed_realtime",
+        "command": {
+          "request_wall_clock_ms": 1786144834231,
+          "request_monotonic_ms": 2860434060,
+          "playback_start_monotonic_ms": 2860434213,
+          "completion_monotonic_ms": 2860435964,
+          "playback_start_wall_clock_ms": 1786144834384
+        }
+      },
+      "target_timing": {
+        "boundary_sequence": 1448,
+        "boundary_generation": 8,
+        "pre_dispatch_terminal_sequence": null,
+        "generation_id": 8,
+        "session_id": 8,
+        "events": [
+          {
+            "s": 1449,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431030535,
+            "w": 1786144228397,
+            "d": {}
+          },
+          {
+            "s": 1450,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431030545,
+            "w": 1786144228406,
+            "d": {}
+          },
+          {
+            "s": 1451,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431030566,
+            "w": 1786144228428,
+            "d": {}
+          },
+          {
+            "s": 1452,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431036536,
+            "w": 1786144234397,
+            "d": {}
+          },
+          {
+            "s": 1453,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431044052,
+            "w": 1786144241913,
+            "d": {}
+          },
+          {
+            "s": 1454,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431044055,
+            "w": 1786144241916,
+            "d": {}
+          },
+          {
+            "s": 1455,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431044085,
+            "w": 1786144241947,
+            "d": {}
+          },
+          {
+            "s": 1456,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431049496,
+            "w": 1786144247358,
+            "d": {}
+          },
+          {
+            "s": 1457,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431054452,
+            "w": 1786144252314,
+            "d": {}
+          },
+          {
+            "s": 1458,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431054457,
+            "w": 1786144252319,
+            "d": {}
+          },
+          {
+            "s": 1459,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431054482,
+            "w": 1786144252344,
+            "d": {}
+          },
+          {
+            "s": 1460,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431063096,
+            "w": 1786144260957,
+            "d": {}
+          },
+          {
+            "s": 1461,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431071651,
+            "w": 1786144269513,
+            "d": {}
+          },
+          {
+            "s": 1462,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431071654,
+            "w": 1786144269516,
+            "d": {}
+          },
+          {
+            "s": 1463,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431071682,
+            "w": 1786144269543,
+            "d": {}
+          },
+          {
+            "s": 1464,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431076935,
+            "w": 1786144274797,
+            "d": {}
+          },
+          {
+            "s": 1465,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431087892,
+            "w": 1786144285754,
+            "d": {}
+          },
+          {
+            "s": 1466,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431087896,
+            "w": 1786144285758,
+            "d": {}
+          },
+          {
+            "s": 1467,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431087921,
+            "w": 1786144285783,
+            "d": {}
+          },
+          {
+            "s": 1468,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431103816,
+            "w": 1786144301678,
+            "d": {}
+          },
+          {
+            "s": 1469,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431105011,
+            "w": 1786144302873,
+            "d": {}
+          },
+          {
+            "s": 1470,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431105013,
+            "w": 1786144302875,
+            "d": {}
+          },
+          {
+            "s": 1471,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431105036,
+            "w": 1786144302897,
+            "d": {}
+          },
+          {
+            "s": 1472,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431122216,
+            "w": 1786144320077,
+            "d": {}
+          },
+          {
+            "s": 1473,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431127172,
+            "w": 1786144325034,
+            "d": {}
+          },
+          {
+            "s": 1474,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431127176,
+            "w": 1786144325038,
+            "d": {}
+          },
+          {
+            "s": 1475,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431127205,
+            "w": 1786144325067,
+            "d": {}
+          },
+          {
+            "s": 1476,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431132854,
+            "w": 1786144330716,
+            "d": {}
+          },
+          {
+            "s": 1477,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431157572,
+            "w": 1786144355434,
+            "d": {}
+          },
+          {
+            "s": 1478,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431157578,
+            "w": 1786144355439,
+            "d": {}
+          },
+          {
+            "s": 1479,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431157608,
+            "w": 1786144355469,
+            "d": {}
+          },
+          {
+            "s": 1480,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431164295,
+            "w": 1786144362157,
+            "d": {}
+          },
+          {
+            "s": 1481,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431177492,
+            "w": 1786144375353,
+            "d": {}
+          },
+          {
+            "s": 1482,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431177495,
+            "w": 1786144375356,
+            "d": {}
+          },
+          {
+            "s": 1483,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431177521,
+            "w": 1786144375383,
+            "d": {}
+          },
+          {
+            "s": 1484,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431195734,
+            "w": 1786144393595,
+            "d": {}
+          },
+          {
+            "s": 1485,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431222066,
+            "w": 1786144419927,
+            "d": {}
+          },
+          {
+            "s": 1486,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431222079,
+            "w": 1786144419940,
+            "d": {}
+          },
+          {
+            "s": 1487,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431222105,
+            "w": 1786144419966,
+            "d": {}
+          },
+          {
+            "s": 1488,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431232532,
+            "w": 1786144430394,
+            "d": {}
+          },
+          {
+            "s": 1489,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431241892,
+            "w": 1786144439753,
+            "d": {}
+          },
+          {
+            "s": 1490,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431241895,
+            "w": 1786144439756,
+            "d": {}
+          },
+          {
+            "s": 1491,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431241922,
+            "w": 1786144439783,
+            "d": {}
+          },
+          {
+            "s": 1492,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431247255,
+            "w": 1786144445117,
+            "d": {}
+          },
+          {
+            "s": 1493,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431248373,
+            "w": 1786144446234,
+            "d": {}
+          },
+          {
+            "s": 1494,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431248377,
+            "w": 1786144446238,
+            "d": {}
+          },
+          {
+            "s": 1495,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431248405,
+            "w": 1786144446266,
+            "d": {}
+          },
+          {
+            "s": 1496,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431253735,
+            "w": 1786144451596,
+            "d": {}
+          },
+          {
+            "s": 1497,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431262531,
+            "w": 1786144460393,
+            "d": {}
+          },
+          {
+            "s": 1498,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431262535,
+            "w": 1786144460396,
+            "d": {}
+          },
+          {
+            "s": 1499,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431262564,
+            "w": 1786144460425,
+            "d": {}
+          },
+          {
+            "s": 1500,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431267894,
+            "w": 1786144465756,
+            "d": {}
+          },
+          {
+            "s": 1501,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431270851,
+            "w": 1786144468712,
+            "d": {}
+          },
+          {
+            "s": 1502,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431270854,
+            "w": 1786144468716,
+            "d": {}
+          },
+          {
+            "s": 1503,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431270882,
+            "w": 1786144468744,
+            "d": {}
+          },
+          {
+            "s": 1504,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431292934,
+            "w": 1786144490796,
+            "d": {}
+          },
+          {
+            "s": 1505,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431294932,
+            "w": 1786144492794,
+            "d": {}
+          },
+          {
+            "s": 1506,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431294936,
+            "w": 1786144492797,
+            "d": {}
+          },
+          {
+            "s": 1507,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431294962,
+            "w": 1786144492823,
+            "d": {}
+          },
+          {
+            "s": 1508,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431307015,
+            "w": 1786144504877,
+            "d": {}
+          },
+          {
+            "s": 1509,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431308531,
+            "w": 1786144506392,
+            "d": {}
+          },
+          {
+            "s": 1510,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431308535,
+            "w": 1786144506396,
+            "d": {}
+          },
+          {
+            "s": 1511,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431308565,
+            "w": 1786144506427,
+            "d": {}
+          },
+          {
+            "s": 1512,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431395174,
+            "w": 1786144593036,
+            "d": {}
+          },
+          {
+            "s": 1513,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431396932,
+            "w": 1786144594794,
+            "d": {}
+          },
+          {
+            "s": 1514,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431396936,
+            "w": 1786144594797,
+            "d": {}
+          },
+          {
+            "s": 1515,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431396964,
+            "w": 1786144594825,
+            "d": {}
+          },
+          {
+            "s": 1516,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431402295,
+            "w": 1786144600156,
+            "d": {}
+          },
+          {
+            "s": 1517,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431412051,
+            "w": 1786144609913,
+            "d": {}
+          },
+          {
+            "s": 1518,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431412054,
+            "w": 1786144609916,
+            "d": {}
+          },
+          {
+            "s": 1519,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431412085,
+            "w": 1786144609946,
+            "d": {}
+          },
+          {
+            "s": 1520,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431417416,
+            "w": 1786144615277,
+            "d": {}
+          },
+          {
+            "s": 1521,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431419732,
+            "w": 1786144617593,
+            "d": {}
+          },
+          {
+            "s": 1522,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431419737,
+            "w": 1786144617599,
+            "d": {}
+          },
+          {
+            "s": 1523,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431419768,
+            "w": 1786144617629,
+            "d": {}
+          },
+          {
+            "s": 1524,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431430374,
+            "w": 1786144628236,
+            "d": {}
+          },
+          {
+            "s": 1525,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431463012,
+            "w": 1786144660874,
+            "d": {}
+          },
+          {
+            "s": 1526,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431463016,
+            "w": 1786144660877,
+            "d": {}
+          },
+          {
+            "s": 1527,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431463041,
+            "w": 1786144660903,
+            "d": {}
+          },
+          {
+            "s": 1528,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431471976,
+            "w": 1786144669837,
+            "d": {}
+          },
+          {
+            "s": 1529,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431490693,
+            "w": 1786144688555,
+            "d": {}
+          },
+          {
+            "s": 1530,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431490697,
+            "w": 1786144688558,
+            "d": {}
+          },
+          {
+            "s": 1531,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431490726,
+            "w": 1786144688587,
+            "d": {}
+          },
+          {
+            "s": 1532,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431496055,
+            "w": 1786144693917,
+            "d": {}
+          },
+          {
+            "s": 1533,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431503813,
+            "w": 1786144701675,
+            "d": {}
+          },
+          {
+            "s": 1534,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431503818,
+            "w": 1786144701680,
+            "d": {}
+          },
+          {
+            "s": 1535,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431503842,
+            "w": 1786144701704,
+            "d": {}
+          },
+          {
+            "s": 1536,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431535656,
+            "w": 1786144733517,
+            "d": {}
+          },
+          {
+            "s": 1537,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431540052,
+            "w": 1786144737914,
+            "d": {}
+          },
+          {
+            "s": 1538,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431540055,
+            "w": 1786144737917,
+            "d": {}
+          },
+          {
+            "s": 1539,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431540084,
+            "w": 1786144737945,
+            "d": {}
+          },
+          {
+            "s": 1540,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431547174,
+            "w": 1786144745035,
+            "d": {}
+          },
+          {
+            "s": 1541,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431582210,
+            "w": 1786144780072,
+            "d": {}
+          },
+          {
+            "s": 1542,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431582214,
+            "w": 1786144780075,
+            "d": {}
+          },
+          {
+            "s": 1543,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431582245,
+            "w": 1786144780107,
+            "d": {}
+          },
+          {
+            "s": 1544,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431588054,
+            "w": 1786144785916,
+            "d": {}
+          },
+          {
+            "s": 1545,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431589652,
+            "w": 1786144787514,
+            "d": {}
+          },
+          {
+            "s": 1546,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431589656,
+            "w": 1786144787517,
+            "d": {}
+          },
+          {
+            "s": 1547,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431589682,
+            "w": 1786144787544,
+            "d": {}
+          },
+          {
+            "s": 1548,
+            "t": "SILENCE_GATE_ENTERED",
+            "g": 8,
+            "i": 0,
+            "m": 431622216,
+            "w": 1786144820077,
+            "d": {}
+          },
+          {
+            "s": 1549,
+            "t": "VOICED_FRAME_AFTER_SILENCE",
+            "g": 8,
+            "i": 0,
+            "m": 431627413,
+            "w": 1786144825275,
+            "d": {}
+          },
+          {
+            "s": 1550,
+            "t": "STAGE2_RESUMED",
+            "g": 8,
+            "i": 0,
+            "m": 431627416,
+            "w": 1786144825278,
+            "d": {}
+          },
+          {
+            "s": 1551,
+            "t": "STAGE3_READY",
+            "g": 8,
+            "i": 0,
+            "m": 431627442,
+            "w": 1786144825303,
+            "d": {}
+          },
+          {
+            "s": 1552,
+            "t": "ACTIVATION_CANDIDATE",
+            "g": 8,
+            "i": 0,
+            "m": 431628160,
+            "w": 1786144826021,
+            "d": {
+              "confidence": "0.88098514",
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1553,
+            "t": "VERIFIED_ACTIVATION",
+            "g": 8,
+            "i": 0,
+            "m": 431628165,
+            "w": 1786144826026,
+            "d": {
+              "mode": "high"
+            }
+          },
+          {
+            "s": 1554,
+            "t": "WAKE_CALLBACK_INVOKED",
+            "g": 8,
+            "i": 8,
+            "m": 431628166,
+            "w": 1786144826027,
+            "d": {}
+          },
+          {
+            "s": 1555,
+            "t": "VOICE_SESSION_STARTED",
+            "g": 8,
+            "i": 8,
+            "m": 431628460,
+            "w": 1786144826322,
+            "d": {}
+          },
+          {
+            "s": 1556,
+            "t": "STT_START_REQUESTED",
+            "g": 8,
+            "i": 8,
+            "m": 431628477,
+            "w": 1786144826339,
+            "d": {
+              "attempt": "1"
+            }
+          },
+          {
+            "s": 1557,
+            "t": "STT_READY",
+            "g": 8,
+            "i": 8,
+            "m": 431628835,
+            "w": 1786144826697,
+            "d": {}
+          },
+          {
+            "s": 1558,
+            "t": "CUE_REQUESTED",
+            "g": 8,
+            "i": 8,
+            "m": 431628835,
+            "w": 1786144826697,
+            "d": {
+              "context": "wake_word",
+              "policy_version": "2026-07-cue-v1"
+            }
+          },
+          {
+            "s": 1560,
+            "t": "STT_SPEECH_DETECTED",
+            "g": 8,
+            "i": 8,
+            "m": 431635990,
+            "w": 1786144833851,
+            "d": {}
+          },
+          {
+            "s": 1568,
+            "t": "STT_FINAL",
+            "g": 8,
+            "i": 8,
+            "m": 431639012,
+            "w": 1786144836874,
+            "d": {
+              "length": "15",
+              "normalized_transcript_sha256": "cbe649f8e0039474b8f9860b9c39e740883affb4f1c0ac850404572172a08a9a"
+            }
+          },
+          {
+            "s": 1569,
+            "t": "COMMAND_ROUTING_RESULT",
+            "g": 8,
+            "i": 8,
+            "m": 431639114,
+            "w": 1786144836975,
+            "d": {
+              "outcome": "handed_off"
+            }
+          },
+          {
+            "s": 1570,
+            "t": "SESSION_COMPLETED",
+            "g": 8,
+            "i": 8,
+            "m": 431639114,
+            "w": 1786144836976,
+            "d": {}
+          },
+          {
+            "s": 1571,
+            "t": "DETECTOR_REARMED",
+            "g": 9,
+            "i": 0,
+            "m": 431639124,
+            "w": 1786144836986,
+            "d": {}
+          }
+        ],
+        "clock_domain": "target_device_elapsed_realtime"
+      },
+      "environment_before": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 429821,
+        "screen_off": true,
+        "charging": false
+      },
+      "environment_after": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 431645,
+        "screen_off": true,
+        "charging": false
+      },
+      "source_environment_before": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "source_environment_after": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "environment_summary": {
+        "stable": true,
+        "failures": []
+      },
+      "fixture": {
+        "id": "natural_wake",
+        "sha256": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45"
+      },
+      "source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      },
+      "artifact_refs": [
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/target/boundary-snapshot.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008-cmd/source/result.json",
+        "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/target/final-snapshot.json"
+      ],
+      "command_fixture": {
+        "id": "qwen_command",
+        "sha256": "9acaa2ef5eabcb2f8a131624f91eee44537daf7ef61cc5c73718bae42f005c02"
+      },
+      "command_source_outcome": {
+        "completion_status": "completed",
+        "cleanup_success": true,
+        "exact_restoration_verified": true,
+        "output_route_during": "BUILT_IN_SPEAKER",
+        "focus_result": "granted",
+        "timeout": false,
+        "overlap_rejected": false
+      }
+    }
+  ],
+  "artifact_refs": [
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-001/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-002/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-003/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004-cmd/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-004/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-005/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-006/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-007/target/final-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008-cmd/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/source/result.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/target/boundary-snapshot.json",
+    "trials/trial-regression_post_fix-2026-08-07T21-36-15Z-97f2d605-008/target/final-snapshot.json"
+  ],
+  "wake_reliability": {
+    "run_kind": "regression_post_fix",
+    "gate_mode": "release_gate",
+    "matrix_id": "AWVR-001",
+    "matrix_version": 1,
+    "source": {
+      "alias": "s21",
+      "manufacturer": "samsung",
+      "model": "SM-G991B",
+      "android_release": "15",
+      "android_api": "35",
+      "package_version": "0.1.0",
+      "package_version_code": 1
+    },
+    "source_helper_version": "1.0.0",
+    "fixture_set_id": "v1-release-2026-08-07-s23u",
+    "fixture_hashes": {
+      "natural_wake": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45",
+      "qwen_command": "9acaa2ef5eabcb2f8a131624f91eee44537daf7ef61cc5c73718bae42f005c02"
+    },
+    "preflight_approval": {
+      "fixture_set_id": "v1-release-2026-08-07-s23u",
+      "fixture_hashes": {
+        "natural_wake": "c144131efde247fafd1cef6a86d88408f871f4c264eb574d4dcf7d5f1aa72d45",
+        "qwen_command": "9acaa2ef5eabcb2f8a131624f91eee44537daf7ef61cc5c73718bae42f005c02"
+      },
+      "source_build": {
+        "package_name": "com.kernel.ai.debug",
+        "version_name": "0.1.0",
+        "version_code": 1,
+        "base_apk_sha256": "68ac4443fd5f17c8ac955c1dbfcffb9add3a02615afb85b7cc960236076e88e6"
+      },
+      "target_build": {
+        "package_name": "com.kernel.ai.debug",
+        "version_name": "0.1.0",
+        "version_code": 1,
+        "base_apk_sha256": "68ac4443fd5f17c8ac955c1dbfcffb9add3a02615afb85b7cc960236076e88e6"
+      },
+      "source_volume_index": 9,
+      "source_volume_max": 15,
+      "source_route": "BUILT_IN_SPEAKER",
+      "placement_notes": "frozen #1410 reverse placement: 0.6 m side-by-side desk, both face-up, S21 speaker toward S23U mic, no Bluetooth, unchanged from approved runs",
+      "operator_approved": true,
+      "cue_audibility_evidence_verified": true,
+      "cue_audibility_evidence": {
+        "kind": "human_monitored_preflight",
+        "attempt": 1,
+        "cue_event_sequence": 1003,
+        "generation": 1,
+        "session": 1,
+        "approved_at": "2026-08-07T21:36:01+00:00"
+      },
+      "approved_at": "2026-08-07T21:36:01+00:00",
+      "manifest_sha256": "0e99dd664fce6001031cbbeeaf40b21cc395ec4ba6641572068af5caf363a06d"
+    },
+    "approved_source_volume": 9,
+    "approved_source_volume_max": 15,
+    "approved_source_route": "BUILT_IN_SPEAKER",
+    "placement_notes": "frozen #1410 reverse placement: 0.6 m side-by-side desk, both face-up, S21 speaker toward S23U mic, no Bluetooth, unchanged from approved runs",
+    "cue_policy_version": "2026-07-cue-v1",
+    "monitored_acoustic_check": true,
+    "cue_policy_evidence_verified": true,
+    "cue_audibility_evidence_verified": true,
+    "preflight_manifest_sha256": "0e99dd664fce6001031cbbeeaf40b21cc395ec4ba6641572068af5caf363a06d",
+    "expected_valid_counts": {
+      "120:wake_only:1": 1,
+      "120:wake_only:2": 1,
+      "120:wake_only:3": 1,
+      "120:wake_plus_command:1": 1,
+      "120:wake_plus_command:2": 1,
+      "1800:wake_only:1": 1,
+      "1800:wake_only:2": 1,
+      "1800:wake_plus_command:1": 1
+    },
+    "cleanup_verified": true,
+    "release_gate_success": false,
+    "complete": true,
+    "complete_valid_matrix": true,
+    "all_required_passed": false,
+    "release_provenance_verified": false,
+    "feasibility_only": false,
+    "run_environment_before": {
+      "source": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "target": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 425383,
+        "screen_off": true,
+        "charging": false
+      }
+    },
+    "run_environment_after": {
+      "source": {
+        "reachable": true,
+        "service_active": false,
+        "bluetooth_route_active": false,
+        "media_volume": 11,
+        "ringer_mode": "silent",
+        "dnd_mode": "off"
+      },
+      "target": {
+        "reachable": true,
+        "service_active": true,
+        "bluetooth_route_active": false,
+        "media_volume": 12,
+        "ringer_mode": "silent",
+        "dnd_mode": "off",
+        "uptime_seconds": 431647,
+        "screen_off": true,
+        "charging": false
+      }
+    },
+    "cleanup_failures": [],
+    "abort_reason": null,
+    "completion": {
+      "status": "completed",
+      "primary_failure": null,
+      "cleanup_verified": true,
+      "total_required": 8,
+      "completed": 8,
+      "missing": 0,
+      "passed": 7,
+      "failed": 1,
+      "invalid": 0,
+      "duplicate_valid_positions": 0
+    }
+  }
+}
