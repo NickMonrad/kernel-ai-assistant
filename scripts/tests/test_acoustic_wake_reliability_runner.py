@@ -3597,14 +3597,103 @@ class EvidenceRetentionTests(unittest.TestCase):
 
     # ── Diagnostics property lifecycle ─────────────────────────────────
 
-    def test_target_diagnostics_enabled_and_restored_on_cleanup(self) -> None:
+    REARM_BROADCAST_KEY = (
+        "shell am broadcast -n com.kernel.ai.debug/"
+        "com.kernel.ai.debug.wake.WakeDetectorRearmReceiver "
+        "-a com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
+    )
+
+    def _generation_envelope(self, generation: int) -> dict:
+        return {
+            "lowestSequence": 1, "highestSequence": 10, "overflowed": False,
+            "events": [
+                event(1, "DETECTOR_GENERATION_STARTED", generation=generation, session=0),
+            ],
+        }
+
+    def test_target_diagnostics_enabled_rearmed_and_restored_on_cleanup(self) -> None:
+        """Setting DEBUG must also re-arm the detector into a new generation
+        (the diagnostics gate is evaluated at generation start) and cleanup
+        must restore the original property."""
         harness = make_runner()
-        harness.target = StatefulPropAdb("target")
-        harness.ensure_target_diagnostics()
-        self.assertEqual(harness.target.props["log.tag.WakeWordDiag"], "DEBUG")
+        target = harness.target = StatefulPropAdb("target")
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+
+        def provider_call(method, extras=None, timeout=15.0):
+            rearmed = any(
+                "REARM_WAKE_DETECTOR" in " ".join(command)
+                for command in target.commands
+            )
+            generation = 5 if rearmed else 4
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "10"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(
+                    self._generation_envelope(generation)
+                )
+            self.fail(f"unexpected provider method {method}")
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(runner.time, "sleep"):
+            harness.ensure_target_diagnostics()
+        # The re-arm was dispatched and a new generation was verified.
+        self.assertEqual(target.props["log.tag.WakeWordDiag"], "DEBUG")
+        self.assertTrue(
+            any("REARM_WAKE_DETECTOR" in " ".join(command) for command in target.commands)
+        )
         harness.cleanup()
-        self.assertEqual(harness.target.props["log.tag.WakeWordDiag"], "INFO")
+        self.assertEqual(target.props["log.tag.WakeWordDiag"], "INFO")
         self.assertTrue(harness.cleanup_verified, harness.cleanup_failures)
+
+    def test_rearm_fails_closed_when_no_new_generation(self) -> None:
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "10"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(
+                    self._generation_envelope(4)
+                )
+            self.fail(f"unexpected provider method {method}")
+
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(runner.HarnessError, "did not re-arm"):
+                harness.ensure_target_diagnostics()
+
+    def test_rearm_fails_closed_when_broadcast_rejected(self) -> None:
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=2, data="rearm_failed"'
+        )
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "10"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(
+                    self._generation_envelope(4)
+                )
+            self.fail(f"unexpected provider method {method}")
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call):
+            with self.assertRaisesRegex(runner.HarnessError, "detector re-arm rejected"):
+                harness.ensure_target_diagnostics()
 
     def test_target_diagnostics_fails_closed_when_property_wont_stick(self) -> None:
         class StuckAdb(StatefulPropAdb):

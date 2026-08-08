@@ -137,6 +137,20 @@ WAKE_WORD_DIAG_TAG = "log.tag.WakeWordDiag"
 # Quoted so the remote shell does not glob the '*' filter expression.
 WAKE_WORD_DIAG_LOGCAT_FILTER = "'WakeWordDiag:*'"
 
+# Debug wake-detector re-arm control endpoint (WakeDetectorRearmReceiver,
+# #1410): forces the running WakeWordService through its own pause/resume
+# re-arm lifecycle so a later/resumed run's detector generation starts with
+# the WakeWordDiag DEBUG tag already active.  Opens no microphone — the
+# existing detector AudioRecord is stopped and restarted.  The runner
+# verifies the new generation through the target journal; the broadcast
+# result is a fast-fail only.
+TARGET_REARM_ACTION = "com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
+TARGET_REARM_RECEIVER_CLS = "com.kernel.ai.debug.wake.WakeDetectorRearmReceiver"
+TARGET_REARM_RESULT_OK = 0
+# Bounded wait for the re-armed DETECTOR_GENERATION_STARTED journal event.
+TARGET_REARM_WAIT_TIMEOUT_MS = 20_000
+TARGET_REARM_WAIT_POLL_MS = 500
+
 # Public aliases that may appear in sanitised output
 PUBLIC_ALIASES = ("s21", "s23u")
 
@@ -4201,11 +4215,12 @@ class AcousticWakeReliabilityRunner:
         The WakeWordDiag gateExitSummary logcat lines are emitted only
         when the ``log.tag.WakeWordDiag`` DEBUG tag is enabled before the
         detector generation started.  This sets and verifies the property on
-        the target; the original value is restored by [cleanup].  The wake
-        service must be re-armed after enabling so the current generation
-        carries the diagnostics — the monitored preflight's activation
-        session performs that re-arm, and later runs reuse its approved
-        manifest.
+        the target, then forces the detector through the approved re-arm
+        lifecycle so the generation that will serve the trials actually
+        carries the diagnostics — a later/resumed run whose current
+        generation started under the old property value would otherwise
+        silently lack energy evidence (a first-trial miss may never re-arm
+        naturally).  The original property value is restored by [cleanup].
         """
         if not self.target.reachable():
             raise HarnessError("target ADB not reachable for diagnostics setup")
@@ -4222,6 +4237,64 @@ class AcousticWakeReliabilityRunner:
                 f"target {WAKE_WORD_DIAG_TAG} did not take effect (got {level!r})"
             )
         self._diag_prop_set = True
+        self._rearm_target_detector()
+
+    def _current_target_generation(self) -> int | None:
+        """Resolve the newest detector generation in the target journal."""
+        sequence_code, sequence_data = self._call_target_provider(
+            TARGET_METHOD_GET_SEQUENCE,
+        )
+        if sequence_code != TARGET_RESULT_OK:
+            raise HarnessError(f"target sequence read failed: {sequence_data}")
+        highest = parse_journal_sequence(sequence_data)
+        snapshot_code, snapshot_data = self._call_target_provider(
+            TARGET_METHOD_GET_SNAPSHOT,
+            extras={TARGET_EXTRA_SINCE_SEQUENCE: 0},
+        )
+        if snapshot_code != TARGET_RESULT_OK:
+            raise HarnessError(f"target snapshot read failed: {snapshot_data}")
+        return boundary_generation_from_snapshot(
+            parse_journal_snapshot(snapshot_data), highest
+        )
+
+    def _rearm_target_detector(self) -> None:
+        """Force the detector through the approved re-arm lifecycle (#1410).
+
+        Sends the debug re-arm broadcast (the running WakeWordService's own
+        pause/resume path; no new microphone consumer) and verifies through
+        the target journal that a new detector generation started.  Fail
+        closed when the broadcast is rejected or no new generation appears
+        within a bounded wait.
+        """
+        if not self.target.reachable():
+            raise HarnessError("target ADB unreachable for detector re-arm")
+        previous = self._current_target_generation()
+        broadcast_output = self.target.run(
+            "shell", "am", "broadcast",
+            "-n", f"{self.package}/{TARGET_REARM_RECEIVER_CLS}",
+            "-a", TARGET_REARM_ACTION,
+            timeout=15.0,
+            check=False,
+        )
+        try:
+            result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
+        except HarnessError as exc:
+            raise HarnessError(f"detector re-arm broadcast failed: {exc}") from exc
+        if result_code != TARGET_REARM_RESULT_OK:
+            raise HarnessError(
+                f"detector re-arm rejected: code={result_code} data={result_data}"
+            )
+        deadline = monotonic_ms() + TARGET_REARM_WAIT_TIMEOUT_MS
+        while monotonic_ms() < deadline:
+            current = self._current_target_generation()
+            if current is not None and (previous is None or current > previous):
+                return
+            time.sleep(TARGET_REARM_WAIT_POLL_MS / 1000.0)
+        raise HarnessError(
+            "target detector did not re-arm into a new generation after "
+            f"{WAKE_WORD_DIAG_TAG} DEBUG was enabled "
+            f"(previous generation: {previous})"
+        )
 
     # ── Cleanup ──────────────────────────────────────────────────────
     def cleanup(self) -> None:
