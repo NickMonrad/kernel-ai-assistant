@@ -49,14 +49,6 @@
                 <action android:name="com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW" />
             </intent-filter>
         </receiver>
-        <receiver
-            android:name="com.kernel.ai.debug.capture.TargetCaptureReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.kernel.ai.debug.action.CAPTURE_START" />
-                <action android:name="com.kernel.ai.debug.action.CAPTURE_STOP" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

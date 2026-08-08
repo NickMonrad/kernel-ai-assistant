@@ -886,10 +886,6 @@
               "command_source_outcome": {
                 "type": "object"
               },
-              "target_capture": {
-                "type": "object",
-                "description": "Private target-side PCM capture evidence (#1410): relative artifact path (never copied to public output), sha256, size/duration and capture-window timestamps, or an honest error when capture was unavailable."
-              },
               "failure_classification": {
                 "enum": [
                   "acoustic_or_gate_miss",

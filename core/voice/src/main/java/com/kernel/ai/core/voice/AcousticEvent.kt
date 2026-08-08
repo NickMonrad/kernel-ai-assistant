@@ -40,19 +40,6 @@ object AcousticEventType {
     const val STAGE3_READY = "STAGE3_READY"
 
     /**
-     * Debug-gated per-silence-gate-exit-episode summary (#1432 capture-energy
-     * diagnostics).  Metadata mirrors the WakeWordDiag ``gateExitSummary``
-     * logcat fields: stage-3 evaluation count, maximum classifier confidence
-     * and its frame offset, low-band verifier entry/outcome, gated probe
-     * executions, and the episode's captured-audio energy
-     * (``episode_peak_rms`` and the max-confidence window's
-     * ``max_window_peak_rms`` / ``max_window_mean_rms``, "none" when
-     * unavailable).  Emitted only when the WakeWordDiag DEBUG tag is
-     * enabled; no PCM, transcripts or per-frame output.
-     */
-    const val GATE_EPISODE_SUMMARY = "GATE_EPISODE_SUMMARY"
-
-    /**
      * An activation candidate was produced at or above the low threshold.
      * Metadata includes "confidence" and "mode" ("high" or "low").
      */
@@ -123,7 +110,6 @@ object AcousticEventType {
         CUE_PLAYBACK_STARTED,
         CUE_PLAYBACK_ERROR,
         STAGE3_READY,
-        GATE_EPISODE_SUMMARY,
         ACTIVATION_CANDIDATE,
         VERIFIED_ACTIVATION,
         WAKE_CALLBACK_INVOKED,

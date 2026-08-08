@@ -47,17 +47,6 @@ class FakeAdb:
     def shell(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
         return self.run("shell", *args, timeout=timeout, check=check)
 
-    def exec_out(self, *args: str, timeout: float = 30.0, check: bool = True) -> bytes:
-        self.commands.append(args)
-        self.checks.append(check)
-        key = " ".join(args)
-        if key in self.responses:
-            return self.responses[key].encode()
-        for prefix, response in self.responses.items():
-            if key.startswith(prefix):
-                return response.encode()
-        return b""
-
     def reachable(self) -> bool:
         return self.reachable_flag
 
@@ -313,8 +302,7 @@ class SnapshotContractTests(unittest.TestCase):
         self.assertIn("COMMAND_ROUTING_RESULT", all_types)
         self.assertIn("CUE_PLAYBACK_STARTED", all_types)
         self.assertIn("CUE_PLAYBACK_ERROR", all_types)
-        self.assertIn("GATE_EPISODE_SUMMARY", all_types)
-        self.assertEqual(len(all_types), 25)
+        self.assertEqual(len(all_types), 24)
         for index, event_type in enumerate(all_types, 1):
             self.assertEqual(runner.validate_snapshot_envelope(envelope([event(index, event_type)]))["events"][0]["t"], event_type)
         bad = event(1, "STT_READY")
@@ -3196,42 +3184,51 @@ class StatefulPropAdb(FakeAdb):
 
 
 class EvidenceRetentionTests(unittest.TestCase):
-    """#1410 evidence-retention prerequisites: per-trial capture energy,
-    private target PCM retention, source playback metadata, and sanitised
-    publication exclusions."""
+    """#1410 evidence-retention prerequisites: per-trial WakeWordDiag capture
+    energy, source playback metadata, diagnostics property lifecycle, and
+    sanitised publication exclusions.  No second microphone consumer exists:
+    the wake detector is the only wake-path AudioRecord involved."""
 
-    # ── Gate-episode energy extraction ─────────────────────────────────
+    # ── WakeWordDiag gate-summary parsing ─────────────────────────────
 
-    def _summary_event(self, seq: int, generation: int, metadata: dict) -> dict:
-        return event(seq, runner.GATE_EPISODE_SUMMARY_TYPE, generation=generation, data=metadata)
+    SUMMARY_GEN4 = (
+        "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=4 stage3Evals=1037 "
+        "maxConfidence=0.00143 maxConfidenceOffsetFrames=619 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=10 episodePeakRms=3593.4 "
+        "maxWindowPeakRms=3593.4 maxWindowMeanRms=1307.6"
+    )
+    SUMMARY_GEN4_SECOND = (
+        "08-08 21:00:03.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=4 stage3Evals=422 "
+        "maxConfidence=0.907 maxConfidenceOffsetFrames=11 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=3 episodePeakRms=3390.5 "
+        "maxWindowPeakRms=3390.5 maxWindowMeanRms=1090.25"
+    )
+    SUMMARY_GEN5 = (
+        "08-08 21:00:02.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=5 stage3Evals=1 "
+        "maxConfidence=0.9 maxConfidenceOffsetFrames=2 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=0 episodePeakRms=100.0 "
+        "maxWindowPeakRms=100.0 maxWindowMeanRms=50.0"
+    )
 
-    def test_gate_episode_energy_is_projected_with_exact_values(self) -> None:
-        events = [
-            self._summary_event(40, 4, {}),  # before the boundary -> excluded
-            self._summary_event(50, 4, {
-                "stage3_evals": "1037",
-                "max_confidence": "0.00143",
-                "max_confidence_offset_frames": "619",
-                "low_verify_entered": "false",
-                "low_verify_accepted": "false",
-                "gated_probe_executions": "10",
-                "episode_peak_rms": "3593.4",
-                "max_window_peak_rms": "3593.4",
-                "max_window_mean_rms": "1307.6",
-            }),
-            self._summary_event(51, 5, {"episode_peak_rms": "9.0"}),  # other generation
-            self._summary_event(52, 4, {
-                "episode_peak_rms": "7438.4",
-                "max_window_peak_rms": "none",
-                "max_window_mean_rms": "none",
-            }),
-            event(53, "STAGE3_READY"),  # not a summary
-        ]
-        projected = runner.extract_gate_episode_energy(
-            events, generation=4, since_sequence=45,
-        )
-        self.assertEqual([item["sequence"] for item in projected], [50, 52])
-        first = projected[0]
+    def test_wakeword_diag_summaries_parse_exact_values(self) -> None:
+        text = "\n".join([
+            "08-08 21:00:00.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: diagnostics elapsedMs=600000 audioFrames=7500",
+            self.SUMMARY_GEN4,
+            self.SUMMARY_GEN5,
+            self.SUMMARY_GEN4_SECOND,
+            "08-08 21:00:04.001  1234  5678 I KernelAI: "
+            "WakeWordDetector: detected (high confidence=0.9)",
+        ])
+        projected = runner.parse_wakeword_diag_summaries(text, generation=4)
+        self.assertEqual(len(projected), 2)
+        first, second = projected
         self.assertEqual(first["generation_id"], 4)
         self.assertIsInstance(first["episode_peak_rms"], float)
         self.assertEqual(first["episode_peak_rms"], 3593.4)
@@ -3239,37 +3236,54 @@ class EvidenceRetentionTests(unittest.TestCase):
         self.assertEqual(first["max_window_mean_rms"], 1307.6)
         self.assertEqual(first["max_confidence"], 0.00143)
         self.assertEqual(first["stage3_evals"], 1037)
+        self.assertEqual(first["max_confidence_offset_frames"], 619)
         self.assertEqual(first["gated_probe_executions"], 10)
         self.assertIs(first["low_verify_entered"], False)
-        second = projected[1]
-        self.assertEqual(second["episode_peak_rms"], 7438.4)
-        self.assertIsNone(second["max_window_peak_rms"])
-        self.assertIsNone(second["max_window_mean_rms"])
-        # Absent metadata keys are honest None, never fabricated.
-        self.assertIsNone(second["max_confidence"])
+        self.assertEqual(second["episode_peak_rms"], 3390.5)
+        self.assertEqual(second["max_window_mean_rms"], 1090.25)
+        # The other-generation summary and non-summary lines are excluded.
+        self.assertTrue(all(item["generation_id"] == 4 for item in projected))
 
-    def test_gate_episode_energy_empty_and_none_are_honest(self) -> None:
+    def test_wakeword_diag_summaries_none_and_missing_are_honest(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 maxWindowPeakRms=none maxWindowMeanRms=none"
+        )
+        projected = runner.parse_wakeword_diag_summaries(text, generation=4)
+        self.assertEqual(len(projected), 1)
+        entry = projected[0]
+        self.assertIsNone(entry["episode_peak_rms"])  # key absent on-device
+        self.assertIsNone(entry["max_window_peak_rms"])
+        self.assertIsNone(entry["max_window_mean_rms"])
+        self.assertEqual(entry["max_confidence"], 0.5)
+        # No matching generation -> empty, never fabricated.
         self.assertEqual(
-            runner.extract_gate_episode_energy([], generation=4, since_sequence=0),
-            [],
+            runner.parse_wakeword_diag_summaries(text, generation=5), []
         )
-        self.assertEqual(
-            runner.extract_gate_episode_energy(
-                [self._summary_event(1, 4, {})], generation=None, since_sequence=0,
-            ),
-            [],
-        )
-        projected = runner.extract_gate_episode_energy(
-            [self._summary_event(1, 4, {"episode_peak_rms": "none"})],
-            generation=4,
-            since_sequence=0,
-        )
-        self.assertIsNone(projected[0]["episode_peak_rms"])
+        self.assertEqual(runner.parse_wakeword_diag_summaries(text, None), [])
 
-    def test_gate_episode_energy_malformed_values_fail_closed(self) -> None:
-        events = [self._summary_event(1, 4, {"episode_peak_rms": "loud"})]
+    def test_wakeword_diag_summaries_malformed_values_fail_closed(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 episodePeakRms=loud"
+        )
         with self.assertRaises(runner.HarnessError):
-            runner.extract_gate_episode_energy(events, generation=4, since_sequence=0)
+            runner.parse_wakeword_diag_summaries(text, generation=4)
+
+    def test_wakeword_diag_summaries_malformed_generation_fails_closed(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=abc stage3Evals=5 "
+            "maxConfidence=0.5"
+        )
+        with self.assertRaises(runner.HarnessError):
+            runner.parse_wakeword_diag_summaries(text, generation=4)
 
     def test_source_playback_duration_is_derived_or_none(self) -> None:
         result = {
@@ -3294,7 +3308,7 @@ class EvidenceRetentionTests(unittest.TestCase):
         source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
         return manifest, target, source
 
-    def test_evidence_retains_energy_volume_and_capture_correlated_to_trial(self) -> None:
+    def test_evidence_retains_energy_and_source_volume_correlated_to_trial(self) -> None:
         manifest, target, source = self._manifest_and_identities()
         slots = runner.matrix_slots_for_target("s21")
         attempt = runner.MatrixAttempt(
@@ -3319,8 +3333,7 @@ class EvidenceRetentionTests(unittest.TestCase):
             target_timing={
                 "events": complete_events(runner.TrialType.WAKE_ONLY),
                 "gate_episode_energy": [{
-                    "sequence": 50, "generation_id": 4, "monotonic_ms": 500,
-                    "wall_clock_ms": 500, "stage3_evals": 1037,
+                    "generation_id": 4, "stage3_evals": 1037,
                     "max_confidence": 0.00143,
                     "max_confidence_offset_frames": 619,
                     "low_verify_entered": False, "low_verify_accepted": False,
@@ -3329,13 +3342,6 @@ class EvidenceRetentionTests(unittest.TestCase):
                     "max_window_peak_rms": 3593.4,
                     "max_window_mean_rms": 1307.6,
                 }],
-            },
-            target_capture={
-                "artifact": "trials/trial-1/target/capture.wav",
-                "sha256": "b" * 64, "size_bytes": 3_840,
-                "duration_ms": 120_000,
-                "started_wall_clock_ms": 1_000,
-                "stopped_wall_clock_ms": 121_000,
             },
         )
         evidence = runner.render_evidence(
@@ -3348,6 +3354,7 @@ class EvidenceRetentionTests(unittest.TestCase):
         self.assertEqual(energy["max_window_peak_rms"], 3593.4)
         self.assertEqual(energy["max_window_mean_rms"], 1307.6)
         self.assertEqual(energy["max_confidence"], 0.00143)
+        self.assertEqual(energy["generation_id"], 4)
         self.assertEqual(case["source_timing"]["playback_start_wall_clock_ms"], 5_000)
         self.assertEqual(case["source_timing"]["playback_duration_ms"], 2_098)
         self.assertEqual(case["source_outcome"]["applied_volume"], 9)
@@ -3355,10 +3362,6 @@ class EvidenceRetentionTests(unittest.TestCase):
         self.assertEqual(case["source_outcome"]["output_route_during"], "BUILT_IN_SPEAKER")
         self.assertEqual(case["source_outcome"]["focus_result"], "granted")
         self.assertEqual(case["fixture"]["sha256"], "a" * 64)
-        self.assertEqual(case["target_capture"]["artifact"], "trials/trial-1/target/capture.wav")
-        # PCM is correlated privately and never referenced through the
-        # sanitised-copy artifact allow-list.
-        self.assertNotIn("capture.wav", case["artifact_refs"])
         output = Path(tempfile.mkdtemp())
         runner.write_sanitized_summary(output, evidence, private_run_dir=output)
         valid, issues = evidence_metrics.validate_record(evidence, [])
@@ -3378,144 +3381,75 @@ class EvidenceRetentionTests(unittest.TestCase):
             "BUILT_IN_SPEAKER",
         )
         case = evidence["cases"][0]
-        self.assertEqual(case["target_capture"], {})
         self.assertNotIn("gate_episode_energy", case["target_timing"])
         valid, issues = evidence_metrics.validate_record(evidence, [])
         self.assertTrue(valid, issues)
 
-    # ── Private PCM retention ──────────────────────────────────────────
+    # ── Private retention and publication exclusions ───────────────────
 
-    def test_private_pcm_survives_finalise_and_is_excluded_from_publication(self) -> None:
-        """A completed private run directory containing retained target PCM is
-        NOT removed by normal successful cleanup/finalisation, and the PCM is
-        never copied into the sanitised evidence."""
+    def test_private_wakeworddiag_dump_survives_finalise_and_is_excluded_from_publication(self) -> None:
+        """A completed private run directory containing the retained
+        WakeWordDiag dump is NOT removed by normal successful
+        cleanup/finalisation, and the raw dump is never copied into the
+        sanitised evidence."""
         harness = make_runner()
         run_dir = Path(tempfile.mkdtemp())
         harness.run_dir = run_dir
         harness.trials_dir = run_dir / "trials"
         harness.target_identity = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
         harness.source_identity = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
-        pcm_bytes = bytes(range(128)) * 32
+        raw_dump = self.SUMMARY_GEN4 + "\n"
         artifact_dir = run_dir / "trials/trial-1/target"
         artifact_dir.mkdir(parents=True)
-        (artifact_dir / "capture.wav").write_bytes(pcm_bytes)
+        (artifact_dir / "wakeworddiag.log").write_text(raw_dump)
         slots = runner.matrix_slots_for_target("s21")
         harness.attempts = [
             runner.MatrixAttempt(
                 "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
-                target_timing={"events": complete_events(runner.TrialType.WAKE_ONLY)},
-                target_capture={
-                    "artifact": "trials/trial-1/target/capture.wav",
-                    "sha256": hashlib.sha256(pcm_bytes).hexdigest(),
-                    "size_bytes": len(pcm_bytes),
+                target_timing={
+                    "events": complete_events(runner.TrialType.WAKE_ONLY),
+                    "gate_episode_energy": [{
+                        "generation_id": 4, "stage3_evals": 1037,
+                        "max_confidence": 0.00143,
+                        "max_confidence_offset_frames": 619,
+                        "low_verify_entered": False, "low_verify_accepted": False,
+                        "gated_probe_executions": 10,
+                        "episode_peak_rms": 3593.4,
+                        "max_window_peak_rms": 3593.4,
+                        "max_window_mean_rms": 1307.6,
+                    }],
                 },
             ),
         ]
         evidence = runner.finalize_evidence(harness)
-        # Retention: the private run directory and its PCM survive completion.
+        # Retention: the private run directory and its raw dump survive.
         self.assertTrue(run_dir.is_dir())
-        self.assertTrue((artifact_dir / "capture.wav").is_file())
-        self.assertEqual((artifact_dir / "capture.wav").read_bytes(), pcm_bytes)
+        self.assertTrue((artifact_dir / "wakeworddiag.log").is_file())
+        self.assertEqual((artifact_dir / "wakeworddiag.log").read_text(), raw_dump)
         self.assertTrue(harness.cleanup_verified, harness.cleanup_failures)
-        # Publication: no PCM bytes and no WAV file in the sanitised output.
+        # Publication: the raw dump is not copied and no raw line is exposed.
         self.assertTrue((harness.sanitized_dir / "evidence.json").is_file())
-        self.assertEqual(list(harness.sanitized_dir.rglob("*.wav")), [])
+        self.assertEqual(
+            list(harness.sanitized_dir.rglob("wakeworddiag.log")), []
+        )
         public_text = (harness.sanitized_dir / "evidence.json").read_text()
-        self.assertNotIn(pcm_bytes.decode("latin-1"), public_text)
+        self.assertNotIn("gateExitSummary", public_text)
+        self.assertIn("3593.4", public_text)
         case = next(c for c in evidence["cases"] if c["trial_id"] == "trial-1")
-        self.assertEqual(case["target_capture"]["sha256"], hashlib.sha256(pcm_bytes).hexdigest())
+        self.assertEqual(
+            case["target_timing"]["gate_episode_energy"][0]["episode_peak_rms"],
+            3593.4,
+        )
         # The checkpoint correlates the private artifact with the trial.
         checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
         restored = next(a for a in checkpoint["attempts"] if a["trial_id"] == "trial-1")
-        self.assertEqual(restored["target_capture"]["artifact"], "trials/trial-1/target/capture.wav")
+        self.assertNotIn("target_capture", restored)
 
-    # ── Capture receiver orchestration ─────────────────────────────────
+    # ── Trial wiring ───────────────────────────────────────────────────
 
-    def _capture_broadcast_key(self, action: str, trial_id: str) -> str:
-        return (
-            f"shell am broadcast -n com.kernel.ai.debug/"
-            f"{runner.TARGET_CAPTURE_RECEIVER_CLS} -a {action} --es trial_id {trial_id}"
-        )
-
-    def test_capture_start_stop_retrieve_roundtrip(self) -> None:
-        harness = make_runner()
-        harness.run_dir = Path(tempfile.mkdtemp())
-        target = harness.target
-        wav = bytes(range(128)) * 32
-        start_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_START, "trial-1"
-        ) + " --es fixture_id natural_wake"
-        stop_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_STOP, "trial-1"
-        )
-        target.responses[start_key] = 'Broadcast completed: result=0, data="started:trial-1"'
-        target.responses[stop_key] = 'Broadcast completed: result=0, data="stopped:trial-1"'
-        target.responses[
-            "shell run-as com.kernel.ai.debug cat files/acoustic-capture/trial-1.json"
-        ] = json.dumps({
-            "trial_id": "trial-1", "bytes": len(wav), "duration_ms": 120_000,
-            "started_wall_clock_ms": 1_000, "stopped_wall_clock_ms": 121_000,
-            "sample_rate": 16_000, "channels": 1, "overflowed": False,
-        })
-        target.responses[
-            "run-as com.kernel.ai.debug cat files/acoustic-capture/trial-1.wav"
-        ] = wav.decode("latin-1")
-
-        slots = runner.matrix_slots_for_target("s21")
-        attempt = runner.MatrixAttempt("trial-1", slots[0], 1, runner.AttemptStatus.INVALID)
-        harness._start_target_capture(attempt, "trial-1", "natural_wake")
-        self.assertEqual(attempt.target_capture.get("started"), True)
-        harness._stop_and_retrieve_target_capture(attempt)
-        self.assertNotIn("error", attempt.target_capture)
-        self.assertEqual(attempt.target_capture["artifact"], "trials/trial-1/target/capture.wav")
-        self.assertEqual(attempt.target_capture["size_bytes"], len(wav))
-        self.assertEqual(attempt.target_capture["duration_ms"], 120_000)
-        self.assertEqual(attempt.target_capture["sample_rate"], 16_000)
-        self.assertEqual(attempt.target_capture["sha256"], hashlib.sha256(wav).hexdigest())
-        stored = (harness.run_dir / "trials/trial-1/target/capture.wav").read_bytes()
-        self.assertEqual(stored, wav)
-
-    def test_capture_failure_is_recorded_honestly(self) -> None:
-        harness = make_runner()
-        harness.run_dir = Path(tempfile.mkdtemp())
-        target = harness.target
-        start_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_START, "trial-1"
-        ) + " --es fixture_id natural_wake"
-        target.responses[start_key] = (
-            'Broadcast completed: result=2, data="recorder_construction_failed"'
-        )
-        slots = runner.matrix_slots_for_target("s21")
-        attempt = runner.MatrixAttempt("trial-1", slots[0], 1, runner.AttemptStatus.INVALID)
-        harness._start_target_capture(attempt, "trial-1", "natural_wake")
-        self.assertIn("capture_start_rejected", attempt.target_capture["error"])
-        # No capture started -> the stop path is a no-op and no artifact exists.
-        harness._stop_and_retrieve_target_capture(attempt)
-        self.assertIn("capture_start_rejected", attempt.target_capture["error"])
-        self.assertFalse((harness.run_dir / "trials/trial-1/target/capture.wav").exists())
-
-    def test_capture_stop_failure_is_recorded_honestly(self) -> None:
-        harness = make_runner()
-        harness.run_dir = Path(tempfile.mkdtemp())
-        target = harness.target
-        start_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_START, "trial-1"
-        ) + " --es fixture_id natural_wake"
-        target.responses[start_key] = 'Broadcast completed: result=0, data="started:trial-1"'
-        target.responses[
-            self._capture_broadcast_key(runner.TARGET_CAPTURE_ACTION_STOP, "trial-1")
-        ] = 'Broadcast completed: result=1, data="not_recording:trial-1"'
-        slots = runner.matrix_slots_for_target("s21")
-        attempt = runner.MatrixAttempt("trial-1", slots[0], 1, runner.AttemptStatus.INVALID)
-        harness._start_target_capture(attempt, "trial-1", "natural_wake")
-        harness._stop_and_retrieve_target_capture(attempt)
-        self.assertIn("capture stop failed", attempt.target_capture["error"])
-        self.assertFalse((harness.run_dir / "trials/trial-1/target/capture.wav").exists())
-
-    def test_trial_wiring_projects_energy_and_capture_into_evidence(self) -> None:
-        """An integrated run_trial with a summary journal event and a capture
-        receiver produces target_timing.gate_episode_energy and
-        target_capture on the same attempt."""
+    def test_trial_wiring_projects_energy_into_evidence(self) -> None:
+        """An integrated run_trial parses the bounded WakeWordDiag window into
+        target_timing.gate_episode_energy on the same attempt."""
         harness = make_runner()
         harness.run_dir = Path(tempfile.mkdtemp())
         fixture_sha256 = source_result()["fixture_sha256"]
@@ -3527,40 +3461,14 @@ class EvidenceRetentionTests(unittest.TestCase):
             "target_environment_state": {},
         }
         harness.cue_audibility_evidence_verified = True
-        wav = bytes(range(128)) * 16
         target = harness.target
-        start_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_START, "trial-1"
-        ) + " --es fixture_id natural_wake"
-        stop_key = self._capture_broadcast_key(
-            runner.TARGET_CAPTURE_ACTION_STOP, "trial-1"
+        target.responses["shell logcat -c"] = ""
+        target.responses["shell logcat -d -s 'WakeWordDiag:*'"] = (
+            self.SUMMARY_GEN4 + "\n" + self.SUMMARY_GEN5 + "\n"
         )
-        target.responses[start_key] = 'Broadcast completed: result=0, data="started:trial-1"'
-        target.responses[stop_key] = 'Broadcast completed: result=0, data="stopped:trial-1"'
-        target.responses[
-            "shell run-as com.kernel.ai.debug cat files/acoustic-capture/trial-1.json"
-        ] = json.dumps({
-            "trial_id": "trial-1", "bytes": len(wav), "duration_ms": 60_000,
-            "started_wall_clock_ms": 1_000, "stopped_wall_clock_ms": 61_000,
-            "sample_rate": 16_000, "channels": 1, "overflowed": False,
-        })
-        target.responses[
-            "run-as com.kernel.ai.debug cat files/acoustic-capture/trial-1.wav"
-        ] = wav.decode("latin-1")
 
         final_events = complete_events(runner.TrialType.WAKE_ONLY)
-        summary = self._summary_event(15, 4, {
-            "stage3_evals": "422",
-            "max_confidence": "0.907",
-            "max_confidence_offset_frames": "11",
-            "low_verify_entered": "false",
-            "low_verify_accepted": "false",
-            "gated_probe_executions": "3",
-            "episode_peak_rms": "3390.5",
-            "max_window_peak_rms": "3390.5",
-            "max_window_mean_rms": "1090.25",
-        })
-        final_envelope = envelope([*final_events, summary], lowest=1)
+        final_envelope = envelope(final_events, lowest=1)
         boundary_envelope = envelope([
             event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
         ], lowest=3)
@@ -3603,22 +3511,89 @@ class EvidenceRetentionTests(unittest.TestCase):
         self.assertEqual(attempt.status, runner.AttemptStatus.PASSED, attempt.__dict__)
         energy = attempt.target_timing["gate_episode_energy"]
         self.assertEqual(len(energy), 1)
-        self.assertEqual(energy[0]["sequence"], 15)
         self.assertEqual(energy[0]["generation_id"], 4)
-        self.assertEqual(energy[0]["episode_peak_rms"], 3390.5)
-        self.assertEqual(energy[0]["max_window_peak_rms"], 3390.5)
-        self.assertEqual(energy[0]["max_window_mean_rms"], 1090.25)
-        self.assertEqual(energy[0]["max_confidence"], 0.907)
-        self.assertEqual(attempt.target_capture["artifact"], "trials/trial-1/target/capture.wav")
-        self.assertEqual(attempt.target_capture["sha256"], hashlib.sha256(wav).hexdigest())
-        self.assertEqual(
-            (harness.run_dir / "trials/trial-1/target/capture.wav").read_bytes(),
-            wav,
-        )
+        self.assertEqual(energy[0]["episode_peak_rms"], 3593.4)
+        self.assertEqual(energy[0]["max_window_peak_rms"], 3593.4)
+        self.assertEqual(energy[0]["max_window_mean_rms"], 1307.6)
+        self.assertEqual(energy[0]["max_confidence"], 0.00143)
+        # The private bounded dump is retained per trial.
+        private_dump = harness.run_dir / "trials/trial-1/target/wakeworddiag.log"
+        self.assertTrue(private_dump.is_file())
+        self.assertIn("gateExitSummary", private_dump.read_text())
         # Source playback evidence projected onto the same attempt.
         self.assertEqual(attempt.source_timing["playback_duration_ms"], 1_900)
         self.assertIsInstance(attempt.source_timing["playback_start_wall_clock_ms"], int)
         self.assertEqual(attempt.source_outcome["applied_volume"], 7)
+
+    def test_trial_wiring_records_energy_parse_error_honestly(self) -> None:
+        harness = make_runner()
+        harness.run_dir = Path(tempfile.mkdtemp())
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {"natural_wake": fixture_sha256}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        target = harness.target
+        target.responses["shell logcat -c"] = ""
+        target.responses["shell logcat -d -s 'WakeWordDiag:*'"] = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 episodePeakRms=loud"
+        )
+
+        final_events = complete_events(runner.TrialType.WAKE_ONLY)
+        final_envelope = envelope(final_events, lowest=1)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        snapshots = iter((boundary_envelope, final_envelope))
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        def invoke_source(trial_id, fixture_id, volume_index):
+            return source_result(trial_id, fixture_id)
+
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            waited = event(
+                {"STT_READY": 11, "DETECTOR_REARMED": 18}[event_type],
+                event_type,
+            )
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=invoke_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=target_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-1",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(attempt.status, runner.AttemptStatus.PASSED, attempt.__dict__)
+        self.assertNotIn("gate_episode_energy", attempt.target_timing)
+        self.assertIn(
+            "wakeword_diag_parse_failed",
+            attempt.target_timing["gate_episode_energy_error"],
+        )
 
     # ── Diagnostics property lifecycle ─────────────────────────────────
 
@@ -3642,6 +3617,24 @@ class EvidenceRetentionTests(unittest.TestCase):
         harness.target = StuckAdb("target")
         with self.assertRaises(runner.HarnessError):
             harness.ensure_target_diagnostics()
+
+    # ── No second microphone consumer ──────────────────────────────────
+
+    def test_no_second_audio_record_path_remains(self) -> None:
+        """The wake detector must remain the only wake-path AudioRecord: no
+        capture receiver, no PCM pull, no target_capture evidence, no binary
+        exec-out helper."""
+        import inspect as _inspect
+        source = _inspect.getsource(runner)
+        self.assertNotIn("TargetCaptureReceiver", source)
+        self.assertNotIn("CAPTURE_START", source)
+        self.assertNotIn("CAPTURE_STOP", source)
+        self.assertNotIn("capture.wav", source)
+        self.assertFalse(hasattr(runner, "TARGET_CAPTURE_RECEIVER_CLS"))
+        self.assertFalse(hasattr(runner, "TARGET_CAPTURE_ACTION_START"))
+        self.assertFalse(hasattr(runner.MatrixAttempt, "target_capture"))
+        self.assertFalse(hasattr(runner.AdbClient, "exec_out"))
+
 
 
 if __name__ == "__main__":
