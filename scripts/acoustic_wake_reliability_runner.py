@@ -149,6 +149,16 @@ MATRIX_S23U: tuple[tuple[int, int, int], ...] = (
     (1800, 2, 1),
 )
 
+# v1.0 release wake thresholds per #1410 (2026-08-08 product decision).
+# Per-device false-negative tolerance, measured independently; the final
+# cross-device release decision remains the #1410 execution report's
+# responsibility.  These are fixed for the release run and must not be
+# adjusted after seeing results.
+RELEASE_WAKE_THRESHOLDS: dict[str, tuple[int, int]] = {
+    "s21": (22, 27),
+    "s23u": (19, 20),
+}
+
 EXPECTED_DEVICES: dict[str, dict[str, str]] = {
     "s21": {"manufacturer": "samsung", "model": "SM-G991B"},
     "s23u": {"manufacturer": "samsung", "model": "SM-S918B"},
@@ -218,6 +228,16 @@ class FailureClassification(str, Enum):
     COMMAND_CAPTURE_OR_ROUTING_FAILURE = "command_capture_or_routing_failure"
     SERVICE_REARM_FAILURE = "service_rearm_failure"
     UNCLASSIFIED = "unclassified"
+
+# Valid-failure classes that may consume the #1410 false-negative budget.
+# Every other valid-failure classification — activation handoff, STT
+# readiness, cue audio/audibility, command capture/routing, service re-arm,
+# spontaneous activation, or unclassified — blocks the release gate
+# regardless of the wake percentage.
+RELEASE_PERMITTED_WAKE_MISSES: frozenset[FailureClassification] = frozenset({
+    FailureClassification.ACOUSTIC_OR_GATE_MISS,
+    FailureClassification.CLASSIFIER_MODEL_MISS,
+})
 
 class InvalidReason(str, Enum):
     SAME_DEVICE = "same_source_and_target_device"
@@ -1689,18 +1709,25 @@ def scan_spontaneous_activations(
     private_run_dir: Path,
     attempts: list[MatrixAttempt],
 ) -> dict[str, Any]:
-    """Scan preserved target journal snapshots for activations outside any
-    trial's correlated detector generation.
+    """Scan preserved target journal snapshots for activations outside the
+    intended stimulus windows.
 
     Every preserved ``trials/*/target/*-snapshot.json`` file is scanned.
-    An activation-path event is attributed to a trial when its detector
-    generation equals a trial's correlated generation
-    (``target_timing.generation_id``); events at or before the first trial's
-    boundary sequence are pre-run/preflight history and are excluded from the
-    observation period.  Remaining activation-path events have no scheduled
-    wake stimulus and are reported as spontaneous candidates for
-    false-positive review (per-trial source-playback correlation is an
-    operator step, not an automated claim).
+    An activation-path event is attributed to a scheduled trial only when its
+    exact journal sequence appears in a valid trial's correlated path (the
+    activation events the runner correlated with that trial's intended
+    stimulus window, ``target_timing.events``).  Events at or before the
+    first trial's boundary sequence are pre-run/preflight history and are
+    excluded from the observation period.
+
+    Detector-generation membership alone never attributes an event: a
+    spontaneous wake can occur after the trial boundary, in the same
+    generation the trial eventually uses, and before the scheduled source
+    stimulus.  Every activation-path event outside a correlated path — even
+    one sharing a trial's generation — is reported as a spontaneous candidate
+    for operator correlation against source-playback evidence.  False-positive
+    evidence therefore fails safe toward surfacing candidates, never hiding
+    them.
 
     Counts are a lower bound when the on-device journal evicted events: the
     number of overflowed snapshots is reported in ``coverage`` so evidence
@@ -1708,10 +1735,14 @@ def scan_spontaneous_activations(
     """
     candidates: dict[str, Any] = {
         "scan_rule": (
-            "generation attribution: activation-path events in any trial's "
-            "correlated generation are trial-attributed; events at or before "
-            "the first trial boundary are pre-run history; all remaining "
-            "activation-path events are spontaneous candidates"
+            "correlated-path attribution: activation-path events are "
+            "trial-attributed only when their exact journal sequence appears "
+            "in a valid trial's correlated path (the activation correlated "
+            "with the intended stimulus window); events at or before the "
+            "first trial boundary are pre-run history; every other "
+            "activation-path event — including events sharing a trial's "
+            "detector generation — is a spontaneous candidate for operator "
+            "correlation"
         ),
         "coverage": {"snapshots_scanned": 0, "overflowed_snapshots": 0},
         "activation_candidates": 0,
@@ -1722,11 +1753,20 @@ def scan_spontaneous_activations(
     }
     if private_run_dir is None or not private_run_dir.is_dir():
         return candidates
-    attributed_generations = {
-        attempt.target_timing["generation_id"]
+    activation_types = {
+        "ACTIVATION_CANDIDATE",
+        "VERIFIED_ACTIVATION",
+        "WAKE_CALLBACK_INVOKED",
+        "VOICE_SESSION_STARTED",
+    }
+    shielded_sequences = {
+        event["s"]
         for attempt in attempts
-        if isinstance(attempt.target_timing, dict)
-        and isinstance(attempt.target_timing.get("generation_id"), int)
+        if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        and isinstance(attempt.target_timing, dict)
+        for event in (attempt.target_timing.get("events") or [])
+        if event.get("t") in activation_types
+        and isinstance(event.get("s"), int)
     }
     first_boundary = min(
         (
@@ -1737,12 +1777,6 @@ def scan_spontaneous_activations(
         ),
         default=None,
     )
-    activation_types = {
-        "ACTIVATION_CANDIDATE",
-        "VERIFIED_ACTIVATION",
-        "WAKE_CALLBACK_INVOKED",
-        "VOICE_SESSION_STARTED",
-    }
     seen: set[tuple[str, int]] = set()
     observed: list[dict[str, Any]] = []
     for path in sorted(private_run_dir.glob("trials/*/target/*-snapshot.json")):
@@ -1763,7 +1797,7 @@ def scan_spontaneous_activations(
                 continue
             if first_boundary is not None and sequence <= first_boundary:
                 continue
-            if event.get("g") in attributed_generations:
+            if sequence in shielded_sequences:
                 continue
             if (event_type, sequence) in seen:
                 continue
@@ -3991,11 +4025,11 @@ class AcousticWakeReliabilityRunner:
         _, commit = git_metadata()
         source = self.source_identity
         target = self.target_identity
-        expected = EXPECTED_DEVICES["s21"]
+        expected = EXPECTED_DEVICES.get(self.target_alias)
         return (
-            commit is not None
+            expected is not None
+            and commit is not None
             and re.fullmatch(r"[0-9a-f]{40}", commit) is not None
-            and self.target_alias == "s21"
             and source is not None
             and source.package_version is not None
             and source.package_version_code is not None
@@ -4007,13 +4041,60 @@ class AcousticWakeReliabilityRunner:
         )
 
     def release_gate_success(self) -> bool:
-        """Return true only for the S21 all-passed regression launch gate."""
+        """Per-device v1.0 release gate per the #1410 acceptance criteria.
+
+        A complete regression matrix passes when:
+
+        - the device's intended-wake threshold is met (S21 >=22/27,
+          S23U >=19/20) — genuine intended-wake misses classified as
+          acoustic/gate or classifier/model misses may consume the false
+          negative budget;
+        - every other valid-failure class (activation handoff, STT readiness,
+          cue audio, cue audibility unconfirmed, command capture/routing,
+          service re-arm, spontaneous activation) and any unclassified
+          outcome fail the gate regardless of the wake percentage — a
+          wake-plus-command trial whose wake activated but whose command
+          failed counts as wake success in the numerator yet still fails the
+          gate as a valid product failure;
+        - zero spontaneous/false activations are observed in the preserved
+          journal snapshots;
+        - provenance, preflight, cue and cleanup conditions hold.
+
+        The final cross-device release decision remains the #1410 execution
+        report's responsibility; this records the per-device result.
+        """
         preflight = self.preflight_approval or {}
+        if self.gate_mode != GateMode.RELEASE or self.run_kind != RunKind.REGRESSION:
+            return False
+        if not self.is_matrix_complete():
+            return False
+        valid = [
+            attempt for attempt in self.attempts
+            if attempt.status in {AttemptStatus.PASSED, AttemptStatus.FAILED}
+        ]
+        threshold = RELEASE_WAKE_THRESHOLDS.get(self.target_alias)
+        if threshold is None:
+            return False
+        wake_results = [wake_activated_for_attempt(attempt) for attempt in valid]
+        numerator = sum(1 for value in wake_results if value is True)
+        denominator = len(wake_results)
+        if denominator != threshold[1] or numerator < threshold[0]:
+            return False
+        if any(
+            attempt.status == AttemptStatus.FAILED
+            and attempt.classification not in RELEASE_PERMITTED_WAKE_MISSES
+            for attempt in valid
+        ):
+            return False
+        spontaneous = scan_spontaneous_activations(self.run_dir, self.attempts)
+        if (
+            spontaneous["verified"] > 0
+            or spontaneous["callbacks"] > 0
+            or spontaneous["sessions"] > 0
+        ):
+            return False
         return (
-            self.gate_mode == GateMode.RELEASE
-            and self.run_kind == RunKind.REGRESSION
-            and self._release_provenance_verified()
-            and self.all_required_passed()
+            self._release_provenance_verified()
             and self.cleanup_verified
             and preflight.get("operator_approved") is True
             and preflight.get("cue_audibility_evidence_verified") is True

@@ -536,7 +536,11 @@ comparison (3+2 at 2 minutes, 2+1 at 30 minutes) is retained; the additional
 measurable directly without expanding long-idle or command-path coverage
 (#1410 v1.0 product re-baseline, 2026-08-08, matrix AWVR-001 v2).
 
-The S21 matrix is launch blocking. S23U is comparison evidence unless it reveals the same product defect.
+The S21 matrix is launch blocking and the S23U comparison is independently
+gated: the current v1.0 release gate requires **S21 ≥22/27** and **S23U
+≥19/20** intended wake successes, plus **zero spontaneous/false activations
+on either device** during the controlled observation periods (#1410
+2026-08-08 product decision).
 
 ## 16. Failure classification
 
