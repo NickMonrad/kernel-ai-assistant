@@ -126,6 +126,27 @@ TARGET_WAIT_TERMINAL_REARM_MS = 40_000
 TARGET_RECEIVER_CLS = "com.kernel.ai.debug.journal.TargetEventJournalReceiver"
 TARGET_ACTION_GET_SEQUENCE = "com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE"
 TARGET_ACTION_GET_SNAPSHOT = "com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT"
+
+# Debug target-side PCM capture contract (TargetCaptureReceiver, #1410).
+# The runner starts/stops an explicit broadcast around each trial's playback
+# window and pulls the app-private WAV into the private run directory; the
+# artifact is never referenced by artifact_refs, so it is never copied into
+# the sanitised/public evidence.
+TARGET_CAPTURE_RECEIVER_CLS = "com.kernel.ai.debug.capture.TargetCaptureReceiver"
+TARGET_CAPTURE_ACTION_START = "com.kernel.ai.debug.action.CAPTURE_START"
+TARGET_CAPTURE_ACTION_STOP = "com.kernel.ai.debug.action.CAPTURE_STOP"
+TARGET_CAPTURE_RESULT_OK = 0
+TARGET_CAPTURE_RESULT_NOT_RECORDING = 1
+TARGET_CAPTURE_RESULT_ERROR = 2
+TARGET_CAPTURE_PULL_TIMEOUT_S = 30.0
+
+# Debug-gated per-episode summary journaled by WakeWordGateExitDiagnostics
+# (#1410 evidence retention): mirrors the WakeWordDiag gateExitSummary logcat
+# fields so the runner can persist target capture energy without parsing
+# logcat.  Emitted only when the WakeWordDiag DEBUG tag is enabled.
+GATE_EPISODE_SUMMARY_TYPE = "GATE_EPISODE_SUMMARY"
+WAKE_WORD_DIAG_TAG = "log.tag.WakeWordDiag"
+
 # Public aliases that may appear in sanitised output
 PUBLIC_ALIASES = ("s21", "s23u")
 
@@ -314,6 +335,10 @@ class MatrixAttempt:
     artifact_refs: list[str] = dataclasses.field(default_factory=list)
     source_environment_before: dict[str, Any] = dataclasses.field(default_factory=dict)
     source_environment_after: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Private target-side PCM capture evidence (#1410): artifact reference
+    # (never copied to public output), sha256, size/duration and capture
+    # window, or an honest error when capture was unavailable.
+    target_capture: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
     @property
@@ -449,6 +474,22 @@ class AdbClient:
         self, *args: str, timeout: float = 30.0, check: bool = True,
     ) -> str:
         return self.run("shell", *args, timeout=timeout, check=check)
+
+    def exec_out(
+        self, *args: str, timeout: float = 30.0, check: bool = True,
+    ) -> bytes:
+        """Run ``adb exec-out`` and return raw bytes (for binary pulls)."""
+        result = self._runner(
+            ["adb", "-s", self.serial, "exec-out", *args],
+            capture_output=True, timeout=timeout,
+        )
+        if check and result.returncode != 0:
+            raise HarnessError(
+                f"adb exec-out failed ({result.returncode}): "
+                f"{(result.stderr or result.stdout or b'').decode(errors='replace').strip()}"
+            )
+        return result.stdout
+
     def reachable(self) -> bool:
         try:
             return self.run("get-state").strip() == "device"
@@ -909,6 +950,23 @@ def source_playback_start_wall_clock_ms(
     return candidate
 
 
+def source_playback_duration_ms(source_result: dict[str, Any]) -> int | None:
+    """Resolve validated playback duration (completion - start monotonic).
+
+    Both timestamps are validated integers in the source result contract; a
+    missing or inverted pair yields None (never inferred or clamped).
+    """
+    start = source_result.get("playback_start_monotonic_ms")
+    completion = source_result.get("completion_monotonic_ms")
+    if (
+        isinstance(start, bool) or not isinstance(start, int) or start < 0
+        or isinstance(completion, bool) or not isinstance(completion, int)
+        or completion < start
+    ):
+        return None
+    return completion - start
+
+
 def service_active(client: AdbClient, package: str) -> bool:
     """Check whether WakeWordService is running on the device."""
     return "WakeWordService" in client.shell("dumpsys", "activity", "services", package)
@@ -950,6 +1008,7 @@ VALID_EVENT_TYPES: set[str] = {
     "VOICED_FRAME_AFTER_SILENCE",
     "STAGE2_RESUMED",
     "STAGE3_READY",
+    "GATE_EPISODE_SUMMARY",
     "ACTIVATION_CANDIDATE",
     "VERIFIED_ACTIVATION",
     "WAKE_CALLBACK_INVOKED",
@@ -1603,6 +1662,100 @@ def deduplicate_projected_events(
     return deduplicated
 
 
+def _parse_energy_metadata_value(key: str, value: Any) -> Any:
+    """Parse one GATE_EPISODE_SUMMARY metadata value, fail closed on garbage.
+
+    Numeric fields are emitted as their shortest round-trip decimal strings;
+    ``none`` (or an absent key) means the value was unavailable on-device and
+    is represented as None — never fabricated.
+    """
+    if value is None or value == "none":
+        return None
+    if not isinstance(value, str):
+        raise HarnessError(f"gate episode summary metadata {key} must be a string")
+    lowered = value.lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    try:
+        if key in _ENERGY_INT_METADATA_KEYS:
+            return int(value)
+        return float(value)
+    except ValueError as exc:
+        raise HarnessError(
+            f"gate episode summary metadata {key} is malformed: {value!r}"
+        ) from exc
+
+
+_ENERGY_INT_METADATA_KEYS = frozenset({
+    "stage3_evals",
+    "max_confidence_offset_frames",
+    "gated_probe_executions",
+})
+
+_ENERGY_FLOAT_METADATA_KEYS = frozenset({
+    "max_confidence",
+    "episode_peak_rms",
+    "max_window_peak_rms",
+    "max_window_mean_rms",
+})
+
+_ENERGY_BOOL_METADATA_KEYS = frozenset({
+    "low_verify_entered",
+    "low_verify_accepted",
+})
+
+_ENERGY_METADATA_KEYS = tuple(sorted(
+    set(_ENERGY_INT_METADATA_KEYS)
+    | set(_ENERGY_FLOAT_METADATA_KEYS)
+    | set(_ENERGY_BOOL_METADATA_KEYS)
+))
+
+
+def extract_gate_episode_energy(
+    events: list[dict[str, Any]],
+    generation: int | None,
+    since_sequence: int,
+) -> list[dict[str, Any]]:
+    """Project the trial's debug-gated capture-energy summaries into evidence.
+
+    The target journal carries one ``GATE_EPISODE_SUMMARY`` event per
+    silence-gate exit episode (emitted only when the WakeWordDiag DEBUG tag
+    was enabled before the detector generation started).  Its metadata
+    mirrors the WakeWordDiag ``gateExitSummary`` logcat fields: stage-3
+    statistics plus the detector's own captured-energy measurements of the
+    episode (``episode_peak_rms``) and of the exact 16 embedding-associated
+    frames of the max-confidence window (``max_window_peak_rms`` /
+    ``max_window_mean_rms``), ``none`` when unavailable.
+
+    Only events from the trial's boundary generation at or after the
+    boundary sequence are retained, so each entry correlates with the
+    trial's gate episode without any cross-device clock assumption.  Values
+    are preserved exactly (the journal emits round-trip decimal strings);
+    missing or malformed fields fail closed and are never fabricated.
+    """
+    if generation is None:
+        return []
+    results: list[dict[str, Any]] = []
+    for ev in events:
+        if ev["t"] != GATE_EPISODE_SUMMARY_TYPE:
+            continue
+        if ev["g"] != generation or ev["s"] < since_sequence:
+            continue
+        metadata = ev["d"]
+        parsed: dict[str, Any] = {}
+        for key in _ENERGY_METADATA_KEYS:
+            parsed[key] = _parse_energy_metadata_value(key, metadata.get(key))
+        results.append({
+            "sequence": ev["s"],
+            "generation_id": ev["g"],
+            "monotonic_ms": ev["m"],
+            "wall_clock_ms": ev["w"],
+            **parsed,
+        })
+    results.sort(key=lambda item: item["sequence"])
+    return results
+
+
 def public_preflight_approval(approval: dict[str, Any] | None) -> dict[str, Any]:
     """Project approval data without stable device identifiers or private paths."""
     if not approval:
@@ -1969,6 +2122,7 @@ def render_evidence(
             "fixture": {"id": attempt.fixture_id, "sha256": attempt.fixture_sha256},
             "source_outcome": attempt.source_outcome,
             "artifact_refs": attempt.artifact_refs,
+            "target_capture": attempt.target_capture,
             **(
                 {
                     "command_fixture": {
@@ -2205,6 +2359,10 @@ class AcousticWakeReliabilityRunner:
         self._last_target_snapshot: dict[str, Any] | None = None
         self.preflight_manifest_hash: str | None = None
         self.cue_policy_evidence_verified: bool = False
+        # WakeWordDiag DEBUG property state (#1410 evidence retention): the
+        # original value is restored by cleanup() when this run set it.
+        self._diag_prop_original: str | None = None
+        self._diag_prop_set: bool = False
 
     # ── Private file helpers ─────────────────────────────────────────
 
@@ -2334,6 +2492,7 @@ class AcousticWakeReliabilityRunner:
                 command_fixture_sha256=item.get("command_fixture_sha256"),
                 source_outcome=dict(item.get("source_outcome", {})),
                 command_source_outcome=dict(item.get("command_source_outcome", {})),
+                target_capture=dict(item.get("target_capture", {})),
                 artifact_refs=list(item.get("artifact_refs", [])),
                 source_environment_before=dict(
                     item.get("source_environment_before", {})
@@ -2862,6 +3021,11 @@ class AcousticWakeReliabilityRunner:
                 raise HarnessError(f"fixture {fixture_id!r} is absent from approved manifest")
             attempt.fixture_sha256 = expected_wake_hash
             attempt.invalid_reason = InvalidReason.SOURCE_STIMULUS_FAILURE
+            # #1410 evidence retention: open the private target-side PCM
+            # capture for the trial's playback window.  Best-effort — a
+            # capture failure never invalidates the trial, but it is recorded
+            # honestly in the evidence.
+            self._start_target_capture(attempt, trial_id, fixture_id)
             source_result = self._invoke_source(
                 trial_id,
                 fixture_id,
@@ -2892,12 +3056,25 @@ class AcousticWakeReliabilityRunner:
                 )
             }
             attempt.source_timing["clock_domain"] = "source_device_elapsed_realtime"
+            # #1410 evidence retention: persist the wall clock of the helper's
+            # validated ``started`` playback event and the derived playback
+            # duration so a reviewer can reconstruct exactly when and for how
+            # long audio was audible, without any cross-device clock
+            # assumption.  Missing or ambiguous evidence stays None and is
+            # never inferred from request or monotonic time.
+            attempt.source_timing["playback_start_wall_clock_ms"] = (
+                source_playback_start_wall_clock_ms(parsed_source)
+            )
+            attempt.source_timing["playback_duration_ms"] = (
+                source_playback_duration_ms(parsed_source)
+            )
             attempt.source_outcome = {
                 key: parsed_source.get(key)
                 for key in (
                     "completion_status", "cleanup_success",
                     "exact_restoration_verified", "output_route_during",
                     "focus_result", "timeout", "overlap_rejected",
+                    "requested_volume", "applied_volume", "maximum_volume",
                 )
             }
             self.checkpoint("post-source")
@@ -3055,6 +3232,18 @@ class AcousticWakeReliabilityRunner:
             attempt.target_timing["events"] = format_target_snapshot_events(
                 {"events": correlated_events}
             )
+            # #1410 evidence retention: the debug-gated per-episode capture
+            # energy (episodePeakRms / maxWindowPeakRms / maxWindowMeanRms)
+            # journaled by the detector, correlated to this trial's boundary
+            # generation and sequence window.  Absent when the WakeWordDiag
+            # DEBUG tag was not active for the generation — never fabricated.
+            gate_episode_energy = extract_gate_episode_energy(
+                snapshot["events"],
+                boundary_generation,
+                boundary_sequence,
+            )
+            if gate_episode_energy:
+                attempt.target_timing["gate_episode_energy"] = gate_episode_energy
             if correlation_failures:
                 attempt.target_timing["correlation_failures"] = correlation_failures
             self.checkpoint("post-snapshot")
@@ -3152,6 +3341,11 @@ class AcousticWakeReliabilityRunner:
             attempt.operational_failure = str(exc)
             attempt.invalid_details["operational_failure"] = str(exc)
         finally:
+            # #1410 evidence retention: stop the private target capture and
+            # pull the WAV into the private run directory (best-effort, never
+            # raises, recorded honestly on failure).  Runs before the
+            # checkpoint so the retained artifact is checkpoint-correlated.
+            self._stop_and_retrieve_target_capture(attempt)
             attempt.host_duration_ms = monotonic_ms() - host_start
             attempt.host_timing["trial_end_monotonic_ms"] = host_start + attempt.host_duration_ms
             attempt.host_timing["trial_duration_ms"] = attempt.host_duration_ms
@@ -3694,6 +3888,108 @@ class AcousticWakeReliabilityRunner:
         )
         return result
 
+    def _start_target_capture(self, attempt: MatrixAttempt, trial_id: str, fixture_id: str) -> None:
+        """Best-effort START of the private target-side PCM capture (#1410).
+
+        Opens the debug capture receiver for the trial's playback window
+        through terminal observation.  A failure is recorded honestly in
+        ``attempt.target_capture`` and never invalidates the trial.
+        """
+        attempt.target_capture = {}
+        if not self.target.reachable():
+            attempt.target_capture["error"] = "target_adb_unreachable"
+            return
+        broadcast_args = [
+            "shell", "am", "broadcast",
+            "-n", f"{self.package}/{TARGET_CAPTURE_RECEIVER_CLS}",
+            "-a", TARGET_CAPTURE_ACTION_START,
+            "--es", "trial_id", trial_id,
+            "--es", "fixture_id", fixture_id,
+        ]
+        try:
+            broadcast_output = self.target.run(
+                *broadcast_args, timeout=15.0, check=False,
+            )
+            result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
+        except HarnessError as exc:
+            attempt.target_capture["error"] = f"capture_start_failed: {exc}"
+            return
+        if result_code != TARGET_CAPTURE_RESULT_OK:
+            attempt.target_capture["error"] = (
+                f"capture_start_rejected: code={result_code} data={result_data}"
+            )
+            return
+        attempt.target_capture["started"] = True
+
+    def _stop_and_retrieve_target_capture(self, attempt: MatrixAttempt) -> None:
+        """Best-effort STOP + private pull of the trial's target PCM capture.
+
+        The WAV is written to ``trials/<trial_id>/target/capture.wav`` inside
+        the private run directory, hashed, and correlated to the attempt via
+        its trial id.  It is deliberately NOT referenced through
+        ``artifact_refs``, so the sanitised publication path never copies it.
+        Failures are recorded honestly; this never raises.
+        """
+        if not attempt.target_capture.get("started"):
+            return
+        trial_id = attempt.trial_id
+        try:
+            if not self.target.reachable():
+                raise HarnessError("target ADB unreachable during capture stop")
+            broadcast_output = self.target.run(
+                "shell", "am", "broadcast",
+                "-n", f"{self.package}/{TARGET_CAPTURE_RECEIVER_CLS}",
+                "-a", TARGET_CAPTURE_ACTION_STOP,
+                "--es", "trial_id", trial_id,
+                timeout=15.0,
+                check=False,
+            )
+            result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
+            if result_code != TARGET_CAPTURE_RESULT_OK:
+                raise HarnessError(
+                    f"capture stop failed: code={result_code} data={result_data}"
+                )
+            # The full metadata is persisted by the receiver as an app-private
+            # sidecar (mirroring the source-result pattern); the broadcast
+            # result is a simple token.
+            sidecar_text = self.target.shell(
+                "run-as", self.package,
+                "cat", f"files/acoustic-capture/{trial_id}.json",
+                timeout=TARGET_CAPTURE_PULL_TIMEOUT_S,
+            )
+            metadata = json.loads(sidecar_text)
+            if metadata.get("trial_id") != trial_id:
+                raise HarnessError(
+                    f"capture metadata trial mismatch: {metadata.get('trial_id')}"
+                )
+            wav_bytes = self.target.exec_out(
+                "run-as", self.package,
+                "cat", f"files/acoustic-capture/{trial_id}.wav",
+                timeout=TARGET_CAPTURE_PULL_TIMEOUT_S,
+            )
+            if not wav_bytes:
+                raise HarnessError("capture artifact is empty")
+            artifact = f"trials/{trial_id}/target/capture.wav"
+            path = self.run_dir / artifact
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(f".tmp.{uuid.uuid4().hex[:8]}")
+            tmp.write_bytes(wav_bytes)
+            tmp.rename(path)
+            attempt.target_capture = {
+                "artifact": artifact,
+                "sha256": hashlib.sha256(wav_bytes).hexdigest(),
+                "size_bytes": len(wav_bytes),
+                "duration_ms": metadata.get("duration_ms"),
+                "started_wall_clock_ms": metadata.get("started_wall_clock_ms"),
+                "stopped_wall_clock_ms": metadata.get("stopped_wall_clock_ms"),
+                "sample_rate": metadata.get("sample_rate"),
+                "channels": metadata.get("channels"),
+                "overflowed": metadata.get("overflowed"),
+            }
+        except (HarnessError, json.JSONDecodeError, OSError) as exc:
+            # Internal "started" state is not evidence; publish the error only.
+            attempt.target_capture = {"error": f"capture_retrieval_failed: {exc}"}
+
     def _cancel_active_source_playback(self) -> list[str]:
         """Request immediate helper cleanup for an interrupted source trial."""
         trial_id = self._active_source_trial_id
@@ -3960,6 +4256,35 @@ class AcousticWakeReliabilityRunner:
                 failures.append(f"source result {index + 1}: {exc}")
         return failures
 
+    # ── Diagnostics setup (#1410 evidence retention) ──────────────────
+    def ensure_target_diagnostics(self) -> None:
+        """Enable and verify the debug-gated per-episode energy diagnostics.
+
+        The ``GATE_EPISODE_SUMMARY`` journal events (and the WakeWordDiag
+        logcat summaries) are emitted only when the ``log.tag.WakeWordDiag``
+        DEBUG tag is enabled before the detector generation started.  This
+        sets and verifies the property on the target; the original value is
+        restored by [cleanup].  The wake service must be re-armed after
+        enabling so the current generation carries the diagnostics — the
+        monitored preflight's activation session performs that re-arm, and
+        later runs reuse its approved manifest.
+        """
+        if not self.target.reachable():
+            raise HarnessError("target ADB not reachable for diagnostics setup")
+        try:
+            original = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip()
+        except HarnessError as exc:
+            raise HarnessError(f"cannot read target {WAKE_WORD_DIAG_TAG}: {exc}") from exc
+        if self._diag_prop_original is None:
+            self._diag_prop_original = original or None
+        self.target.shell("setprop", WAKE_WORD_DIAG_TAG, "DEBUG")
+        level = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip().upper()
+        if level != "DEBUG":
+            raise HarnessError(
+                f"target {WAKE_WORD_DIAG_TAG} did not take effect (got {level!r})"
+            )
+        self._diag_prop_set = True
+
     # ── Cleanup ──────────────────────────────────────────────────────
     def cleanup(self) -> None:
         """Cancel provider waits and verify helper-owned restoration."""
@@ -3971,6 +4296,18 @@ class AcousticWakeReliabilityRunner:
         failures.extend(self._cancel_active_source_playback())
         failures.extend(self._recover_active_source_result())
         failures.extend(self._verify_source_restoration())
+        if self._diag_prop_set:
+            try:
+                self.target.shell(
+                    "setprop", WAKE_WORD_DIAG_TAG, self._diag_prop_original or ""
+                )
+                actual = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip()
+                if actual != (self._diag_prop_original or ""):
+                    failures.append(
+                        f"target {WAKE_WORD_DIAG_TAG} restore verification failed"
+                    )
+            except HarnessError as exc:
+                failures.append(f"target {WAKE_WORD_DIAG_TAG} restore failed: {exc}")
         if self.run_environment_before is not None:
             self.run_environment_after = {
                 "source": self._snapshot_source_state(),
@@ -4363,6 +4700,9 @@ def load_later_run_preflight(
     runner.source_identity = device_identity(runner.source, runner.source_alias, runner.package)
     runner.target_identity = device_identity(runner.target, runner.target_alias, runner.package)
     runner.verify_preflight_approval()
+    # #1410 evidence retention: the per-episode energy diagnostics must be
+    # active before any trial; fail closed rather than run without evidence.
+    runner.ensure_target_diagnostics()
     approved_cue_policy = runner.preflight_approval.get("cue_policy_version")
     requested_cue_policy = getattr(args, "cue_policy_version", None)
     if requested_cue_policy is not None and approved_cue_policy != requested_cue_policy:
@@ -4444,6 +4784,10 @@ def preflight_mode(args: argparse.Namespace) -> int:
         interactive=True,
     )
     runner.secrets = [args.source_selector, args.target_selector]
+    # #1410 evidence retention: enable the energy diagnostics before the
+    # monitored playback so the approval session's re-arm leaves the detector
+    # generation that carries GATE_EPISODE_SUMMARY journal events.
+    runner.ensure_target_diagnostics()
     completed = False
     try:
         runner.run_preflight(
@@ -4645,6 +4989,10 @@ def resume_mode(args: argparse.Namespace) -> int:
         # Check preflight drift
         if runner.preflight_approval:
             runner.verify_preflight_approval()
+
+        # #1410 evidence retention: diagnostics must be active before any
+        # new trial (offline export-only re-render never touches ADB).
+        runner.ensure_target_diagnostics()
 
         # Continue matrix
         runner.run_matrix(

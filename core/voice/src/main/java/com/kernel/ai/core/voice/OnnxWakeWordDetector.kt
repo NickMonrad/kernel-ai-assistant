@@ -1258,18 +1258,50 @@ internal class WakeWordGateExitDiagnostics(
      */
     fun finish(): String? = if (episodeOpen) currentSummary() else null
 
-    private fun currentSummary(): String = buildGateExitSummary(
-        generationId = generationId,
-        stage3Evaluations = stage3Evaluations,
-        maxConfidence = maxConfidence,
-        maxConfidenceOffsetFrames = maxConfidenceOffsetFrames,
-        lowVerifyEntered = lowVerifyEntered,
-        lowVerifyAccepted = lowVerifyAccepted,
-        gatedProbeExecutions = gatedProbeExecutions,
-        episodePeakRms = episodePeakRms,
-        maxWindowPeakRms = maxWindowPeakRms,
-        maxWindowMeanRms = maxWindowMeanRms,
-    )
+    private fun currentSummary(): String {
+        val summary = buildGateExitSummary(
+            generationId = generationId,
+            stage3Evaluations = stage3Evaluations,
+            maxConfidence = maxConfidence,
+            maxConfidenceOffsetFrames = maxConfidenceOffsetFrames,
+            lowVerifyEntered = lowVerifyEntered,
+            lowVerifyAccepted = lowVerifyAccepted,
+            gatedProbeExecutions = gatedProbeExecutions,
+            episodePeakRms = episodePeakRms,
+            maxWindowPeakRms = maxWindowPeakRms,
+            maxWindowMeanRms = maxWindowMeanRms,
+        )
+        // #1410 evidence retention: the same episode summary is journalled so
+        // the runner can persist the capture-energy fields per trial without
+        // parsing logcat (which the runner never reads).  Debug-gated with
+        // the holder itself; the bridge is a no-op in release builds.
+        AcousticJournalBridge.record(
+            type = AcousticEventType.GATE_EPISODE_SUMMARY,
+            generationId = generationId,
+            metadata = {
+                mapOf(
+                    "stage3_evals" to stage3Evaluations.toString(),
+                    "max_confidence" to (
+                        if (maxConfidence >= 0f) maxConfidence.toString() else "none"
+                    ),
+                    "max_confidence_offset_frames" to maxConfidenceOffsetFrames.toString(),
+                    "low_verify_entered" to lowVerifyEntered.toString(),
+                    "low_verify_accepted" to lowVerifyAccepted.toString(),
+                    "gated_probe_executions" to gatedProbeExecutions.toString(),
+                    "episode_peak_rms" to (
+                        if (episodePeakRms >= 0f) episodePeakRms.toString() else "none"
+                    ),
+                    "max_window_peak_rms" to (
+                        if (maxWindowPeakRms >= 0f) maxWindowPeakRms.toString() else "none"
+                    ),
+                    "max_window_mean_rms" to (
+                        if (maxWindowMeanRms >= 0f) maxWindowMeanRms.toString() else "none"
+                    ),
+                )
+            },
+        )
+        return summary
+    }
 
     private fun resetEpisode() {
         stage3Evaluations = 0
