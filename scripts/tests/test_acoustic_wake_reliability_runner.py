@@ -804,6 +804,326 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertEqual([s.ordinal for s in ten_second_command], [1, 2, 3])
         self.assertEqual(len({s.position_id for s in slots}), len(slots))
 
+    def test_s21_matrix_defines_27_valid_positions(self) -> None:
+        """#1410 frozen S21 matrix: 27 independent valid positions."""
+        slots = runner.matrix_slots_for_target("s21")
+        self.assertEqual(len(slots), 27)
+        by_idle: dict[int, list[int]] = {}
+        for slot in slots:
+            by_idle.setdefault(slot.idle_s, [0, 0])
+            by_idle[slot.idle_s][0 if slot.wake_only else 1] += 1
+        self.assertEqual(by_idle, {
+            10: [5, 3],
+            30: [5, 0],
+            120: [5, 3],
+            900: [2, 0],
+            1800: [2, 2],
+        })
+
+    def test_s23u_matrix_defines_20_valid_positions(self) -> None:
+        """#1410 re-baselined S23U matrix: 20 independent valid positions.
+
+        The original 8 comparison positions are retained (3+2 wake-only and
+        2+1 wake-plus-command); the additional 12 are 2-minute wake-only
+        trials so the >=95% target is measurable directly.
+        """
+        slots = runner.matrix_slots_for_target("s23u")
+        self.assertEqual(len(slots), 20)
+        by_idle: dict[int, list[int]] = {}
+        for slot in slots:
+            by_idle.setdefault(slot.idle_s, [0, 0])
+            by_idle[slot.idle_s][0 if slot.wake_only else 1] += 1
+        self.assertEqual(by_idle, {
+            120: [15, 2],
+            1800: [2, 1],
+        })
+        self.assertEqual(len({s.position_id for s in slots}), len(slots))
+
+    def test_wake_activated_is_independent_of_command_outcome(self) -> None:
+        """The wake-success numerator must not absorb command-path failures.
+
+        A wake-plus-command case whose wake activated but whose command
+        failed reports wake_activated=True so the intended-wake numerator
+        stays independent of the command result; wake misses and invalid
+        attempts are never counted as wake successes.
+        """
+        slots = runner.matrix_slots_for_target("s21")
+        full_path = complete_events(runner.TrialType.WAKE_ONLY)
+        gate_only = [
+            event(1, "STAGE3_READY"),
+            event(2, "SILENCE_GATE_ENTERED"),
+            event(3, "SILENCE_GATE_ENTERED"),
+        ]
+        attempts = [
+            runner.MatrixAttempt(
+                "wake-pass", slots[0], 1, runner.AttemptStatus.PASSED,
+                target_timing={"events": full_path},
+            ),
+            runner.MatrixAttempt(
+                "command-fail", slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                target_timing={"events": full_path},
+            ),
+            runner.MatrixAttempt(
+                "wake-miss", slots[2], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": gate_only},
+            ),
+            runner.MatrixAttempt(
+                "invalid", slots[3], 1, runner.AttemptStatus.INVALID,
+                invalid_reason=runner.InvalidReason.SOURCE_STIMULUS_FAILURE,
+                target_timing={"events": full_path},
+            ),
+        ]
+        self.assertTrue(runner.wake_activated_for_attempt(attempts[0]))
+        self.assertTrue(runner.wake_activated_for_attempt(attempts[1]))
+        self.assertFalse(runner.wake_activated_for_attempt(attempts[2]))
+        self.assertIsNone(runner.wake_activated_for_attempt(attempts[3]))
+
+        manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "a" * 64}, "cue-v1", None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", attempts, None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        cases = {case["trial_id"]: case["wake_activated"] for case in evidence["cases"]}
+        self.assertEqual(cases, {
+            "wake-pass": True,
+            "command-fail": True,
+            "wake-miss": False,
+            "invalid": None,
+        })
+        self.assertEqual(evidence["wake_reliability"]["wake_success"], {
+            "numerator": 2,
+            "denominator": 3,
+            "percent": round(2 / 3, 4),
+        })
+
+    def test_spontaneous_scan_same_generation_before_playback_is_candidate(self) -> None:
+        """A spontaneous wake in the trial's own detector generation, before
+        the scheduled source stimulus, is NOT hidden by generation
+        attribution: only the exact correlated-path sequences are shielded."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        boundary = envelope([
+            event(1, "VERIFIED_ACTIVATION", generation=2, session=3),  # pre-run
+            event(2, "WAKE_CALLBACK_INVOKED", generation=2, session=3),
+            event(3, "VOICE_SESSION_STARTED", generation=2, session=3),
+            event(4, "STAGE3_READY", generation=3),
+            event(5, "SILENCE_GATE_ENTERED", generation=3),
+        ])
+        (target_dir / "boundary-snapshot.json").write_text(json.dumps(boundary))
+        final = envelope([
+            event(4, "STAGE3_READY", generation=3),
+            event(6, "SILENCE_GATE_ENTERED", generation=3),
+            # Spontaneous activation: same generation 3, before the stimulus.
+            event(7, "VERIFIED_ACTIVATION", generation=3, session=5),
+            event(8, "WAKE_CALLBACK_INVOKED", generation=3, session=5),
+            event(9, "VOICE_SESSION_STARTED", generation=3, session=5),
+            # Correlated stimulus response (the trial's intended window).
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+            # Uncorrelated low candidate in the same generation.
+            event(14, "ACTIVATION_CANDIDATE", generation=3),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["coverage"], {
+            "snapshots_scanned": 2,
+            "overflowed_snapshots": 0,
+        })
+        self.assertEqual(result["activation_candidates"], 1)
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(result["events"], [{
+            "generation": 3,
+            "session": 5,
+            "sequence": 7,
+            "wall_clock_ms": 70,
+        }])
+
+    def test_spontaneous_scan_correlated_path_is_attributed(self) -> None:
+        """Activation events inside the intended stimulus/correlation window
+        (exact sequences of the trial's correlated path) are trial-attributed."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        final = envelope([
+            event(4, "STAGE3_READY", generation=3),
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["activation_candidates"], 0)
+        self.assertEqual(result["verified"], 0)
+        self.assertEqual(result["callbacks"], 0)
+        self.assertEqual(result["sessions"], 0)
+        self.assertEqual(result["events"], [])
+
+    def test_spontaneous_scan_unrelated_generation_is_candidate(self) -> None:
+        """Activation-path events in a generation unrelated to any trial are
+        spontaneous candidates."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        final = envelope([
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+            event(20, "ACTIVATION_CANDIDATE", generation=8),
+            event(21, "VERIFIED_ACTIVATION", generation=8, session=12),
+            event(22, "WAKE_CALLBACK_INVOKED", generation=8, session=12),
+            event(23, "VOICE_SESSION_STARTED", generation=8, session=12),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["activation_candidates"], 1)
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(result["events"], [{
+            "generation": 8,
+            "session": 12,
+            "sequence": 21,
+            "wall_clock_ms": 210,
+        }])
+
+
+    def test_spontaneous_scan_deduplicates_across_snapshots(self) -> None:
+        """The same activation persisted in overlapping snapshots counts once."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        events = [
+            event(4, "STAGE3_READY", generation=3),
+            event(6, "VERIFIED_ACTIVATION", generation=7, session=12),
+            event(7, "WAKE_CALLBACK_INVOKED", generation=7, session=12),
+            event(8, "VOICE_SESSION_STARTED", generation=7, session=12),
+        ]
+        for name in ("boundary-snapshot.json", "final-snapshot.json"):
+            (target_dir / name).write_text(json.dumps(envelope(list(events))))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={"generation_id": 3, "boundary_sequence": 5},
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["coverage"]["snapshots_scanned"], 2)
+
+    def test_spontaneous_scan_reports_overflow_and_empty_dirs(self) -> None:
+        """Evicted-journal coverage is disclosed and empty runs yield zeros."""
+        empty = runner.scan_spontaneous_activations(Path(tempfile.mkdtemp()), [])
+        self.assertEqual(empty["coverage"]["snapshots_scanned"], 0)
+        self.assertEqual(empty["verified"], 0)
+        self.assertEqual(empty["events"], [])
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        (target_dir / "final-snapshot.json").write_text(json.dumps(
+            envelope([event(6, "VERIFIED_ACTIVATION", generation=7, session=12)],
+                     overflowed=True)
+        ))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={"generation_id": 3, "boundary_sequence": 5},
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["coverage"]["overflowed_snapshots"], 1)
+        self.assertEqual(result["verified"], 1)
+
+    def test_new_evidence_fields_validate_against_schema(self) -> None:
+        """wake_activated, wake_success and spontaneous_activations are
+        schema-valid and survive the sanitised summary write."""
+        slots = runner.matrix_slots_for_target("s21")
+        attempts = [
+            runner.MatrixAttempt(
+                "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
+                target_timing={"events": complete_events(runner.TrialType.WAKE_ONLY)},
+            ),
+            runner.MatrixAttempt(
+                "trial-2", slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": [
+                    event(1, "STAGE3_READY"),
+                    event(2, "SILENCE_GATE_ENTERED"),
+                ]},
+            ),
+        ]
+        manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "a" * 64}, "cue-v1", None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", attempts, None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        output = Path(tempfile.mkdtemp())
+        runner.write_sanitized_summary(output, evidence, private_run_dir=output)
+        self.assertTrue((output / "evidence.json").is_file())
+
     def test_completion_accepts_valid_failures_but_release_requires_passes(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         slots = runner.matrix_slots_for_target("s21")
@@ -815,6 +1135,163 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
             ))
         self.assertTrue(harness.is_matrix_complete())
         self.assertFalse(harness.release_gate_success())
+
+    # ── #1410 v1.0 release gate semantics ──────────────────────────────
+
+    def _gate_ready_harness(self, target_alias: str) -> runner.AcousticWakeReliabilityRunner:
+        harness = make_runner(runner.RunKind.REGRESSION)
+        harness.target_alias = target_alias
+        source_alias = "s23u" if target_alias == "s21" else "s21"
+        harness.source_alias = source_alias
+        expected = runner.EXPECTED_DEVICES[target_alias]
+        harness.target_identity = runner.DeviceIdentity(
+            target_alias, "samsung", expected["model"], "15", "35",
+            "fingerprint", "pkg", 1,
+        )
+        source_expected = runner.EXPECTED_DEVICES[source_alias]
+        harness.source_identity = runner.DeviceIdentity(
+            source_alias, "samsung", source_expected["model"], "15", "35",
+            "fingerprint", "pkg", 1,
+        )
+        harness.cleanup_verified = True
+        harness.cue_audibility_evidence_verified = True
+        harness.cue_policy_evidence_verified = True
+        harness.preflight_manifest_hash = "a" * 64
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            source_alias, target_alias, "set-1",
+            {"natural_wake": "a" * 64}, "cue-v1", "a" * 64,
+            cue_policy_evidence_verified=True,
+            cue_audibility_evidence_verified=True,
+        )
+        harness.preflight_approval = {
+            "operator_approved": True,
+            "cue_audibility_evidence_verified": True,
+            "fixture_set_id": "set-1",
+            "fixture_hashes": {"natural_wake": "a" * 64},
+        }
+        return harness
+
+    def _matrix_attempts(
+        self,
+        target_alias: str,
+        passed: int,
+        misses: int,
+        blocking: list[tuple[str, runner.FailureClassification]] | None = None,
+    ) -> list[runner.MatrixAttempt]:
+        """Build exactly one valid attempt per required matrix position."""
+        slots = runner.matrix_slots_for_target(target_alias)
+        full_path = complete_events(runner.TrialType.WAKE_ONLY)
+        gate_only = [
+            event(1, "STAGE3_READY"),
+            event(2, "SILENCE_GATE_ENTERED"),
+        ]
+        attempts: list[runner.MatrixAttempt] = []
+        next_slot = 0
+        for index in range(passed):
+            attempts.append(runner.MatrixAttempt(
+                f"pass-{index + 1}", slots[next_slot], 1,
+                runner.AttemptStatus.PASSED,
+                target_timing={"events": full_path},
+            ))
+            next_slot += 1
+        for index in range(misses):
+            attempts.append(runner.MatrixAttempt(
+                f"miss-{index + 1}", slots[next_slot], 1,
+                runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": gate_only},
+            ))
+            next_slot += 1
+        for label, classification in (blocking or []):
+            attempts.append(runner.MatrixAttempt(
+                f"block-{label}", slots[next_slot], 1,
+                runner.AttemptStatus.FAILED,
+                classification=classification,
+                target_timing={"events": full_path},
+            ))
+            next_slot += 1
+        return attempts
+
+    def test_release_gate_s21_22_of_27_with_permitted_misses_passes(self) -> None:
+        """S21: 22 wake successes + 5 classifier misses clears the gate when
+        every other condition holds."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=22, misses=5)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertTrue(harness.release_gate_success())
+
+    def test_release_gate_s21_21_of_27_fails(self) -> None:
+        """S21: 21/27 is below the >=22/27 threshold and fails the gate."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=21, misses=6)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_s23u_19_of_20_passes(self) -> None:
+        """S23U: 19 wake successes + 1 classifier miss clears the gate."""
+        harness = self._gate_ready_harness("s23u")
+        harness.attempts = self._matrix_attempts("s23u", passed=19, misses=1)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertTrue(harness.release_gate_success())
+
+    def test_release_gate_s23u_18_of_20_fails(self) -> None:
+        """S23U: 18/20 is below the >=19/20 threshold and fails the gate."""
+        harness = self._gate_ready_harness("s23u")
+        harness.attempts = self._matrix_attempts("s23u", passed=18, misses=2)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_command_failure_counts_wake_but_blocks_gate(self) -> None:
+        """A wake-plus-command trial whose wake activated but whose command
+        failed stays a wake success in the numerator and still fails the
+        overall gate as a valid product failure."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts(
+            "s21", passed=26, misses=0,
+            blocking=[("command", runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE)],
+        )
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            wake_results = [
+                runner.wake_activated_for_attempt(attempt)
+                for attempt in harness.attempts
+            ]
+            self.assertEqual(sum(1 for value in wake_results if value is True), 27)
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_unclassified_failure_blocks_gate(self) -> None:
+        """A threshold-satisfying matrix with one unclassified valid failure
+        fails the gate (zero unclassified outcomes is mandatory)."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts(
+            "s21", passed=22, misses=4,
+            blocking=[("unclassified", runner.FailureClassification.UNCLASSIFIED)],
+        )
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_spontaneous_activation_blocks_gate(self) -> None:
+        """A threshold-satisfying matrix with a spontaneous verified
+        activation fails the gate (zero false activations is mandatory)."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=22, misses=5)
+        target_dir = harness.run_dir / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        (target_dir / "final-snapshot.json").write_text(json.dumps(envelope([
+            event(999, "VERIFIED_ACTIVATION", generation=77, session=40),
+            event(1000, "WAKE_CALLBACK_INVOKED", generation=77, session=40),
+            event(1001, "VOICE_SESSION_STARTED", generation=77, session=40),
+        ])))
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
 
     def test_environment_boot_change_and_uptime_regression_invalidate(self) -> None:
         failures = runner.AcousticWakeReliabilityRunner._environment_failures(
@@ -1130,7 +1607,7 @@ class EvidenceAndModeTests(unittest.TestCase):
         ):
             self.assertEqual(runner.git_metadata(), ("detached", "a" * 40))
 
-    def test_release_provenance_requires_s21_target_and_full_commit(self) -> None:
+    def test_release_provenance_requires_matching_target_device_and_full_commit(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         harness.target_identity = runner.DeviceIdentity(
             "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
@@ -1140,9 +1617,17 @@ class EvidenceAndModeTests(unittest.TestCase):
         )
         with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
             self.assertTrue(harness._release_provenance_verified())
+            # Alias/identity mismatch for the S23U target device must fail.
             harness.target_alias = "s23u"
             self.assertFalse(harness._release_provenance_verified())
+            harness.target_identity = runner.DeviceIdentity(
+                "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+            )
+            self.assertTrue(harness._release_provenance_verified())
         harness.target_alias = "s21"
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
         with patch.dict("os.environ", {"GIT_COMMIT": "abc123"}, clear=False):
             self.assertFalse(harness._release_provenance_verified())
 
