@@ -527,8 +527,14 @@ Counts below are required **valid** trials. Invalid attempts remain in evidence 
 
 | Idle interval | Wake-only | Wake + command |
 |---|---:|---:|
-| 2 minutes | 3 | 2 |
+| 2 minutes | 15 | 2 |
 | 30 minutes | 2 | 1 |
+
+Total required valid S23U positions: **20**. The original 8-position
+comparison (3+2 at 2 minutes, 2+1 at 30 minutes) is retained; the additional
+12 positions are 2-minute wake-only trials so the ≥95% reliability target is
+measurable directly without expanding long-idle or command-path coverage
+(#1410 v1.0 product re-baseline, 2026-08-08, matrix AWVR-001 v2).
 
 The S21 matrix is launch blocking. S23U is comparison evidence unless it reveals the same product defect.
 

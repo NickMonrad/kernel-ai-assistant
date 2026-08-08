@@ -131,7 +131,10 @@ PUBLIC_ALIASES = ("s21", "s23u")
 
 # Frozen matrix identifiers
 MATRIX_ID = "AWVR-001"
-MATRIX_VERSION = 1
+# v2 (2026-08-08): S23U comparison expanded from 8 to 20 valid positions per
+# the #1410 v1.0 product re-baseline so the >=95% target is measurable
+# directly.  The additional 12 positions are 2-minute wake-only trials.
+MATRIX_VERSION = 2
 
 # Frozen valid-trial matrix: [(idle_s, wake_only, wake_plus_command), ...]
 MATRIX_S21: tuple[tuple[int, int, int], ...] = (
@@ -142,7 +145,7 @@ MATRIX_S21: tuple[tuple[int, int, int], ...] = (
     (1800, 2, 2),
 )
 MATRIX_S23U: tuple[tuple[int, int, int], ...] = (
-    (120, 3, 2),
+    (120, 15, 2),
     (1800, 2, 1),
 )
 
@@ -1660,6 +1663,129 @@ def evidence_device_profile(alias: str, identity: DeviceIdentity) -> dict[str, A
     return profile
 
 
+def wake_activated_for_attempt(attempt: MatrixAttempt) -> bool | None:
+    """Report whether the intended wake completed its activation path.
+
+    True only when the correlated target path contains the full wake chain
+    ``ACTIVATION_CANDIDATE -> VERIFIED_ACTIVATION -> WAKE_CALLBACK_INVOKED
+    -> VOICE_SESSION_STARTED``.  The wake result is scored independently of
+    any downstream command outcome so a command-path failure is never
+    reported as a wake miss.  Invalid attempts carry no accountable wake
+    result and return None (excluded from the wake-success denominator).
+    """
+    if attempt.status not in {AttemptStatus.PASSED, AttemptStatus.FAILED}:
+        return None
+    events = (attempt.target_timing or {}).get("events") or []
+    event_types = {event.get("t") for event in events}
+    return {
+        "ACTIVATION_CANDIDATE",
+        "VERIFIED_ACTIVATION",
+        "WAKE_CALLBACK_INVOKED",
+        "VOICE_SESSION_STARTED",
+    } <= event_types
+
+
+def scan_spontaneous_activations(
+    private_run_dir: Path,
+    attempts: list[MatrixAttempt],
+) -> dict[str, Any]:
+    """Scan preserved target journal snapshots for activations outside any
+    trial's correlated detector generation.
+
+    Every preserved ``trials/*/target/*-snapshot.json`` file is scanned.
+    An activation-path event is attributed to a trial when its detector
+    generation equals a trial's correlated generation
+    (``target_timing.generation_id``); events at or before the first trial's
+    boundary sequence are pre-run/preflight history and are excluded from the
+    observation period.  Remaining activation-path events have no scheduled
+    wake stimulus and are reported as spontaneous candidates for
+    false-positive review (per-trial source-playback correlation is an
+    operator step, not an automated claim).
+
+    Counts are a lower bound when the on-device journal evicted events: the
+    number of overflowed snapshots is reported in ``coverage`` so evidence
+    never overstates observation completeness.
+    """
+    candidates: dict[str, Any] = {
+        "scan_rule": (
+            "generation attribution: activation-path events in any trial's "
+            "correlated generation are trial-attributed; events at or before "
+            "the first trial boundary are pre-run history; all remaining "
+            "activation-path events are spontaneous candidates"
+        ),
+        "coverage": {"snapshots_scanned": 0, "overflowed_snapshots": 0},
+        "activation_candidates": 0,
+        "verified": 0,
+        "callbacks": 0,
+        "sessions": 0,
+        "events": [],
+    }
+    if private_run_dir is None or not private_run_dir.is_dir():
+        return candidates
+    attributed_generations = {
+        attempt.target_timing["generation_id"]
+        for attempt in attempts
+        if isinstance(attempt.target_timing, dict)
+        and isinstance(attempt.target_timing.get("generation_id"), int)
+    }
+    first_boundary = min(
+        (
+            attempt.target_timing["boundary_sequence"]
+            for attempt in attempts
+            if isinstance(attempt.target_timing, dict)
+            and isinstance(attempt.target_timing.get("boundary_sequence"), int)
+        ),
+        default=None,
+    )
+    activation_types = {
+        "ACTIVATION_CANDIDATE",
+        "VERIFIED_ACTIVATION",
+        "WAKE_CALLBACK_INVOKED",
+        "VOICE_SESSION_STARTED",
+    }
+    seen: set[tuple[str, int]] = set()
+    observed: list[dict[str, Any]] = []
+    for path in sorted(private_run_dir.glob("trials/*/target/*-snapshot.json")):
+        try:
+            envelope = parse_journal_snapshot(path.read_text(encoding="utf-8"))
+        except (HarnessError, OSError):
+            continue
+        candidates["coverage"]["snapshots_scanned"] += 1
+        if envelope.get("overflowed") is True:
+            candidates["coverage"]["overflowed_snapshots"] += 1
+        for event in envelope.get("events", []):
+            event_type = event.get("t")
+            if event_type not in activation_types:
+                continue
+            try:
+                sequence = int(event["s"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if first_boundary is not None and sequence <= first_boundary:
+                continue
+            if event.get("g") in attributed_generations:
+                continue
+            if (event_type, sequence) in seen:
+                continue
+            seen.add((event_type, sequence))
+            if event_type == "ACTIVATION_CANDIDATE":
+                candidates["activation_candidates"] += 1
+            elif event_type == "VERIFIED_ACTIVATION":
+                candidates["verified"] += 1
+                observed.append({
+                    "generation": event.get("g"),
+                    "session": event.get("i"),
+                    "sequence": sequence,
+                    "wall_clock_ms": event.get("w"),
+                })
+            elif event_type == "WAKE_CALLBACK_INVOKED":
+                candidates["callbacks"] += 1
+            elif event_type == "VOICE_SESSION_STARTED":
+                candidates["sessions"] += 1
+    candidates["events"] = observed
+    return candidates
+
+
 def render_evidence(
     run_manifest: RunManifest,
     target_identity: DeviceIdentity,
@@ -1670,6 +1796,7 @@ def render_evidence(
     cleanup_verified: bool,
     source_route: str | None,
     secrets: Iterable[str] = (),
+    private_run_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Build the normalised evidence record per target device."""
     invalid = sum(1 for a in attempts if a.status == AttemptStatus.INVALID)
@@ -1677,6 +1804,9 @@ def render_evidence(
     failed = sum(1 for a in attempts if a.status == AttemptStatus.FAILED)
     total = len(attempts)
     valid = passed + failed
+    wake_results = [wake_activated_for_attempt(attempt) for attempt in attempts]
+    wake_success_numerator = sum(1 for value in wake_results if value is True)
+    wake_success_denominator = sum(1 for value in wake_results if value is not None)
     branch, commit = git_metadata()
     required_positions = {
         slot.position_id for slot in matrix_slots_for_target(run_manifest.target_alias)
@@ -1749,6 +1879,17 @@ def render_evidence(
                 slot.position_id: 1
                 for slot in matrix_slots_for_target(run_manifest.target_alias)
             },
+            "wake_success": {
+                "numerator": wake_success_numerator,
+                "denominator": wake_success_denominator,
+                "percent": (
+                    round(wake_success_numerator / wake_success_denominator, 4)
+                    if wake_success_denominator > 0 else 0.0
+                ),
+            },
+            "spontaneous_activations": scan_spontaneous_activations(
+                private_run_dir, attempts
+            ),
             "cleanup_verified": cleanup_verified,
             "release_gate_success": False,
             "complete": False,
@@ -1775,6 +1916,7 @@ def render_evidence(
                 "ordinal": attempt.matrix_slot.ordinal,
             },
             "passed": attempt.status == AttemptStatus.PASSED,
+            "wake_activated": wake_activated_for_attempt(attempt),
             "status": attempt.status.value,
             "idle_seconds": attempt.matrix_slot.idle_s,
             "trial_type": attempt.matrix_slot.trial_type.value,
@@ -3977,6 +4119,7 @@ class AcousticWakeReliabilityRunner:
             cleanup_verified=self.cleanup_verified,
             source_route=(preflight or {}).get("source_route"),
             secrets=self.secrets,
+            private_run_dir=self.run_dir,
         )
         complete_valid_matrix = self.is_matrix_complete()
         all_required_passed = self.all_required_passed()
