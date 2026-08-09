@@ -3603,42 +3603,66 @@ class EvidenceRetentionTests(unittest.TestCase):
         "-a com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
     )
 
-    def _generation_envelope(self, generation: int) -> dict:
+    def _journal_envelope(self, sequence: int, events: list[dict]) -> dict:
         return {
-            "lowestSequence": 1, "highestSequence": 10, "overflowed": False,
-            "events": [
-                event(1, "DETECTOR_GENERATION_STARTED", generation=generation, session=0),
-            ],
+            "lowestSequence": 1, "highestSequence": sequence,
+            "overflowed": False, "events": events,
         }
 
-    def test_target_diagnostics_enabled_rearmed_and_restored_on_cleanup(self) -> None:
-        """Setting DEBUG must also re-arm the detector into a new generation
-        (the diagnostics gate is evaluated at generation start) and cleanup
-        must restore the original property."""
-        harness = make_runner()
-        target = harness.target = StatefulPropAdb("target")
-        target.responses[self.REARM_BROADCAST_KEY] = (
-            'Broadcast completed: result=0, data="rearmed"'
-        )
-
+    def _provider_for_rearm(
+        self,
+        *,
+        post_rearm_events: list[dict],
+        post_rearm_sequence: int | None = None,
+        pre_rearm_sequence: int = 10,
+    ):
+        """Build a journal provider whose post-rearm view starts once the
+        re-arm broadcast appears in the fake ADB command log."""
         def provider_call(method, extras=None, timeout=15.0):
             rearmed = any(
                 "REARM_WAKE_DETECTOR" in " ".join(command)
-                for command in target.commands
+                for command in self._rearm_target.commands
             )
-            generation = 5 if rearmed else 4
+            if not rearmed:
+                sequence = pre_rearm_sequence
+                events = [event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0)]
+            else:
+                events = [
+                    event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+                    *post_rearm_events,
+                ]
+                sequence = post_rearm_sequence if post_rearm_sequence is not None else max(
+                    ev["s"] for ev in events
+                )
             if method == runner.TARGET_METHOD_GET_SEQUENCE:
-                return runner.TARGET_RESULT_OK, "10"
+                return runner.TARGET_RESULT_OK, str(sequence)
             if method == runner.TARGET_METHOD_GET_SNAPSHOT:
                 return runner.TARGET_RESULT_OK, json.dumps(
-                    self._generation_envelope(generation)
+                    self._journal_envelope(sequence, events)
                 )
             self.fail(f"unexpected provider method {method}")
+        return provider_call
 
-        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
-                patch.object(runner.time, "sleep"):
+    def test_target_diagnostics_enabled_rearmed_and_restored_on_cleanup(self) -> None:
+        """Setting DEBUG must re-arm the detector and the verification must
+        wait for an authoritative post-boundary DETECTOR_GENERATION_STARTED
+        (the diagnostics gate is evaluated at generation start); cleanup must
+        restore the original property."""
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        post_rearm_events = [
+            event(11, "DETECTOR_REARMED", generation=5, session=0),
+            event(12, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+        ]
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=post_rearm_events),
+        ), patch.object(runner.time, "sleep"):
             harness.ensure_target_diagnostics()
-        # The re-arm was dispatched and a new generation was verified.
         self.assertEqual(target.props["log.tag.WakeWordDiag"], "DEBUG")
         self.assertTrue(
             any("REARM_WAKE_DETECTOR" in " ".join(command) for command in target.commands)
@@ -3647,9 +3671,42 @@ class EvidenceRetentionTests(unittest.TestCase):
         self.assertEqual(target.props["log.tag.WakeWordDiag"], "INFO")
         self.assertTrue(harness.cleanup_verified, harness.cleanup_failures)
 
-    def test_rearm_fails_closed_when_no_new_generation(self) -> None:
+    def test_rearm_rejects_rearmed_without_generation_started(self) -> None:
+        """Required regression: a newer DETECTOR_REARMED alone must never
+        satisfy re-arm verification — only a post-boundary
+        DETECTOR_GENERATION_STARTED proves the generation started."""
         harness = make_runner()
         target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        post_rearm_events = [
+            # Newer generation but NOT startup proof (async initialisation).
+            event(11, "DETECTOR_REARMED", generation=5, session=0),
+        ]
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=post_rearm_events),
+        ), patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
+                harness.ensure_target_diagnostics()
+
+    def test_rearm_rejects_pre_boundary_generation_started(self) -> None:
+        """Boundary protection: a DETECTOR_GENERATION_STARTED that existed
+        before the re-arm boundary must not satisfy the post-rearm wait."""
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
         target.responses[self.REARM_BROADCAST_KEY] = (
             'Broadcast completed: result=0, data="rearmed"'
         )
@@ -3658,9 +3715,11 @@ class EvidenceRetentionTests(unittest.TestCase):
             if method == runner.TARGET_METHOD_GET_SEQUENCE:
                 return runner.TARGET_RESULT_OK, "10"
             if method == runner.TARGET_METHOD_GET_SNAPSHOT:
-                return runner.TARGET_RESULT_OK, json.dumps(
-                    self._generation_envelope(4)
-                )
+                return runner.TARGET_RESULT_OK, json.dumps(self._journal_envelope(10, [
+                    # A started event that already existed before the boundary
+                    # (sequence 9 <= boundary 10) — never post-rearm proof.
+                    event(9, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+                ]))
             self.fail(f"unexpected provider method {method}")
 
         clock = {"t": 0}
@@ -3672,12 +3731,52 @@ class EvidenceRetentionTests(unittest.TestCase):
         with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
                 patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
                 patch.object(runner.time, "sleep"):
-            with self.assertRaisesRegex(runner.HarnessError, "did not re-arm"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
+                harness.ensure_target_diagnostics()
+
+    def test_latest_started_generation_ignores_rearmed_events(self) -> None:
+        events = [
+            event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+            event(2, "DETECTOR_REARMED", generation=5, session=0),
+            event(3, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+            event(4, "DETECTOR_REARMED", generation=6, session=0),
+        ]
+        # REARMED events never count; the newest authoritative start is 5.
+        self.assertEqual(runner.latest_started_generation(events, after_sequence=-1), 5)
+        # Strictly post-boundary filtering.
+        self.assertEqual(runner.latest_started_generation(events, after_sequence=2), 5)
+        self.assertIsNone(runner.latest_started_generation(events, after_sequence=3))
+        self.assertIsNone(runner.latest_started_generation([], after_sequence=-1))
+
+    def test_rearm_fails_closed_when_no_new_generation(self) -> None:
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=[]),
+        ), patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
                 harness.ensure_target_diagnostics()
 
     def test_rearm_fails_closed_when_broadcast_rejected(self) -> None:
         harness = make_runner()
         target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
         target.responses[self.REARM_BROADCAST_KEY] = (
             'Broadcast completed: result=2, data="rearm_failed"'
         )
@@ -3686,9 +3785,9 @@ class EvidenceRetentionTests(unittest.TestCase):
             if method == runner.TARGET_METHOD_GET_SEQUENCE:
                 return runner.TARGET_RESULT_OK, "10"
             if method == runner.TARGET_METHOD_GET_SNAPSHOT:
-                return runner.TARGET_RESULT_OK, json.dumps(
-                    self._generation_envelope(4)
-                )
+                return runner.TARGET_RESULT_OK, json.dumps(self._journal_envelope(10, [
+                    event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+                ]))
             self.fail(f"unexpected provider method {method}")
 
         with patch.object(harness, "_call_target_provider", side_effect=provider_call):

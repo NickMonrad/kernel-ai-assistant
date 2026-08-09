@@ -1113,6 +1113,32 @@ def boundary_generation_from_snapshot(
     return prior[-1]["g"] if prior else None
 
 
+def latest_started_generation(
+    events: list[dict[str, Any]],
+    after_sequence: int,
+) -> int | None:
+    """Newest authoritative started generation from journal events.
+
+    Only ``DETECTOR_GENERATION_STARTED`` events prove that a detector
+    generation actually started: the service can journal
+    ``DETECTOR_REARMED(g=N)`` immediately when the re-arm is dispatched,
+    while ``DETECTOR_GENERATION_STARTED(g=N)`` is emitted only after
+    asynchronous detector initialisation reaches the authoritative started
+    state (#1448 re-arm verification).  Any other event carrying a newer
+    generation is never startup proof.
+
+    Events at or before ``after_sequence`` are excluded, so a pre-existing
+    started event can never satisfy a post-re-arm wait.
+    """
+    started = [
+        ev["g"] for ev in events
+        if ev["t"] == "DETECTOR_GENERATION_STARTED"
+        and isinstance(ev["g"], int) and ev["g"] > 0
+        and ev["s"] > after_sequence
+    ]
+    return max(started) if started else None
+
+
 def parse_journal_wait_result(
     result_code: int, result_data: str,
 ) -> dict[str, Any] | None:
@@ -4239,8 +4265,8 @@ class AcousticWakeReliabilityRunner:
         self._diag_prop_set = True
         self._rearm_target_detector()
 
-    def _current_target_generation(self) -> int | None:
-        """Resolve the newest detector generation in the target journal."""
+    def _read_target_journal(self) -> tuple[int, list[dict[str, Any]]]:
+        """Read the current journal sequence and canonical event list."""
         sequence_code, sequence_data = self._call_target_provider(
             TARGET_METHOD_GET_SEQUENCE,
         )
@@ -4253,22 +4279,31 @@ class AcousticWakeReliabilityRunner:
         )
         if snapshot_code != TARGET_RESULT_OK:
             raise HarnessError(f"target snapshot read failed: {snapshot_data}")
-        return boundary_generation_from_snapshot(
-            parse_journal_snapshot(snapshot_data), highest
-        )
+        envelope = parse_journal_snapshot(snapshot_data)
+        return highest, envelope["events"]
 
     def _rearm_target_detector(self) -> None:
         """Force the detector through the approved re-arm lifecycle (#1410).
 
-        Sends the debug re-arm broadcast (the running WakeWordService's own
-        pause/resume path; no new microphone consumer) and verifies through
-        the target journal that a new detector generation started.  Fail
-        closed when the broadcast is rejected or no new generation appears
-        within a bounded wait.
+        Invariant: WakeWordDiag DEBUG verified -> a new
+        ``DETECTOR_GENERATION_STARTED`` journal event observed -> trial may
+        begin.
+
+        A pre-rearm journal boundary is captured first; then the debug re-arm
+        broadcast (the running WakeWordService's own pause/resume path; no
+        new microphone consumer).  Only a strictly post-boundary
+        ``DETECTOR_GENERATION_STARTED`` with a generation newer than the
+        prior authoritative started generation satisfies the wait.
+        ``DETECTOR_REARMED`` or any other event merely carrying a newer
+        generation is never accepted as startup proof (the service can
+        journal REARMED before asynchronous detector initialisation emits
+        GENERATION_STARTED).  Fail closed when the broadcast is rejected or
+        no qualifying started event appears within the bounded wait.
         """
         if not self.target.reachable():
             raise HarnessError("target ADB unreachable for detector re-arm")
-        previous = self._current_target_generation()
+        boundary, events = self._read_target_journal()
+        previous = latest_started_generation(events, after_sequence=-1)
         broadcast_output = self.target.run(
             "shell", "am", "broadcast",
             "-n", f"{self.package}/{TARGET_REARM_RECEIVER_CLS}",
@@ -4286,14 +4321,16 @@ class AcousticWakeReliabilityRunner:
             )
         deadline = monotonic_ms() + TARGET_REARM_WAIT_TIMEOUT_MS
         while monotonic_ms() < deadline:
-            current = self._current_target_generation()
-            if current is not None and (previous is None or current > previous):
+            _, events = self._read_target_journal()
+            started = latest_started_generation(events, after_sequence=boundary)
+            if started is not None and (previous is None or started > previous):
                 return
             time.sleep(TARGET_REARM_WAIT_POLL_MS / 1000.0)
         raise HarnessError(
-            "target detector did not re-arm into a new generation after "
-            f"{WAKE_WORD_DIAG_TAG} DEBUG was enabled "
-            f"(previous generation: {previous})"
+            "target detector did not emit a new DETECTOR_GENERATION_STARTED "
+            f"after {WAKE_WORD_DIAG_TAG} DEBUG was enabled "
+            f"(pre-rearm boundary: {boundary}, "
+            f"previous started generation: {previous})"
         )
 
     # ── Cleanup ──────────────────────────────────────────────────────
