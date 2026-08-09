@@ -1,0 +1,307 @@
+{
+  "lowestSequence": 233,
+  "highestSequence": 488,
+  "overflowed": true,
+  "events": [
+    {
+      "s": 460,
+      "m": 2957859934,
+      "w": 1786242260105,
+      "t": "SILENCE_GATE_ENTERED",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 461,
+      "m": 2957870813,
+      "w": 1786242270984,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 462,
+      "m": 2957870821,
+      "w": 1786242270992,
+      "t": "STAGE2_RESUMED",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 463,
+      "m": 2957870848,
+      "w": 1786242271019,
+      "t": "STAGE3_READY",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 464,
+      "m": 2957886019,
+      "w": 1786242286190,
+      "t": "SILENCE_GATE_ENTERED",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 465,
+      "m": 2957895453,
+      "w": 1786242295623,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 466,
+      "m": 2957895461,
+      "w": 1786242295632,
+      "t": "STAGE2_RESUMED",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 467,
+      "m": 2957895483,
+      "w": 1786242295654,
+      "t": "STAGE3_READY",
+      "g": 11,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 468,
+      "m": 2957964519,
+      "w": 1786242364690,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 11,
+      "i": 0,
+      "d": {
+        "confidence": "0.55302227",
+        "mode": "low"
+      }
+    },
+    {
+      "s": 469,
+      "m": 2957964877,
+      "w": 1786242365047,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 11,
+      "i": 0,
+      "d": {
+        "confidence": "0.7380875",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 470,
+      "m": 2957964877,
+      "w": 1786242365047,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 11,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 471,
+      "m": 2957964877,
+      "w": 1786242365047,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 472,
+      "m": 2957964925,
+      "w": 1786242365096,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 473,
+      "m": 2957964927,
+      "w": 1786242365098,
+      "t": "STT_START_REQUESTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 474,
+      "m": 2957965262,
+      "w": 1786242365433,
+      "t": "STT_READY",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 475,
+      "m": 2957965263,
+      "w": 1786242365433,
+      "t": "CUE_REQUESTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 476,
+      "m": 2957965312,
+      "w": 1786242365483,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 477,
+      "m": 2957967037,
+      "w": 1786242367208,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 478,
+      "m": 2957973047,
+      "w": 1786242373217,
+      "t": "STT_ERROR",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 479,
+      "m": 2957973074,
+      "w": 1786242373245,
+      "t": "STT_START_REQUESTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "attempt": "2"
+      }
+    },
+    {
+      "s": 480,
+      "m": 2957973321,
+      "w": 1786242373492,
+      "t": "STT_READY",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 481,
+      "m": 2957973321,
+      "w": 1786242373492,
+      "t": "CUE_REQUESTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 482,
+      "m": 2957973348,
+      "w": 1786242373519,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 483,
+      "m": 2957975021,
+      "w": 1786242375192,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 11,
+      "i": 9,
+      "d": {}
+    },
+    {
+      "s": 484,
+      "m": 2957981028,
+      "w": 1786242381199,
+      "t": "STT_ERROR",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 485,
+      "m": 2957981032,
+      "w": 1786242381203,
+      "t": "SESSION_CANCELLED",
+      "g": 11,
+      "i": 9,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 486,
+      "m": 2957981066,
+      "w": 1786242381237,
+      "t": "DETECTOR_REARMED",
+      "g": 12,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 487,
+      "m": 2957981222,
+      "w": 1786242381392,
+      "t": "DETECTOR_GENERATION_STARTED",
+      "g": 12,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 488,
+      "m": 2957983302,
+      "w": 1786242383473,
+      "t": "STAGE3_READY",
+      "g": 12,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 459
+}

@@ -1,0 +1,241 @@
+{
+  "lowestSequence": 1,
+  "highestSequence": 133,
+  "overflowed": false,
+  "events": [
+    {
+      "s": 112,
+      "m": 2956711518,
+      "w": 1786241111689,
+      "t": "VOICED_FRAME_AFTER_SILENCE",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 113,
+      "m": 2956711527,
+      "w": 1786241111698,
+      "t": "STAGE2_RESUMED",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 114,
+      "m": 2956711557,
+      "w": 1786241111728,
+      "t": "STAGE3_READY",
+      "g": 4,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 115,
+      "m": 2956722339,
+      "w": 1786241122510,
+      "t": "ACTIVATION_CANDIDATE",
+      "g": 4,
+      "i": 0,
+      "d": {
+        "confidence": "0.70536107",
+        "mode": "high"
+      }
+    },
+    {
+      "s": 116,
+      "m": 2956722339,
+      "w": 1786241122510,
+      "t": "VERIFIED_ACTIVATION",
+      "g": 4,
+      "i": 0,
+      "d": {
+        "mode": "high"
+      }
+    },
+    {
+      "s": 117,
+      "m": 2956722340,
+      "w": 1786241122510,
+      "t": "WAKE_CALLBACK_INVOKED",
+      "g": 4,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 118,
+      "m": 2956722450,
+      "w": 1786241122621,
+      "t": "VOICE_SESSION_STARTED",
+      "g": 4,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 119,
+      "m": 2956722452,
+      "w": 1786241122622,
+      "t": "STT_START_REQUESTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "attempt": "1"
+      }
+    },
+    {
+      "s": 120,
+      "m": 2956722913,
+      "w": 1786241123084,
+      "t": "STT_READY",
+      "g": 4,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 121,
+      "m": 2956722913,
+      "w": 1786241123084,
+      "t": "CUE_REQUESTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 122,
+      "m": 2956722927,
+      "w": 1786241123098,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 123,
+      "m": 2956725795,
+      "w": 1786241125966,
+      "t": "STT_SPEECH_DETECTED",
+      "g": 4,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 124,
+      "m": 2956731800,
+      "w": 1786241131971,
+      "t": "STT_ERROR",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 125,
+      "m": 2956731815,
+      "w": 1786241131986,
+      "t": "STT_START_REQUESTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "attempt": "2"
+      }
+    },
+    {
+      "s": 126,
+      "m": 2956732050,
+      "w": 1786241132220,
+      "t": "STT_READY",
+      "g": 4,
+      "i": 2,
+      "d": {}
+    },
+    {
+      "s": 127,
+      "m": 2956732050,
+      "w": 1786241132220,
+      "t": "CUE_REQUESTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1"
+      }
+    },
+    {
+      "s": 128,
+      "m": 2956732107,
+      "w": 1786241132277,
+      "t": "CUE_PLAYBACK_STARTED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "context": "wake_word",
+        "policy_version": "2026-07-cue-v1",
+        "stream": "4",
+        "current_volume": "10",
+        "max_volume": "15",
+        "route": "built_in_speaker"
+      }
+    },
+    {
+      "s": 129,
+      "m": 2956742666,
+      "w": 1786241142837,
+      "t": "STT_ERROR",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 130,
+      "m": 2956742677,
+      "w": 1786241142848,
+      "t": "SESSION_CANCELLED",
+      "g": 4,
+      "i": 2,
+      "d": {
+        "category": "stt_recognition_failed"
+      }
+    },
+    {
+      "s": 131,
+      "m": 2956742745,
+      "w": 1786241142916,
+      "t": "DETECTOR_REARMED",
+      "g": 5,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 132,
+      "m": 2956742910,
+      "w": 1786241143081,
+      "t": "DETECTOR_GENERATION_STARTED",
+      "g": 5,
+      "i": 0,
+      "d": {}
+    },
+    {
+      "s": 133,
+      "m": 2956744976,
+      "w": 1786241145147,
+      "t": "STAGE3_READY",
+      "g": 5,
+      "i": 0,
+      "d": {}
+    }
+  ],
+  "_boundary_sequence": 111
+}
