@@ -126,6 +126,31 @@ TARGET_WAIT_TERMINAL_REARM_MS = 40_000
 TARGET_RECEIVER_CLS = "com.kernel.ai.debug.journal.TargetEventJournalReceiver"
 TARGET_ACTION_GET_SEQUENCE = "com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE"
 TARGET_ACTION_GET_SNAPSHOT = "com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT"
+
+# Debug-gated per-episode WakeWordDiag summaries (#1410 evidence retention):
+# the existing #1441 gateExitSummary logcat lines carry the episode's stage-3
+# statistics and captured-energy fields (episodePeakRms / maxWindowPeakRms /
+# maxWindowMeanRms).  The runner bounds each trial's logcat window, parses
+# these lines per trial, and never adds a second microphone consumer.  The
+# summaries are emitted only when the WakeWordDiag DEBUG tag is enabled.
+WAKE_WORD_DIAG_TAG = "log.tag.WakeWordDiag"
+# Quoted so the remote shell does not glob the '*' filter expression.
+WAKE_WORD_DIAG_LOGCAT_FILTER = "'WakeWordDiag:*'"
+
+# Debug wake-detector re-arm control endpoint (WakeDetectorRearmReceiver,
+# #1410): forces the running WakeWordService through its own pause/resume
+# re-arm lifecycle so a later/resumed run's detector generation starts with
+# the WakeWordDiag DEBUG tag already active.  Opens no microphone — the
+# existing detector AudioRecord is stopped and restarted.  The runner
+# verifies the new generation through the target journal; the broadcast
+# result is a fast-fail only.
+TARGET_REARM_ACTION = "com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
+TARGET_REARM_RECEIVER_CLS = "com.kernel.ai.debug.wake.WakeDetectorRearmReceiver"
+TARGET_REARM_RESULT_OK = 0
+# Bounded wait for the re-armed DETECTOR_GENERATION_STARTED journal event.
+TARGET_REARM_WAIT_TIMEOUT_MS = 20_000
+TARGET_REARM_WAIT_POLL_MS = 500
+
 # Public aliases that may appear in sanitised output
 PUBLIC_ALIASES = ("s21", "s23u")
 
@@ -909,6 +934,23 @@ def source_playback_start_wall_clock_ms(
     return candidate
 
 
+def source_playback_duration_ms(source_result: dict[str, Any]) -> int | None:
+    """Resolve validated playback duration (completion - start monotonic).
+
+    Both timestamps are validated integers in the source result contract; a
+    missing or inverted pair yields None (never inferred or clamped).
+    """
+    start = source_result.get("playback_start_monotonic_ms")
+    completion = source_result.get("completion_monotonic_ms")
+    if (
+        isinstance(start, bool) or not isinstance(start, int) or start < 0
+        or isinstance(completion, bool) or not isinstance(completion, int)
+        or completion < start
+    ):
+        return None
+    return completion - start
+
+
 def service_active(client: AdbClient, package: str) -> bool:
     """Check whether WakeWordService is running on the device."""
     return "WakeWordService" in client.shell("dumpsys", "activity", "services", package)
@@ -1069,6 +1111,32 @@ def boundary_generation_from_snapshot(
         if event["s"] <= boundary_sequence and event["g"] > 0
     ]
     return prior[-1]["g"] if prior else None
+
+
+def latest_started_generation(
+    events: list[dict[str, Any]],
+    after_sequence: int,
+) -> int | None:
+    """Newest authoritative started generation from journal events.
+
+    Only ``DETECTOR_GENERATION_STARTED`` events prove that a detector
+    generation actually started: the service can journal
+    ``DETECTOR_REARMED(g=N)`` immediately when the re-arm is dispatched,
+    while ``DETECTOR_GENERATION_STARTED(g=N)`` is emitted only after
+    asynchronous detector initialisation reaches the authoritative started
+    state (#1448 re-arm verification).  Any other event carrying a newer
+    generation is never startup proof.
+
+    Events at or before ``after_sequence`` are excluded, so a pre-existing
+    started event can never satisfy a post-re-arm wait.
+    """
+    started = [
+        ev["g"] for ev in events
+        if ev["t"] == "DETECTOR_GENERATION_STARTED"
+        and isinstance(ev["g"], int) and ev["g"] > 0
+        and ev["s"] > after_sequence
+    ]
+    return max(started) if started else None
 
 
 def parse_journal_wait_result(
@@ -1601,6 +1669,122 @@ def deduplicate_projected_events(
                 f"conflicting journal projections for sequence {sequence}"
             )
     return deduplicated
+
+
+def _parse_energy_metadata_value(key: str, value: Any) -> Any:
+    """Parse one WakeWordDiag gateExitSummary metadata value, fail closed on garbage.
+
+    Numeric fields are emitted as their shortest round-trip decimal strings;
+    ``none`` (or an absent key) means the value was unavailable on-device and
+    is represented as None — never fabricated.
+    """
+    if value is None or value == "none":
+        return None
+    if not isinstance(value, str):
+        raise HarnessError(f"gate episode summary metadata {key} must be a string")
+    lowered = value.lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    try:
+        if key in _ENERGY_INT_METADATA_KEYS:
+            return int(value)
+        return float(value)
+    except ValueError as exc:
+        raise HarnessError(
+            f"gate episode summary metadata {key} is malformed: {value!r}"
+        ) from exc
+
+
+_ENERGY_INT_METADATA_KEYS = frozenset({
+    "stage3_evals",
+    "max_confidence_offset_frames",
+    "gated_probe_executions",
+})
+
+_ENERGY_FLOAT_METADATA_KEYS = frozenset({
+    "max_confidence",
+    "episode_peak_rms",
+    "max_window_peak_rms",
+    "max_window_mean_rms",
+})
+
+_ENERGY_BOOL_METADATA_KEYS = frozenset({
+    "low_verify_entered",
+    "low_verify_accepted",
+})
+
+_ENERGY_METADATA_KEYS = tuple(sorted(
+    set(_ENERGY_INT_METADATA_KEYS)
+    | set(_ENERGY_FLOAT_METADATA_KEYS)
+    | set(_ENERGY_BOOL_METADATA_KEYS)
+))
+
+# The existing #1441 WakeWordDiag gateExitSummary line format:
+#   WakeWordDetector: gateExitSummary gen=1 stage3Evals=5 maxConfidence=0.6335
+#   maxConfidenceOffsetFrames=10 lowVerifyEntered=false lowVerifyAccepted=false
+#   gatedProbeExecutions=0 episodePeakRms=3593.4 maxWindowPeakRms=3593.4
+#   maxWindowMeanRms=1307.6
+_WAKE_WORD_DIAG_SUMMARY_RE = re.compile(
+    r"WakeWordDetector: gateExitSummary( .*)$"
+)
+_WAKE_WORD_DIAG_KEY_VALUE_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)=([^\s]+)")
+
+# Logcat field name -> normalised evidence key.
+_WAKE_WORD_DIAG_FIELD_MAP = {
+    "stage3Evals": "stage3_evals",
+    "maxConfidence": "max_confidence",
+    "maxConfidenceOffsetFrames": "max_confidence_offset_frames",
+    "lowVerifyEntered": "low_verify_entered",
+    "lowVerifyAccepted": "low_verify_accepted",
+    "gatedProbeExecutions": "gated_probe_executions",
+    "episodePeakRms": "episode_peak_rms",
+    "maxWindowPeakRms": "max_window_peak_rms",
+    "maxWindowMeanRms": "max_window_mean_rms",
+}
+
+
+def parse_wakeword_diag_summaries(
+    text: str,
+    generation: int | None,
+) -> list[dict[str, Any]]:
+    """Parse the trial's bounded WakeWordDiag gateExitSummary lines (#1410).
+
+    Consumes the existing #1441 diagnostic output (logcat only, never a
+    journal event): one bounded summary per silence-gate exit episode, with
+    the episode's stage-3 statistics and the detector's own captured-energy
+    measurements (``episodePeakRms`` and the max-confidence window's
+    ``maxWindowPeakRms`` / ``maxWindowMeanRms``), ``none`` when unavailable.
+
+    Only summaries from the trial's boundary generation are retained, so each
+    entry correlates with the trial's gate episodes without any cross-device
+    clock assumption.  ``none``/missing values project as null (never
+    fabricated); malformed values fail closed as evidence errors.
+    """
+    if generation is None:
+        return []
+    results: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        match = _WAKE_WORD_DIAG_SUMMARY_RE.search(line)
+        if match is None:
+            continue
+        fields = dict(_WAKE_WORD_DIAG_KEY_VALUE_RE.findall(match.group(1)))
+        line_generation = fields.get("gen")
+        if line_generation is None:
+            raise HarnessError("WakeWordDiag gateExitSummary missing generation")
+        if not line_generation.isdigit():
+            raise HarnessError(
+                "WakeWordDiag gateExitSummary has malformed generation: "
+                f"{line_generation!r}"
+            )
+        if line_generation != str(generation):
+            continue
+        parsed: dict[str, Any] = {"generation_id": generation}
+        for logcat_key, evidence_key in _WAKE_WORD_DIAG_FIELD_MAP.items():
+            parsed[evidence_key] = _parse_energy_metadata_value(
+                evidence_key, fields.get(logcat_key)
+            )
+        results.append(parsed)
+    return results
 
 
 def public_preflight_approval(approval: dict[str, Any] | None) -> dict[str, Any]:
@@ -2205,6 +2389,10 @@ class AcousticWakeReliabilityRunner:
         self._last_target_snapshot: dict[str, Any] | None = None
         self.preflight_manifest_hash: str | None = None
         self.cue_policy_evidence_verified: bool = False
+        # WakeWordDiag DEBUG property state (#1410 evidence retention): the
+        # original value is restored by cleanup() when this run set it.
+        self._diag_prop_original: str | None = None
+        self._diag_prop_set: bool = False
 
     # ── Private file helpers ─────────────────────────────────────────
 
@@ -2842,6 +3030,11 @@ class AcousticWakeReliabilityRunner:
             self._last_boundary_sequence = boundary_sequence
             attempt.target_timing["boundary_sequence"] = boundary_sequence
             attempt.target_timing["boundary_generation"] = boundary_generation
+            # #1410 evidence retention: bound the per-trial WakeWordDiag
+            # logcat window.  Fail closed — a dump without a proven clean
+            # window could misattribute pre-trial episodes of the same
+            # detector generation.
+            self._clear_target_logcat_window()
             self.checkpoint("pre-idle")
 
             idle_start_ms = monotonic_ms()
@@ -2892,12 +3085,25 @@ class AcousticWakeReliabilityRunner:
                 )
             }
             attempt.source_timing["clock_domain"] = "source_device_elapsed_realtime"
+            # #1410 evidence retention: persist the wall clock of the helper's
+            # validated ``started`` playback event and the derived playback
+            # duration so a reviewer can reconstruct exactly when and for how
+            # long audio was audible, without any cross-device clock
+            # assumption.  Missing or ambiguous evidence stays None and is
+            # never inferred from request or monotonic time.
+            attempt.source_timing["playback_start_wall_clock_ms"] = (
+                source_playback_start_wall_clock_ms(parsed_source)
+            )
+            attempt.source_timing["playback_duration_ms"] = (
+                source_playback_duration_ms(parsed_source)
+            )
             attempt.source_outcome = {
                 key: parsed_source.get(key)
                 for key in (
                     "completion_status", "cleanup_success",
                     "exact_restoration_verified", "output_route_during",
                     "focus_result", "timeout", "overlap_rejected",
+                    "requested_volume", "applied_volume", "maximum_volume",
                 )
             }
             self.checkpoint("post-source")
@@ -3055,6 +3261,13 @@ class AcousticWakeReliabilityRunner:
             attempt.target_timing["events"] = format_target_snapshot_events(
                 {"events": correlated_events}
             )
+            # #1410 evidence retention: parse the trial's bounded WakeWordDiag
+            # logcat window (the existing #1441 gateExitSummary lines) for the
+            # episode energy (episodePeakRms / maxWindowPeakRms /
+            # maxWindowMeanRms) correlated to the boundary generation.  The
+            # raw bounded dump is retained privately; errors are recorded
+            # honestly and never fabricated.
+            self._extract_wakeword_diag_energy(attempt, boundary_generation)
             if correlation_failures:
                 attempt.target_timing["correlation_failures"] = correlation_failures
             self.checkpoint("post-snapshot")
@@ -3694,6 +3907,67 @@ class AcousticWakeReliabilityRunner:
         )
         return result
 
+    def _clear_target_logcat_window(self) -> None:
+        """Bound the per-trial WakeWordDiag logcat window (#1410).
+
+        The existing #1441 gateExitSummary lines are emitted only when the
+        WakeWordDiag DEBUG tag is active for the detector generation.  The
+        per-trial window is established by clearing the device logcat buffer
+        at the trial boundary and dumping it after the final snapshot; the
+        generation field then excludes any same-window lines from other
+        generations.  Fail closed: a dump without a proven clean window could
+        misattribute pre-trial episodes of the same generation.
+        """
+        if not self.target.reachable():
+            raise HarnessError("target ADB unreachable for logcat window")
+        self.target.shell("logcat", "-c", timeout=10.0)
+
+    def _extract_wakeword_diag_energy(
+        self,
+        attempt: MatrixAttempt,
+        generation: int | None,
+    ) -> None:
+        """Dump and parse the trial's WakeWordDiag energy evidence (#1410).
+
+        The bounded logcat dump (since the trial-boundary clear) is retained
+        privately under ``trials/<trial_id>/target/wakeworddiag.log`` and the
+        parsed per-episode energy is projected into
+        ``target_timing.gate_episode_energy``, correlated by the boundary
+        generation.  Failures are recorded honestly as
+        ``gate_episode_energy_error`` and never fabricated; the wake
+        measurement itself is unaffected.
+        """
+        try:
+            dump = self.target.shell(
+                "logcat", "-d", "-s", WAKE_WORD_DIAG_LOGCAT_FILTER,
+                timeout=30.0,
+            )
+        except HarnessError as exc:
+            attempt.target_timing["gate_episode_energy_error"] = (
+                f"wakeword_diag_dump_failed: {exc}"
+            )
+            return
+        try:
+            self.private_write(
+                f"trials/{attempt.trial_id}/target",
+                "wakeworddiag.log",
+                dump,
+            )
+        except OSError as exc:
+            attempt.target_timing["gate_episode_energy_error"] = (
+                f"wakeword_diag_retention_failed: {exc}"
+            )
+            return
+        try:
+            summaries = parse_wakeword_diag_summaries(dump, generation)
+        except HarnessError as exc:
+            attempt.target_timing["gate_episode_energy_error"] = (
+                f"wakeword_diag_parse_failed: {exc}"
+            )
+            return
+        if summaries:
+            attempt.target_timing["gate_episode_energy"] = summaries
+
     def _cancel_active_source_playback(self) -> list[str]:
         """Request immediate helper cleanup for an interrupted source trial."""
         trial_id = self._active_source_trial_id
@@ -3960,6 +4234,105 @@ class AcousticWakeReliabilityRunner:
                 failures.append(f"source result {index + 1}: {exc}")
         return failures
 
+    # ── Diagnostics setup (#1410 evidence retention) ──────────────────
+    def ensure_target_diagnostics(self) -> None:
+        """Enable and verify the debug-gated per-episode energy diagnostics.
+
+        The WakeWordDiag gateExitSummary logcat lines are emitted only
+        when the ``log.tag.WakeWordDiag`` DEBUG tag is enabled before the
+        detector generation started.  This sets and verifies the property on
+        the target, then forces the detector through the approved re-arm
+        lifecycle so the generation that will serve the trials actually
+        carries the diagnostics — a later/resumed run whose current
+        generation started under the old property value would otherwise
+        silently lack energy evidence (a first-trial miss may never re-arm
+        naturally).  The original property value is restored by [cleanup].
+        """
+        if not self.target.reachable():
+            raise HarnessError("target ADB not reachable for diagnostics setup")
+        try:
+            original = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip()
+        except HarnessError as exc:
+            raise HarnessError(f"cannot read target {WAKE_WORD_DIAG_TAG}: {exc}") from exc
+        if self._diag_prop_original is None:
+            self._diag_prop_original = original or None
+        self.target.shell("setprop", WAKE_WORD_DIAG_TAG, "DEBUG")
+        level = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip().upper()
+        if level != "DEBUG":
+            raise HarnessError(
+                f"target {WAKE_WORD_DIAG_TAG} did not take effect (got {level!r})"
+            )
+        self._diag_prop_set = True
+        self._rearm_target_detector()
+
+    def _read_target_journal(self) -> tuple[int, list[dict[str, Any]]]:
+        """Read the current journal sequence and canonical event list."""
+        sequence_code, sequence_data = self._call_target_provider(
+            TARGET_METHOD_GET_SEQUENCE,
+        )
+        if sequence_code != TARGET_RESULT_OK:
+            raise HarnessError(f"target sequence read failed: {sequence_data}")
+        highest = parse_journal_sequence(sequence_data)
+        snapshot_code, snapshot_data = self._call_target_provider(
+            TARGET_METHOD_GET_SNAPSHOT,
+            extras={TARGET_EXTRA_SINCE_SEQUENCE: 0},
+        )
+        if snapshot_code != TARGET_RESULT_OK:
+            raise HarnessError(f"target snapshot read failed: {snapshot_data}")
+        envelope = parse_journal_snapshot(snapshot_data)
+        return highest, envelope["events"]
+
+    def _rearm_target_detector(self) -> None:
+        """Force the detector through the approved re-arm lifecycle (#1410).
+
+        Invariant: WakeWordDiag DEBUG verified -> a new
+        ``DETECTOR_GENERATION_STARTED`` journal event observed -> trial may
+        begin.
+
+        A pre-rearm journal boundary is captured first; then the debug re-arm
+        broadcast (the running WakeWordService's own pause/resume path; no
+        new microphone consumer).  Only a strictly post-boundary
+        ``DETECTOR_GENERATION_STARTED`` with a generation newer than the
+        prior authoritative started generation satisfies the wait.
+        ``DETECTOR_REARMED`` or any other event merely carrying a newer
+        generation is never accepted as startup proof (the service can
+        journal REARMED before asynchronous detector initialisation emits
+        GENERATION_STARTED).  Fail closed when the broadcast is rejected or
+        no qualifying started event appears within the bounded wait.
+        """
+        if not self.target.reachable():
+            raise HarnessError("target ADB unreachable for detector re-arm")
+        boundary, events = self._read_target_journal()
+        previous = latest_started_generation(events, after_sequence=-1)
+        broadcast_output = self.target.run(
+            "shell", "am", "broadcast",
+            "-n", f"{self.package}/{TARGET_REARM_RECEIVER_CLS}",
+            "-a", TARGET_REARM_ACTION,
+            timeout=15.0,
+            check=False,
+        )
+        try:
+            result_code, result_data = parse_ordered_broadcast_result(broadcast_output)
+        except HarnessError as exc:
+            raise HarnessError(f"detector re-arm broadcast failed: {exc}") from exc
+        if result_code != TARGET_REARM_RESULT_OK:
+            raise HarnessError(
+                f"detector re-arm rejected: code={result_code} data={result_data}"
+            )
+        deadline = monotonic_ms() + TARGET_REARM_WAIT_TIMEOUT_MS
+        while monotonic_ms() < deadline:
+            _, events = self._read_target_journal()
+            started = latest_started_generation(events, after_sequence=boundary)
+            if started is not None and (previous is None or started > previous):
+                return
+            time.sleep(TARGET_REARM_WAIT_POLL_MS / 1000.0)
+        raise HarnessError(
+            "target detector did not emit a new DETECTOR_GENERATION_STARTED "
+            f"after {WAKE_WORD_DIAG_TAG} DEBUG was enabled "
+            f"(pre-rearm boundary: {boundary}, "
+            f"previous started generation: {previous})"
+        )
+
     # ── Cleanup ──────────────────────────────────────────────────────
     def cleanup(self) -> None:
         """Cancel provider waits and verify helper-owned restoration."""
@@ -3971,6 +4344,18 @@ class AcousticWakeReliabilityRunner:
         failures.extend(self._cancel_active_source_playback())
         failures.extend(self._recover_active_source_result())
         failures.extend(self._verify_source_restoration())
+        if self._diag_prop_set:
+            try:
+                self.target.shell(
+                    "setprop", WAKE_WORD_DIAG_TAG, self._diag_prop_original or ""
+                )
+                actual = self.target.shell("getprop", WAKE_WORD_DIAG_TAG).strip()
+                if actual != (self._diag_prop_original or ""):
+                    failures.append(
+                        f"target {WAKE_WORD_DIAG_TAG} restore verification failed"
+                    )
+            except HarnessError as exc:
+                failures.append(f"target {WAKE_WORD_DIAG_TAG} restore failed: {exc}")
         if self.run_environment_before is not None:
             self.run_environment_after = {
                 "source": self._snapshot_source_state(),
@@ -4363,6 +4748,9 @@ def load_later_run_preflight(
     runner.source_identity = device_identity(runner.source, runner.source_alias, runner.package)
     runner.target_identity = device_identity(runner.target, runner.target_alias, runner.package)
     runner.verify_preflight_approval()
+    # #1410 evidence retention: the per-episode energy diagnostics must be
+    # active before any trial; fail closed rather than run without evidence.
+    runner.ensure_target_diagnostics()
     approved_cue_policy = runner.preflight_approval.get("cue_policy_version")
     requested_cue_policy = getattr(args, "cue_policy_version", None)
     if requested_cue_policy is not None and approved_cue_policy != requested_cue_policy:
@@ -4444,6 +4832,10 @@ def preflight_mode(args: argparse.Namespace) -> int:
         interactive=True,
     )
     runner.secrets = [args.source_selector, args.target_selector]
+    # #1410 evidence retention: enable the energy diagnostics before the
+    # monitored playback so the approval session's re-arm leaves the detector
+    # generation that emits the WakeWordDiag gateExitSummary lines.
+    runner.ensure_target_diagnostics()
     completed = False
     try:
         runner.run_preflight(
@@ -4645,6 +5037,10 @@ def resume_mode(args: argparse.Namespace) -> int:
         # Check preflight drift
         if runner.preflight_approval:
             runner.verify_preflight_approval()
+
+        # #1410 evidence retention: diagnostics must be active before any
+        # new trial (offline export-only re-render never touches ADB).
+        runner.ensure_target_diagnostics()
 
         # Continue matrix
         runner.run_matrix(
