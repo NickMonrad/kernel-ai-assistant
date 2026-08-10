@@ -387,9 +387,28 @@ class AboutViewModelTest {
         val content = exportContent()
         assertTrue(content.contains("Exit 1"))
         assertTrue(content.contains("Reason: REASON_ANR (6)"))
-        assertTrue(content.contains("System trace available: no"))
+        assertTrue(content.contains("System trace available: yes (could not be read)"))
+        assertFalse(content.contains("System trace available: no"), "Trace existed, so availability must not read 'no'")
         assertTrue(content.contains("Could not read ANR trace"))
         assertTrue(content.contains("Current process logcat"))
+    }
+
+    @Test
+    fun `trace access failure reports unknown state with warning and continues`() = testScope.runTest {
+        stubRuntime()
+        val info = mockExitInfo(reason = ApplicationExitInfo.REASON_CRASH_NATIVE)
+        every { info.traceInputStream } throws IOException("trace file unreadable")
+        stubExitHistory(info)
+        mockShare()
+
+        runExport()
+
+        assertTrue(viewModel.uiState.value.exportState is ExportState.Ready)
+        val content = exportContent()
+        assertTrue(content.contains("System trace available: unknown (access failed)"))
+        assertFalse(content.contains("System trace available: no"), "Access failure must not be reported as no trace")
+        assertTrue(content.contains("Trace access failed: trace file unreadable"))
+        assertTrue(content.contains("Reason: REASON_CRASH_NATIVE (5)"))
     }
 
     @Test
