@@ -68,7 +68,23 @@ internal const val ANR_TRACE_MAX_CHARS = 8192
 /** Maximum characters of logcat stderr detail kept in a warning (bounded). */
 internal const val MAX_STDERR_WARNING_CHARS = 500
 
-private data class AnrTrace(val text: String, val truncated: Boolean)
+/**
+ * Result of inspecting an [ApplicationExitInfo] trace stream, preserving the
+ * distinction between "no trace", "trace available", and "trace access failed".
+ */
+private sealed class TraceState {
+    /** Android reports no trace stream for this exit. */
+    object Absent : TraceState()
+
+    /** A trace stream was obtained; [text] holds the bounded ANR excerpt when read. */
+    data class Available(val text: String? = null, val truncated: Boolean = false) : TraceState()
+
+    /**
+     * Obtaining/reading the trace failed. [streamExisted] is true when a stream was
+     * obtained but could not be read, false when obtaining the stream itself failed.
+     */
+    data class AccessFailed(val detail: String, val streamExisted: Boolean) : TraceState()
+}
 
 private data class LogcatCapture(val output: String?, val failureDetail: String?)
 
@@ -267,45 +283,79 @@ class AboutViewModel @Inject constructor(
         sb.appendLine("RSS: ${formatMemory(info.rss)}")
         when (info.reason) {
             ApplicationExitInfo.REASON_ANR -> renderAnrTrace(sb, info, warnings)
-            ApplicationExitInfo.REASON_CRASH_NATIVE -> {
-                val available = hasTraceStream(info)
-                sb.appendLine("System trace available: ${if (available) "yes" else "no"}")
-                sb.appendLine("Trace note: native tombstone; use native/ADB diagnostics")
-            }
-            else -> {
-                val available = hasTraceStream(info)
-                sb.appendLine("System trace available: ${if (available) "yes" else "no"}")
-            }
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> renderNativeTraceNote(sb, info, warnings)
+            else -> renderTraceAvailability(sb, info, warnings)
         }
         sb.appendLine()
     }
 
-    /** Reads a textual ANR trace, bounded to [ANR_TRACE_MAX_CHARS]; never fails the export. */
+    /** Renders a textual ANR trace (bounded to [ANR_TRACE_MAX_CHARS]); never fails the export. */
     private fun renderAnrTrace(sb: StringBuilder, info: ApplicationExitInfo, warnings: MutableList<String>) {
-        val trace = readAnrTrace(info, warnings)
-        if (trace == null) {
-            sb.appendLine("System trace available: no")
-            sb.appendLine("Trace note: no readable ANR trace (see Exporter warnings)")
+        val state = queryTraceState(info)
+        if (state is TraceState.Available) {
+            sb.appendLine("System trace available: yes")
+            sb.appendLine("ANR trace excerpt:")
+            sb.append(state.text ?: "")
+            if (state.truncated) {
+                sb.appendLine("\n[ANR trace excerpt truncated at $ANR_TRACE_MAX_CHARS characters]")
+            }
             return
         }
-        sb.appendLine("System trace available: yes")
-        sb.appendLine("ANR trace excerpt:")
-        sb.append(trace.text)
-        if (trace.truncated) {
-            sb.appendLine("\n[ANR trace excerpt truncated at $ANR_TRACE_MAX_CHARS characters]")
+        renderTraceState(sb, state, warnings)
+    }
+
+    /** Native tombstone traces are never decoded; only availability is recorded. */
+    private fun renderNativeTraceNote(sb: StringBuilder, info: ApplicationExitInfo, warnings: MutableList<String>) {
+        val state = queryTraceState(info)
+        if (state is TraceState.Available) {
+            sb.appendLine("System trace available: yes")
+            sb.appendLine("Trace note: native tombstone; use native/ADB diagnostics")
+            return
+        }
+        renderTraceState(sb, state, warnings)
+    }
+
+    private fun renderTraceAvailability(sb: StringBuilder, info: ApplicationExitInfo, warnings: MutableList<String>) {
+        renderTraceState(sb, queryTraceState(info), warnings)
+    }
+
+    private fun renderTraceState(sb: StringBuilder, state: TraceState, warnings: MutableList<String>) {
+        when (state) {
+            TraceState.Absent -> sb.appendLine("System trace available: no")
+            is TraceState.Available -> sb.appendLine("System trace available: yes")
+            is TraceState.AccessFailed -> {
+                if (state.streamExisted) {
+                    warnings += "Could not read ANR trace: ${state.detail}"
+                    sb.appendLine("System trace available: yes (could not be read)")
+                } else {
+                    warnings += "Trace access failed: ${state.detail}"
+                    sb.appendLine("System trace available: unknown (access failed)")
+                }
+            }
         }
     }
 
-    private fun readAnrTrace(info: ApplicationExitInfo, warnings: MutableList<String>): AnrTrace? {
+    /**
+     * Inspects the trace stream without conflating "absent" with "could not be read".
+     * ANR streams are read as text within the fixed bound; native/other streams are
+     * only opened and immediately closed to report availability.
+     */
+    private fun queryTraceState(info: ApplicationExitInfo): TraceState {
         val stream = try {
             info.traceInputStream
         } catch (e: Exception) {
-            warnings += "Could not open ANR trace: ${e.message ?: e.javaClass.simpleName}"
-            return null
+            return TraceState.AccessFailed(
+                detail = e.message ?: e.javaClass.simpleName,
+                streamExisted = false,
+            )
         }
         if (stream == null) {
-            warnings += "ANR exit record has no trace stream"
-            return null
+            return TraceState.Absent
+        }
+        if (info.reason != ApplicationExitInfo.REASON_ANR) {
+            // Availability only — never read native/other trace content.
+            runCatching { stream.close() }
+            return TraceState.Available()
         }
         return try {
             stream.bufferedReader(Charsets.UTF_8).use { reader ->
@@ -316,18 +366,18 @@ class AboutViewModel @Inject constructor(
                     if (n == -1) break
                     count += n
                 }
-                AnrTrace(String(buffer, 0, count), truncated = count == ANR_TRACE_MAX_CHARS)
+                TraceState.Available(
+                    text = String(buffer, 0, count),
+                    truncated = count == ANR_TRACE_MAX_CHARS,
+                )
             }
         } catch (e: Exception) {
-            warnings += "Could not read ANR trace: ${e.message ?: e.javaClass.simpleName}"
-            null
+            TraceState.AccessFailed(
+                detail = e.message ?: e.javaClass.simpleName,
+                streamExisted = true,
+            )
         }
     }
-
-    /** Opens and immediately closes the trace stream to report availability without reading it. */
-    private fun hasTraceStream(info: ApplicationExitInfo): Boolean = runCatching {
-        info.traceInputStream?.use { true } ?: false
-    }.getOrDefault(false)
 
     private fun formatExitReason(reason: Int): String = when (reason) {
         ApplicationExitInfo.REASON_UNKNOWN -> "REASON_UNKNOWN ($reason)"
