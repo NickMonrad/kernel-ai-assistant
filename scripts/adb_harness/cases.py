@@ -93,15 +93,32 @@ PHASES: list[tuple[str, list[TestCase]]] = [
     ("weather", [
         # #1318 — bare/local weather and forecast
         TestCase("what's the weather", "get_weather"),
-        TestCase("what's the 5-day forecast", "get_weather"),
+        TestCase("what's the 5-day forecast", "get_weather",
+                 expect_params={"forecast_days": "5"}),
         # Location-based weather
-        TestCase("what's the weather in Auckland", "get_weather"),
+        TestCase("what's the weather in Auckland", "get_weather",
+                 expect_params={"location": "Auckland"}),
         TestCase("will it rain today", "get_weather"),
         TestCase("how hot is it outside", "get_weather"),
         TestCase("do I need an umbrella today", "get_weather"),
         TestCase("what's it like outside", "get_weather"),
         TestCase("is it gonna rain tomorrow", "get_weather"),
-        TestCase("temperature in Wellington", "get_weather"),
+        TestCase("temperature in Wellington", "get_weather",
+                 expect_params={"location": "Wellington"}),
+        # #1453 — weather semantic integrity: assert params, not just the route.
+        # "Action: get_weather" with the wrong parameters must fail these cases.
+        TestCase("What's the weather in Sydney for the next 5 days", "get_weather",
+                 expect_params={"location": "Sydney", "forecast_days": "5"}),
+        TestCase("What's the weather forecast for Sydney", "get_weather",
+                 expect_params={"location": "Sydney", "forecast_days": "3"}),
+        TestCase("What's the forecast", "get_weather",
+                 expect_params={"forecast_days": "3"}),
+        TestCase("What's the weather like this week in Auckland", "get_weather",
+                 expect_params={"location": "Auckland", "forecast_days": "7"}),
+        TestCase("How hot will it be tomorrow", "get_weather",
+                 expect_params={"day": "tomorrow"}),
+        TestCase("What's the UV index in Sydney", "get_weather",
+                 expect_params={"location": "Sydney"}),
     ]),
     ("media", [
         # play_media — generic

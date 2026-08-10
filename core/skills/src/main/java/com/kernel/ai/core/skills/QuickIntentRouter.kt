@@ -2101,6 +2101,21 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
         ),
+        // "What's the weather like this week in <city>" — historical #255 contract:
+        // "this week" means a 7-day horizon. The normaliser adds forecast_days=7.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
         // City-named weather: "weather in Auckland" / "what's the weather in London" /
         // "weather forecast for Paris" — captures city into `location` param.
         IntentPattern(
@@ -2139,6 +2154,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // "What's the forecast for Sydney?" — plain forecast with a named location and no
+        // explicit horizon. The normaliser applies the 3-day explicit-forecast default and
+        // strips any temporal tail from the captured location.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?forecast\s+for\s+(?!the\s+next\b|a\s+(?:few|couple)\b|\d+\s+days\b)([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
         // Word-form bare forecast: "five day forecast", "five-day forecast"
         IntentPattern(
             intentName = "get_weather",
@@ -2155,14 +2186,20 @@ class QuickIntentRouter(
                 mapOf("forecast_days" to (wordToNum[daysWord] ?: daysWord))
             },
         ),
-        // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella"
+        // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella",
+        // with optional named location: "will it rain in Sydney today" (location preserved by #1453)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
+                """(?:will\s+it\s+rain|is\s+it\s+(?:going\s+to|gonna)\s+rain)(?:\s+(?:in|for|at)\s+([\w\s,]+?))?(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val location = match.groupValues.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
         ),
         // ── Rain over the next N days ──
         // "is it going to rain over the next N days"
@@ -2230,14 +2267,22 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
 
-        // "How hot will it be tomorrow?" / "How cold will it be this afternoon?"
+        // "How hot will it be tomorrow?" / "How cold will it be this afternoon?" /
+        // "How hot will it be in Sydney tomorrow?" — emits raw_query; the weather
+        // normaliser turns "tomorrow" into day=tomorrow and keeps any named location.
+        // (this afternoon/evening/weekend remain #1455 relative periods — not faked.)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend))\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend)))""",
+                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:(?:in|for|at)\s+([\w\s,]+?)\s+)?(?:tomorrow|today)\s*[.!?]*$|how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+this\s+(?:afternoon|evening|morning|weekend)\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend)))""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { match, raw ->
+                val params = mutableMapOf("raw_query" to raw)
+                val location = match.groupValues.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+                if (location != null) params["location"] = location
+                params
+            },
             requiredSlots = emptyMap(),
         ),
         // "temperature in Wellington" — city-specific temperature query
@@ -4427,7 +4472,13 @@ class QuickIntentRouter(
     private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
         for (pattern in candidates) {
             val match = pattern.regex.find(trimmed) ?: continue
-            val params = pattern.paramExtractor(match, trimmed)
+            val extracted = pattern.paramExtractor(match, trimmed)
+            // #1453 — weather parameter-semantic normalisation: every deterministic
+            // get_weather match shares one conservative normaliser so forecast
+            // horizons, "tomorrow", "this week", and named locations survive
+            // regardless of which pattern matched.
+            val params =
+                if (pattern.intentName == "get_weather") normalizeWeatherParams(trimmed, extracted) else extracted
             val missingSlot = missingRequiredSlot(pattern.requiredSlots, params)
             val intent = MatchedIntent(
                 intentName = pattern.intentName,
@@ -4555,6 +4606,122 @@ class QuickIntentRouter(
         // #1227 — STT mishearing: "30 first" → "31st" (thirty-first split into "30 first").
         // Only correct the specific observed artifact; general ordinal handling is not needed.
         return stripped.replace(Regex("""\b30\s+first\b""", RegexOption.IGNORE_CASE), "31st")
+    }
+
+    // ── Weather semantic normalisation (#1453) ─────────────────────────────────
+    // Every deterministic get_weather match passes through this helper so that
+    // temporal semantics (forecast horizon, "tomorrow", "this week") and named
+    // locations survive regardless of which pattern matched. Conservative by
+    // design: explicit params are never overwritten, temporal wording is never
+    // passed to geocoding, and ordinary current-weather queries gain no
+    // forecast semantics.
+
+    private val weatherNextNDays = Regex(
+        """\b(?:the\s+)?next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val weatherNDayForecast = Regex(
+        """\b(few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s*[ -]?\s*day\s+(?:weather\s+)?forecast\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val weatherTemporalTail = Regex(
+        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning))$""",
+    )
+
+    private val weatherLocationPrefix = Regex(
+        """\b(?:in|for|at)\s+(?!the\s+next\b|a\s+(?:few|couple)\b|tomorrow\b|today\b|tonight\b|now\b|this\s+(?:week|weekend|afternoon|evening|morning)\b|\d+\s+days\b)([A-Za-z][\w\s,]*)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun normalizeWeatherParams(raw: String, params: Map<String, String>): Map<String, String> {
+        val normalized = LinkedHashMap(params)
+
+        // Clean temporal wording out of an extracted location before geocoding —
+        // e.g. "Sydney for the next 5 days" → "Sydney".
+        normalized["location"]?.let { location ->
+            val cleaned = stripWeatherTemporal(location)
+            if (cleaned.isBlank()) normalized.remove("location") else normalized["location"] = cleaned
+        }
+
+        // Recover a named location from the raw utterance when the matched pattern
+        // emitted none (e.g. UV/AQI/sunset patterns match only their prefix).
+        if (normalized["location"].isNullOrBlank()) {
+            recoverWeatherLocation(raw)?.let { normalized["location"] = it }
+        }
+
+        // "tomorrow" → day=tomorrow (never overwrite an explicit day).
+        if (normalized["day"].isNullOrBlank() &&
+            Regex("""\btomorrow\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+        ) {
+            normalized["day"] = "tomorrow"
+        }
+
+        // Forecast horizon when none was extracted (never overwrite explicit).
+        if (normalized["forecast_days"].isNullOrBlank()) {
+            weatherForecastDays(raw)?.let { normalized["forecast_days"] = it }
+        }
+        return normalized
+    }
+
+    /** Remove trailing temporal phrases from a captured location before geocoding. */
+    private fun stripWeatherTemporal(location: String): String {
+        var current = location.trim()
+        while (true) {
+            val stripped = weatherTemporalTail.replaceFirst(current, "").trim().trimEnd(',')
+            if (stripped == current) return current
+            current = stripped
+        }
+    }
+
+    /**
+     * Recover a named location from raw weather text when the matched pattern did not
+     * extract one. Narrowly weather-specific: temporal prepositions such as
+     * "for the next 5 days" are never treated as locations.
+     */
+    private fun recoverWeatherLocation(raw: String): String? {
+        val match = weatherLocationPrefix.find(raw) ?: return null
+        val cleaned = stripWeatherTemporal(match.groupValues[1])
+        return cleaned.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Determine the forecast horizon from the utterance, or null when the user asked
+     * for current conditions. Explicit "forecast" without any horizon/day anchor gets
+     * the established 3-day default; "this week" → 7 days (historical #255 contract).
+     */
+    private fun weatherForecastDays(raw: String): String? {
+        weatherNextNDays.find(raw)?.let { m ->
+            return wordToForecastDays(m.groupValues[1].lowercase())
+        }
+        weatherNDayForecast.find(raw)?.let { m ->
+            return wordToForecastDays(m.groupValues[1].lowercase())
+        }
+        if (Regex("""\bthis\s+week\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) return "7"
+        if (Regex("""\bforecast\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) {
+            val dayAnchored = Regex(
+                """\b(?:tomorrow|today|tonight|weekend|this\s+(?:week|weekend|afternoon|evening|morning))\b""",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(raw)
+            if (!dayAnchored) return "3"
+        }
+        return null
+    }
+
+    private fun wordToForecastDays(word: String): String? = when (word) {
+        "few", "couple" -> "3"
+        "one" -> "1"
+        "two" -> "2"
+        "three" -> "3"
+        "four" -> "4"
+        "five" -> "5"
+        "six" -> "6"
+        "seven" -> "7"
+        "eight" -> "8"
+        "nine" -> "9"
+        "ten" -> "10"
+        else -> word.toIntOrNull()?.toString()
     }
 
     // ── Parameter parsing helpers ─────────────────────────────────────────────
