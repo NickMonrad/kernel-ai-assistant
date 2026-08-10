@@ -184,14 +184,6 @@ RELEASE_WAKE_THRESHOLDS: dict[str, tuple[int, int]] = {
     "s23u": (19, 20),
 }
 
-# The detector's activation-candidate threshold (WAKE_WORD_DEFAULT_THRESHOLD
-# = 0.65f in core/voice/.../WakeWordPreferences.kt).  When the correlated
-# WakeWordDiag gate summaries prove Stage 3 evaluated the boundary generation
-# but the classifier maximum stayed below this threshold, an empty normal
-# journal event list is a classifier miss, not an acoustic/gate miss (#1410
-# evidence integrity).  Fixed for the release run; never adjusted per result.
-WAKE_CANDIDATE_THRESHOLD = 0.65
-
 EXPECTED_DEVICES: dict[str, dict[str, str]] = {
     "s21": {"manufacturer": "samsung", "model": "SM-G991B"},
     "s23u": {"manufacturer": "samsung", "model": "SM-S918B"},
@@ -1376,53 +1368,6 @@ def correlate_event_path(
 
 
 
-def gate_episode_stage3_below_threshold(
-    gate_episode_energy: Any,
-    boundary_generation: int | None,
-) -> bool:
-    """Return whether correlated WakeWordDiag evidence proves a classifier miss.
-
-    The decisive evidence is Stage-3 execution plus the classifier result, not
-    energy: at least one gate-exit episode of the trial's boundary generation
-    was evaluated by Stage 3 (``stage3_evals > 0``) and the classifier maximum
-    across those episodes remained below ``WAKE_CANDIDATE_THRESHOLD``.  Energy
-    values are retained evidence but never classify on their own.  Correlation
-    is by detector generation (the summaries are already bounded per-trial and
-    per-generation), so no cross-device clock assumption applies.
-
-    Missing, erroneous, generation-mismatched or non-evaluated summaries are
-    never treated as proof (returns False).
-    """
-    if boundary_generation is None:
-        return False
-    if not isinstance(gate_episode_energy, list) or not gate_episode_energy:
-        return False
-    correlated = [
-        entry for entry in gate_episode_energy
-        if isinstance(entry, dict)
-        and entry.get("generation_id") == boundary_generation
-    ]
-    if not correlated:
-        return False
-    evaluated = any(
-        isinstance(entry.get("stage3_evals"), int)
-        and not isinstance(entry.get("stage3_evals"), bool)
-        and entry["stage3_evals"] > 0
-        for entry in correlated
-    )
-    if not evaluated:
-        return False
-    maxima = [
-        entry["max_confidence"]
-        for entry in correlated
-        if isinstance(entry.get("max_confidence"), (int, float))
-        and not isinstance(entry.get("max_confidence"), bool)
-    ]
-    if not maxima:
-        return False
-    return max(maxima) < WAKE_CANDIDATE_THRESHOLD
-
-
 def classify_attempt(
     source_result: dict[str, Any] | None,
     target_snapshot: dict[str, Any] | None,
@@ -1431,7 +1376,6 @@ def classify_attempt(
     session_id: int | None,
     cue_audibility_verified: bool,
     expected_command_transcript_sha256: str | None = None,
-    gate_episode_energy: Any = None,
 ) -> tuple[AttemptStatus, FailureClassification | None, InvalidReason | None, list[str]]:
     if source_result is None:
         return AttemptStatus.INVALID, None, InvalidReason.SOURCE_STIMULUS_FAILURE, ["no source result"]
@@ -1456,12 +1400,6 @@ def classify_attempt(
         ]
     events = envelope["events"]
     if not events:
-        if gate_episode_stage3_below_threshold(
-            gate_episode_energy, boundary_generation
-        ):
-            return AttemptStatus.FAILED, FailureClassification.CLASSIFIER_MODEL_MISS, None, [
-                "no target events; WakeWordDiag stage-3 evaluation with classifier below candidate threshold"
-            ]
         return AttemptStatus.FAILED, FailureClassification.ACOUSTIC_OR_GATE_MISS, None, ["no target events"]
 
     _, session, path, correlation_failures = correlate_event_path(
@@ -2606,30 +2544,6 @@ class AcousticWakeReliabilityRunner:
         )
         for attempt in self.attempts:
             reclassify_out_of_window_command_attempt(attempt, self.clock_alignment)
-            # #1410 evidence integrity: a recorded ACOUSTIC_OR_GATE_MISS whose
-            # preserved WakeWordDiag evidence proves the boundary generation
-            # was evaluated by Stage 3 with the classifier below the candidate
-            # threshold is a classifier miss, never an acoustic/gate miss
-            # (2026-08-09 S21 trial 002).  Genuine no-evaluation/gate cases
-            # keep their recorded classification.
-            if (
-                attempt.status == AttemptStatus.FAILED
-                and attempt.classification
-                == FailureClassification.ACOUSTIC_OR_GATE_MISS
-                and not attempt.target_timing.get("events")
-                and gate_episode_stage3_below_threshold(
-                    attempt.target_timing.get("gate_episode_energy"),
-                    attempt.target_timing.get("boundary_generation"),
-                )
-            ):
-                attempt.classification = FailureClassification.CLASSIFIER_MODEL_MISS
-                attempt.failures = [
-                    "no target events; WakeWordDiag stage-3 evaluation with "
-                    "classifier below candidate threshold"
-                    if failure == "no target events"
-                    else failure
-                    for failure in attempt.failures
-                ]
             # #1409: normalise already-recorded projections to one record per
             # authoritative journal sequence (old checkpoints captured
             # ACTIVATION_CANDIDATE twice).  Conflicting projections of the
@@ -3391,9 +3305,6 @@ class AcousticWakeReliabilityRunner:
                     self.installed_command_transcript_hashes.get(command_fixture_id)
                     if command_fixture_id is not None
                     else None
-                ),
-                gate_episode_energy=attempt.target_timing.get(
-                    "gate_episode_energy"
                 ),
             )
             attempt.status = status
