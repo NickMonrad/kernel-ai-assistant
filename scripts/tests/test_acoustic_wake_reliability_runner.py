@@ -795,6 +795,153 @@ setBluetoothActiveDevice active bt_a2dp routed
                     )
 
 
+class WakeWordDiagClassificationTests(unittest.TestCase):
+    """#1410 evidence integrity: an empty normal journal event list is a
+    classifier miss when the correlated WakeWordDiag gate summaries prove
+    Stage 3 evaluated the boundary generation with the classifier maximum
+    below the candidate threshold (2026-08-09 S21 trial 002 semantics).
+    Genuine no-evaluation/gate cases stay acoustic_or_gate_miss."""
+
+    ENERGY = [{
+        "generation_id": 4,
+        "stage3_evals": 1187,
+        "max_confidence": 0.0025328398,
+        "max_confidence_offset_frames": 429,
+        "low_verify_entered": False,
+        "low_verify_accepted": False,
+        "gated_probe_executions": 2,
+        "episode_peak_rms": 4468.667,
+        "max_window_peak_rms": 2984.8508,
+        "max_window_mean_rms": 931.7775,
+    }]
+
+    def test_empty_events_with_stage3_proof_is_classifier_model_miss(self) -> None:
+        """Trial-002 semantics: empty normal target events, correlated target
+        generation known, gate episode present, stage3_evals > 0, maximum
+        confidence below the candidate threshold, valid source stimulus,
+        strong/non-zero energy available."""
+        status, classification, invalid, failures = runner.classify_attempt(
+            source_result(),
+            envelope([]),
+            runner.TrialType.WAKE_ONLY,
+            boundary_generation=4,
+            session_id=None,
+            cue_audibility_verified=True,
+            gate_episode_energy=self.ENERGY,
+        )
+        self.assertEqual(status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            classification, runner.FailureClassification.CLASSIFIER_MODEL_MISS)
+        self.assertIsNone(invalid)
+        self.assertNotEqual(failures, ["no target events"])
+
+    def test_empty_events_without_energy_stays_acoustic_or_gate_miss(self) -> None:
+        """No WakeWordDiag evidence at all: genuine gate miss, unchanged."""
+        status, classification, _, failures = runner.classify_attempt(
+            source_result(),
+            envelope([]),
+            runner.TrialType.WAKE_ONLY,
+            boundary_generation=4,
+            session_id=None,
+            cue_audibility_verified=True,
+        )
+        self.assertEqual(status, runner.AttemptStatus.FAILED)
+        self.assertEqual(
+            classification, runner.FailureClassification.ACOUSTIC_OR_GATE_MISS)
+        self.assertEqual(failures, ["no target events"])
+
+    def test_empty_events_without_stage3_evaluations_stays_gate_miss(self) -> None:
+        """A gate episode with zero Stage-3 evaluations is never proof of a
+        classifier miss: the classifier never ran."""
+        energy = [dict(self.ENERGY[0], stage3_evals=0)]
+        status, classification, _, _ = runner.classify_attempt(
+            source_result(), envelope([]), runner.TrialType.WAKE_ONLY,
+            boundary_generation=4, session_id=None, cue_audibility_verified=True,
+            gate_episode_energy=energy,
+        )
+        self.assertEqual(
+            classification, runner.FailureClassification.ACOUSTIC_OR_GATE_MISS)
+
+    def test_empty_events_with_unrelated_generation_stays_gate_miss(self) -> None:
+        """Energy correlated to a different detector generation is not proof
+        for this trial; attribution is by boundary generation only."""
+        energy = [dict(self.ENERGY[0], generation_id=5)]
+        status, classification, _, _ = runner.classify_attempt(
+            source_result(), envelope([]), runner.TrialType.WAKE_ONLY,
+            boundary_generation=4, session_id=None, cue_audibility_verified=True,
+            gate_episode_energy=energy,
+        )
+        self.assertEqual(
+            classification, runner.FailureClassification.ACOUSTIC_OR_GATE_MISS)
+
+    def test_empty_events_with_threshold_crossing_stays_gate_miss(self) -> None:
+        """A classifier maximum at or above the candidate threshold is not a
+        below-threshold miss; without journal events the failure is not
+        upgraded."""
+        energy = [dict(
+            self.ENERGY[0], max_confidence=runner.WAKE_CANDIDATE_THRESHOLD)]
+        status, classification, _, _ = runner.classify_attempt(
+            source_result(), envelope([]), runner.TrialType.WAKE_ONLY,
+            boundary_generation=4, session_id=None, cue_audibility_verified=True,
+            gate_episode_energy=energy,
+        )
+        self.assertEqual(
+            classification, runner.FailureClassification.ACOUSTIC_OR_GATE_MISS)
+
+    def test_checkpoint_load_reclassifies_proven_stage3_miss(self) -> None:
+        """Offline regeneration corrects a recorded acoustic_or_gate_miss
+        when the preserved evidence proves the Stage-3 below-threshold miss,
+        and leaves the genuine gate miss untouched."""
+        private_root = Path(tempfile.mkdtemp())
+        slot = runner.MatrixSlot(idle_s=10, wake_only=True, ordinal=2)
+        slot_gate = runner.MatrixSlot(idle_s=10, wake_only=True, ordinal=3)
+        producer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        producer.attempts = [
+            runner.MatrixAttempt(
+                "trial-002", slot, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS,
+                failures=["no target events"],
+                target_timing={
+                    "events": [],
+                    "boundary_generation": 4,
+                    "gate_episode_energy": self.ENERGY,
+                },
+            ),
+            runner.MatrixAttempt(
+                "trial-008", slot_gate, 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.ACOUSTIC_OR_GATE_MISS,
+                failures=["no target events"],
+                target_timing={
+                    "events": [],
+                    "boundary_generation": 4,
+                    "gate_episode_energy": [dict(self.ENERGY[0], stage3_evals=0)],
+                },
+            ),
+        ]
+        producer.checkpoint()
+
+        consumer = runner.AcousticWakeReliabilityRunner(
+            runner.RunKind.DIAGNOSTIC, "s23u", "s21",
+            FakeAdb("source"), FakeAdb("target"), private_root=private_root,
+        )
+        consumer.load_checkpoint(producer.run_id)
+        by_id = {attempt.trial_id: attempt for attempt in consumer.attempts}
+        self.assertEqual(
+            by_id["trial-002"].classification,
+            runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+        )
+        self.assertIn(
+            "stage-3 evaluation", " ".join(by_id["trial-002"].failures))
+        self.assertEqual(
+            by_id["trial-008"].classification,
+            runner.FailureClassification.ACOUSTIC_OR_GATE_MISS,
+        )
+        self.assertEqual(by_id["trial-008"].failures, ["no target events"])
+
+
 class MatrixAndEnvironmentTests(unittest.TestCase):
     def test_positions_are_independent_with_ordinals(self) -> None:
         slots = runner.matrix_slots_for_target("s21")
