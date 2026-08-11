@@ -17,6 +17,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
@@ -60,14 +61,17 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.clearMocks
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -1178,6 +1182,109 @@ class ChatViewModelInitTest {
             lastSystemPrompt!!.contains("set a timer for 2 hours"),
             "Independent command history replay must not leak previous commands into system prompt",
         )
+    }
+
+    @Test
+    fun `fresh viewmodel on warm engine hydrates model and settings without reinitialising`() = runTest(dispatcher) {
+        val persisted = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.42f,
+            topP = 0.7f,
+            topK = 96,
+            showThinkingProcess = false,
+            speculativeDecodingEnabled = true,
+            updatedAt = 2L,
+        )
+        // Engine reports ready BEFORE the ViewModel's init path runs (#1459).
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+        )
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
+        coEvery { modelSettingsRepository.getSettings(any()) } returns persisted
+
+        val viewModel = createViewModel()
+        // currentModel is stateIn(WhileSubscribed) — collect to observe hydration.
+        val currentModels = mutableListOf<KernelModel?>()
+        val collector = launch { viewModel.currentModel.collect { currentModels += it } }
+        advanceUntilIdle()
+
+        assertEquals(KernelModel.GEMMA_4_E4B, currentModels.last())
+        assertEquals(persisted, viewModel.activeModelSettings.value)
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertNotNull(state.modelCapabilities)
+        assertEquals(persisted.temperature, state.temperature)
+        assertEquals(persisted.topP, state.topP)
+        assertEquals(persisted.topK, state.topK)
+        assertFalse(state.showThinkingProcess)
+
+        // The already-ready path must never re-initialise the warm engine.
+        coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+        collector.cancel()
+    }
+
+    @Test
+    fun `sendMessage waiting on warmup mutex hydrates state without double initialising`() = runTest(dispatcher) {
+        val persisted = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.42f,
+            topP = 0.7f,
+            topK = 96,
+            showThinkingProcess = false,
+            speculativeDecodingEnabled = true,
+            updatedAt = 2L,
+        )
+        val isReadyFlow = MutableStateFlow(false)
+        // Engine warms up DURING this test. getSettings blocks until the test flips
+        // isReady, so initEngineWhenReady holds the init mutex while sendMessage's
+        // initGemma4 waits on it — the exact race that hits initGemma4's
+        // already-ready branch (#1459).
+        val settingsGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.isReady } returns isReadyFlow
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+        )
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
+        coEvery { modelSettingsRepository.getSettings(any()) } coAnswers { settingsGate.await(); persisted }
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
+        every { inferenceEngine.generate(any()) } returns flowOf(GenerationResult.Complete(durationMs = 1L))
+
+        val viewModel = createViewModel()
+        // currentModel is stateIn(WhileSubscribed) — collect to observe hydration.
+        val currentModels = mutableListOf<KernelModel?>()
+        val collector = launch { viewModel.currentModel.collect { currentModels += it } }
+        runCurrent()
+        // initEngineWhenReady is now parked inside getSettings, holding the init mutex.
+
+        viewModel.onInputChanged("hello")
+        viewModel.sendMessage()
+        runCurrent()
+        // sendMessage's initGemma4 is now waiting on the mutex.
+
+        // Engine completes warm-up while initGemma4 waits.
+        isReadyFlow.value = true
+        settingsGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(KernelModel.GEMMA_4_E4B, currentModels.last())
+        assertEquals(persisted, viewModel.activeModelSettings.value)
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertNotNull(state.modelCapabilities)
+        assertEquals(persisted.temperature, state.temperature)
+        assertFalse(state.showThinkingProcess)
+
+        // Only initEngineWhenReady's cold path may initialise — initGemma4's
+        // already-ready branch must never re-initialise the warm engine.
+        coVerify(exactly = 1) { inferenceEngine.initialize(any()) }
+        collector.cancel()
     }
 
     private fun createViewModel(
