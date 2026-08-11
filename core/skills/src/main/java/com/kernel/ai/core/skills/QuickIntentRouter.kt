@@ -493,6 +493,14 @@ class QuickIntentRouter(
          * `play_media` and the terse smart-home `(.+?)\s+on/off` catch-alls.
          */
         val isFallback: Boolean = false,
+        /**
+         * #1455 — when true, this get_weather pattern is exempt from the central daypart
+         * veto in [route]. Exemption is only for today-anchored value queries (sunrise/sunset
+         * times, UV index, air quality) whose answer is consistent with a "this
+         * afternoon/evening/morning" qualifier — they report today's value, not a future
+         * daypart forecast the skill cannot represent.
+         */
+        val exemptFromDaypartVeto: Boolean = false,
     )
 
     private val patterns: List<IntentPattern> = listOf(
@@ -2318,6 +2326,8 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "is the UV high this morning?" answers today's UV.
+            exemptFromDaypartVeto = true,
         ),
         // Air quality queries: "what's the air quality", "what's the AQI"
         IntentPattern(
@@ -2327,6 +2337,8 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "is the air quality good this morning?" answers today's AQI.
+            exemptFromDaypartVeto = true,
         ),
         // Sunrise/sunset queries: "what time is sunrise", "when does the sun set"
         IntentPattern(
@@ -2336,6 +2348,8 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "what time is sunset this evening?" answers today's sunset.
+            exemptFromDaypartVeto = true,
         ),
         // ── Volume ──
         // Numeric-level forms must come BEFORE direction-only patterns to win the match
@@ -4573,9 +4587,11 @@ class QuickIntentRouter(
         // #1455 — unsupported dayparts ("this afternoon/evening/morning") have no hourly
         // weather contract: drop every deterministic get_weather pattern for them so they
         // fall through to the free-form path rather than silently returning current conditions.
+        // Today-anchored value patterns (sunrise/sunset, UV, AQI) are exempt — their answer
+        // is consistent with the daypart qualifier, see IntentPattern.exemptFromDaypartVeto.
         val daypartWeatherBlocked = weatherUnsupportedDaypart.containsMatchIn(trimmed)
-        val specificPatterns = patterns.filter { !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather") }
-        val fallbackPatterns = patterns.filter { it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather") }
+        val specificPatterns = patterns.filter { !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
+        val fallbackPatterns = patterns.filter { it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
 
         tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
         tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }

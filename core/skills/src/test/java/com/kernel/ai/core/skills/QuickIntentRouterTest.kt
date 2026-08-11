@@ -2111,6 +2111,21 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `today-anchored daypart queries still route deterministically`() {
+            // #1455 — the veto must not regress today-anchored value queries whose answer
+            // is consistent with the daypart qualifier (sunset this evening = today's
+            // sunset, UV/AQI this morning/evening = today's reading).
+            for (input in listOf(
+                "What time is sunset this evening?",
+                "Is the UV high this morning?",
+                "Is the air quality good this evening?",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+            }
+        }
+
+        @Test
         fun `weekend wording works across patterns and never contaminates the location`() {
             // #1455 — every deterministic weekend phrasing must converge on the same
             // explicit weekend contract with a clean location.
