@@ -23,6 +23,8 @@ import javax.inject.Singleton
  * - `location`     — optional city/place name; omit to use device GPS.
  * - `forecast_days` — optional 1–7 day forecast; omit for current conditions only.
  * - `day`          — optional "today" or "tomorrow"; when "tomorrow", returns tomorrow's forecast only.
+ * - `period`       — optional "weekend"; returns the current/upcoming weekend's Saturday + Sunday
+ *   forecast from the daily data path (distinct cache identity from current/tomorrow/N-day).
  *
  * Always returns [SkillResult.DirectReply] — the formatted weather string is shown verbatim
  * and never sent to the LLM for wrapping, preventing number/unit corruption.
@@ -41,6 +43,7 @@ class GetWeatherUnifiedSkill @Inject constructor(
         "Current location weather → get_weather()",
         "GPS location 3-day forecast → get_weather(forecast_days=\"3\")",
         "Weather in Auckland → get_weather(location=\"Auckland\")",
+        "Weekend forecast in Bundaberg → get_weather(location=\"Bundaberg\", period=\"weekend\")",
         "Weather in Brisbane → get_weather(location=\"Brisbane\")",
     )
 
@@ -58,6 +61,12 @@ class GetWeatherUnifiedSkill @Inject constructor(
             "day" to SkillParameter(
                 type = "string",
                 description = "Optional day to get weather for: \"today\" or \"tomorrow\". When \"tomorrow\", returns tomorrow's forecast only.",
+            ),
+            "period" to SkillParameter(
+                type = "string",
+                description = "Optional forecast period: \"weekend\" targets the current/upcoming weekend " +
+                    "(Saturday + Sunday, or just the remaining Sunday when asked on a Sunday). " +
+                    "Omit for the default current/today behaviour. Mutually exclusive with forecast_days.",
             ),
         ),
         required = emptyList(),

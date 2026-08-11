@@ -2066,20 +2066,85 @@ class QuickIntentRouterTest {
         }
 
         @Test
-        fun `should not fake relative periods as forecasts or days`() {
-            // #1455 out of scope — weekend/daypart wording must not gain 3-day or day semantics.
+        fun `weekend phrases carry explicit weekend semantics not 3-day or day semantics`() {
+            // #1455 — the advertised Learn phrase must produce the explicit weekend
+            // contract between QIR and the weather skill: period=weekend, location
+            // preserved, and never the unspecified-forecast 3-day default or day=tomorrow.
             val weekend = regexOnlyRouter.route("What's the forecast for Bundaberg this weekend?")
             assertRegexMatch(weekend, "get_weather", "What's the forecast for Bundaberg this weekend?")
             val weekendParams = (weekend as QuickIntentRouter.RouteResult.RegexMatch).intent.params
             assertEquals("Bundaberg", weekendParams["location"])
+            assertEquals("weekend", weekendParams["period"])
             assertNull(weekendParams["forecast_days"], "weekend must not become a 3-day forecast")
             assertNull(weekendParams["day"], "weekend must not become day=tomorrow")
+        }
 
-            val afternoon = regexOnlyRouter.route("How hot will it be this afternoon?")
-            assertRegexMatch(afternoon, "get_weather", "How hot will it be this afternoon?")
-            val afternoonParams = (afternoon as QuickIntentRouter.RouteResult.RegexMatch).intent.params
-            assertNull(afternoonParams["forecast_days"], "afternoon must not become a forecast")
-            assertNull(afternoonParams["day"], "afternoon must not become a day")
+        @Test
+        fun `unsupported dayparts do not deterministically claim current weather`() {
+            // #1455 — "this afternoon/evening/morning" have no hourly forecast contract;
+            // they must fall through to the free-form path instead of routing to
+            // get_weather and silently returning current conditions.
+            for (input in listOf(
+                "How hot will it be this afternoon?",
+                "How cold will it be this evening?",
+                "How warm will it be this morning?",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertFallThrough(result, input)
+            }
+        }
+
+        @Test
+        fun `daypart wording never routes to get_weather even through location patterns`() {
+            // #1455 — the veto is central: daypart wording must not sneak into
+            // get_weather through the city/temperature patterns either, where it would
+            // be stripped from the location and answered with current conditions.
+            for (input in listOf(
+                "What's the weather in Sydney this afternoon?",
+                "What's the weather forecast for Sydney this evening?",
+                "What's the temperature going to be this evening?",
+                "temperature in Wellington this morning",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertFallThrough(result, input)
+            }
+        }
+
+        @Test
+        fun `today-anchored daypart queries still route deterministically`() {
+            // #1455 — the veto must not regress today-anchored value queries whose answer
+            // is consistent with the daypart qualifier (sunset this evening = today's
+            // sunset, UV/AQI this morning/evening = today's reading).
+            for (input in listOf(
+                "What time is sunset this evening?",
+                "Is the UV high this morning?",
+                "Is the air quality good this evening?",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+            }
+        }
+
+        @Test
+        fun `weekend wording works across patterns and never contaminates the location`() {
+            // #1455 — every deterministic weekend phrasing must converge on the same
+            // explicit weekend contract with a clean location.
+            data class Case(val input: String, val expectedLocation: String?)
+            val cases = listOf(
+                Case("What's the weather in Sydney this weekend?", "Sydney"),
+                Case("What's the weather forecast for Sydney this weekend?", "Sydney"),
+                Case("What's the forecast for Bundaberg this weekend?", "Bundaberg"),
+                Case("How hot will it be this weekend?", null),
+            )
+            for (case in cases) {
+                val result = regexOnlyRouter.route(case.input)
+                assertRegexMatch(result, "get_weather", case.input)
+                val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+                assertEquals(case.expectedLocation, params["location"], "location for '${case.input}' (params=$params)")
+                assertEquals("weekend", params["period"], "period for '${case.input}' (params=$params)")
+                assertNull(params["forecast_days"], "forecast_days for '${case.input}' (params=$params)")
+                assertNull(params["day"], "day for '${case.input}' (params=$params)")
+            }
         }
     }
 
