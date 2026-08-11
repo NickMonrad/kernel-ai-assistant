@@ -1287,6 +1287,45 @@ class ChatViewModelInitTest {
         collector.cancel()
     }
 
+    @Test
+    fun `warm engine settings read failure surfaces error without reinitialising`() = runTest(dispatcher) {
+        val persisted = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.42f,
+            topP = 0.7f,
+            topK = 96,
+            showThinkingProcess = false,
+            speculativeDecodingEnabled = true,
+            updatedAt = 2L,
+        )
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+        )
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
+        // Settings read failure must be caught and surfaced like the cold path, not
+        // escape the init coroutine (review #1460). Only the FIRST read (the init
+        // hydration) fails — later reads from the persona-collector prompt builder
+        // are unrelated pre-existing behaviour.
+        var settingsReads = 0
+        coEvery { modelSettingsRepository.getSettings(any()) } coAnswers {
+            if (settingsReads++ == 0) throw RuntimeException("db down") else persisted
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertTrue(
+            state.error!!.contains("Failed to load AI model"),
+            "settings read failure on warm engine must surface an error, got: ${state.error}",
+        )
+        coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+    }
+
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ): ChatViewModel = ChatViewModel(

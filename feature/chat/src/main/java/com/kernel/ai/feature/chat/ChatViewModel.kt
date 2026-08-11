@@ -964,9 +964,11 @@ class ChatViewModel @Inject constructor(
     private suspend fun hydrateActiveModelState(): Triple<KernelModel, String, ModelSettingsEntity>? {
         val preferred = downloadManager.preferredConversationModel()
         val modelPath = downloadManager.getModelPath(preferred) ?: return null
-        val settings = modelSettingsRepository.getSettings(preferred.modelId)
+        // Assign the model before reading persisted settings so a settings-read failure
+        // leaves the same partial state the original cold-start path did (review #1460).
         activeModel = preferred
         activeModelState.value = preferred
+        val settings = modelSettingsRepository.getSettings(preferred.modelId)
         activeContextWindowSize = settings.contextWindowSize
         _showThinkingProcess.value = settings.showThinkingProcess
         _activeModelSettings.value = settings
@@ -989,20 +991,20 @@ class ChatViewModel @Inject constructor(
             .first()
 
         gemma4InitMutex.withLock {
-            if (inferenceEngine.isReady.value) {
-                // The engine is a process singleton — a previous ChatViewModel may already
-                // have it warm. Never re-initialise it; just hydrate the ViewModel-local
-                // model/settings state the in-chat settings UI needs (#1459).
-                hydrateActiveModelState()
-                // Mirror the cold path's post-initialize sync: the engine allocated a
-                // clamped KV-cache size that supersedes the persisted setting.
-                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
-                    activeContextWindowSize = it
-                }
-                return
-            }
-
             try {
+                if (inferenceEngine.isReady.value) {
+                    // The engine is a process singleton — a previous ChatViewModel may already
+                    // have it warm. Never re-initialise it; just hydrate the ViewModel-local
+                    // model/settings state the in-chat settings UI needs (#1459).
+                    hydrateActiveModelState()
+                    // Mirror the cold path's post-initialize sync: the engine allocated a
+                    // clamped KV-cache size that supersedes the persisted setting.
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
+
                 val (preferred, modelPath, settings) = hydrateActiveModelState() ?: return
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
@@ -1051,18 +1053,18 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun initGemma4() {
         gemma4InitMutex.withLock {
-            if (inferenceEngine.isReady.value) {
-                // Same already-ready hydration as [initEngineWhenReady] (#1459):
-                // a fresh ViewModel may attach to a warm singleton engine — hydrate
-                // local state only, never re-initialise.
-                hydrateActiveModelState()
-                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
-                    activeContextWindowSize = it
-                }
-                return
-            }
-
             try {
+                if (inferenceEngine.isReady.value) {
+                    // Same already-ready hydration as [initEngineWhenReady] (#1459):
+                    // a fresh ViewModel may attach to a warm singleton engine — hydrate
+                    // local state only, never re-initialise.
+                    hydrateActiveModelState()
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
+
                 val (preferred, modelPath, settings) = hydrateActiveModelState() ?: return
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
