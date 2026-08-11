@@ -119,6 +119,11 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  expect_params={"day": "tomorrow"}),
         TestCase("What's the UV index in Sydney", "get_weather",
                  expect_params={"location": "Sydney"}),
+        # #1455 — the advertised Learn weekend phrase must carry the explicit
+        # weekend contract, not just the route (provider-side weekend-day selection
+        # is covered by deterministic unit fixtures).
+        TestCase("What's the forecast for Bundaberg this weekend", "get_weather",
+                 expect_params={"location": "Bundaberg", "period": "weekend"}),
     ]),
     ("media", [
         # play_media — generic
@@ -639,6 +644,14 @@ PHASES: list[tuple[str, list[TestCase]]] = [
                  forbidden_intents=["get_weather"],
                  expect_llm_fallthrough=True),
         TestCase("What's the weather like in Game of Thrones",
+                 forbidden_intents=["get_weather"],
+                 expect_llm_fallthrough=True),
+        # ── §8D (#1455): Unsupported dayparts — no hourly contract, so these must
+        # not deterministically claim a get_weather (current-conditions) answer.
+        TestCase("How hot will it be this afternoon",
+                 forbidden_intents=["get_weather"],
+                 expect_llm_fallthrough=True),
+        TestCase("How cold will it be this evening",
                  forbidden_intents=["get_weather"],
                  expect_llm_fallthrough=True),
     ]),

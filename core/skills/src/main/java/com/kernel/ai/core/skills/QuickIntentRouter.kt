@@ -1608,7 +1608,10 @@ class QuickIntentRouter(
         // Multi-day forecast (digit): "what's the forecast for the next 7 days" /
         // "what's the weather forecast for the next 7 days"
 
-        // "What's the forecast for Bundaberg this weekend?"
+        // "What's the forecast for Bundaberg this weekend?" — the period is emitted
+        // explicitly here; other weekend phrasings are covered centrally by the
+        // weather normaliser (period=weekend) so none of them degrade to current
+        // conditions or the 3-day unspecified-forecast default (#1455).
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
@@ -1619,6 +1622,7 @@ class QuickIntentRouter(
                 val params = mutableMapOf<String, String>()
                 val location = match.groupValues[1].trim()
                 if (location.isNotBlank()) params["location"] = location
+                params["period"] = "weekend"
                 params
             },
             requiredSlots = emptyMap(),
@@ -2267,14 +2271,17 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
 
-        // "How hot will it be tomorrow?" / "How cold will it be this afternoon?" /
+        // "How hot will it be tomorrow?" / "How cold will it be this weekend?" /
         // "How hot will it be in Sydney tomorrow?" — emits raw_query; the weather
-        // normaliser turns "tomorrow" into day=tomorrow and keeps any named location.
-        // (this afternoon/evening/weekend remain #1455 relative periods — not faked.)
+        // normaliser turns "tomorrow" into day=tomorrow, "this weekend" into
+        // period=weekend, and keeps any named location.
+        // (this afternoon/evening/morning have no hourly contract in the weather
+        // skill — they are centrally vetoed from all get_weather patterns in route()
+        // and fall through to the free-form path instead, #1455.)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:(?:in|for|at)\s+([\w\s,]+?)\s+)?(?:tomorrow|today)\s*[.!?]*$|how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+this\s+(?:afternoon|evening|morning|weekend)\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+(?:afternoon|evening|morning|weekend)))""",
+                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:(?:in|for|at)\s+([\w\s,]+?)\s+)?(?:tomorrow|today)\s*[.!?]*$|how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+this\s+weekend\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+weekend))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, raw ->
@@ -4563,8 +4570,12 @@ class QuickIntentRouter(
         //   Pass 2: fallback/catch-all patterns (isFallback = true) — only if Pass 1 misses.
         // This eliminates first-match-wins fragility without requiring manual ordering of every
         // pattern relative to every catch-all.
-        val specificPatterns = patterns.filter { !it.isFallback }
-        val fallbackPatterns = patterns.filter { it.isFallback }
+        // #1455 — unsupported dayparts ("this afternoon/evening/morning") have no hourly
+        // weather contract: drop every deterministic get_weather pattern for them so they
+        // fall through to the free-form path rather than silently returning current conditions.
+        val daypartWeatherBlocked = weatherUnsupportedDaypart.containsMatchIn(trimmed)
+        val specificPatterns = patterns.filter { !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather") }
+        val fallbackPatterns = patterns.filter { it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather") }
 
         tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
         tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }
@@ -4573,6 +4584,11 @@ class QuickIntentRouter(
         // Stage 2: BERT-tiny classifier (if available)
         classifier?.let { cls ->
             val result = cls.classify(trimmed)
+            // #1455 — same daypart guard as Stage 1: never let the classifier claim a
+            // get_weather answer for wording the weather skill cannot represent.
+            if (daypartWeatherBlocked && result?.intentName == "get_weather") {
+                return RouteResult.FallThrough(input = trimmed)
+            }
             if (result != null && result.confidence >= similarityThreshold) {
                 val isFastPath = result.intentName in FAST_PATH_INTENTS
                 val fastPathOk = isFastPath && result.confidence >= FAST_PATH_THRESHOLD
@@ -4635,6 +4651,23 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    /** #1455 — explicit weekend wording. Takes precedence over the unspecified-forecast default. */
+    private val weatherWeekendPeriod = Regex(
+        """\bthis\s+weekend\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * #1455 — daypart periods the weather skill has no hourly contract for. Any
+     * deterministic get_weather pattern (and the classifier) is skipped for wording
+     * like "this afternoon/evening/morning" so these queries fall through to the
+     * free-form path instead of silently returning current conditions.
+     */
+    private val weatherUnsupportedDaypart = Regex(
+        """\bthis\s+(?:afternoon|evening|morning)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private fun normalizeWeatherParams(raw: String, params: Map<String, String>): Map<String, String> {
         val normalized = LinkedHashMap(params)
 
@@ -4656,6 +4689,13 @@ class QuickIntentRouter(
             Regex("""\btomorrow\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
         ) {
             normalized["day"] = "tomorrow"
+        }
+
+        // "this weekend" → period=weekend (#1455): the weekend period is explicit
+        // weather-skill semantics and takes precedence over the unspecified-forecast
+        // 3-day default below (never overwrite an explicit period).
+        if (normalized["period"].isNullOrBlank() && weatherWeekendPeriod.containsMatchIn(raw)) {
+            normalized["period"] = "weekend"
         }
 
         // Forecast horizon when none was extracted (never overwrite explicit).
@@ -4692,6 +4732,9 @@ class QuickIntentRouter(
      * the established 3-day default; "this week" → 7 days (historical #255 contract).
      */
     private fun weatherForecastDays(raw: String): String? {
+        // #1455 — an explicit weekend request is a period, not an unspecified
+        // forecast: it must never gain the 3-day default (or any other horizon).
+        if (weatherWeekendPeriod.containsMatchIn(raw)) return null
         weatherNextNDays.find(raw)?.let { m ->
             return wordToForecastDays(m.groupValues[1].lowercase())
         }
