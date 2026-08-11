@@ -4107,4 +4107,109 @@ class ActionsViewModelVoiceTest {
         // which happens upstream. This test documents current behaviour.
         assertEquals("Type your request in the quick command bar.", viewModel.error.value)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // #1454 — pronoun normalisation provenance (assistant text vs user values)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `assistant authored error text is spoken from Jandal perspective without pronoun rewrite`() = runTest(dispatcher) {
+        val weatherSkill = mockk<Skill>()
+        val displayText =
+            "I couldn't find that location for weather. Try another city, like \"weather in Brisbane\"."
+
+        every { quickIntentRouter.route("what's the weather in Brisbane") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Brisbane"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(displayText)
+
+        viewModel.executeAction("what's the weather in Brisbane", InputMode.Voice)
+        advanceUntilIdle()
+
+        // Spoken text must keep Jandal's first person — no "You couldn't find…".
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text == displayText },
+            )
+        }
+        // Displayed result text is unaffected.
+        coVerify(exactly = 1) {
+            quickActionDao.insert(match { it.resultText == displayText })
+        }
+    }
+
+    @Test
+    fun `assistant authored first person variants are spoken verbatim`() = runTest(dispatcher) {
+        val variants = listOf(
+            "I'm unable to do that.",
+            "I've already checked.",
+            "I'll try again.",
+            "I'd need a location.",
+            "That's my result.",
+            "The choice is mine.",
+            "I can handle it myself.",
+        )
+        variants.forEachIndexed { index, text ->
+            val query = "speak variant ${'a' + index}"
+            val intentName = "speak_variant_$index"
+            val skill = mockk<Skill>()
+            every { quickIntentRouter.route(query) } returns
+                QuickIntentRouter.RouteResult.RegexMatch(
+                    QuickIntentRouter.MatchedIntent(intentName, emptyMap()),
+                )
+            every { skillRegistry.get(intentName) } returns skill
+            every { skill.name } returns intentName
+            every { skill.description } returns "Speak variant"
+            every { skill.schema } returns SkillSchema()
+            coEvery { skill.execute(any()) } returns SkillResult.DirectReply(text)
+
+            viewModel.executeAction(query, InputMode.Voice)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) {
+                voiceOutputController.speak(
+                    match<VoiceSpeakRequest> { it.text == text },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `user originated contact value in result text still receives second person normalisation`() = runTest(dispatcher) {
+        val smsSkill = mockk<Skill>()
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+            )
+        every { skillRegistry.get("send_sms") } returns smsSkill
+        every { smsSkill.name } returns "send_sms"
+        every { smsSkill.description } returns "Send SMS"
+        every { smsSkill.schema } returns SkillSchema()
+        coEvery { smsSkill.execute(any()) } returns SkillResult.Success("SMS composer opened for my wife.")
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+
+        // #828: user-originated values echoed in the result still flip to second person.
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text == "SMS composer opened for your wife." },
+            )
+        }
+        // Displayed result text is unaffected.
+        coVerify(exactly = 1) {
+            quickActionDao.insert(match { it.resultText == "SMS composer opened for my wife." })
+        }
+    }
 }
