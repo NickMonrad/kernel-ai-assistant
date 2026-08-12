@@ -795,6 +795,9 @@ class LiteRtInferenceEngine @Inject constructor(
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConfig: ModelConfig? = null
 
+    /** The model currently loaded by the engine, from the resolved [initialize] config. */
+    override val loadedModelPath: String? get() = currentConfig?.modelPath
+
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
 
