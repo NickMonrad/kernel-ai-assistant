@@ -79,6 +79,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -1196,15 +1197,17 @@ class ChatViewModelInitTest {
             speculativeDecodingEnabled = true,
             updatedAt = 2L,
         )
-        // Engine reports ready BEFORE the ViewModel's init path runs (#1459).
+        // Engine reports ready BEFORE the ViewModel's init path runs (#1459) and is
+        // running E4B. Note: no preferredConversationModel/getModelPath stubs here —
+        // the warm path must hydrate from the loaded model, not the preference, so a
+        // wrong implementation reaching the cold path fails the initialize() verify.
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         every { downloadManager.downloadStates } returns MutableStateFlow(
-            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
         )
-        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
-        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
-        coEvery { modelSettingsRepository.getSettings(any()) } returns persisted
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns persisted
 
         val viewModel = createViewModel()
         // currentModel is stateIn(WhileSubscribed) — collect to observe hydration.
@@ -1228,6 +1231,61 @@ class ChatViewModelInitTest {
     }
 
     @Test
+    fun `warm engine hydrates the loaded model not the changed preference`() = runTest(dispatcher) {
+        val e4bSettings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.42f,
+            topP = 0.7f,
+            topK = 96,
+            showThinkingProcess = false,
+            speculativeDecodingEnabled = true,
+            updatedAt = 2L,
+        )
+        val e2bSettings = ModelSettingsEntity(
+            modelId = "gemma_4_e2b",
+            contextWindowSize = 4096,
+            temperature = 0.99f,
+            topP = 0.6f,
+            topK = 12,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 3L,
+        )
+        // Singleton engine is ready and running E4B (review #1460 Finding 1).
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
+        )
+        // The user's preference has since changed to E2B — it takes effect on next
+        // launch and must NOT override what the warm engine is actually running.
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E2B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns e4bSettings
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e2b") } returns e2bSettings
+
+        val viewModel = createViewModel()
+        val currentModels = mutableListOf<KernelModel?>()
+        val collector = launch { viewModel.currentModel.collect { currentModels += it } }
+        advanceUntilIdle()
+
+        assertEquals(KernelModel.GEMMA_4_E4B, currentModels.last())
+        assertEquals(e4bSettings, viewModel.activeModelSettings.value)
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertNotNull(state.modelCapabilities)
+        assertEquals(e4bSettings.temperature, state.temperature)
+        assertEquals(e4bSettings.topK, state.topK)
+        assertFalse(state.showThinkingProcess)
+
+        // The preference (E2B) was never consulted for hydration.
+        coVerify(exactly = 0) { modelSettingsRepository.getSettings("gemma_4_e2b") }
+        coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+        collector.cancel()
+    }
+
+    @Test
     fun `sendMessage waiting on warmup mutex hydrates state without double initialising`() = runTest(dispatcher) {
         val persisted = ModelSettingsEntity(
             modelId = "gemma_4_e4b",
@@ -1246,12 +1304,13 @@ class ChatViewModelInitTest {
         // already-ready branch (#1459).
         val settingsGate = CompletableDeferred<Unit>()
         every { inferenceEngine.isReady } returns isReadyFlow
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         every { downloadManager.downloadStates } returns MutableStateFlow(
-            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
         )
         coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
-        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
+        coEvery { downloadManager.getModelPath(any()) } returns "/models/gemma-4-E4B-it.litertlm"
         coEvery { modelSettingsRepository.getSettings(any()) } coAnswers { settingsGate.await(); persisted }
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
         every { inferenceEngine.generate(any()) } returns flowOf(GenerationResult.Complete(durationMs = 1L))
@@ -1288,7 +1347,7 @@ class ChatViewModelInitTest {
     }
 
     @Test
-    fun `warm engine settings read failure surfaces error without reinitialising`() = runTest(dispatcher) {
+    fun `warm engine settings read failure surfaces error and blocks apply`() = runTest(dispatcher) {
         val persisted = ModelSettingsEntity(
             modelId = "gemma_4_e4b",
             contextWindowSize = 8192,
@@ -1300,12 +1359,11 @@ class ChatViewModelInitTest {
             updatedAt = 2L,
         )
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         every { downloadManager.downloadStates } returns MutableStateFlow(
-            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model")),
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
         )
-        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
-        coEvery { downloadManager.getModelPath(any()) } returns "/path/to/model"
         // Settings read failure must be caught and surfaced like the cold path, not
         // escape the init coroutine (review #1460). Only the FIRST read (the init
         // hydration) fails — later reads from the persona-collector prompt builder
@@ -1316,6 +1374,9 @@ class ChatViewModelInitTest {
         }
 
         val viewModel = createViewModel()
+        // currentModel is stateIn(WhileSubscribed) — collect to observe hydration.
+        val currentModels = mutableListOf<KernelModel?>()
+        val collector = launch { viewModel.currentModel.collect { currentModels += it } }
         advanceUntilIdle()
 
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
@@ -1323,7 +1384,36 @@ class ChatViewModelInitTest {
             state.error!!.contains("Failed to load AI model"),
             "settings read failure on warm engine must surface an error, got: ${state.error}",
         )
+        // Hydration is atomic: the failed settings read must leave the ViewModel
+        // without an active model so the sheet cannot present fabricated defaults
+        // as the real configuration (review #1460 Finding 2).
+        assertNull(currentModels.last())
+        assertNull(viewModel.activeModelSettings.value)
         coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+
+        // Apply cannot persist/reconfigure fabricated fallback values without an
+        // active settings snapshot.
+        val fabricatedDraft = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 4096,
+            temperature = 0.9f,
+            topP = 0.8f,
+            topK = 32,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        viewModel.applyModelSettingsAndStartNewChat(fabricatedDraft)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { inferenceEngine.reconfigureConversation(any()) }
+        coVerify(exactly = 0) { modelSettingsRepository.saveSettings(any()) }
+        val afterApply = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertTrue(
+            afterApply.error!!.contains("no active model", ignoreCase = true),
+            "apply after failed settings hydration must fail with no active model, got: ${afterApply.error}",
+        )
+        collector.cancel()
     }
 
     private fun createViewModel(

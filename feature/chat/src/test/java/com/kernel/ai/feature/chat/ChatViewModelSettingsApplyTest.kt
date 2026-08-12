@@ -233,9 +233,10 @@ class ChatViewModelSettingsApplyTest {
     fun `apply without active model sets error`() = runTest(dispatcher) {
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
         every { downloadManager.areRequiredModelsDownloaded() } returns true
-        // #1459: a warm engine now hydrates the active model from the preferred model —
-        // keep the preferred model off disk so the ViewModel genuinely has no active model.
-        coEvery { downloadManager.getModelPath(any()) } returns null
+        // #1459/review #1460: a warm engine hydrates from the loaded model path —
+        // with no resolvable loaded model, the ViewModel genuinely has no active
+        // model, so apply must fail.
+        every { inferenceEngine.loadedModelPath } returns null
 
         val viewModel = createViewModel()
         advanceUntilIdle()
