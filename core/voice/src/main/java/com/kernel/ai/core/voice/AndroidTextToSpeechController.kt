@@ -29,10 +29,50 @@ private const val PLAYBACK_TIMEOUT_MS = 30_000L
 
 private const val TAG = "KernelAI"
 
+/**
+ * Test seam for [AndroidTextToSpeechController]: creates a [TextToSpeech] instance using
+ * either the configured default engine (`enginePackage == null`) or an explicit engine
+ * package (the recovery path).
+ */
+internal fun interface TextToSpeechFactory {
+    fun create(listener: TextToSpeech.OnInitListener, enginePackage: String?): TextToSpeech
+}
+
 @Singleton
 class AndroidTextToSpeechController @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : VoiceOutputController {
+
+    private var ttsFactory: TextToSpeechFactory = TextToSpeechFactory { listener, enginePackage ->
+        if (enginePackage == null) {
+            TextToSpeech(context, listener)
+        } else {
+            TextToSpeech(context, listener, enginePackage)
+        }
+    }
+
+    /**
+     * Package the implicit default-engine attempt targeted, captured from
+     * [TextToSpeech.getDefaultEngine] so the recovery path never retries the engine that
+     * just failed. The recovery path never reads or writes the device's global
+     * `Settings.Secure.TTS_DEFAULT_SYNTH` value.
+     */
+    private var defaultEnginePackage: String? = null
+
+    /**
+     * Installed engines captured from the default-engine attempt via
+     * [TextToSpeech.getEngines] (SDK 35+ exposes engine enumeration as an instance API;
+     * it reads the package manager, independent of init success). Used only by the
+     * recovery path in [selectFallbackEngine].
+     */
+    private var installedEngines: List<TextToSpeech.EngineInfo>? = null
+
+    internal constructor(
+        context: Context,
+        ttsFactory: TextToSpeechFactory,
+    ) : this(context) {
+        this.ttsFactory = ttsFactory
+    }
 
     private data class ActivePlayback(
         val token: Long,
@@ -241,12 +281,42 @@ class AndroidTextToSpeechController @Inject constructor(
             return@withContext waitForInit(existingInit)
         }
 
+        // Normal path (#1463): use Android's configured default engine, exactly as before.
+        val defaultEngine = initializeEngine(enginePackage = null)
+        if (defaultEngine != null) {
+            return@withContext defaultEngine
+        }
+
+        // Recovery path (#1463): the configured default engine is stale or missing. Pick an
+        // actually installed engine (never the one that just failed) and retry once with the
+        // explicit-engine constructor. The device's global TTS default is never modified.
+        val fallbackPackage = selectFallbackEngine()
+        if (fallbackPackage == null) {
+            Log.w(
+                TAG,
+                "AndroidTextToSpeechController: default TTS engine unavailable and no installed " +
+                    "engine found for recovery; reporting Unavailable.",
+            )
+            return@withContext null
+        }
+        Log.i(
+            TAG,
+            "AndroidTextToSpeechController: default TTS engine unavailable; retrying with " +
+                "installed engine package $fallbackPackage.",
+        )
+        initializeEngine(enginePackage = fallbackPackage)
+    }
+
+    private suspend fun initializeEngine(enginePackage: String?): TextToSpeech? {
         val deferred = CompletableDeferred<Int>()
         initDeferred = deferred
 
-        val engine = TextToSpeech(context) { status ->
-            if (!deferred.isCompleted) deferred.complete(status)
-        }
+        val engine = ttsFactory.create(
+            listener = { status ->
+                if (!deferred.isCompleted) deferred.complete(status)
+            },
+            enginePackage = enginePackage,
+        )
         engine.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -287,20 +357,45 @@ class AndroidTextToSpeechController @Inject constructor(
             }
         )
         textToSpeech = engine
-        waitForInit(deferred)
+        val ready = waitForInit(deferred)
+        if (enginePackage == null && ready == null) {
+            // The default-engine attempt failed: capture the engine it targeted and the
+            // installed-engine snapshot so the recovery path can pick a different engine.
+            defaultEnginePackage = engine.defaultEngine
+            installedEngines = engine.engines
+        }
+        return ready
     }
+
+    /**
+     * Deterministic recovery selection: [TextToSpeech.getEngines] already returns the
+     * actually installed engines in the platform's own order (engine service priority), so
+     * take the first entry, skipping the package the default-engine attempt just failed on.
+     * Only installed engines are considered; the global TTS default setting is never read
+     * or written here.
+     */
+    private fun selectFallbackEngine(): String? =
+        (installedEngines ?: emptyList())
+            .asSequence()
+            .map { it.name }
+            .filter { enginePackage -> enginePackage != null && enginePackage != defaultEnginePackage }
+            .firstOrNull()
 
     private suspend fun waitForInit(deferred: CompletableDeferred<Int>): TextToSpeech? {
         val status = deferred.await()
-        return if (status == TextToSpeech.SUCCESS) {
-            textToSpeech
-        } else {
-            Log.w(TAG, "AndroidTextToSpeechController: init failed with status=$status")
+        if (status == TextToSpeech.SUCCESS) {
+            return textToSpeech
+        }
+        Log.w(TAG, "AndroidTextToSpeechController: init failed with status=$status")
+        // Only the caller that owns the current attempt performs cleanup, and only if no
+        // newer attempt (the recovery retry) has already replaced it. Concurrent waiters on
+        // a superseded attempt return failure without touching the newer instance.
+        if (initDeferred === deferred) {
             textToSpeech?.shutdown()
             textToSpeech = null
             initDeferred = null
-            null
         }
+        return null
     }
 
     private fun onUtteranceFinished(utteranceId: String?) {
