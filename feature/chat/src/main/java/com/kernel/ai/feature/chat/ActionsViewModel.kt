@@ -621,6 +621,7 @@ class ActionsViewModel @Inject constructor(
                     pending.inputMode,
                     result.entity.resultText,
                     spokenOverride = result.spokenSummary,
+                    userValues = pending.params.values,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onPhonePermissionGranted failed — ${e.message}", e)
@@ -796,6 +797,7 @@ class ActionsViewModel @Inject constructor(
                     pending.inputMode,
                     result.entity.resultText,
                     spokenOverride = result.spokenSummary,
+                    userValues = pending.params.values,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onWeatherLocationPermissionGranted failed — ${e.message}", e)
@@ -907,6 +909,7 @@ class ActionsViewModel @Inject constructor(
                     pending.inputMode,
                     result.entity.resultText,
                     spokenOverride = result.spokenSummary,
+                    userValues = pending.params.values,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onContactPermissionGranted failed — ${e.message}", e)
@@ -999,6 +1002,7 @@ class ActionsViewModel @Inject constructor(
                     pending.inputMode,
                     result.entity.resultText,
                     spokenOverride = result.spokenSummary,
+                    userValues = pending.params.values,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onCalendarPermissionGranted failed — ${e.message}", e)
@@ -1255,6 +1259,7 @@ class ActionsViewModel @Inject constructor(
                         pending.inputMode,
                         result.entity.resultText,
                         spokenOverride = result.spokenSummary,
+                        userValues = pending.params.values,
                     )
                 } catch (e: Exception) {
                     Log.e(TAG, "ActionsViewModel: onDndResumeCheck failed — ${e.message}", e)
@@ -1331,6 +1336,7 @@ class ActionsViewModel @Inject constructor(
                         pending.inputMode,
                         result.entity.resultText,
                         spokenOverride = result.spokenSummary,
+                        userValues = pending.params.values,
                     )
                 } catch (e: Exception) {
                     Log.e(TAG, "ActionsViewModel: onWriteSettingsResumeCheck failed — ${e.message}", e)
@@ -1422,7 +1428,7 @@ class ActionsViewModel @Inject constructor(
                                 inputMode = inputMode,
                             )
                             quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
@@ -1436,7 +1442,7 @@ class ActionsViewModel @Inject constructor(
                                 inputMode = inputMode,
                             )
                             quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
                         }
                     }
                 }
@@ -1542,6 +1548,7 @@ class ActionsViewModel @Inject constructor(
                     result.entity.resultText,
                     delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
                     spokenOverride = result.spokenSummary,
+                    userValues = mergedParams.values,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
@@ -1998,11 +2005,12 @@ class ActionsViewModel @Inject constructor(
         text: String,
         delayMs: Long = 0L,
         spokenOverride: String? = null,
+        userValues: Collection<String> = emptyList(),
     ) {
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
         val summary = spokenOverride?.takeIf { it.isNotBlank() }
-            ?: normalisePronounsForTts(toSpokenSummary(text))
+            ?: normaliseUserValuesForTts(toSpokenSummary(text), userValues)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -2067,6 +2075,18 @@ class ActionsViewModel @Inject constructor(
         }
         return toSpokenSummary((prefix + interpolated).trim())
     }
+
+    /**
+     * Applies [normalisePronounsForTts] only to known user-supplied values embedded in
+     * assistant-authored result text, keeping the surrounding framing literal (#1454).
+     * Mirrors [buildSpokenSlotPrompt]: user-originated phrases such as "my wife" are echoed
+     * naturally as "your wife", while Jandal-authored first-person text ("I couldn't find
+     * that location…") is spoken verbatim.
+     */
+    private fun normaliseUserValuesForTts(text: String, userValues: Collection<String>): String =
+        userValues.fold(text) { acc, value ->
+            if (value.isBlank()) acc else acc.replace(value, normalisePronounsForTts(value))
+        }
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()

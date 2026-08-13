@@ -948,6 +948,41 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Hydrates the ViewModel-local active model/settings state for [model] from its
+     * persisted settings.
+     *
+     * The assignments happen only after the settings read succeeds, so a settings-read
+     * failure leaves the ViewModel without an active model: `currentModel`/capabilities
+     * stay null and the in-chat settings sheet stays unavailable instead of presenting
+     * fallback defaults as the real configuration (review #1460).
+     *
+     * @return the persisted settings snapshot that was hydrated.
+     */
+    private suspend fun hydrateActiveModelState(model: KernelModel): ModelSettingsEntity {
+        val settings = modelSettingsRepository.getSettings(model.modelId)
+        activeModel = model
+        activeModelState.value = model
+        activeContextWindowSize = settings.contextWindowSize
+        _showThinkingProcess.value = settings.showThinkingProcess
+        _activeModelSettings.value = settings
+        return settings
+    }
+
+    /**
+     * Resolves the [KernelModel] actually loaded in the warm singleton engine from
+     * [InferenceEngine.loadedModelPath], or null when the loaded path matches no known
+     * model. The already-ready path must hydrate from what the engine is actually
+     * running, not from the current preference — preference changes take effect on
+     * next launch (review #1460).
+     */
+    private fun loadedConversationModel(): KernelModel? {
+        val loadedPath = inferenceEngine.loadedModelPath ?: return null
+        return KernelModel.entries.firstOrNull {
+            loadedPath == it.fileName || loadedPath.endsWith("/${it.fileName}")
+        }
+    }
+
+    /**
      * Eagerly initialises the Gemma-4 [InferenceEngine] at startup.
      *
      * Waits for all required models to be on disk, then loads the preferred
@@ -962,21 +997,26 @@ class ChatViewModel @Inject constructor(
             .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
-       gemma4InitMutex.withLock {
-            if (inferenceEngine.isReady.value) return
-
-            val preferred = downloadManager.preferredConversationModel()
-            val modelPath = downloadManager.getModelPath(preferred) ?: return
-            activeModel = preferred
-            activeModelState.value = preferred
+        gemma4InitMutex.withLock {
             try {
+                if (inferenceEngine.isReady.value) {
+                    // The singleton engine is already warm — hydrate from the model it is
+                    // actually running, never from the current preference (preference changes
+                    // take effect on next launch). The engine must not be re-initialised (#1459).
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    // Mirror the cold path's post-initialize sync: the engine allocated a
+                    // clamped KV-cache size that supersedes the persisted setting.
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
+
+                val preferred = downloadManager.preferredConversationModel()
+                val modelPath = downloadManager.getModelPath(preferred) ?: return
+                val settings = hydrateActiveModelState(preferred)
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
-
-                val settings = modelSettingsRepository.getSettings(preferred.modelId)
-                activeContextWindowSize = settings.contextWindowSize
-                _showThinkingProcess.value = settings.showThinkingProcess
-                _activeModelSettings.value = settings
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -1012,7 +1052,8 @@ class ChatViewModel @Inject constructor(
      *
      * Uses [gemma4InitMutex] to guarantee idempotency: if called concurrently the second
      * caller waits for the first to finish, then finds [InferenceEngine.isReady] already
-     * true and returns immediately.
+     * true, hydrates the ViewModel-local model/settings state and returns without
+     * re-initialising the engine (#1459).
      *
      * Only waits for the preferred conversation model to be on disk via
      * [ModelDownloadManager.getModelPath] (file-existence check) — does NOT block on the
@@ -1021,21 +1062,24 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun initGemma4() {
         gemma4InitMutex.withLock {
-            if (inferenceEngine.isReady.value) return
-
-            val preferred = downloadManager.preferredConversationModel()
-            val modelPath = downloadManager.getModelPath(preferred) ?: return
-            activeModel = preferred
-            activeModelState.value = preferred
             try {
+                if (inferenceEngine.isReady.value) {
+                    // Same already-ready hydration as [initEngineWhenReady] (#1459): hydrate
+                    // from the model the singleton engine is actually running, never
+                    // re-initialise it.
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
+
+                val preferred = downloadManager.preferredConversationModel()
+                val modelPath = downloadManager.getModelPath(preferred) ?: return
+                val settings = hydrateActiveModelState(preferred)
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
-
-                val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
-                activeContextWindowSize = settings.contextWindowSize
-                _showThinkingProcess.value = settings.showThinkingProcess
-                _activeModelSettings.value = settings
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),

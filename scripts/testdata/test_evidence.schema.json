@@ -642,6 +642,16 @@
               "passed": {
                 "type": "boolean"
               },
+              "wake_activated": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "enum": [
                   "passed",
@@ -1120,6 +1130,128 @@
             "type": "integer",
             "minimum": 0
           }
+        },
+        "wake_success": {
+          "type": "object",
+          "required": [
+            "numerator",
+            "denominator",
+            "percent"
+          ],
+          "properties": {
+            "numerator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "denominator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "percent": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spontaneous_activations": {
+          "type": "object",
+          "required": [
+            "scan_rule",
+            "coverage",
+            "activation_candidates",
+            "verified",
+            "callbacks",
+            "sessions",
+            "events"
+          ],
+          "properties": {
+            "scan_rule": {
+              "type": "string"
+            },
+            "coverage": {
+              "type": "object",
+              "required": [
+                "snapshots_scanned",
+                "overflowed_snapshots"
+              ],
+              "properties": {
+                "snapshots_scanned": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "overflowed_snapshots": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "activation_candidates": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "verified": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "callbacks": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sessions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "generation",
+                  "session",
+                  "sequence",
+                  "wall_clock_ms"
+                ],
+                "properties": {
+                  "generation": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "session": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sequence": {
+                    "type": "integer"
+                  },
+                  "wall_clock_ms": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
         },
         "cleanup_verified": {
           "type": "boolean"

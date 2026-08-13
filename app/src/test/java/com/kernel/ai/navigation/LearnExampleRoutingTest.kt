@@ -4,6 +4,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -114,6 +115,39 @@ class LearnExampleRoutingTest {
             assertNotEquals("start_meal_planner", intentName) {
                 "Freeform example '${ex.id}' routed to 'start_meal_planner', but should be freeform"
             }
+        }
+    }
+
+    // ── #1455 — weather_bundaberg semantic regression ────────────────────────
+    // Route-only coverage is not enough for the advertised weekend phrase: it must
+    // carry the explicit weekend contract between QIR and the weather skill (the
+    // skill-side selection of the actual weekend days from the daily forecast is
+    // proven by GetWeatherWeekendTest on deterministic fixtures).
+
+    @Test
+    fun `weather_bundaberg example carries explicit weekend semantics`() {
+        val ex = requireNotNull(learnExamplesById["weather_bundaberg"]) {
+            "weather_bundaberg must exist in the Learn catalogue"
+        }
+        val result = router.route(ex.prompt)
+        val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+        assertEquals("Bundaberg", params["location"], "params=$params")
+        assertEquals("weekend", params["period"], "params=$params")
+        assertNull(params["forecast_days"], "weekend must not become a 3-day forecast (params=$params)")
+        assertNull(params["day"], "weekend must not become day=tomorrow (params=$params)")
+    }
+
+    @Test
+    fun `no Learn weather example advertises unsupported dayparts`() {
+        // #1455 — the weather skill has no hourly/daypart contract, so the catalogue
+        // must never advertise "this afternoon/evening/morning" as a supported
+        // get_weather example (it would silently return current conditions).
+        val daypartRegex = Regex("""\bthis\s+(?:afternoon|evening|morning)\b""", RegexOption.IGNORE_CASE)
+        val offenders = allLearnExamples.filter { ex ->
+            ex.expectedRoute == "get_weather" && daypartRegex.containsMatchIn(ex.prompt)
+        }
+        assertEquals(emptyList<LearnExample>(), offenders) {
+            "Learn weather examples must not advertise unsupported dayparts: $offenders"
         }
     }
 

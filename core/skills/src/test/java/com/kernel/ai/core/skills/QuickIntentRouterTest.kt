@@ -2016,6 +2016,136 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route(input)
             assertRegexMatch(result, "get_weather", input)
         }
+
+        @ParameterizedTest(name = "Semantics (#1453): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherSemanticMatrix")
+        fun `should preserve weather parameter semantics`(
+            input: String,
+            expectedLocation: String?,
+            expectedForecastDays: String?,
+            expectedDay: String?,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+            val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals(expectedLocation, params["location"], "location for '$input' (params=$params)")
+            assertEquals(expectedForecastDays, params["forecast_days"], "forecast_days for '$input' (params=$params)")
+            assertEquals(expectedDay, params["day"], "day for '$input' (params=$params)")
+        }
+
+        @Test
+        fun `should not add forecast semantics to plain current weather queries`() {
+            for (input in listOf("What's the weather?", "What's the weather in Sydney?", "What's the weather today?")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+                val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+                assertNull(params["forecast_days"], "forecast_days for '$input': ${params["forecast_days"]}")
+                assertNull(params["day"], "day for '$input': ${params["day"]}")
+            }
+        }
+
+        @Test
+        fun `should never include temporal phrases in the location`() {
+            val inputs = listOf(
+                "What's the weather in Sydney for the next 5 days",
+                "What's the weather in Sydney over the next five days",
+                "What's the weather like this week in Auckland",
+                "What's the weather in Sydney this week",
+                "What's the forecast for Sydney over the next 5 days",
+            )
+            for (input in inputs) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+                val location = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["location"]
+                assertNotNull(location, "location missing for '$input'")
+                val lower = location!!.lowercase()
+                for (temporal in listOf("next", "week", "day", "tomorrow")) {
+                    assertFalse(lower.contains(temporal), "temporal '$temporal' leaked into location for '$input': $location")
+                }
+            }
+        }
+
+        @Test
+        fun `weekend phrases carry explicit weekend semantics not 3-day or day semantics`() {
+            // #1455 — the advertised Learn phrase must produce the explicit weekend
+            // contract between QIR and the weather skill: period=weekend, location
+            // preserved, and never the unspecified-forecast 3-day default or day=tomorrow.
+            val weekend = regexOnlyRouter.route("What's the forecast for Bundaberg this weekend?")
+            assertRegexMatch(weekend, "get_weather", "What's the forecast for Bundaberg this weekend?")
+            val weekendParams = (weekend as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals("Bundaberg", weekendParams["location"])
+            assertEquals("weekend", weekendParams["period"])
+            assertNull(weekendParams["forecast_days"], "weekend must not become a 3-day forecast")
+            assertNull(weekendParams["day"], "weekend must not become day=tomorrow")
+        }
+
+        @Test
+        fun `unsupported dayparts do not deterministically claim current weather`() {
+            // #1455 — "this afternoon/evening/morning" have no hourly forecast contract;
+            // they must fall through to the free-form path instead of routing to
+            // get_weather and silently returning current conditions.
+            for (input in listOf(
+                "How hot will it be this afternoon?",
+                "How cold will it be this evening?",
+                "How warm will it be this morning?",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertFallThrough(result, input)
+            }
+        }
+
+        @Test
+        fun `daypart wording never routes to get_weather even through location patterns`() {
+            // #1455 — the veto is central: daypart wording must not sneak into
+            // get_weather through the city/temperature patterns either, where it would
+            // be stripped from the location and answered with current conditions.
+            for (input in listOf(
+                "What's the weather in Sydney this afternoon?",
+                "What's the weather forecast for Sydney this evening?",
+                "What's the temperature going to be this evening?",
+                "temperature in Wellington this morning",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertFallThrough(result, input)
+            }
+        }
+
+        @Test
+        fun `today-anchored daypart queries still route deterministically`() {
+            // #1455 — the veto must not regress today-anchored value queries whose answer
+            // is consistent with the daypart qualifier (sunset this evening = today's
+            // sunset, UV/AQI this morning/evening = today's reading).
+            for (input in listOf(
+                "What time is sunset this evening?",
+                "Is the UV high this morning?",
+                "Is the air quality good this evening?",
+            )) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+            }
+        }
+
+        @Test
+        fun `weekend wording works across patterns and never contaminates the location`() {
+            // #1455 — every deterministic weekend phrasing must converge on the same
+            // explicit weekend contract with a clean location.
+            data class Case(val input: String, val expectedLocation: String?)
+            val cases = listOf(
+                Case("What's the weather in Sydney this weekend?", "Sydney"),
+                Case("What's the weather forecast for Sydney this weekend?", "Sydney"),
+                Case("What's the forecast for Bundaberg this weekend?", "Bundaberg"),
+                Case("How hot will it be this weekend?", null),
+            )
+            for (case in cases) {
+                val result = regexOnlyRouter.route(case.input)
+                assertRegexMatch(result, "get_weather", case.input)
+                val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+                assertEquals(case.expectedLocation, params["location"], "location for '${case.input}' (params=$params)")
+                assertEquals("weekend", params["period"], "period for '${case.input}' (params=$params)")
+                assertNull(params["forecast_days"], "forecast_days for '${case.input}' (params=$params)")
+                assertNull(params["day"], "day for '${case.input}' (params=$params)")
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3546,6 +3676,51 @@ class QuickIntentRouterTest {
             Arguments.of("sunset time"),
             Arguments.of("when is sunrise"),
             Arguments.of("when is sunset"),
+        )
+
+        /**
+         * #1453 — parameter-level weather semantic matrix: (input, expectedLocation,
+         * expectedForecastDays, expectedDay). A route to get_weather alone is not
+         * enough — the skill contract makes missing params mean "current conditions"
+         * or "device GPS", so every row asserts the exact relevant params.
+         */
+        @JvmStatic
+        fun weatherSemanticMatrix(): Stream<Arguments> = Stream.of(
+            // CURRENT — no forecast semantics
+            Arguments.of("What's the weather?", null, null, null),
+            Arguments.of("What's the weather in Sydney?", "Sydney", null, null),
+            Arguments.of("What's the weather in Sydney today", "Sydney", null, null),
+            // UNSPECIFIED FORECAST — explicit "forecast" without a horizon → 3-day default
+            Arguments.of("What's the forecast?", null, "3", null),
+            Arguments.of("What's the weather forecast?", null, "3", null),
+            Arguments.of("What's the weather forecast for Sydney?", "Sydney", "3", null),
+            Arguments.of("What's the forecast for Sydney?", "Sydney", "3", null),
+            Arguments.of("Weather forecast for Sydney", "Sydney", "3", null),
+            // EXPLICIT N-DAY — location and horizon preserved regardless of ordering
+            Arguments.of("What's the forecast for the next 5 days?", null, "5", null),
+            Arguments.of("What's the weather in Sydney for the next 5 days?", "Sydney", "5", null),
+            Arguments.of("What's the weather for the next 5 days in Sydney?", "Sydney", "5", null),
+            Arguments.of("What's the weather in Sydney over the next five days?", "Sydney", "5", null),
+            Arguments.of("What's the weather for Sydney next 5 days", "Sydney", "5", null),
+            Arguments.of("What's the forecast for Sydney over the next 5 days?", "Sydney", "5", null),
+            // FEW DAYS — "next few days" → 3
+            Arguments.of("What's the weather over the next few days?", null, "3", null),
+            Arguments.of("What's the weather over the next few days in Sydney?", "Sydney", "3", null),
+            // TOMORROW — including wording that previously emitted only raw_query
+            Arguments.of("What's the weather tomorrow?", null, null, "tomorrow"),
+            Arguments.of("What's the weather in Sydney tomorrow?", "Sydney", null, "tomorrow"),
+            Arguments.of("How hot will it be tomorrow?", null, null, "tomorrow"),
+            Arguments.of("How hot will it be in Sydney tomorrow?", "Sydney", null, "tomorrow"),
+            Arguments.of("What's the forecast for tomorrow?", null, null, "tomorrow"),
+            // THIS WEEK — historical #255 contract → 7-day horizon
+            Arguments.of("What's the weather this week?", null, "7", null),
+            Arguments.of("What's the weather like this week in Auckland?", "Auckland", "7", null),
+            Arguments.of("What's the weather in Sydney this week?", "Sydney", "7", null),
+            // NAMED METRICS — explicit location must not silently fall back to GPS
+            Arguments.of("What's the UV index in Sydney?", "Sydney", null, null),
+            Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),
+            Arguments.of("When is sunset in Sydney?", "Sydney", null, null),
+            Arguments.of("Will it rain in Sydney today?", "Sydney", null, null),
         )
 
         // ── Save Memory ──────────────────────────────────────────────────────────

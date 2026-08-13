@@ -804,6 +804,326 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
         self.assertEqual([s.ordinal for s in ten_second_command], [1, 2, 3])
         self.assertEqual(len({s.position_id for s in slots}), len(slots))
 
+    def test_s21_matrix_defines_27_valid_positions(self) -> None:
+        """#1410 frozen S21 matrix: 27 independent valid positions."""
+        slots = runner.matrix_slots_for_target("s21")
+        self.assertEqual(len(slots), 27)
+        by_idle: dict[int, list[int]] = {}
+        for slot in slots:
+            by_idle.setdefault(slot.idle_s, [0, 0])
+            by_idle[slot.idle_s][0 if slot.wake_only else 1] += 1
+        self.assertEqual(by_idle, {
+            10: [5, 3],
+            30: [5, 0],
+            120: [5, 3],
+            900: [2, 0],
+            1800: [2, 2],
+        })
+
+    def test_s23u_matrix_defines_20_valid_positions(self) -> None:
+        """#1410 re-baselined S23U matrix: 20 independent valid positions.
+
+        The original 8 comparison positions are retained (3+2 wake-only and
+        2+1 wake-plus-command); the additional 12 are 2-minute wake-only
+        trials so the >=95% target is measurable directly.
+        """
+        slots = runner.matrix_slots_for_target("s23u")
+        self.assertEqual(len(slots), 20)
+        by_idle: dict[int, list[int]] = {}
+        for slot in slots:
+            by_idle.setdefault(slot.idle_s, [0, 0])
+            by_idle[slot.idle_s][0 if slot.wake_only else 1] += 1
+        self.assertEqual(by_idle, {
+            120: [15, 2],
+            1800: [2, 1],
+        })
+        self.assertEqual(len({s.position_id for s in slots}), len(slots))
+
+    def test_wake_activated_is_independent_of_command_outcome(self) -> None:
+        """The wake-success numerator must not absorb command-path failures.
+
+        A wake-plus-command case whose wake activated but whose command
+        failed reports wake_activated=True so the intended-wake numerator
+        stays independent of the command result; wake misses and invalid
+        attempts are never counted as wake successes.
+        """
+        slots = runner.matrix_slots_for_target("s21")
+        full_path = complete_events(runner.TrialType.WAKE_ONLY)
+        gate_only = [
+            event(1, "STAGE3_READY"),
+            event(2, "SILENCE_GATE_ENTERED"),
+            event(3, "SILENCE_GATE_ENTERED"),
+        ]
+        attempts = [
+            runner.MatrixAttempt(
+                "wake-pass", slots[0], 1, runner.AttemptStatus.PASSED,
+                target_timing={"events": full_path},
+            ),
+            runner.MatrixAttempt(
+                "command-fail", slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE,
+                target_timing={"events": full_path},
+            ),
+            runner.MatrixAttempt(
+                "wake-miss", slots[2], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": gate_only},
+            ),
+            runner.MatrixAttempt(
+                "invalid", slots[3], 1, runner.AttemptStatus.INVALID,
+                invalid_reason=runner.InvalidReason.SOURCE_STIMULUS_FAILURE,
+                target_timing={"events": full_path},
+            ),
+        ]
+        self.assertTrue(runner.wake_activated_for_attempt(attempts[0]))
+        self.assertTrue(runner.wake_activated_for_attempt(attempts[1]))
+        self.assertFalse(runner.wake_activated_for_attempt(attempts[2]))
+        self.assertIsNone(runner.wake_activated_for_attempt(attempts[3]))
+
+        manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "a" * 64}, "cue-v1", None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", attempts, None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        cases = {case["trial_id"]: case["wake_activated"] for case in evidence["cases"]}
+        self.assertEqual(cases, {
+            "wake-pass": True,
+            "command-fail": True,
+            "wake-miss": False,
+            "invalid": None,
+        })
+        self.assertEqual(evidence["wake_reliability"]["wake_success"], {
+            "numerator": 2,
+            "denominator": 3,
+            "percent": round(2 / 3, 4),
+        })
+
+    def test_spontaneous_scan_same_generation_before_playback_is_candidate(self) -> None:
+        """A spontaneous wake in the trial's own detector generation, before
+        the scheduled source stimulus, is NOT hidden by generation
+        attribution: only the exact correlated-path sequences are shielded."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        boundary = envelope([
+            event(1, "VERIFIED_ACTIVATION", generation=2, session=3),  # pre-run
+            event(2, "WAKE_CALLBACK_INVOKED", generation=2, session=3),
+            event(3, "VOICE_SESSION_STARTED", generation=2, session=3),
+            event(4, "STAGE3_READY", generation=3),
+            event(5, "SILENCE_GATE_ENTERED", generation=3),
+        ])
+        (target_dir / "boundary-snapshot.json").write_text(json.dumps(boundary))
+        final = envelope([
+            event(4, "STAGE3_READY", generation=3),
+            event(6, "SILENCE_GATE_ENTERED", generation=3),
+            # Spontaneous activation: same generation 3, before the stimulus.
+            event(7, "VERIFIED_ACTIVATION", generation=3, session=5),
+            event(8, "WAKE_CALLBACK_INVOKED", generation=3, session=5),
+            event(9, "VOICE_SESSION_STARTED", generation=3, session=5),
+            # Correlated stimulus response (the trial's intended window).
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+            # Uncorrelated low candidate in the same generation.
+            event(14, "ACTIVATION_CANDIDATE", generation=3),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["coverage"], {
+            "snapshots_scanned": 2,
+            "overflowed_snapshots": 0,
+        })
+        self.assertEqual(result["activation_candidates"], 1)
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(result["events"], [{
+            "generation": 3,
+            "session": 5,
+            "sequence": 7,
+            "wall_clock_ms": 70,
+        }])
+
+    def test_spontaneous_scan_correlated_path_is_attributed(self) -> None:
+        """Activation events inside the intended stimulus/correlation window
+        (exact sequences of the trial's correlated path) are trial-attributed."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        final = envelope([
+            event(4, "STAGE3_READY", generation=3),
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["activation_candidates"], 0)
+        self.assertEqual(result["verified"], 0)
+        self.assertEqual(result["callbacks"], 0)
+        self.assertEqual(result["sessions"], 0)
+        self.assertEqual(result["events"], [])
+
+    def test_spontaneous_scan_unrelated_generation_is_candidate(self) -> None:
+        """Activation-path events in a generation unrelated to any trial are
+        spontaneous candidates."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        final = envelope([
+            event(10, "ACTIVATION_CANDIDATE", generation=3),
+            event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+            event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+            event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+            event(20, "ACTIVATION_CANDIDATE", generation=8),
+            event(21, "VERIFIED_ACTIVATION", generation=8, session=12),
+            event(22, "WAKE_CALLBACK_INVOKED", generation=8, session=12),
+            event(23, "VOICE_SESSION_STARTED", generation=8, session=12),
+        ])
+        (target_dir / "final-snapshot.json").write_text(json.dumps(final))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={
+                "generation_id": 3,
+                "boundary_sequence": 5,
+                "events": [
+                    event(10, "ACTIVATION_CANDIDATE", generation=3),
+                    event(11, "VERIFIED_ACTIVATION", generation=3, session=9),
+                    event(12, "WAKE_CALLBACK_INVOKED", generation=3, session=9),
+                    event(13, "VOICE_SESSION_STARTED", generation=3, session=9),
+                ],
+            },
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["activation_candidates"], 1)
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(result["events"], [{
+            "generation": 8,
+            "session": 12,
+            "sequence": 21,
+            "wall_clock_ms": 210,
+        }])
+
+
+    def test_spontaneous_scan_deduplicates_across_snapshots(self) -> None:
+        """The same activation persisted in overlapping snapshots counts once."""
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        events = [
+            event(4, "STAGE3_READY", generation=3),
+            event(6, "VERIFIED_ACTIVATION", generation=7, session=12),
+            event(7, "WAKE_CALLBACK_INVOKED", generation=7, session=12),
+            event(8, "VOICE_SESSION_STARTED", generation=7, session=12),
+        ]
+        for name in ("boundary-snapshot.json", "final-snapshot.json"):
+            (target_dir / name).write_text(json.dumps(envelope(list(events))))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={"generation_id": 3, "boundary_sequence": 5},
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["verified"], 1)
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["coverage"]["snapshots_scanned"], 2)
+
+    def test_spontaneous_scan_reports_overflow_and_empty_dirs(self) -> None:
+        """Evicted-journal coverage is disclosed and empty runs yield zeros."""
+        empty = runner.scan_spontaneous_activations(Path(tempfile.mkdtemp()), [])
+        self.assertEqual(empty["coverage"]["snapshots_scanned"], 0)
+        self.assertEqual(empty["verified"], 0)
+        self.assertEqual(empty["events"], [])
+        root = Path(tempfile.mkdtemp())
+        target_dir = root / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        (target_dir / "final-snapshot.json").write_text(json.dumps(
+            envelope([event(6, "VERIFIED_ACTIVATION", generation=7, session=12)],
+                     overflowed=True)
+        ))
+        slot = runner.matrix_slots_for_target("s21")[0]
+        attempt = runner.MatrixAttempt(
+            "trial-1", slot, 1, runner.AttemptStatus.PASSED,
+            target_timing={"generation_id": 3, "boundary_sequence": 5},
+        )
+        result = runner.scan_spontaneous_activations(root, [attempt])
+        self.assertEqual(result["coverage"]["overflowed_snapshots"], 1)
+        self.assertEqual(result["verified"], 1)
+
+    def test_new_evidence_fields_validate_against_schema(self) -> None:
+        """wake_activated, wake_success and spontaneous_activations are
+        schema-valid and survive the sanitised summary write."""
+        slots = runner.matrix_slots_for_target("s21")
+        attempts = [
+            runner.MatrixAttempt(
+                "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
+                target_timing={"events": complete_events(runner.TrialType.WAKE_ONLY)},
+            ),
+            runner.MatrixAttempt(
+                "trial-2", slots[1], 1, runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": [
+                    event(1, "STAGE3_READY"),
+                    event(2, "SILENCE_GATE_ENTERED"),
+                ]},
+            ),
+        ]
+        manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "a" * 64}, "cue-v1", None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", attempts, None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        output = Path(tempfile.mkdtemp())
+        runner.write_sanitized_summary(output, evidence, private_run_dir=output)
+        self.assertTrue((output / "evidence.json").is_file())
+
     def test_completion_accepts_valid_failures_but_release_requires_passes(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         slots = runner.matrix_slots_for_target("s21")
@@ -815,6 +1135,163 @@ class MatrixAndEnvironmentTests(unittest.TestCase):
             ))
         self.assertTrue(harness.is_matrix_complete())
         self.assertFalse(harness.release_gate_success())
+
+    # ── #1410 v1.0 release gate semantics ──────────────────────────────
+
+    def _gate_ready_harness(self, target_alias: str) -> runner.AcousticWakeReliabilityRunner:
+        harness = make_runner(runner.RunKind.REGRESSION)
+        harness.target_alias = target_alias
+        source_alias = "s23u" if target_alias == "s21" else "s21"
+        harness.source_alias = source_alias
+        expected = runner.EXPECTED_DEVICES[target_alias]
+        harness.target_identity = runner.DeviceIdentity(
+            target_alias, "samsung", expected["model"], "15", "35",
+            "fingerprint", "pkg", 1,
+        )
+        source_expected = runner.EXPECTED_DEVICES[source_alias]
+        harness.source_identity = runner.DeviceIdentity(
+            source_alias, "samsung", source_expected["model"], "15", "35",
+            "fingerprint", "pkg", 1,
+        )
+        harness.cleanup_verified = True
+        harness.cue_audibility_evidence_verified = True
+        harness.cue_policy_evidence_verified = True
+        harness.preflight_manifest_hash = "a" * 64
+        harness.manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            source_alias, target_alias, "set-1",
+            {"natural_wake": "a" * 64}, "cue-v1", "a" * 64,
+            cue_policy_evidence_verified=True,
+            cue_audibility_evidence_verified=True,
+        )
+        harness.preflight_approval = {
+            "operator_approved": True,
+            "cue_audibility_evidence_verified": True,
+            "fixture_set_id": "set-1",
+            "fixture_hashes": {"natural_wake": "a" * 64},
+        }
+        return harness
+
+    def _matrix_attempts(
+        self,
+        target_alias: str,
+        passed: int,
+        misses: int,
+        blocking: list[tuple[str, runner.FailureClassification]] | None = None,
+    ) -> list[runner.MatrixAttempt]:
+        """Build exactly one valid attempt per required matrix position."""
+        slots = runner.matrix_slots_for_target(target_alias)
+        full_path = complete_events(runner.TrialType.WAKE_ONLY)
+        gate_only = [
+            event(1, "STAGE3_READY"),
+            event(2, "SILENCE_GATE_ENTERED"),
+        ]
+        attempts: list[runner.MatrixAttempt] = []
+        next_slot = 0
+        for index in range(passed):
+            attempts.append(runner.MatrixAttempt(
+                f"pass-{index + 1}", slots[next_slot], 1,
+                runner.AttemptStatus.PASSED,
+                target_timing={"events": full_path},
+            ))
+            next_slot += 1
+        for index in range(misses):
+            attempts.append(runner.MatrixAttempt(
+                f"miss-{index + 1}", slots[next_slot], 1,
+                runner.AttemptStatus.FAILED,
+                classification=runner.FailureClassification.CLASSIFIER_MODEL_MISS,
+                target_timing={"events": gate_only},
+            ))
+            next_slot += 1
+        for label, classification in (blocking or []):
+            attempts.append(runner.MatrixAttempt(
+                f"block-{label}", slots[next_slot], 1,
+                runner.AttemptStatus.FAILED,
+                classification=classification,
+                target_timing={"events": full_path},
+            ))
+            next_slot += 1
+        return attempts
+
+    def test_release_gate_s21_22_of_27_with_permitted_misses_passes(self) -> None:
+        """S21: 22 wake successes + 5 classifier misses clears the gate when
+        every other condition holds."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=22, misses=5)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertTrue(harness.release_gate_success())
+
+    def test_release_gate_s21_21_of_27_fails(self) -> None:
+        """S21: 21/27 is below the >=22/27 threshold and fails the gate."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=21, misses=6)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_s23u_19_of_20_passes(self) -> None:
+        """S23U: 19 wake successes + 1 classifier miss clears the gate."""
+        harness = self._gate_ready_harness("s23u")
+        harness.attempts = self._matrix_attempts("s23u", passed=19, misses=1)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertTrue(harness.release_gate_success())
+
+    def test_release_gate_s23u_18_of_20_fails(self) -> None:
+        """S23U: 18/20 is below the >=19/20 threshold and fails the gate."""
+        harness = self._gate_ready_harness("s23u")
+        harness.attempts = self._matrix_attempts("s23u", passed=18, misses=2)
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_command_failure_counts_wake_but_blocks_gate(self) -> None:
+        """A wake-plus-command trial whose wake activated but whose command
+        failed stays a wake success in the numerator and still fails the
+        overall gate as a valid product failure."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts(
+            "s21", passed=26, misses=0,
+            blocking=[("command", runner.FailureClassification.COMMAND_CAPTURE_OR_ROUTING_FAILURE)],
+        )
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            wake_results = [
+                runner.wake_activated_for_attempt(attempt)
+                for attempt in harness.attempts
+            ]
+            self.assertEqual(sum(1 for value in wake_results if value is True), 27)
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_unclassified_failure_blocks_gate(self) -> None:
+        """A threshold-satisfying matrix with one unclassified valid failure
+        fails the gate (zero unclassified outcomes is mandatory)."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts(
+            "s21", passed=22, misses=4,
+            blocking=[("unclassified", runner.FailureClassification.UNCLASSIFIED)],
+        )
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
+
+    def test_release_gate_spontaneous_activation_blocks_gate(self) -> None:
+        """A threshold-satisfying matrix with a spontaneous verified
+        activation fails the gate (zero false activations is mandatory)."""
+        harness = self._gate_ready_harness("s21")
+        harness.attempts = self._matrix_attempts("s21", passed=22, misses=5)
+        target_dir = harness.run_dir / "trials" / "trial-1" / "target"
+        target_dir.mkdir(parents=True)
+        (target_dir / "final-snapshot.json").write_text(json.dumps(envelope([
+            event(999, "VERIFIED_ACTIVATION", generation=77, session=40),
+            event(1000, "WAKE_CALLBACK_INVOKED", generation=77, session=40),
+            event(1001, "VOICE_SESSION_STARTED", generation=77, session=40),
+        ])))
+        with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
+            self.assertTrue(harness.is_matrix_complete())
+            self.assertFalse(harness.release_gate_success())
 
     def test_environment_boot_change_and_uptime_regression_invalidate(self) -> None:
         failures = runner.AcousticWakeReliabilityRunner._environment_failures(
@@ -1130,7 +1607,7 @@ class EvidenceAndModeTests(unittest.TestCase):
         ):
             self.assertEqual(runner.git_metadata(), ("detached", "a" * 40))
 
-    def test_release_provenance_requires_s21_target_and_full_commit(self) -> None:
+    def test_release_provenance_requires_matching_target_device_and_full_commit(self) -> None:
         harness = make_runner(runner.RunKind.REGRESSION)
         harness.target_identity = runner.DeviceIdentity(
             "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
@@ -1140,9 +1617,17 @@ class EvidenceAndModeTests(unittest.TestCase):
         )
         with patch.dict("os.environ", {"GIT_COMMIT": "a" * 40}, clear=False):
             self.assertTrue(harness._release_provenance_verified())
+            # Alias/identity mismatch for the S23U target device must fail.
             harness.target_alias = "s23u"
             self.assertFalse(harness._release_provenance_verified())
+            harness.target_identity = runner.DeviceIdentity(
+                "s23u", "samsung", "SM-S918B", "15", "35", "fingerprint", "pkg", 1,
+            )
+            self.assertTrue(harness._release_provenance_verified())
         harness.target_alias = "s21"
+        harness.target_identity = runner.DeviceIdentity(
+            "s21", "samsung", "SM-G991B", "15", "35", "fingerprint", "pkg", 1,
+        )
         with patch.dict("os.environ", {"GIT_COMMIT": "abc123"}, clear=False):
             self.assertFalse(harness._release_provenance_verified())
 
@@ -2680,6 +3165,664 @@ class OutOfWindowCommandTests(unittest.TestCase):
         self.assertEqual(command_timing["playback_start_wall_clock_ms"], 1_200)
         valid, issues = evidence_metrics.validate_record(evidence, [])
         self.assertTrue(valid, issues)
+
+
+class StatefulPropAdb(FakeAdb):
+    """FakeAdb with a real log.tag.WakeWordDiag property store."""
+
+    def __init__(self, serial: str) -> None:
+        super().__init__(serial)
+        self.props: dict[str, str] = {"log.tag.WakeWordDiag": "INFO"}
+
+    def shell(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
+        if args[:2] == ("getprop", "log.tag.WakeWordDiag"):
+            return self.props.get("log.tag.WakeWordDiag", "")
+        if args[:2] == ("setprop", "log.tag.WakeWordDiag"):
+            self.props["log.tag.WakeWordDiag"] = args[2]
+            return ""
+        return super().shell(*args, timeout=timeout, check=check)
+
+
+class EvidenceRetentionTests(unittest.TestCase):
+    """#1410 evidence-retention prerequisites: per-trial WakeWordDiag capture
+    energy, source playback metadata, diagnostics property lifecycle, and
+    sanitised publication exclusions.  No second microphone consumer exists:
+    the wake detector is the only wake-path AudioRecord involved."""
+
+    # ── WakeWordDiag gate-summary parsing ─────────────────────────────
+
+    SUMMARY_GEN4 = (
+        "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=4 stage3Evals=1037 "
+        "maxConfidence=0.00143 maxConfidenceOffsetFrames=619 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=10 episodePeakRms=3593.4 "
+        "maxWindowPeakRms=3593.4 maxWindowMeanRms=1307.6"
+    )
+    SUMMARY_GEN4_SECOND = (
+        "08-08 21:00:03.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=4 stage3Evals=422 "
+        "maxConfidence=0.907 maxConfidenceOffsetFrames=11 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=3 episodePeakRms=3390.5 "
+        "maxWindowPeakRms=3390.5 maxWindowMeanRms=1090.25"
+    )
+    SUMMARY_GEN5 = (
+        "08-08 21:00:02.001  1234  5678 D WakeWordDiag: "
+        "WakeWordDetector: gateExitSummary gen=5 stage3Evals=1 "
+        "maxConfidence=0.9 maxConfidenceOffsetFrames=2 "
+        "lowVerifyEntered=false lowVerifyAccepted=false "
+        "gatedProbeExecutions=0 episodePeakRms=100.0 "
+        "maxWindowPeakRms=100.0 maxWindowMeanRms=50.0"
+    )
+
+    def test_wakeword_diag_summaries_parse_exact_values(self) -> None:
+        text = "\n".join([
+            "08-08 21:00:00.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: diagnostics elapsedMs=600000 audioFrames=7500",
+            self.SUMMARY_GEN4,
+            self.SUMMARY_GEN5,
+            self.SUMMARY_GEN4_SECOND,
+            "08-08 21:00:04.001  1234  5678 I KernelAI: "
+            "WakeWordDetector: detected (high confidence=0.9)",
+        ])
+        projected = runner.parse_wakeword_diag_summaries(text, generation=4)
+        self.assertEqual(len(projected), 2)
+        first, second = projected
+        self.assertEqual(first["generation_id"], 4)
+        self.assertIsInstance(first["episode_peak_rms"], float)
+        self.assertEqual(first["episode_peak_rms"], 3593.4)
+        self.assertEqual(first["max_window_peak_rms"], 3593.4)
+        self.assertEqual(first["max_window_mean_rms"], 1307.6)
+        self.assertEqual(first["max_confidence"], 0.00143)
+        self.assertEqual(first["stage3_evals"], 1037)
+        self.assertEqual(first["max_confidence_offset_frames"], 619)
+        self.assertEqual(first["gated_probe_executions"], 10)
+        self.assertIs(first["low_verify_entered"], False)
+        self.assertEqual(second["episode_peak_rms"], 3390.5)
+        self.assertEqual(second["max_window_mean_rms"], 1090.25)
+        # The other-generation summary and non-summary lines are excluded.
+        self.assertTrue(all(item["generation_id"] == 4 for item in projected))
+
+    def test_wakeword_diag_summaries_none_and_missing_are_honest(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 maxWindowPeakRms=none maxWindowMeanRms=none"
+        )
+        projected = runner.parse_wakeword_diag_summaries(text, generation=4)
+        self.assertEqual(len(projected), 1)
+        entry = projected[0]
+        self.assertIsNone(entry["episode_peak_rms"])  # key absent on-device
+        self.assertIsNone(entry["max_window_peak_rms"])
+        self.assertIsNone(entry["max_window_mean_rms"])
+        self.assertEqual(entry["max_confidence"], 0.5)
+        # No matching generation -> empty, never fabricated.
+        self.assertEqual(
+            runner.parse_wakeword_diag_summaries(text, generation=5), []
+        )
+        self.assertEqual(runner.parse_wakeword_diag_summaries(text, None), [])
+
+    def test_wakeword_diag_summaries_malformed_values_fail_closed(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 episodePeakRms=loud"
+        )
+        with self.assertRaises(runner.HarnessError):
+            runner.parse_wakeword_diag_summaries(text, generation=4)
+
+    def test_wakeword_diag_summaries_malformed_generation_fails_closed(self) -> None:
+        text = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=abc stage3Evals=5 "
+            "maxConfidence=0.5"
+        )
+        with self.assertRaises(runner.HarnessError):
+            runner.parse_wakeword_diag_summaries(text, generation=4)
+
+    def test_source_playback_duration_is_derived_or_none(self) -> None:
+        result = {
+            "playback_start_monotonic_ms": 1_000,
+            "completion_monotonic_ms": 3_098,
+        }
+        self.assertEqual(runner.source_playback_duration_ms(result), 2_098)
+        self.assertIsNone(runner.source_playback_duration_ms({}))
+        self.assertIsNone(runner.source_playback_duration_ms(
+            {"playback_start_monotonic_ms": 3_000, "completion_monotonic_ms": 1_000}
+        ))
+
+    # ── Evidence publication ───────────────────────────────────────────
+
+    def _manifest_and_identities(self):
+        manifest = runner.RunManifest(
+            "run-1", runner.RunKind.REGRESSION, runner.GateMode.RELEASE,
+            runner.MATRIX_ID, runner.MATRIX_VERSION, runner.utc_now(),
+            "s23u", "s21", "set-1", {"natural_wake": "a" * 64}, "cue-v1", None,
+        )
+        target = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        source = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        return manifest, target, source
+
+    def test_evidence_retains_energy_and_source_volume_correlated_to_trial(self) -> None:
+        manifest, target, source = self._manifest_and_identities()
+        slots = runner.matrix_slots_for_target("s21")
+        attempt = runner.MatrixAttempt(
+            "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
+            fixture_sha256="a" * 64,
+            source_timing={
+                "clock_domain": "source_device_elapsed_realtime",
+                "request_wall_clock_ms": 1_000,
+                "playback_start_monotonic_ms": 1_000,
+                "completion_monotonic_ms": 3_098,
+                "playback_start_wall_clock_ms": 5_000,
+                "playback_duration_ms": 2_098,
+            },
+            source_outcome={
+                "completion_status": "completed", "cleanup_success": True,
+                "exact_restoration_verified": True,
+                "output_route_during": "BUILT_IN_SPEAKER",
+                "focus_result": "granted", "timeout": False,
+                "overlap_rejected": False,
+                "requested_volume": 9, "applied_volume": 9, "maximum_volume": 15,
+            },
+            target_timing={
+                "events": complete_events(runner.TrialType.WAKE_ONLY),
+                "gate_episode_energy": [{
+                    "generation_id": 4, "stage3_evals": 1037,
+                    "max_confidence": 0.00143,
+                    "max_confidence_offset_frames": 619,
+                    "low_verify_entered": False, "low_verify_accepted": False,
+                    "gated_probe_executions": 10,
+                    "episode_peak_rms": 3593.4,
+                    "max_window_peak_rms": 3593.4,
+                    "max_window_mean_rms": 1307.6,
+                }],
+            },
+        )
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", [attempt], None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        case = evidence["cases"][0]
+        energy = case["target_timing"]["gate_episode_energy"][0]
+        self.assertEqual(energy["episode_peak_rms"], 3593.4)
+        self.assertEqual(energy["max_window_peak_rms"], 3593.4)
+        self.assertEqual(energy["max_window_mean_rms"], 1307.6)
+        self.assertEqual(energy["max_confidence"], 0.00143)
+        self.assertEqual(energy["generation_id"], 4)
+        self.assertEqual(case["source_timing"]["playback_start_wall_clock_ms"], 5_000)
+        self.assertEqual(case["source_timing"]["playback_duration_ms"], 2_098)
+        self.assertEqual(case["source_outcome"]["applied_volume"], 9)
+        self.assertEqual(case["source_outcome"]["requested_volume"], 9)
+        self.assertEqual(case["source_outcome"]["output_route_during"], "BUILT_IN_SPEAKER")
+        self.assertEqual(case["source_outcome"]["focus_result"], "granted")
+        self.assertEqual(case["fixture"]["sha256"], "a" * 64)
+        output = Path(tempfile.mkdtemp())
+        runner.write_sanitized_summary(output, evidence, private_run_dir=output)
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
+    def test_historical_evidence_without_new_fields_remains_valid(self) -> None:
+        """Old attempts without the retention fields stay schema-valid — the
+        new fields are optional additions, not a schema break."""
+        manifest, target, source = self._manifest_and_identities()
+        slots = runner.matrix_slots_for_target("s21")
+        attempt = runner.MatrixAttempt(
+            "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
+            target_timing={"events": complete_events(runner.TrialType.WAKE_ONLY)},
+        )
+        evidence = runner.render_evidence(
+            manifest, target, source, "1.0.0", [attempt], None, True,
+            "BUILT_IN_SPEAKER",
+        )
+        case = evidence["cases"][0]
+        self.assertNotIn("gate_episode_energy", case["target_timing"])
+        valid, issues = evidence_metrics.validate_record(evidence, [])
+        self.assertTrue(valid, issues)
+
+    # ── Private retention and publication exclusions ───────────────────
+
+    def test_private_wakeworddiag_dump_survives_finalise_and_is_excluded_from_publication(self) -> None:
+        """A completed private run directory containing the retained
+        WakeWordDiag dump is NOT removed by normal successful
+        cleanup/finalisation, and the raw dump is never copied into the
+        sanitised evidence."""
+        harness = make_runner()
+        run_dir = Path(tempfile.mkdtemp())
+        harness.run_dir = run_dir
+        harness.trials_dir = run_dir / "trials"
+        harness.target_identity = runner.DeviceIdentity("s21", "samsung", "SM-G991B", "15", "35", "fp", "pkg", 1)
+        harness.source_identity = runner.DeviceIdentity("s23u", "samsung", "SM-S918B", "15", "35", "fp", "pkg", 1)
+        raw_dump = self.SUMMARY_GEN4 + "\n"
+        artifact_dir = run_dir / "trials/trial-1/target"
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "wakeworddiag.log").write_text(raw_dump)
+        slots = runner.matrix_slots_for_target("s21")
+        harness.attempts = [
+            runner.MatrixAttempt(
+                "trial-1", slots[0], 1, runner.AttemptStatus.PASSED,
+                target_timing={
+                    "events": complete_events(runner.TrialType.WAKE_ONLY),
+                    "gate_episode_energy": [{
+                        "generation_id": 4, "stage3_evals": 1037,
+                        "max_confidence": 0.00143,
+                        "max_confidence_offset_frames": 619,
+                        "low_verify_entered": False, "low_verify_accepted": False,
+                        "gated_probe_executions": 10,
+                        "episode_peak_rms": 3593.4,
+                        "max_window_peak_rms": 3593.4,
+                        "max_window_mean_rms": 1307.6,
+                    }],
+                },
+            ),
+        ]
+        evidence = runner.finalize_evidence(harness)
+        # Retention: the private run directory and its raw dump survive.
+        self.assertTrue(run_dir.is_dir())
+        self.assertTrue((artifact_dir / "wakeworddiag.log").is_file())
+        self.assertEqual((artifact_dir / "wakeworddiag.log").read_text(), raw_dump)
+        self.assertTrue(harness.cleanup_verified, harness.cleanup_failures)
+        # Publication: the raw dump is not copied and no raw line is exposed.
+        self.assertTrue((harness.sanitized_dir / "evidence.json").is_file())
+        self.assertEqual(
+            list(harness.sanitized_dir.rglob("wakeworddiag.log")), []
+        )
+        public_text = (harness.sanitized_dir / "evidence.json").read_text()
+        self.assertNotIn("gateExitSummary", public_text)
+        self.assertIn("3593.4", public_text)
+        case = next(c for c in evidence["cases"] if c["trial_id"] == "trial-1")
+        self.assertEqual(
+            case["target_timing"]["gate_episode_energy"][0]["episode_peak_rms"],
+            3593.4,
+        )
+        # The checkpoint correlates the private artifact with the trial.
+        checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
+        restored = next(a for a in checkpoint["attempts"] if a["trial_id"] == "trial-1")
+        self.assertNotIn("target_capture", restored)
+
+    # ── Trial wiring ───────────────────────────────────────────────────
+
+    def test_trial_wiring_projects_energy_into_evidence(self) -> None:
+        """An integrated run_trial parses the bounded WakeWordDiag window into
+        target_timing.gate_episode_energy on the same attempt."""
+        harness = make_runner()
+        harness.run_dir = Path(tempfile.mkdtemp())
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {"natural_wake": fixture_sha256}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        target = harness.target
+        target.responses["shell logcat -c"] = ""
+        target.responses["shell logcat -d -s 'WakeWordDiag:*'"] = (
+            self.SUMMARY_GEN4 + "\n" + self.SUMMARY_GEN5 + "\n"
+        )
+
+        final_events = complete_events(runner.TrialType.WAKE_ONLY)
+        final_envelope = envelope(final_events, lowest=1)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        snapshots = iter((boundary_envelope, final_envelope))
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        def invoke_source(trial_id, fixture_id, volume_index):
+            return source_result(trial_id, fixture_id)
+
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            waited = event(
+                {"STT_READY": 11, "DETECTOR_REARMED": 18}[event_type],
+                event_type,
+            )
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=invoke_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=target_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-1",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(attempt.status, runner.AttemptStatus.PASSED, attempt.__dict__)
+        energy = attempt.target_timing["gate_episode_energy"]
+        self.assertEqual(len(energy), 1)
+        self.assertEqual(energy[0]["generation_id"], 4)
+        self.assertEqual(energy[0]["episode_peak_rms"], 3593.4)
+        self.assertEqual(energy[0]["max_window_peak_rms"], 3593.4)
+        self.assertEqual(energy[0]["max_window_mean_rms"], 1307.6)
+        self.assertEqual(energy[0]["max_confidence"], 0.00143)
+        # The private bounded dump is retained per trial.
+        private_dump = harness.run_dir / "trials/trial-1/target/wakeworddiag.log"
+        self.assertTrue(private_dump.is_file())
+        self.assertIn("gateExitSummary", private_dump.read_text())
+        # Source playback evidence projected onto the same attempt.
+        self.assertEqual(attempt.source_timing["playback_duration_ms"], 1_900)
+        self.assertIsInstance(attempt.source_timing["playback_start_wall_clock_ms"], int)
+        self.assertEqual(attempt.source_outcome["applied_volume"], 7)
+
+    def test_trial_wiring_records_energy_parse_error_honestly(self) -> None:
+        harness = make_runner()
+        harness.run_dir = Path(tempfile.mkdtemp())
+        fixture_sha256 = source_result()["fixture_sha256"]
+        harness.installed_fixture_hashes = {"natural_wake": fixture_sha256}
+        harness.preflight_approval = {
+            "source_volume_index": 7,
+            "cue_audibility_evidence_verified": True,
+            "source_environment_state": {},
+            "target_environment_state": {},
+        }
+        harness.cue_audibility_evidence_verified = True
+        target = harness.target
+        target.responses["shell logcat -c"] = ""
+        target.responses["shell logcat -d -s 'WakeWordDiag:*'"] = (
+            "08-08 21:00:01.001  1234  5678 D WakeWordDiag: "
+            "WakeWordDetector: gateExitSummary gen=4 stage3Evals=5 "
+            "maxConfidence=0.5 maxConfidenceOffsetFrames=3 "
+            "lowVerifyEntered=false lowVerifyAccepted=false "
+            "gatedProbeExecutions=0 episodePeakRms=loud"
+        )
+
+        final_events = complete_events(runner.TrialType.WAKE_ONLY)
+        final_envelope = envelope(final_events, lowest=1)
+        boundary_envelope = envelope([
+            event(3, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+        ], lowest=3)
+        snapshots = iter((boundary_envelope, final_envelope))
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "3"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(next(snapshots))
+            self.fail(f"unexpected provider method {method}")
+
+        def invoke_source(trial_id, fixture_id, volume_index):
+            return source_result(trial_id, fixture_id)
+
+        def target_wait(**kwargs):
+            event_type = kwargs["event_type"]
+            waited = event(
+                {"STT_READY": 11, "DETECTOR_REARMED": 18}[event_type],
+                event_type,
+            )
+            return [waited], envelope([waited], lowest=waited["s"])
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(harness, "_invoke_source", side_effect=invoke_source), \
+                patch.object(harness, "_wait_for_target_events", side_effect=target_wait), \
+                patch.object(harness, "_snapshot_target_state", return_value={"reachable": True}), \
+                patch.object(harness, "_snapshot_source_state", return_value={"reachable": True}), \
+                patch.object(harness, "_environment_failures", return_value=[]), \
+                patch.object(harness, "_source_environment_failures", return_value=[]), \
+                patch.object(harness, "checkpoint"), \
+                patch.object(runner.time, "sleep"):
+            attempt = harness.run_trial(
+                "trial-1",
+                runner.MatrixSlot(idle_s=1, wake_only=True, ordinal=1),
+                "natural_wake",
+                None,
+            )
+
+        self.assertEqual(attempt.status, runner.AttemptStatus.PASSED, attempt.__dict__)
+        self.assertNotIn("gate_episode_energy", attempt.target_timing)
+        self.assertIn(
+            "wakeword_diag_parse_failed",
+            attempt.target_timing["gate_episode_energy_error"],
+        )
+
+    # ── Diagnostics property lifecycle ─────────────────────────────────
+
+    REARM_BROADCAST_KEY = (
+        "shell am broadcast -n com.kernel.ai.debug/"
+        "com.kernel.ai.debug.wake.WakeDetectorRearmReceiver "
+        "-a com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
+    )
+
+    def _journal_envelope(self, sequence: int, events: list[dict]) -> dict:
+        return {
+            "lowestSequence": 1, "highestSequence": sequence,
+            "overflowed": False, "events": events,
+        }
+
+    def _provider_for_rearm(
+        self,
+        *,
+        post_rearm_events: list[dict],
+        post_rearm_sequence: int | None = None,
+        pre_rearm_sequence: int = 10,
+    ):
+        """Build a journal provider whose post-rearm view starts once the
+        re-arm broadcast appears in the fake ADB command log."""
+        def provider_call(method, extras=None, timeout=15.0):
+            rearmed = any(
+                "REARM_WAKE_DETECTOR" in " ".join(command)
+                for command in self._rearm_target.commands
+            )
+            if not rearmed:
+                sequence = pre_rearm_sequence
+                events = [event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0)]
+            else:
+                events = [
+                    event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+                    *post_rearm_events,
+                ]
+                sequence = post_rearm_sequence if post_rearm_sequence is not None else max(
+                    ev["s"] for ev in events
+                )
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, str(sequence)
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(
+                    self._journal_envelope(sequence, events)
+                )
+            self.fail(f"unexpected provider method {method}")
+        return provider_call
+
+    def test_target_diagnostics_enabled_rearmed_and_restored_on_cleanup(self) -> None:
+        """Setting DEBUG must re-arm the detector and the verification must
+        wait for an authoritative post-boundary DETECTOR_GENERATION_STARTED
+        (the diagnostics gate is evaluated at generation start); cleanup must
+        restore the original property."""
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        post_rearm_events = [
+            event(11, "DETECTOR_REARMED", generation=5, session=0),
+            event(12, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+        ]
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=post_rearm_events),
+        ), patch.object(runner.time, "sleep"):
+            harness.ensure_target_diagnostics()
+        self.assertEqual(target.props["log.tag.WakeWordDiag"], "DEBUG")
+        self.assertTrue(
+            any("REARM_WAKE_DETECTOR" in " ".join(command) for command in target.commands)
+        )
+        harness.cleanup()
+        self.assertEqual(target.props["log.tag.WakeWordDiag"], "INFO")
+        self.assertTrue(harness.cleanup_verified, harness.cleanup_failures)
+
+    def test_rearm_rejects_rearmed_without_generation_started(self) -> None:
+        """Required regression: a newer DETECTOR_REARMED alone must never
+        satisfy re-arm verification — only a post-boundary
+        DETECTOR_GENERATION_STARTED proves the generation started."""
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        post_rearm_events = [
+            # Newer generation but NOT startup proof (async initialisation).
+            event(11, "DETECTOR_REARMED", generation=5, session=0),
+        ]
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=post_rearm_events),
+        ), patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
+                harness.ensure_target_diagnostics()
+
+    def test_rearm_rejects_pre_boundary_generation_started(self) -> None:
+        """Boundary protection: a DETECTOR_GENERATION_STARTED that existed
+        before the re-arm boundary must not satisfy the post-rearm wait."""
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "10"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(self._journal_envelope(10, [
+                    # A started event that already existed before the boundary
+                    # (sequence 9 <= boundary 10) — never post-rearm proof.
+                    event(9, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+                ]))
+            self.fail(f"unexpected provider method {method}")
+
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call), \
+                patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
+                harness.ensure_target_diagnostics()
+
+    def test_latest_started_generation_ignores_rearmed_events(self) -> None:
+        events = [
+            event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+            event(2, "DETECTOR_REARMED", generation=5, session=0),
+            event(3, "DETECTOR_GENERATION_STARTED", generation=5, session=0),
+            event(4, "DETECTOR_REARMED", generation=6, session=0),
+        ]
+        # REARMED events never count; the newest authoritative start is 5.
+        self.assertEqual(runner.latest_started_generation(events, after_sequence=-1), 5)
+        # Strictly post-boundary filtering.
+        self.assertEqual(runner.latest_started_generation(events, after_sequence=2), 5)
+        self.assertIsNone(runner.latest_started_generation(events, after_sequence=3))
+        self.assertIsNone(runner.latest_started_generation([], after_sequence=-1))
+
+    def test_rearm_fails_closed_when_no_new_generation(self) -> None:
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=0, data="rearmed"'
+        )
+        clock = {"t": 0}
+
+        def fake_monotonic() -> int:
+            clock["t"] += 1_000_000
+            return clock["t"]
+
+        with patch.object(
+            harness, "_call_target_provider",
+            side_effect=self._provider_for_rearm(post_rearm_events=[]),
+        ), patch.object(runner, "monotonic_ms", side_effect=fake_monotonic), \
+                patch.object(runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                runner.HarnessError, "DETECTOR_GENERATION_STARTED"
+            ):
+                harness.ensure_target_diagnostics()
+
+    def test_rearm_fails_closed_when_broadcast_rejected(self) -> None:
+        harness = make_runner()
+        target = harness.target = StatefulPropAdb("target")
+        self._rearm_target = target
+        target.responses[self.REARM_BROADCAST_KEY] = (
+            'Broadcast completed: result=2, data="rearm_failed"'
+        )
+
+        def provider_call(method, extras=None, timeout=15.0):
+            if method == runner.TARGET_METHOD_GET_SEQUENCE:
+                return runner.TARGET_RESULT_OK, "10"
+            if method == runner.TARGET_METHOD_GET_SNAPSHOT:
+                return runner.TARGET_RESULT_OK, json.dumps(self._journal_envelope(10, [
+                    event(1, "DETECTOR_GENERATION_STARTED", generation=4, session=0),
+                ]))
+            self.fail(f"unexpected provider method {method}")
+
+        with patch.object(harness, "_call_target_provider", side_effect=provider_call):
+            with self.assertRaisesRegex(runner.HarnessError, "detector re-arm rejected"):
+                harness.ensure_target_diagnostics()
+
+    def test_target_diagnostics_fails_closed_when_property_wont_stick(self) -> None:
+        class StuckAdb(StatefulPropAdb):
+            def shell(self, *args: str, timeout: float = 30.0, check: bool = True) -> str:
+                if args[:2] == ("setprop", "log.tag.WakeWordDiag"):
+                    return ""  # refuses to change
+                return super().shell(*args, timeout=timeout, check=check)
+
+        harness = make_runner()
+        harness.target = StuckAdb("target")
+        with self.assertRaises(runner.HarnessError):
+            harness.ensure_target_diagnostics()
+
+    # ── No second microphone consumer ──────────────────────────────────
+
+    def test_no_second_audio_record_path_remains(self) -> None:
+        """The wake detector must remain the only wake-path AudioRecord: no
+        capture receiver, no PCM pull, no target_capture evidence, no binary
+        exec-out helper."""
+        import inspect as _inspect
+        source = _inspect.getsource(runner)
+        self.assertNotIn("TargetCaptureReceiver", source)
+        self.assertNotIn("CAPTURE_START", source)
+        self.assertNotIn("CAPTURE_STOP", source)
+        self.assertNotIn("capture.wav", source)
+        self.assertFalse(hasattr(runner, "TARGET_CAPTURE_RECEIVER_CLS"))
+        self.assertFalse(hasattr(runner, "TARGET_CAPTURE_ACTION_START"))
+        self.assertFalse(hasattr(runner.MatrixAttempt, "target_capture"))
+        self.assertFalse(hasattr(runner.AdbClient, "exec_out"))
+
 
 
 if __name__ == "__main__":

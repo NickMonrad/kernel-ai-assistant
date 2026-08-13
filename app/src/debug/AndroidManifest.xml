@@ -49,6 +49,11 @@
                 <action android:name="com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW" />
             </intent-filter>
         </receiver>
+        <!-- Explicit-component-only control endpoint (#1410): no intent filter,
+             so only targeted broadcasts with -n reach it. -->
+        <receiver
+            android:name="com.kernel.ai.debug.wake.WakeDetectorRearmReceiver"
+            android:exported="true" />
     </application>
 
 </manifest>
