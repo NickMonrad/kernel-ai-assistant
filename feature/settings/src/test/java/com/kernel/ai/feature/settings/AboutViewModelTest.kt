@@ -63,6 +63,7 @@ class AboutViewModelTest {
     private val applicationInfo = ApplicationInfo().apply { flags = ApplicationInfo.FLAG_DEBUGGABLE }
     private val activityManager: ActivityManager = mockk()
     private lateinit var cacheDir: File
+    private lateinit var filesDir: File
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val preferencesState = MutableStateFlow<Preferences>(emptyPreferences())
     private val dataStore: DataStore<Preferences> = object : DataStore<Preferences> {
@@ -80,10 +81,12 @@ class AboutViewModelTest {
     @BeforeEach
     fun setUp() {
         cacheDir = Files.createTempDirectory("kernel-test-cache").toFile()
+        filesDir = Files.createTempDirectory("kernel-test-files").toFile()
         Dispatchers.setMain(testDispatcher)
         every { context.applicationInfo } returns applicationInfo
         every { context.packageName } returns "com.kernel.ai.test"
         every { context.cacheDir } returns cacheDir
+        every { context.filesDir } returns filesDir
         // Default: no exit history unless a test stubs ActivityManager explicitly.
         every { context.getSystemService(ActivityManager::class.java) } returns null
         preferencesState.value = emptyPreferences()
@@ -95,6 +98,7 @@ class AboutViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         cacheDir.deleteRecursively()
+        filesDir.deleteRecursively()
     }
 
     /** Stubs Runtime.getRuntime().exec() to return the given logcat output, avoiding real logcat calls. */
@@ -572,6 +576,57 @@ class AboutViewModelTest {
         assertTrue(content.contains("Commit: 51c0a3f5"))
         assertTrue(content.contains("Built: 2026-08-09T12:00:00Z"))
         assertTrue(content.contains("Package: com.kernel.ai.test"))
+    }
+
+    @Test
+    fun `export includes retained uncaught exception record when present`() = testScope.runTest {
+        stubRuntime()
+        mockShare()
+        val recordFile = File(filesDir, LAST_UNCAUGHT_EXCEPTION_FILE_NAME)
+        assertTrue(writeLastUncaughtExceptionRecord(recordFile, "main", IllegalStateException("recorded-boom")))
+
+        runExport()
+
+        val content = exportContent()
+        assertTrue(content.contains("Last uncaught managed exception"))
+        assertTrue(content.contains("Timestamp: "))
+        assertTrue(content.contains("Thread: main"))
+        assertTrue(content.contains("Exception: java.lang.IllegalStateException"))
+        assertTrue(content.contains("Message: recorded-boom"))
+        assertTrue(content.contains("Stack trace:"))
+    }
+
+    @Test
+    fun `export succeeds and notes absence when no record is retained`() = testScope.runTest {
+        stubRuntime()
+        mockShare()
+
+        runExport()
+
+        val content = exportContent()
+        assertTrue(content.contains("Last uncaught managed exception"))
+        assertTrue(content.contains("No retained uncaught managed exception record found."))
+        assertTrue(content.contains("Recent process exits"))
+        assertTrue(content.contains("Current process logcat"))
+    }
+
+    @Test
+    fun `export succeeds with warning when record is unreadable`() = testScope.runTest {
+        stubRuntime()
+        mockShare()
+        val recordFile = File(filesDir, LAST_UNCAUGHT_EXCEPTION_FILE_NAME)
+        recordFile.writeText("existing content")
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            recordFile.setReadable(false),
+            "filesystem must honour read permissions",
+        )
+
+        runExport()
+
+        val content = exportContent()
+        assertTrue(content.contains("Last uncaught managed exception"))
+        assertTrue(content.contains("Could not read last uncaught exception record"))
+        assertTrue(content.contains("Exporter warnings"))
     }
 
 }

@@ -227,6 +227,20 @@ class AboutViewModel @Inject constructor(
                 }
             }
             appendLine()
+            appendLine("Last uncaught managed exception")
+            appendLine("--------------------------------")
+            val recordText = runCatching {
+                readLastUncaughtExceptionRecord(lastUncaughtExceptionRecordFile(context))
+            }.onFailure { e ->
+                warnings += "Could not read last uncaught exception record: " +
+                    (e.message ?: e.javaClass.simpleName)
+            }.getOrNull()
+            if (recordText.isNullOrBlank()) {
+                appendLine("No retained uncaught managed exception record found.")
+            } else {
+                append(recordText)
+            }
+            appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")
             appendLine(logcat.output ?: "No current-process logcat captured (see Exporter warnings below).")
