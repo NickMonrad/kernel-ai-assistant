@@ -49,6 +49,14 @@
                 <action android:name="com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name="com.kernel.ai.debug.inflect.InflectSpikeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kernel.ai.debug.action.RUN_INFLECT_GRAPH_PROBE" />
+                <action android:name="com.kernel.ai.debug.action.CANCEL_INFLECT_GRAPH_PROBE" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
