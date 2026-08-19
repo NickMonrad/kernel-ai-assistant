@@ -23,6 +23,8 @@ import okhttp3.Request
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.time.DayOfWeek
+import java.time.LocalDate
 import kotlin.math.roundToInt
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -142,6 +144,63 @@ internal fun buildSingleDayForecastSpoken(
     }
 }
 
+/** Build a spoken summary for a weekend forecast (Saturday + Sunday of the intended weekend). */
+internal fun buildWeekendForecastSpoken(
+    locationLabel: String?,
+    days: List<Triple<String, String, Pair<Double?, Double?>>>,
+): String {
+    val place = locationForSpeech(locationLabel)
+    return buildString {
+        append("$place weekend forecast.")
+        for ((date, description, temps) in days) {
+            val (high, low) = temps
+            val parts = buildList {
+                if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
+                if (high != null && !high.isNaN()) add("high ${high.toRoundedDegreesText()}")
+                if (low != null && !low.isNaN()) add("low ${low.toRoundedDegreesText()}")
+            }
+            append(" $date")
+            if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
+            append(".")
+        }
+    }
+}
+
+/**
+ * #1455 — select the indices of the intended weekend days from the daily dates returned
+ * by the weather provider. Derived from the actual returned dates rather than a general
+ * natural-language date parser:
+ *
+ * - forecast starting on Saturday → the current weekend (Saturday + following Sunday);
+ * - forecast starting on Sunday → the current weekend's remaining day (Sunday only);
+ * - otherwise → the next Saturday and the Sunday immediately after it.
+ *
+ * Only the intended weekend day(s) are returned — never the intervening weekdays — and
+ * a day that falls outside the returned horizon is never fabricated.
+ */
+internal fun selectWeekendDayIndices(dates: List<String>): List<Int> {
+    if (dates.isEmpty()) return emptyList()
+    val parsed = dates.map { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val first = parsed[0] ?: return emptyList()
+    return when (first.dayOfWeek) {
+        DayOfWeek.SATURDAY -> buildList {
+            add(0)
+            if (parsed.getOrNull(1)?.dayOfWeek == DayOfWeek.SUNDAY) add(1)
+        }
+        DayOfWeek.SUNDAY -> listOf(0)
+        else -> {
+            val saturdayIndex = parsed.indexOfFirst { it?.dayOfWeek == DayOfWeek.SATURDAY }
+            if (saturdayIndex < 0) return emptyList()
+            buildList {
+                add(saturdayIndex)
+                if (parsed.getOrNull(saturdayIndex + 1)?.dayOfWeek == DayOfWeek.SUNDAY) {
+                    add(saturdayIndex + 1)
+                }
+            }
+        }
+    }
+}
+
 /** WMO weather code to emoji mapping. */
 internal fun wmoEmoji(code: Int): String = when (code) {
     0 -> "☀️"
@@ -242,6 +301,157 @@ private val Context.weatherDataStore: DataStore<Preferences> by preferencesDataS
 
 private const val TAG = "KernelAI"
 
+/**
+ * #1455 — parse a daily Open-Meteo forecast response restricted to the intended
+ * weekend days (see [selectWeekendDayIndices]). Pure function of the response JSON,
+ * so fresh fetches and stale-cache fallback always select the same weekend days.
+ */
+internal fun parseWeekendResponse(json: String, displayName: String?, skillName: String = "get_weather_gps"): SkillResult {
+    val obj = JSONObject(json)
+    val daily = obj.getJSONObject("daily")
+    val dates = daily.getJSONArray("time")
+    val maxTemps = daily.getJSONArray("temperature_2m_max")
+    val minTemps = daily.getJSONArray("temperature_2m_min")
+    val precip = daily.getJSONArray("precipitation_sum")
+    val codes = daily.getJSONArray("weather_code")
+    val uvMaxArr = daily.optJSONArray("uv_index_max")
+    val sunriseArr = daily.optJSONArray("sunrise")
+    val sunsetArr = daily.optJSONArray("sunset")
+
+    val len = dates.length()
+    if (len == 0) return SkillResult.Failure(skillName, "No forecast data returned.")
+    if (maxTemps.length() != len || minTemps.length() != len ||
+        precip.length() != len || codes.length() != len
+    ) {
+        return SkillResult.Failure(skillName, "Incomplete forecast data (mismatched array lengths).")
+    }
+
+    val indices = selectWeekendDayIndices((0 until len).map { dates.getString(it) })
+    if (indices.isEmpty()) {
+        return SkillResult.Failure(skillName, "Weekend forecast not available within the forecast horizon.")
+    }
+
+    val locationLabel = displayName ?: "GPS location"
+    val text = buildString {
+        append("$locationLabel weekend forecast:\n")
+        for (i in indices) {
+            val dateStr = dates.getString(i)
+            val formattedDate = formatForecastDate(dateStr)
+            val code = codes.optInt(i, -1)
+            val emoji = wmoEmoji(code)
+            val desc = wmoDescription(code)
+            val high = maxTemps.optDouble(i, Double.NaN)
+            val low = minTemps.optDouble(i, Double.NaN)
+            val rain = precip.optDouble(i, 0.0)
+            val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
+            val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
+            val rainStr = "%.0fmm rain".format(rain)
+            val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
+            val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
+            val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+            val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+            val sunStr = when {
+                sunrise != null && sunset != null -> " | 🌅 $sunrise / $sunset"
+                sunrise != null -> " | 🌅 $sunrise"
+                sunset != null -> " | 🌇 $sunset"
+                else -> ""
+            }
+            append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr\n")
+        }
+    }.trimEnd()
+
+    val forecastDays = indices.map { i ->
+        val dateStr = dates.getString(i)
+        val code = codes.optInt(i, -1)
+        val high = maxTemps.optDouble(i, Double.NaN)
+        val low = minTemps.optDouble(i, Double.NaN)
+        val rain = precip.optDouble(i, 0.0)
+        val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
+        val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+        val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+        val sunStr = when {
+            sunrise != null && sunset != null -> "Sunrise $sunrise • Sunset $sunset"
+            sunrise != null -> "Sunrise $sunrise"
+            sunset != null -> "Sunset $sunset"
+            else -> null
+        }
+        ToolPresentation.ForecastDay(
+            date = formatForecastDate(dateStr),
+            emoji = wmoEmoji(code),
+            description = wmoDescription(code),
+            highText = if (!high.isNaN()) "High %.0f°C".format(high) else null,
+            lowText = if (!low.isNaN()) "Low %.0f°C".format(low) else null,
+            precipText = "%.0fmm rain".format(rain).takeIf { rain > 0.0 },
+            uvText = uvMax?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
+            sunText = sunStr,
+        )
+    }
+    val spokenDays = indices.map { i ->
+        Triple(
+            formatForecastDate(dates.getString(i)),
+            wmoDescription(codes.optInt(i, -1)),
+            Pair(
+                maxTemps.optDouble(i, Double.NaN).takeUnless { it.isNaN() },
+                minTemps.optDouble(i, Double.NaN).takeUnless { it.isNaN() },
+            ),
+        )
+    }
+
+    val first = indices.first()
+    val firstCode = codes.optInt(first, -1)
+    val firstHigh = maxTemps.optDouble(first, Double.NaN)
+    val firstLow = minTemps.optDouble(first, Double.NaN)
+    val firstRain = precip.optDouble(first, Double.NaN)
+    val firstUv = uvMaxArr?.let {
+        if (first < it.length() && !it.isNull(first)) it.getDouble(first) else null
+    }
+    val firstSunrise = sunriseArr?.let {
+        if (first < it.length() && !it.isNull(first)) it.getString(first).substringAfterLast("T") else null
+    }
+    val firstSunset = sunsetArr?.let {
+        if (first < it.length() && !it.isNull(first)) it.getString(first).substringAfterLast("T") else null
+    }
+    val temperatureText = buildString {
+        if (!firstHigh.isNaN()) append("%.0f°C".format(firstHigh))
+        if (!firstLow.isNaN()) {
+            if (isNotEmpty()) append(" / ")
+            append("%.0f°C".format(firstLow))
+        }
+    }.ifBlank { "Forecast unavailable" }
+    val highLowText = buildString {
+        if (!firstHigh.isNaN()) append("High %.0f°C".format(firstHigh))
+        if (!firstLow.isNaN()) {
+            if (isNotEmpty()) append(" • ")
+            append("Low %.0f°C".format(firstLow))
+        }
+    }.takeIf { it.isNotBlank() }
+    val sunText = when {
+        firstSunrise != null && firstSunset != null -> "Sunrise $firstSunrise • Sunset $firstSunset"
+        firstSunrise != null -> "Sunrise $firstSunrise"
+        firstSunset != null -> "Sunset $firstSunset"
+        else -> null
+    }
+    return SkillResult.DirectReply(
+        text,
+        presentation = ToolPresentation.Weather(
+            locationName = locationLabel,
+            temperatureText = temperatureText,
+            feelsLikeText = null,
+            description = wmoDescription(firstCode),
+            emoji = wmoEmoji(firstCode),
+            highLowText = highLowText,
+            humidityText = null,
+            windText = null,
+            precipText = if (!firstRain.isNaN()) "%.0fmm rain".format(firstRain) else null,
+            uvText = firstUv?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
+            airQualityText = null,
+            sunText = sunText,
+            forecast = forecastDays,
+        ),
+        spokenSummary = buildWeekendForecastSpoken(locationLabel, spokenDays),
+    )
+}
+
 /** Internal wrapper for fresh weather fetch outcomes — success or a specific failure reason. */
 private sealed class LiveFetchResult {
     data class Success(val result: SkillResult) : LiveFetchResult()
@@ -265,6 +475,7 @@ class GetWeatherSkill @Inject constructor(
         "Current location weather → get_weather_gps()",
         "GPS location 3-day forecast → get_weather_gps(forecast_days=\"3\")",
         "Weather in Brisbane → get_weather_gps(location=\"Brisbane\")",
+        "Weekend forecast in Bundaberg → get_weather_gps(location=\"Bundaberg\", period=\"weekend\")",
         "Weather at home → get_weather_gps(location=\"Murrumba Downs, QLD, Australia\")",
     )
 
@@ -278,6 +489,12 @@ class GetWeatherSkill @Inject constructor(
                 type = "integer",
                 description = "Number of forecast days (1–7). Omit for current conditions only.",
             ),
+            "period" to SkillParameter(
+                type = "string",
+                description = "Optional forecast period: \"weekend\" targets the current/upcoming weekend " +
+                    "(Saturday + Sunday, or just the remaining Sunday when asked on a Sunday). " +
+                    "Omit for the default current/today behaviour. Mutually exclusive with forecast_days.",
+            ),
         ),
         required = emptyList(),
     )
@@ -286,15 +503,18 @@ class GetWeatherSkill @Inject constructor(
         val location = call.arguments["location"]?.trim()
         val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
         val dayParam = call.arguments["day"]?.trim()?.lowercase()
+        val weekendRequest = call.arguments["period"]?.trim()?.lowercase() == "weekend"
         val lookupMode = weatherLookupMode(location)
 
         val cacheKey = when (lookupMode) {
             WeatherLookupMode.NAMED_LOCATION -> when {
+                weekendRequest -> "loc:$location:weekend"
                 dayParam == "tomorrow" -> "loc:$location:tomorrow"
                 forecastDays > 0 -> "loc:$location:forecast:$forecastDays"
                 else -> "loc:$location:current"
             }
             WeatherLookupMode.DEVICE_LOCATION -> when {
+                weekendRequest -> "gps:weekend"
                 dayParam == "tomorrow" -> "gps:tomorrow"
                 forecastDays > 0 -> "gps:forecast:$forecastDays"
                 else -> "gps:current"
@@ -303,6 +523,12 @@ class GetWeatherSkill @Inject constructor(
 
         val freshResult = try {
             when {
+                weekendRequest -> when (lookupMode) {
+                    WeatherLookupMode.NAMED_LOCATION ->
+                        fetchByLocationName(location.orEmpty(), targetWeekend = true, cacheKey = cacheKey)
+                    WeatherLookupMode.DEVICE_LOCATION ->
+                        fetchByDeviceLocation(targetWeekend = true, cacheKey = cacheKey)
+                }
                 dayParam == "tomorrow" -> {
                     val targetDays = forecastDays.coerceAtLeast(2)
                     when (lookupMode) {
@@ -341,12 +567,12 @@ class GetWeatherSkill @Inject constructor(
                 getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
                     Log.i(TAG, "Serving stale weather cache for key '$cacheKey' after ${failureReason.name}")
                     return try {
-                        if (dayParam == "tomorrow") {
-                            parseForecastDayResponse(cachedJson, displayName = null, dayIndex = 1)
-                        } else if (forecastDays > 0) {
-                            parseForecastResponse(cachedJson, displayName = null)
-                        } else {
-                            parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
+                        when {
+                            weekendRequest -> parseWeekendResponse(cachedJson, displayName = null)
+                            dayParam == "tomorrow" ->
+                                parseForecastDayResponse(cachedJson, displayName = null, dayIndex = 1)
+                            forecastDays > 0 -> parseForecastResponse(cachedJson, displayName = null)
+                            else -> parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Cache re-parse failed for key '$cacheKey'", e)
@@ -371,6 +597,7 @@ class GetWeatherSkill @Inject constructor(
         locationName: String,
         forecastDays: Int = 0,
         targetDay: Boolean = false,
+        targetWeekend: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
         val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
@@ -380,32 +607,41 @@ class GetWeatherSkill @Inject constructor(
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
             }
 
-        val result = if (forecastDays > 0) {
-            if (targetDay) {
-                fetchForecastForDay(
-                    lat = coordinates.first,
-                    lon = coordinates.second,
-                    displayName = resolvedLocationName,
-                    days = forecastDays,
-                    dayIndex = 1,
-                    cacheKey = cacheKey,
-                )
-            } else {
-                fetchForecast(
-                    lat = coordinates.first,
-                    lon = coordinates.second,
-                    displayName = resolvedLocationName,
-                    days = forecastDays,
-                    cacheKey = cacheKey,
-                )
-            }
-        } else {
-            fetchWeather(
+        val result = when {
+            targetWeekend -> fetchWeekendForecast(
                 lat = coordinates.first,
                 lon = coordinates.second,
                 displayName = resolvedLocationName,
                 cacheKey = cacheKey,
             )
+            forecastDays > 0 -> {
+                if (targetDay) {
+                    fetchForecastForDay(
+                        lat = coordinates.first,
+                        lon = coordinates.second,
+                        displayName = resolvedLocationName,
+                        days = forecastDays,
+                        dayIndex = 1,
+                        cacheKey = cacheKey,
+                    )
+                } else {
+                    fetchForecast(
+                        lat = coordinates.first,
+                        lon = coordinates.second,
+                        displayName = resolvedLocationName,
+                        days = forecastDays,
+                        cacheKey = cacheKey,
+                    )
+                }
+            }
+            else -> {
+                fetchWeather(
+                    lat = coordinates.first,
+                    lon = coordinates.second,
+                    displayName = resolvedLocationName,
+                    cacheKey = cacheKey,
+                )
+            }
         }
 
         return if (result != null) {
@@ -476,7 +712,12 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false, cacheKey: String): LiveFetchResult {
+    private suspend fun fetchByDeviceLocation(
+        forecastDays: Int = 0,
+        targetDay: Boolean = false,
+        targetWeekend: Boolean = false,
+        cacheKey: String,
+    ): LiveFetchResult {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -491,32 +732,41 @@ class GetWeatherSkill @Inject constructor(
             }
 
         val displayName = reverseGeocode(loc.latitude, loc.longitude)
-        val result = if (forecastDays > 0) {
-            if (targetDay) {
-                fetchForecastForDay(
-                    lat = loc.latitude,
-                    lon = loc.longitude,
-                    displayName = displayName,
-                    days = forecastDays,
-                    dayIndex = 1,
-                    cacheKey = cacheKey,
-                )
-            } else {
-                fetchForecast(
-                    lat = loc.latitude,
-                    lon = loc.longitude,
-                    displayName = displayName,
-                    days = forecastDays,
-                    cacheKey = cacheKey,
-                )
-            }
-        } else {
-            fetchWeather(
+        val result = when {
+            targetWeekend -> fetchWeekendForecast(
                 lat = loc.latitude,
                 lon = loc.longitude,
                 displayName = displayName,
                 cacheKey = cacheKey,
             )
+            forecastDays > 0 -> {
+                if (targetDay) {
+                    fetchForecastForDay(
+                        lat = loc.latitude,
+                        lon = loc.longitude,
+                        displayName = displayName,
+                        days = forecastDays,
+                        dayIndex = 1,
+                        cacheKey = cacheKey,
+                    )
+                } else {
+                    fetchForecast(
+                        lat = loc.latitude,
+                        lon = loc.longitude,
+                        displayName = displayName,
+                        days = forecastDays,
+                        cacheKey = cacheKey,
+                    )
+                }
+            }
+            else -> {
+                fetchWeather(
+                    lat = loc.latitude,
+                    lon = loc.longitude,
+                    displayName = displayName,
+                    cacheKey = cacheKey,
+                )
+            }
         }
 
         return if (result != null) {
@@ -567,6 +817,43 @@ class GetWeatherSkill @Inject constructor(
         }
 
     // ── Forecast fetch ────────────────────────────────────────────────────────
+
+    /**
+     * #1455 — fetch enough daily forecast data to reach the nearest current/upcoming
+     * weekend (the existing 7-day horizon always contains it) and restrict the parsed
+     * result to the intended weekend days via [parseWeekendResponse]. The raw body is
+     * cached under the request's weekend cache key, so a stale-cache fallback re-runs
+     * the same weekend selection on the identical JSON.
+     */
+    private suspend fun fetchWeekendForecast(
+        lat: Double,
+        lon: Double,
+        displayName: String?,
+        cacheKey: String,
+    ): SkillResult? =
+        withContext(Dispatchers.IO) {
+            // Check cache first
+            getCachedWeatherJson(cacheKey)?.let { cachedJson ->
+                return@withContext parseWeekendResponse(cachedJson, displayName)
+            }
+
+            val url = "https://api.open-meteo.com/v1/forecast" +
+                "?latitude=$lat&longitude=$lon" +
+                "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
+                "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
+
+            val body = retryWithBackoff("Weekend Forecast API ($displayName)") {
+                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IllegalStateException("Forecast API returned ${response.code}")
+                    }
+                    response.body?.string() ?: throw IllegalStateException("Empty forecast response")
+                }
+            } ?: return@withContext null
+
+            cacheWeatherJson(cacheKey, body)
+            parseWeekendResponse(body, displayName)
+        }
 
     private suspend fun fetchForecast(
         lat: Double,

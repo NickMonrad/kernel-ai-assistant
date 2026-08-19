@@ -31,7 +31,7 @@ jobs:
             --limit 100 \
             --json tagName,publishedAt,isPrerelease \
             --jq --arg cutoff "$CUTOFF" \
-              '.[] | select(.isPrerelease == true and .publishedAt < $cutoff) | .tagName' \
+              '.[] | select(.isPrerelease == true and .tagName != "debug-latest" and .publishedAt < $cutoff) | .tagName' \
           | while read -r TAG; do
               echo "Deleting release + tag: $TAG"
               gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true

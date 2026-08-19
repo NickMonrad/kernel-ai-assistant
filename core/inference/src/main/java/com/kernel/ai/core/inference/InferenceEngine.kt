@@ -38,6 +38,15 @@ interface InferenceEngine {
     val resolvedMaxTokens: StateFlow<Int>
 
     /**
+     * Absolute path of the model currently loaded by the engine, or null before
+     * [initialize] completes. Authoritative for clients that attach to an
+     * already-ready singleton engine: the engine keeps running the model it was
+     * initialized with even if the user changed their preferred conversation model
+     * (preference changes take effect on next launch).
+     */
+    val loadedModelPath: String?
+
+    /**
      * Load model weights and initialize the LiteRT-LM engine.
      * Blocks the [LlmDispatcher] thread; observe [isReady] for completion.
      *

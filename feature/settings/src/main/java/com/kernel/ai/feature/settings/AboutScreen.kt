@@ -132,11 +132,23 @@ fun AboutScreen(
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Export logs") },
-                supportingContent = { Text("Share recent logcat output as a text file") },
+                supportingContent = { Text("Share recent crash information and current logs") },
                 trailingContent = {
                     val isLoading = uiState.exportState is ExportState.Loading
                     Button(
-                        onClick = { if (!isLoading) viewModel.exportLogs() },
+                        onClick = {
+                            if (!isLoading) {
+                                viewModel.exportLogs(
+                                    DiagnosticBuildInfo(
+                                        versionName = versionName,
+                                        versionCode = versionCode,
+                                        buildType = buildType,
+                                        gitSha = gitSha,
+                                        buildTimestamp = buildTimestamp,
+                                    ),
+                                )
+                            }
+                        },
                         enabled = !isLoading,
                     ) {
                         if (isLoading) {

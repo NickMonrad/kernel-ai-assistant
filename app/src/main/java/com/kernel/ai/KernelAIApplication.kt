@@ -2,6 +2,7 @@ package com.kernel.ai
 
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -18,6 +19,8 @@ import com.kernel.ai.core.memory.worker.ArchiveCleanupWorker
 import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
 import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
 import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
+import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggable
+import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
 import dagger.hilt.android.HiltAndroidApp
 import com.kernel.ai.assistant.WakeWordService
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +52,16 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Debug-build-only diagnostic capture (#1461): retain the most recent uncaught
+        // managed exception across process restart for the Settings -> About export.
+        // Never installed in release builds and never alters normal crash handling —
+        // the wrapper delegates to the previously installed handler after the write.
+        installUncaughtExceptionCaptureIfDebuggable(
+            debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+            recordFile = lastUncaughtExceptionRecordFile(this),
+            currentHandler = Thread.getDefaultUncaughtExceptionHandler(),
+            setHandler = Thread::setDefaultUncaughtExceptionHandler,
+        )
         // Preload ORT so libsherpa-onnx-jni.so (built against ORT as an external shared lib)
         // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
         // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
