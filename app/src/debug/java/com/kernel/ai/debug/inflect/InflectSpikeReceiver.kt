@@ -46,6 +46,9 @@ class InflectSpikeReceiver : BroadcastReceiver() {
                 }
             } catch (error: CancellationException) {
                 finish(pendingResult, RESULT_CANCELLED, "cancelled")
+            } catch (error: OutOfMemoryError) {
+                Log.e(TAG, "Inflect graph probe ran out of memory", error)
+                finish(pendingResult, RESULT_FAILED, "probe_out_of_memory")
             } catch (error: Exception) {
                 Log.e(TAG, "Inflect graph probe failed", error)
                 finish(pendingResult, RESULT_FAILED, "probe_failed:${error.message}")
@@ -63,6 +66,14 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         }
 
         val phonemeText = intent.getStringExtra(EXTRA_PHONEME_TEXT) ?: DEFAULT_PHONEME_TEXT
+        if (phonemeText.length > InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH) {
+            finish(
+                pendingResult,
+                RESULT_REJECTED,
+                "phoneme_text_too_long:max=${InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH}",
+            )
+            return
+        }
         val label = safeLabel(intent.getStringExtra(EXTRA_LABEL) ?: "graph-probe")
         val wavFile = File(context.filesDir, "$EVIDENCE_DIRECTORY/$label.wav")
         val summaryFile = File(context.filesDir, "$EVIDENCE_DIRECTORY/$label.json")
@@ -70,8 +81,8 @@ class InflectSpikeReceiver : BroadcastReceiver() {
 
         val initStarted = System.nanoTime()
         val runner = InflectMicroOnnxRunner(modelDirectory)
-        InflectSpikeRuntime.install(runner)
         try {
+            InflectSpikeRuntime.install(runner)
             val initMs = (System.nanoTime() - initStarted) / 1_000_000L
             val synthesis = runner.synthesize(
                 phonemeText = phonemeText,

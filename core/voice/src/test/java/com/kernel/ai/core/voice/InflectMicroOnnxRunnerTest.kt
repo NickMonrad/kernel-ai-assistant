@@ -37,4 +37,24 @@ class InflectMicroOnnxRunnerTest {
             InflectMicroOnnxRunner.phonemesToTokenIds("")
         }
     }
+
+    @Test
+    fun `phoneme input is bounded before graph allocation`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            InflectMicroOnnxRunner.phonemesToTokenIds(
+                "a".repeat(InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH + 1),
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("exceeds"))
+    }
+
+    @Test
+    fun `waveform output must be positive mono audio`() {
+        InflectMicroOnnxRunner.validateWaveformShape(longArrayOf(1L, 1L, 1L))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            InflectMicroOnnxRunner.validateWaveformShape(longArrayOf(1L, 2L, 10L))
+        }
+    }
 }
