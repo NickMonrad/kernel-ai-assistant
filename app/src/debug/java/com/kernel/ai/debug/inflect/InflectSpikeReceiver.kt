@@ -3,8 +3,12 @@ package com.kernel.ai.debug.inflect
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Debug
 import android.util.Log
 import com.kernel.ai.core.voice.InflectMicroOnnxRunner
+import com.kernel.ai.core.voice.InflectMicroTextFrontend
+import com.kernel.ai.core.voice.InflectOnnxSynthesis
+import com.kernel.ai.core.voice.InflectPhonemizer
 import java.io.BufferedOutputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -18,9 +22,9 @@ import kotlinx.coroutines.launch
 /**
  * Debug-only endpoint for proving the official Inflect Micro v2 ONNX graphs on Android.
  *
- * This intentionally accepts phoneme text, not user text. The existing Sherpa AAR does not expose
- * its bundled eSpeak-ng phoneme output, so this endpoint stops at graph isolation rather than
- * pretending that a frontend exists.
+ * The graph action accepts phoneme text for the original isolated probe. The runtime-text action
+ * additionally exercises the production normalization, Sherpa/eSpeak frontend and symbol mapping,
+ * retaining a WAV and JSON timing summary without adding a second production playback path.
  */
 class InflectSpikeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -41,6 +45,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
                             if (cancelled) "cancel_requested" else "no_active_probe",
                         )
                     }
+                    ACTION_RUN_RUNTIME_PROBE -> runRuntimeProbe(appContext, intent, pendingResult)
                     ACTION_RUN_GRAPH_PROBE -> runProbe(appContext, intent, pendingResult)
                     else -> finish(pendingResult, RESULT_REJECTED, "unknown_action")
                 }
@@ -106,6 +111,131 @@ class InflectSpikeReceiver : BroadcastReceiver() {
             runner.close()
         }
     }
+
+    private fun runRuntimeProbe(context: Context, intent: Intent, pendingResult: PendingResult) {
+        val modelDirectory = File(context.filesDir, MODEL_DIRECTORY)
+        if (!File(modelDirectory, InflectMicroOnnxRunner.DURATION_MODEL_FILE).isFile ||
+            !File(modelDirectory, InflectMicroOnnxRunner.DECODE_MODEL_FILE).isFile
+        ) {
+            finish(pendingResult, RESULT_FAILED, "model_files_missing:${modelDirectory.path}")
+            return
+        }
+        val text = intent.getStringExtra(EXTRA_TEXT)?.trim().orEmpty()
+        if (text.isBlank()) {
+            finish(pendingResult, RESULT_REJECTED, "runtime_text_required")
+            return
+        }
+        val dataDirectory = File(
+            intent.getStringExtra(EXTRA_DATA_DIRECTORY)
+                ?: return finish(pendingResult, RESULT_REJECTED, "espeak_data_directory_required"),
+        ).canonicalFile
+        val filesDirectory = context.filesDir.canonicalFile
+        require(dataDirectory.path.startsWith("${filesDirectory.path}${File.separator}")) {
+            "eSpeak data directory must be app-private"
+        }
+        val label = safeLabel(intent.getStringExtra(EXTRA_LABEL) ?: "runtime-probe")
+        val wavFile = File(context.filesDir, "$RUNTIME_EVIDENCE_DIRECTORY/$label.wav")
+        val summaryFile = File(context.filesDir, "$RUNTIME_EVIDENCE_DIRECTORY/$label.json")
+        wavFile.parentFile?.mkdirs()
+
+        val memoryBefore = Debug.MemoryInfo().also(Debug::getMemoryInfo)
+        val startedAt = System.nanoTime()
+        val normalizeStarted = System.nanoTime()
+        val normalized = InflectMicroTextFrontend.normalize(text)
+        val normalizeMs = elapsedMs(normalizeStarted)
+        val phonemizeStarted = System.nanoTime()
+        val phonemes = InflectMicroTextFrontend.applyPhonemeOverrides(
+            InflectPhonemizer.phonemize(normalized, dataDirectory),
+        )
+        val phonemizeMs = elapsedMs(phonemizeStarted)
+        val initStarted = System.nanoTime()
+        val runner = InflectMicroOnnxRunner(modelDirectory)
+        val initMs = elapsedMs(initStarted)
+        try {
+            InflectSpikeRuntime.install(runner)
+            val synthesis = runner.synthesize(
+                phonemeText = phonemes,
+                speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f),
+                variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
+                seed = intent.getLongExtra(EXTRA_SEED, 7L),
+            )
+            writeFloatWav(wavFile, synthesis.waveform)
+            val memoryAfter = Debug.MemoryInfo().also(Debug::getMemoryInfo)
+            val summary = buildRuntimeSummary(
+                inputText = text,
+                normalizedText = normalized,
+                frontendPhonemes = phonemes,
+                normalizeMs = normalizeMs,
+                phonemizeMs = phonemizeMs,
+                totalMs = elapsedMs(startedAt),
+                memoryBefore = memoryBefore,
+                memoryAfter = memoryAfter,
+                runner = runner,
+                synthesis = synthesis,
+                initMs = initMs,
+                wavFile = wavFile,
+                modelDirectory = modelDirectory,
+            )
+            summaryFile.writeText(summary)
+            Log.i(TAG, summary)
+            finish(pendingResult, RESULT_OK, summaryFile.path)
+        } finally {
+            InflectSpikeRuntime.clear(runner)
+            runner.close()
+        }
+    }
+
+    private fun buildRuntimeSummary(
+        inputText: String,
+        normalizedText: String,
+        frontendPhonemes: String,
+        normalizeMs: Long,
+        phonemizeMs: Long,
+        totalMs: Long,
+        memoryBefore: Debug.MemoryInfo,
+        memoryAfter: Debug.MemoryInfo,
+        runner: InflectMicroOnnxRunner,
+        synthesis: InflectOnnxSynthesis,
+        initMs: Long,
+        wavFile: File,
+        modelDirectory: File,
+    ): String {
+        val audioSeconds = synthesis.audioDurationMs / 1_000.0
+        val rtf = if (audioSeconds > 0.0) synthesis.synthesisMs / 1_000.0 / audioSeconds else null
+        return """
+            {
+              "input_text": ${json(inputText)},
+              "normalized_text": ${json(normalizedText)},
+              "frontend_phonemes": ${json(frontendPhonemes)},
+              "model_directory": ${json(modelDirectory.path)},
+              "duration_inputs": ${json(runner.durationInputInfo)},
+              "duration_outputs": ${json(runner.durationOutputInfo)},
+              "decode_inputs": ${json(runner.decodeInputInfo)},
+              "decode_outputs": ${json(runner.decodeOutputInfo)},
+              "token_count": ${synthesis.tokenCount},
+              "waveform_shape": ${json(synthesis.waveformShape.toList())},
+              "sample_rate_hz": ${InflectMicroOnnxRunner.SAMPLE_RATE_HZ},
+              "waveform_samples": ${synthesis.waveform.size},
+              "audio_duration_ms": ${synthesis.audioDurationMs},
+              "normalize_ms": $normalizeMs,
+              "phonemize_ms": $phonemizeMs,
+              "initialization_ms": $initMs,
+              "synthesis_ms": ${synthesis.synthesisMs},
+              "total_ms": $totalMs,
+              "real_time_factor": ${rtf ?: "null"},
+              "peak_abs": ${synthesis.peakAbs},
+              "finite": ${synthesis.finite},
+              "memory_before_pss_kb": ${memoryBefore.totalPss},
+              "memory_after_pss_kb": ${memoryAfter.totalPss},
+              "memory_after_native_heap_kb": ${memoryAfter.nativePrivateDirty},
+              "wav_file": ${json(wavFile.path)},
+              "playback": "not_attempted_runtime_probe"
+            }
+        """.trimIndent()
+    }
+
+    private fun elapsedMs(startedAt: Long): Long =
+        (System.nanoTime() - startedAt) / 1_000_000L
 
     private fun buildSummary(
         runner: InflectMicroOnnxRunner,
@@ -197,15 +327,19 @@ class InflectSpikeReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        const val ACTION_RUN_RUNTIME_PROBE = "com.kernel.ai.debug.action.RUN_INFLECT_RUNTIME_PROBE"
         const val ACTION_RUN_GRAPH_PROBE = "com.kernel.ai.debug.action.RUN_INFLECT_GRAPH_PROBE"
         const val ACTION_CANCEL = "com.kernel.ai.debug.action.CANCEL_INFLECT_GRAPH_PROBE"
         const val EXTRA_PHONEME_TEXT = "phoneme_text"
+        const val EXTRA_TEXT = "text"
+        const val EXTRA_DATA_DIRECTORY = "data_directory"
         const val EXTRA_LABEL = "label"
         const val EXTRA_SEED = "seed"
         const val EXTRA_SPEED = "speed"
         const val EXTRA_VARIATION = "variation"
         const val MODEL_DIRECTORY = "inflect-micro-v2-onnx"
         const val EVIDENCE_DIRECTORY = "inflect-spike"
+        const val RUNTIME_EVIDENCE_DIRECTORY = "inflect-validation"
         private const val DEFAULT_PHONEME_TEXT = "həlˈoʊ"
         private const val TAG = "InflectSpike"
         private const val RESULT_OK = 0

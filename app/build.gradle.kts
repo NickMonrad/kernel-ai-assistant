@@ -238,11 +238,19 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
+    // Keep the custom frontend AAR debug-only. Release builds retain the upstream Sherpa
+    // artifact, while debug builds use the custom symbol when it is available and otherwise
+    // fall back to the upstream AAR for existing Sherpa functionality.
     val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
-        .takeIf { it.exists() }
-        ?: rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
+    val inflectSherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
     if (sherpaAar.exists()) {
-        implementation(files(sherpaAar.absolutePath))
+        releaseImplementation(files(sherpaAar.absolutePath))
+        if (!inflectSherpaAar.exists()) {
+            debugImplementation(files(sherpaAar.absolutePath))
+        }
+    }
+    if (inflectSherpaAar.exists()) {
+        debugImplementation(files(inflectSherpaAar.absolutePath))
     }
 
     implementation(platform(libs.compose.bom))

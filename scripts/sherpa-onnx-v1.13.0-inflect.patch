@@ -1,0 +1,155 @@
+diff --git a/sherpa-onnx/csrc/piper-phonemize-lexicon.h b/sherpa-onnx/csrc/piper-phonemize-lexicon.h
+index 0c9b3a5..9cae905 100644
+--- a/sherpa-onnx/csrc/piper-phonemize-lexicon.h
++++ b/sherpa-onnx/csrc/piper-phonemize-lexicon.h
+@@ -15,8 +15,19 @@
+ #include "sherpa-onnx/csrc/offline-tts-matcha-model-meta-data.h"
+ #include "sherpa-onnx/csrc/offline-tts-vits-model-meta-data.h"
+ 
++#include "phonemize.hpp"
++
+ namespace sherpa_onnx {
+ 
++// Internal frontend seam shared by the Sherpa TTS lexicon and the Jandal
++// Inflect debug probe. Callers must serialize through this implementation.
++void InitEspeak(const std::string &data_dir);
++
++void CallPhonemizeEspeak(
++    const std::string &text,
++    piper::eSpeakPhonemeConfig &config,
++    std::vector<std::vector<piper::Phoneme>> *phonemes);
++
+ class PiperPhonemizeLexicon : public OfflineTtsFrontend {
+  public:
+   PiperPhonemizeLexicon(const std::string &tokens, const std::string &data_dir,
+diff --git a/sherpa-onnx/jni/CMakeLists.txt b/sherpa-onnx/jni/CMakeLists.txt
+index 3996afb..b966076 100644
+--- a/sherpa-onnx/jni/CMakeLists.txt
++++ b/sherpa-onnx/jni/CMakeLists.txt
+@@ -11,6 +11,7 @@ if(NOT DEFINED ANDROID_ABI)
+ endif()
+ 
+ set(sources
+   audio-tagging.cc
+   common.cc
++  inflect-phonemizer.cc
+   jni.cc
+   keyword-spotter.cc
+   offline-punctuation.cc
+diff --git a/sherpa-onnx/jni/inflect-phonemizer.cc b/sherpa-onnx/jni/inflect-phonemizer.cc
+new file mode 100644
+index 0000000..26bef4a
+--- /dev/null
++++ b/sherpa-onnx/jni/inflect-phonemizer.cc
+@@ -0,0 +1,99 @@
++// sherpa-onnx/jni/inflect-phonemizer.cc
++//
++// Narrow debug-only frontend seam for Jandal's Inflect Micro probe. This
++// deliberately reuses Sherpa's initialized eSpeak payload and serialized
++// CallPhonemizeEspeak() path; it does not add a second phonemizer runtime.
++
++#include <jni.h>
++
++#include <exception>
++#include <string>
++#include <vector>
++
++#include "sherpa-onnx/csrc/piper-phonemize-lexicon.h"
++
++namespace {
++
++std::string ToUtf8(char32_t cp) {
++  std::string result;
++  if (cp <= 0x7F) {
++    result += static_cast<char>(cp);
++  } else if (cp <= 0x7FF) {
++    result += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
++    result += static_cast<char>(0x80 | (cp & 0x3F));
++  } else if (cp <= 0xFFFF) {
++    result += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
++    result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
++    result += static_cast<char>(0x80 | (cp & 0x3F));
++  } else {
++    result += static_cast<char>(0xF0 | ((cp >> 18) & 0x07));
++    result += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
++    result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
++    result += static_cast<char>(0x80 | (cp & 0x3F));
++  }
++  return result;
++}
++
++std::string ToUtf8(const std::vector<std::vector<piper::Phoneme>> &sentences) {
++  std::string result;
++  bool firstSentence = true;
++  for (const auto &sentence : sentences) {
++    if (!firstSentence) {
++      result.push_back(' ');
++    }
++    firstSentence = false;
++    for (const auto phoneme : sentence) {
++      result += ToUtf8(phoneme);
++    }
++  }
++  return result;
++}
++
++jstring ThrowIllegalArgument(JNIEnv *env, const char *message) {
++  jclass exceptionClass = env->FindClass("java/lang/IllegalArgumentException");
++  if (exceptionClass != nullptr) {
++    env->ThrowNew(exceptionClass, message);
++  }
++  return nullptr;
++}
++
++}  // namespace
++
++extern "C" JNIEXPORT jstring JNICALL
++Java_com_kernel_ai_core_voice_InflectPhonemizer_nativePhonemize(
++    JNIEnv *env, jclass /* clazz */, jstring text, jstring dataDir) {
++  if (text == nullptr || dataDir == nullptr) {
++    return ThrowIllegalArgument(env, "text and dataDir must be non-null");
++  }
++
++  const char *textChars = env->GetStringUTFChars(text, nullptr);
++  const char *dataDirChars = env->GetStringUTFChars(dataDir, nullptr);
++  if (textChars == nullptr || dataDirChars == nullptr) {
++    if (textChars != nullptr) env->ReleaseStringUTFChars(text, textChars);
++    if (dataDirChars != nullptr) env->ReleaseStringUTFChars(dataDir, dataDirChars);
++    return nullptr;
++  }
++
++  try {
++    sherpa_onnx::InitEspeak(dataDirChars);
++    piper::eSpeakPhonemeConfig config;
++    config.voice = "en-us";
++    config.keepLanguageFlags = false;
++
++    std::vector<std::vector<piper::Phoneme>> sentences;
++    sherpa_onnx::CallPhonemizeEspeak(textChars, config, &sentences);
++    const std::string result = ToUtf8(sentences);
++
++    env->ReleaseStringUTFChars(text, textChars);
++    env->ReleaseStringUTFChars(dataDir, dataDirChars);
++    return env->NewStringUTF(result.c_str());
++  } catch (const std::exception &error) {
++    env->ReleaseStringUTFChars(text, textChars);
++    env->ReleaseStringUTFChars(dataDir, dataDirChars);
++    return ThrowIllegalArgument(env, error.what());
++  } catch (...) {
++    env->ReleaseStringUTFChars(text, textChars);
++    env->ReleaseStringUTFChars(dataDir, dataDirChars);
++    return ThrowIllegalArgument(env, "Sherpa phonemizer failed");
++  }
++}
+diff --git a/sherpa-onnx/jni/sherpa-onnx-symbols.lds b/sherpa-onnx/jni/sherpa-onnx-symbols.lds
+index 4931fa0..3270e58 100644
+--- a/sherpa-onnx/jni/sherpa-onnx-symbols.lds
++++ b/sherpa-onnx/jni/sherpa-onnx-symbols.lds
+@@ -1,6 +1,7 @@
+ {
+   global:
+     Java_com_k2fsa_sherpa_onnx*;
++    Java_com_kernel_ai_core_voice_InflectPhonemizer*;
+   local:
+     *;
+ };

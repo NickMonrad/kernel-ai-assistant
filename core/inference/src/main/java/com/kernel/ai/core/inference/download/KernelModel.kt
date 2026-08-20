@@ -268,10 +268,38 @@ enum class KernelModel(
         displayName = "Sherpa Paraformer Tokens",
         fileName = "sherpa-paraformer-tokens.txt",
         downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/tokens.txt",
-        approxSizeBytes = 100_000L, // ~100 KB
+        approxSizeBytes = 100_000L,
         isRequired = false,
         preferredForTier = null,
         isGated = false,
+        showInModelManagement = false,
+    ),
+
+    // ── Inflect Micro v2 ONNX (debug-only voice output) ─────────────────────
+    //
+    // Official Apache-2.0 export from owensong/Inflect-Micro-v2-ONNX. The
+    // frontend and runner require both graphs; Voice settings owns this pair.
+    INFLECT_MICRO_DURATION(
+        displayName = "Inflect Micro duration graph",
+        fileName = "duration.onnx",
+        downloadUrl = "https://huggingface.co/owensong/Inflect-Micro-v2-ONNX/resolve/main/onnx/duration.onnx",
+        approxSizeBytes = 7_700_000L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = "https://huggingface.co/owensong/Inflect-Micro-v2-ONNX",
+        showInModelManagement = false,
+    ),
+
+    INFLECT_MICRO_DECODE(
+        displayName = "Inflect Micro decode graph",
+        fileName = "decode.onnx",
+        downloadUrl = "https://huggingface.co/owensong/Inflect-Micro-v2-ONNX/resolve/main/onnx/decode.onnx",
+        approxSizeBytes = 32_000_000L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = "https://huggingface.co/owensong/Inflect-Micro-v2-ONNX",
         showInModelManagement = false,
     );
     /**

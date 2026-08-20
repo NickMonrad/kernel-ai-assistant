@@ -11,11 +11,11 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Direct ONNX Runtime probe for the official Inflect Micro v2 export.
+ * Direct ONNX Runtime runner for the official Inflect Micro v2 export.
  *
- * This is deliberately not a [VoiceOutputController]. It proves the two official graphs can be
- * executed with Jandal's existing ONNX Runtime before any text frontend or playback integration is
- * attempted. The caller supplies precomputed phoneme symbols for this isolation step.
+ * Text is prepared by [InflectMicroTextFrontend] and phonemised through the custom Sherpa JNI
+ * seam before this runner is called. The graph/token contract remains independently testable by
+ * accepting already-phonemised IPA.
  */
 class InflectMicroOnnxRunner(
     modelDirectory: java.io.File,
@@ -193,6 +193,11 @@ class InflectMicroOnnxRunner(
         cancelled.set(true)
     }
 
+    /** Clears a prior stop request before the runner is reused for a new utterance. */
+    fun resetCancellation() {
+        cancelled.set(false)
+    }
+
     override fun close() {
         durationSession.close()
         decodeSession.close()
@@ -263,7 +268,7 @@ class InflectMicroOnnxRunner(
             "_" +
                 ";:,.!?¡¿—…\"«»“” " +
                 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" +
-                "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜɨɪʝɭɬɫɮʟɱɯɰŋɳɲɴøɵɸθœɶʘɹɺɾɻʀʁɽʂʃʈʧʉʊʋⱱʌɣɤʍχʎʏʑʐʒʔʡʕʢǀǁǂǃˈˌːˑʼʴʰʱʲʷˠˤ˞↓↑→↗↘'̩ᵻ"
+                "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜɨɪʝɭɬɫɮʟɱɯɰŋɳɲɴøɵɸθœɶʘɹɺɾɻʀʁɽʂʃʈʧʉʊʋⱱʌɣɤʍχʎʏʑʐʒʔʡʕʢǀǁǂǃˈˌːˑʼʴʰʱʲʷˠˤ˞↓↑→↗↘'̩'ᵻ"
 
         /** Converts already-phonemised IPA text into Inflect's blank-interleaved token IDs. */
         fun phonemesToTokenIds(phonemeText: String): LongArray {

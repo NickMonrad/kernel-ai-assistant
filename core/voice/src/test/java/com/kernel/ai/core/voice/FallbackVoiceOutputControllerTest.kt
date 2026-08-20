@@ -26,16 +26,18 @@ class FallbackVoiceOutputControllerTest {
 
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val sherpa: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
+    private val inflect: InflectMicroVoiceOutputController = mockk(relaxed = true)
     private val androidTts: AndroidTextToSpeechController = mockk(relaxed = true)
     private val selectedEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
 
     private val sherpaEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
+    private val inflectEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     private val androidEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
-
     @BeforeEach
     fun setup() {
         every { voiceOutputPreferences.selectedEngine } returns selectedEngine
         every { sherpa.events } returns sherpaEvents
+        every { inflect.events } returns inflectEvents
         every { androidTts.events } returns androidEvents
     }
 
@@ -127,6 +129,23 @@ class FallbackVoiceOutputControllerTest {
         }
 
     @Test
+    fun `speak routes to Sherpa when Kokoro engine is selected`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.KokoroExperimental
+        val request = VoiceSpeakRequest("Kokoro regression")
+        coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { sherpa.speak(request) } returns VoiceOutputResult.Spoken
+
+        val controller = buildController()
+        val result = controller.speak(request)
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        coVerify(exactly = 1) { sherpa.warmUp() }
+        coVerify(exactly = 1) { sherpa.speak(request) }
+        coVerify(exactly = 0) { inflect.speak(any()) }
+        coVerify(exactly = 0) { androidTts.speak(any()) }
+    }
+
+    @Test
     fun `speak falls back to Android TTS when Sherpa warmUp is unavailable`() = runTest(dispatcher) {
         selectedEngine.value = VoiceOutputEngine.SherpaExperimental
         val request = VoiceSpeakRequest("Lazy init")
@@ -215,14 +234,31 @@ class FallbackVoiceOutputControllerTest {
         }
 
     @Test
-    fun `stop stops both controllers defensively`() = runTest(dispatcher) {
+    fun `speak routes to Inflect when Inflect engine is selected and available`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest("Inflect debug")
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.speak(request) } returns VoiceOutputResult.Spoken
+
+        val controller = buildController()
+        val result = controller.speak(request)
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        coVerify(exactly = 1) { inflect.warmUp() }
+        coVerify(exactly = 1) { inflect.speak(request) }
+        coVerify(exactly = 0) { androidTts.speak(any()) }
+    }
+    @Test
+    fun `stop stops all controllers defensively`() = runTest(dispatcher) {
         every { sherpa.stop() } just runs
+        every { inflect.stop() } just runs
         every { androidTts.stop() } just runs
 
         val controller = buildController()
         controller.stop()
 
         verify(exactly = 1) { sherpa.stop() }
+        verify(exactly = 1) { inflect.stop() }
         verify(exactly = 1) { androidTts.stop() }
     }
 
@@ -275,6 +311,7 @@ class FallbackVoiceOutputControllerTest {
     private fun buildController() = FallbackVoiceOutputController(
         voiceOutputPreferences = voiceOutputPreferences,
         sherpa = sherpa,
+        inflect = inflect,
         androidTts = androidTts,
     )
 }

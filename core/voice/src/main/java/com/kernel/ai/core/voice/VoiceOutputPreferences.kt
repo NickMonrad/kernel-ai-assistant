@@ -74,7 +74,11 @@ class VoiceOutputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> VoiceOutputEngine.fromStorage(prefs[selectedEngineKey]) }
+        .map { prefs ->
+            VoiceOutputEngine.fromStorage(prefs[selectedEngineKey]).let { engine ->
+                if (isReleaseBuild && engine.debugOnly) VoiceOutputEngine.AndroidTts else engine
+            }
+        }
 
     val selectedSherpaVoice: Flow<SherpaPiperVoice> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
