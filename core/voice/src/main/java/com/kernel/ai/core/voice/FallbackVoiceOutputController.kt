@@ -17,7 +17,8 @@ private const val TAG = "KernelAI"
  * - [VoiceOutputEngine.AndroidTts] routes directly to [AndroidTextToSpeechController].
  * - [VoiceOutputEngine.SherpaExperimental] tries [SherpaOnnxVoiceOutputController] first, but
  *   still falls back to Android TTS if Sherpa assets/runtime are missing or if synthesis fails.
- *
+ * - [VoiceOutputEngine.InflectMicroExperimental] tries the debug Inflect controller first, but
+ *   still falls back to Android TTS if the model/frontend/runtime is unavailable.
  * Events are forwarded from whichever backend is active via [flatMapLatest].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -25,6 +26,7 @@ private const val TAG = "KernelAI"
 class FallbackVoiceOutputController @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val sherpa: SherpaOnnxVoiceOutputController,
+    private val inflect: InflectMicroVoiceOutputController,
     private val androidTts: AndroidTextToSpeechController,
 ) : VoiceOutputController {
     private val activeController = MutableStateFlow<VoiceOutputController>(androidTts)
@@ -35,6 +37,7 @@ class FallbackVoiceOutputController @Inject constructor(
         VoiceOutputEngine.AndroidTts -> warmUpAndroidTts()
         VoiceOutputEngine.SherpaExperimental,
         VoiceOutputEngine.KokoroExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.InflectMicroExperimental -> warmUpInflectOrFallback()
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
@@ -46,6 +49,7 @@ class FallbackVoiceOutputController @Inject constructor(
 
             VoiceOutputEngine.SherpaExperimental,
             VoiceOutputEngine.KokoroExperimental -> speakWithSherpaFallback(request)
+            VoiceOutputEngine.InflectMicroExperimental -> speakWithInflectFallback(request)
         }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
@@ -57,10 +61,12 @@ class FallbackVoiceOutputController @Inject constructor(
 
             VoiceOutputEngine.SherpaExperimental,
             VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request)
+            VoiceOutputEngine.InflectMicroExperimental -> openInflectStreamingSessionOrFallback(request)
         }
 
     override fun stop() {
         sherpa.stop()
+        inflect.stop()
         androidTts.stop()
     }
 
@@ -112,6 +118,68 @@ class FallbackVoiceOutputController @Inject constructor(
         return androidTts.speak(request)
     }
 
+    private suspend fun warmUpInflectOrFallback(): VoiceOutputResult {
+        val inflectResult = inflect.warmUp()
+        return if (inflectResult !is VoiceOutputResult.Unavailable) {
+            Log.i(TAG, "Inflect Micro TTS selected as active voice output backend.")
+            activate(inflect)
+            inflectResult
+        } else {
+            Log.i(
+                TAG,
+                "Inflect Micro TTS unavailable (${inflectResult.message}); routing to Android TTS fallback.",
+            )
+            activate(androidTts)
+            androidTts.warmUp()
+        }
+    }
+
+    private suspend fun speakWithInflectFallback(request: VoiceSpeakRequest): VoiceOutputResult {
+        val warmUpResult = inflect.warmUp()
+        if (warmUpResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            val inflectResult = inflect.speak(request)
+            if (inflectResult !is VoiceOutputResult.Unavailable) return inflectResult
+            Log.w(
+                TAG,
+                "Inflect Micro TTS speak failed (${inflectResult.message}); routing to Android TTS fallback.",
+            )
+        } else {
+            Log.i(
+                TAG,
+                "Inflect Micro TTS unavailable (${warmUpResult.message}); routing to Android TTS fallback.",
+            )
+        }
+        activate(androidTts)
+        val androidWarmUpResult = androidTts.warmUp()
+        if (androidWarmUpResult is VoiceOutputResult.Unavailable) return androidWarmUpResult
+        return androidTts.speak(request)
+    }
+
+    private suspend fun openInflectStreamingSessionOrFallback(
+        request: VoiceSpeakRequest,
+    ): VoiceOutputStreamingSession {
+        val warmUpResult = inflect.warmUp()
+        if (warmUpResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            return inflect.openStreamingSession(request)
+        }
+        Log.i(
+            TAG,
+            "Inflect Micro TTS unavailable (${warmUpResult.message}); routing streaming session to Android TTS fallback.",
+        )
+        activate(androidTts)
+        val androidWarmUpResult = androidTts.warmUp()
+        return if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult =
+                    androidWarmUpResult
+            }
+        } else {
+            androidTts.openStreamingSession(request)
+        }
+    }
+
     private suspend fun openSherpaStreamingSessionOrFallback(
         request: VoiceSpeakRequest,
     ): VoiceOutputStreamingSession {
@@ -144,6 +212,7 @@ class FallbackVoiceOutputController @Inject constructor(
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
         if (active !== sherpa) sherpa.stop()
+        if (active !== inflect) inflect.stop()
         if (active !== androidTts) androidTts.stop()
     }
 }

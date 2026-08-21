@@ -78,6 +78,9 @@ import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
@@ -257,6 +260,9 @@ fun VoiceScreen(
         onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
+        onDownloadInflectMicro = viewModel::downloadInflectMicro,
+        onCancelInflectMicro = viewModel::cancelInflectMicroDownload,
+        onDeleteInflectMicro = viewModel::deleteInflectMicro,
     )
 
     if (showMicRepairDialog) {
@@ -413,6 +419,9 @@ private fun VoiceScreenContent(
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
+    onDownloadInflectMicro: () -> Unit = {},
+    onCancelInflectMicro: () -> Unit = {},
+    onDeleteInflectMicro: () -> Unit = {},
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -771,7 +780,9 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
-            VoiceOutputEngine.entries.forEach { engine ->
+            uiState.availableOutputEngines.forEach { engine ->
+                val engineSelectable = engine != VoiceOutputEngine.InflectMicroExperimental ||
+                    uiState.isInflectMicroReady
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -779,16 +790,20 @@ private fun VoiceScreenContent(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(engine.description)
                             Text(
-                                text = if (uiState.selectedOutputEngine == engine) {
-                                    "Currently active"
-                                } else {
-                                    "Inactive"
+                                text = when {
+                                    !engineSelectable ->
+                                        "Download both Inflect graphs and the selected Sherpa voice pack first."
+                                    uiState.selectedOutputEngine == engine ->
+                                        "Currently active"
+                                    else ->
+                                        "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (uiState.selectedOutputEngine == engine) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                color = when {
+                                    !engineSelectable -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    uiState.selectedOutputEngine == engine ->
+                                        MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
                         }
@@ -796,6 +811,7 @@ private fun VoiceScreenContent(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedOutputEngine == engine,
+                            enabled = engineSelectable,
                             onClick = { onVoiceOutputEngineSelected(engine) },
                         )
                     },
@@ -988,6 +1004,66 @@ private fun VoiceScreenContent(
                             }
                         }
                     }
+                }
+            }
+
+            if (
+                VoiceOutputEngine.InflectMicroExperimental in uiState.availableOutputEngines &&
+                (!uiState.isInflectMicroReady ||
+                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental)
+            ) {
+                val inflectActive =
+                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+                Text(
+                    text = "Inflect Micro debug models",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                VoiceInfoCard(
+                    title = if (inflectActive) {
+                        "Inflect Micro (Debug) is active"
+                    } else {
+                        "Inflect Micro (Debug) is available"
+                    },
+                    message = if (inflectActive) {
+                        "This debug-only path normalizes runtime text, reuses the selected Sherpa eSpeak frontend, and runs the official Inflect Micro v2 ONNX graphs. It falls back to Android TTS until both graphs and the Sherpa voice pack are available."
+                    } else {
+                        "Download both Inflect graphs and a Sherpa voice pack to enable this debug-only quality path."
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                InflectMicroModelSpec.requiredModels.forEach { required ->
+                    val model = KernelModel.entries.first { it.fileName == required.fileName }
+                    val state = uiState.inflectMicroStates[model] ?: DownloadState.NotDownloaded
+                    ListItem(
+                        headlineContent = { Text(model.displayName) },
+                        supportingContent = {
+                            Text(
+                                when (state) {
+                                    DownloadState.NotDownloaded -> "Not downloaded"
+                                    is DownloadState.Downloading -> "Downloading ${(state.progress * 100).roundToInt()}%"
+                                    is DownloadState.Downloaded -> "Downloaded"
+                                    is DownloadState.Error -> state.message
+                                },
+                            )
+                        },
+                        trailingContent = {
+                            when (state) {
+                                DownloadState.NotDownloaded,
+                                is DownloadState.Error -> {
+                                    Button(onClick = onDownloadInflectMicro) { Text("Download") }
+                                }
+                                is DownloadState.Downloading -> {
+                                    OutlinedButton(onClick = onCancelInflectMicro) { Text("Cancel") }
+                                }
+                                is DownloadState.Downloaded -> {
+                                    TextButton(onClick = onDeleteInflectMicro) { Text("Delete") }
+                                }
+                            }
+                        },
+                    )
+                    HorizontalDivider()
                 }
             }
 
@@ -1448,6 +1524,8 @@ private fun VoiceOutputSelectionCard(
             "Sherpa Piper is currently the only engine that will speak. Android TTS is inactive until you switch back."
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
+        VoiceOutputEngine.InflectMicroExperimental ->
+            "Inflect Micro (Debug) is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
     }
 
     VoiceInfoCard(

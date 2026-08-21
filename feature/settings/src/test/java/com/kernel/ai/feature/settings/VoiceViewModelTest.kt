@@ -9,14 +9,15 @@ import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
-import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -77,7 +78,10 @@ class VoiceViewModelTest {
                 VoicePackDownloadState.NotDownloaded
             },
         )
-
+    private val modelDownloadStates: MutableStateFlow<Map<KernelModel, DownloadState>> =
+        MutableStateFlow(
+            KernelModel.entries.associateWith { DownloadState.NotDownloaded as DownloadState },
+        )
     private lateinit var viewModel: VoiceViewModel
 
     @BeforeEach
@@ -118,13 +122,10 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
         coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
-        every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
-        every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
+        every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
-        every { modelDownloadManager.downloadStates } returns MutableStateFlow(
-            KernelModel.entries.associateWith { DownloadState.NotDownloaded as DownloadState }
-        )
+        every { modelDownloadManager.downloadStates } returns modelDownloadStates
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
@@ -389,6 +390,136 @@ class VoiceViewModelTest {
         coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
     }
 
+
+    @Test
+    fun `setVoiceOutputEngine ignores Inflect until graphs and selected voice are downloaded`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.AndroidTts,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        coVerify(exactly = 0) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental)
+        }
+    }
+
+    @Test
+    fun `setVoiceOutputEngine accepts Inflect when all required assets are ready`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isInflectMicroReady)
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        coVerify {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental)
+        }
+    }
+
+    @Test
+    fun `changing selected Sherpa voice recomputes Inflect readiness`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.SemaineMedium to VoicePackDownloadState.Downloaded("/voices/semaine"),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SherpaPiperVoice.JennyDioco, viewModel.uiState.value.selectedSherpaVoice)
+        assertEquals(false, viewModel.uiState.value.isInflectMicroReady)
+
+        selectedSherpaVoice.value = SherpaPiperVoice.SemaineMedium
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isSelectedSherpaVoiceDownloaded)
+        assertTrue(viewModel.uiState.value.isInflectMicroReady)
+    }
+
+    @Test
+    fun `persistently demotes Inflect when a required graph becomes unavailable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+
+        val durationModel = KernelModel.entries.first {
+            it.fileName == InflectMicroModelSpec.requiredModels.first().fileName
+        }
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(durationModel, DownloadState.NotDownloaded)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
+        coVerify(exactly = 1) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+    }
+
+    @Test
+    fun `persistently demotes Inflect when the selected Sherpa voice becomes unavailable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.NotDownloaded)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
+        coVerify(exactly = 1) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+    }
     @Test
     fun `setSherpaVoice updates ui state immediately`() = runTest {
         sherpaDownloadStates.value = mapOf(
@@ -506,6 +637,35 @@ class VoiceViewModelTest {
         io.mockk.verify { sherpaVoicePackDownloadManager.deleteVoice(SherpaPiperVoice.NorthernEnglishMale) }
     }
 
+
+    @Test
+    fun `downloadInflectMicro delegates both graph downloads`() = runTest {
+        viewModel.downloadInflectMicro()
+
+        io.mockk.verify(exactly = 1) {
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION)
+        }
+        io.mockk.verify(exactly = 1) {
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE)
+        }
+    }
+
+    @Test
+    fun `cancelInflectMicroDownload cancels only active graph downloads`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+
+        viewModel.cancelInflectMicroDownload()
+
+        io.mockk.verify(exactly = 1) {
+            modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DURATION)
+        }
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DECODE)
+        }
+    }
     @Test
     fun `setHeyJandalEnabled true updates state and persists`() = runTest {
         viewModel.setHeyJandalEnabled(true)

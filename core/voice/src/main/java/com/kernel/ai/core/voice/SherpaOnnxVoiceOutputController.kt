@@ -2,11 +2,8 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioFocusRequest
-import android.media.AudioTrack
-import android.media.PlaybackParams
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.Channel
@@ -622,95 +619,23 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     // ── AudioTrack playback ──────────────────────────────────────────────────
 
     /**
-     * Writes [samples] (PCM Float32, mono) to an [AudioTrack] in streaming chunks.
-     * Checks [stopped] between chunks so [stop] can interrupt mid-utterance quickly.
+     * Writes [samples] (PCM Float32, mono) to the shared voice-output AudioTrack path.
+     * Checks [stopped] and the non-streaming generation between chunks so [stop] can interrupt
+     * mid-utterance and a newer request cannot receive stale audio.
      *
      * [generation] is the value of [nonStreamingPlaybackGeneration] at the time this invocation
-     * was started. If a newer non-streaming [speak] call has incremented the counter before this
-     * loop iteration begins, the loop aborts — preventing stale audio from bleeding into the new
-     * playback. Pass the default (-1) from the streaming path, which uses its own token guard.
+     * was started. Pass the default (-1) from the streaming path, which uses its own token guard.
      */
     private fun playOnAudioTrack(samples: FloatArray, sampleRate: Int, generation: Long = -1L) {
-        val minBuf = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_FLOAT,
+        playVoicePcmOnAudioTrack(
+            samples = samples,
+            sampleRate = sampleRate,
+            gain = sherpaGain.value,
+            pitch = sherpaPitch.value,
+            shouldContinue = {
+                !stopped && (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
+            },
         )
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(maxOf(minBuf, AUDIO_CHUNK_FLOATS * Float.SIZE_BYTES * 2))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-
-        // Apply PCM gain before playback. AudioTrack.setVolume() is capped at 1.0 by the
-        // framework, so amplification above unity must be done in the sample domain.
-        // Gain is applied per-chunk into a reusable scratch buffer to avoid a full-buffer
-        // allocation on every TTS call.
-        val gain = sherpaGain.value
-        // Only apply PlaybackParams when pitch differs from unity — routing all audio through
-        // Android's SONIC time-stretcher (even at pitch=1.0) reduces perceived loudness.
-        // Speed is fixed at 1.0 here; Sherpa already controls tempo at synthesis time.
-        val pitch = sherpaPitch.value
-        val chunk = if (gain != 1.0f) FloatArray(AUDIO_CHUNK_FLOATS) else null
-        try {
-            track.play()
-            if (pitch != 1.0f) {
-                track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
-            }
-            var offset = 0
-            while (offset < samples.size && !stopped &&
-                (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
-            ) {
-                val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
-                val len = end - offset
-                if (chunk != null) {
-                    for (i in 0 until len) {
-                        chunk[i] = (samples[offset + i] * gain).coerceIn(-1.0f, 1.0f)
-                    }
-                    track.write(chunk, 0, len, AudioTrack.WRITE_BLOCKING)
-                } else {
-                    track.write(samples, offset, len, AudioTrack.WRITE_BLOCKING)
-                }
-                offset = end
-            }
-            if (!stopped) {
-                // Write silence padding equal to the hardware output latency before calling
-                // stop(). PLAYSTATE_STOPPED fires when AudioFlinger's mixer buffer is empty,
-                // but the hardware HAL and DSP pipeline (Samsung Adapt Sound / Dolby Atmos)
-                // can hold an additional 100–300 ms of frames that get silently discarded by
-                // track.release(). Padding with silence equal to track.latency pushes the
-                // real speech samples earlier in the playback queue, ensuring they have
-                // cleared the hardware pipeline before PLAYSTATE_STOPPED is reached.
-                val latencyFrames = (sampleRate.toLong() * audioTrackLatencyMs(track).coerceIn(0, 400) / 1000L).toInt()
-                if (latencyFrames > 0 && !stopped) {
-                    track.write(FloatArray(latencyFrames), 0, latencyFrames, AudioTrack.WRITE_BLOCKING)
-                }
-                track.stop()
-                // MODE_STREAM: stop() is non-blocking — buffered samples continue to drain.
-                // Wait until PLAYSTATE_STOPPED so release() doesn't cut the audio tail,
-                // and SpeakingStopped fires only after audio has actually finished playing.
-                // Also check stopped so a concurrent controller.stop() call breaks out fast.
-                while (!stopped && track.playState != AudioTrack.PLAYSTATE_STOPPED) {
-                    Thread.sleep(10)
-                }
-            } else {
-                track.pause()
-            }
-        } finally {
-            track.release()
-        }
     }
 
     // ── AudioFocus ───────────────────────────────────────────────────────────
@@ -898,18 +823,5 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         const val SHERPA_VITS_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsVitsModelConfig"
         const val SHERPA_KOKORO_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsKokoroModelConfig"
 
-        /** Floats per AudioTrack write chunk (~92 ms at 22050 Hz). */
-        const val AUDIO_CHUNK_FLOATS = 2048
-
-        /**
-         * Returns the hardware output latency of [track] in milliseconds via reflection.
-         * `AudioTrack.getLatency()` exists on all API levels but is hidden from the public
-         * SDK surface. We access it reflectively with a safe fallback to 0 if unavailable.
-         */
-        fun audioTrackLatencyMs(track: AudioTrack): Int = try {
-            AudioTrack::class.java.getMethod("getLatency").invoke(track) as? Int ?: 0
-        } catch (_: Exception) {
-            0
-        }
     }
 }

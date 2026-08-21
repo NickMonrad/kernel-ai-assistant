@@ -238,12 +238,12 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
-        .takeIf { it.exists() }
-        ?: rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
-    if (sherpaAar.exists()) {
-        implementation(files(sherpaAar.absolutePath))
-    }
+    // Keep the stock Sherpa runtime in release and the Inflect-enabled rebuild in debug only.
+    val stockSherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
+    val inflectSherpaAar =
+        rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
+    releaseImplementation(files(stockSherpaAar.absolutePath))
+    debugImplementation(files(inflectSherpaAar.absolutePath))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
