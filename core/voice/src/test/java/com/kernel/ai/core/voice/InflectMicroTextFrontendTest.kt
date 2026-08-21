@@ -59,6 +59,25 @@ class InflectMicroTextFrontendTest {
         }
     }
 
+
+    @Test
+    fun phonemizeChunks_keeps_short_multi_sentence_utterance_together() {
+        val text = "Sure. I've set the reminder for tomorrow morning."
+        val phonemizedInputs = mutableListOf<String>()
+
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(
+            normalizedText = text,
+            phonemize = { input ->
+                phonemizedInputs += input
+                input
+            },
+        )
+
+        assertEquals(1, chunks.size)
+        assertEquals(text, chunks.single().text)
+        assertEquals(listOf(text), phonemizedInputs)
+    }
+
     @Test
     fun phonemizeChunks_keeps_order_and_bounds_long_punctuation_text() {
         val normalized = (1..180).joinToString(" ") { "phoneme" }

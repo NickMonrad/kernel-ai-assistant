@@ -130,8 +130,8 @@ object InflectMicroTextFrontend {
     )
 
     /**
-     * Splits normalized runtime text at punctuation boundaries, then at words only when one
-     * punctuation-delimited segment still exceeds the ONNX frontend bound.
+     * Keeps normalized text as one chunk when it fits, then splits at punctuation boundaries and
+     * at words only when one punctuation-delimited segment still exceeds the ONNX frontend bound.
      */
     fun phonemizeChunks(
         normalizedText: String,
@@ -139,13 +139,30 @@ object InflectMicroTextFrontend {
         phonemize: (String) -> String,
     ): List<PhonemizedChunk> {
         require(maxPhonemeLength > 0) { "maxPhonemeLength must be positive" }
-        return normalizedText
-            .split(Regex("(?<=[.!?;,:])\\s+"))
+        val text = normalizedText.trim()
+        if (text.isEmpty()) return emptyList()
+
+        fun phonemizeChecked(value: String): String =
+            phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
+
+        val completePhonemes = phonemizeChecked(text)
+        if (completePhonemes.length <= maxPhonemeLength) {
+            return listOf(PhonemizedChunk(text, completePhonemes))
+        }
+
+        val segments = text.split(Regex("(?<=[.!?;,:])\\s+"))
+        val initialSegmentPhonemes = completePhonemes.takeIf { segments.size == 1 }
+        return segments
             .asSequence()
             .map(String::trim)
             .filter(String::isNotEmpty)
             .flatMap { segment ->
-                phonemizeSegment(segment, maxPhonemeLength, phonemize).asSequence()
+                phonemizeSegment(
+                    text = segment,
+                    maxPhonemeLength = maxPhonemeLength,
+                    phonemize = ::phonemizeChecked,
+                    initialPhonemes = initialSegmentPhonemes,
+                ).asSequence()
             }
             .toList()
     }
@@ -154,11 +171,9 @@ object InflectMicroTextFrontend {
         text: String,
         maxPhonemeLength: Int,
         phonemize: (String) -> String,
+        initialPhonemes: String? = null,
     ): List<PhonemizedChunk> {
-        fun phonemizeChecked(value: String): String =
-            phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
-
-        val phonemes = phonemizeChecked(text)
+        val phonemes = initialPhonemes ?: phonemize(text)
         if (phonemes.length <= maxPhonemeLength) {
             return listOf(PhonemizedChunk(text, phonemes))
         }
@@ -168,7 +183,7 @@ object InflectMicroTextFrontend {
         var currentPhonemes: String? = null
         for (word in text.split(whitespace).filter(String::isNotEmpty)) {
             val candidateText = currentText?.let { "$it $word" } ?: word
-            val candidatePhonemes = phonemizeChecked(candidateText)
+            val candidatePhonemes = phonemize(candidateText)
             if (candidatePhonemes.length <= maxPhonemeLength) {
                 currentText = candidateText
                 currentPhonemes = candidatePhonemes
@@ -179,7 +194,7 @@ object InflectMicroTextFrontend {
             if (completedText != null && completedPhonemes != null) {
                 chunks += PhonemizedChunk(completedText, completedPhonemes)
             }
-            val wordPhonemes = phonemizeChecked(word)
+            val wordPhonemes = phonemize(word)
             require(wordPhonemes.length <= maxPhonemeLength) {
                 "Inflect word exceeds $maxPhonemeLength phoneme characters."
             }
