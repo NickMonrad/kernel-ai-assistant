@@ -15,14 +15,18 @@ production dependency. The checked-in patch is
 - ABI: `arm64-v8a`
 - Android platform: `android-21`
 - CMake: 4.4.2
-- Release artifact SHA-256 (local ignored AAR):
+- Custom debug AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`
+- Custom debug AAR SHA-256:
   `cf35bb1999586fb6c2f5746bfc556504a6ee8407e02ed3047f1274fa8d2008dc`
+- Stock release AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar`
+- Stock release AAR SHA-256:
+  `233b6b19fb5515c047adebde0dbf873a9fd8ac23f1d2ff6a3701f7ffc923b23c`
 - arm64 JNI SHA-256 before AAR packaging:
   `3fa47f550edfe2bebaa8f6d219cfc2c62c38b77284f124b79f43701a535d4eac`
 
-The AAR remains ignored by repository policy (`third_party/sherpa-onnx/`).
-The source patch and these reproducible inputs are retained in the repository
-for release/SBOM work under #1474.
+The custom AAR is checked in under the ignored `third_party/sherpa-onnx/`
+directory with an explicit force-add. The stock AAR remains the release
+runtime artifact; the custom AAR is debug-only.
 
 ## Rebuild
 

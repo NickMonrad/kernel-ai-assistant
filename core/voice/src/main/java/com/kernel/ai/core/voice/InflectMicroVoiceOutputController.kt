@@ -63,26 +63,36 @@ class InflectMicroVoiceOutputController @Inject constructor(
             try {
                 val normalized = InflectMicroTextFrontend.normalize(request.text)
                 require(normalized.isNotBlank()) { "Inflect normalization produced empty text" }
-                val phonemes = InflectMicroTextFrontend.applyPhonemeOverrides(
-                    InflectPhonemizer.phonemize(normalized, dataDirectory),
-                )
-                val synthesis = currentRunner.synthesize(phonemes)
-                if (stopped || playbackGeneration.get() != generation) {
-                    return@withContext VoiceOutputResult.Spoken
+                val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
+                    InflectMicroTextFrontend.applyPhonemeOverrides(
+                        InflectPhonemizer.phonemize(chunkText, dataDirectory),
+                    )
                 }
-                requestAudioFocus()
-                eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
-                started = true
-                playVoicePcmOnAudioTrack(
-                    samples = synthesis.waveform,
-                    sampleRate = InflectMicroOnnxRunner.SAMPLE_RATE_HZ,
-                    gain = gain,
-                    pitch = pitch,
+                require(chunks.isNotEmpty()) { "Inflect normalization produced no synthesis chunks." }
+                runInflectChunks(
+                    chunks = chunks,
                     shouldContinue = {
                         !stopped && playbackGeneration.get() == generation
                     },
-                    onTrackCreated = { activeTrack.set(it) },
-                    onTrackReleased = { activeTrack.compareAndSet(it, null) },
+                    synthesize = { chunk -> currentRunner.synthesize(chunk) },
+                    play = { synthesis ->
+                        if (!started) {
+                            requestAudioFocus()
+                            eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
+                            started = true
+                        }
+                        playVoicePcmOnAudioTrack(
+                            samples = synthesis.waveform,
+                            sampleRate = InflectMicroOnnxRunner.SAMPLE_RATE_HZ,
+                            gain = gain,
+                            pitch = pitch,
+                            shouldContinue = {
+                                !stopped && playbackGeneration.get() == generation
+                            },
+                            onTrackCreated = { activeTrack.set(it) },
+                            onTrackReleased = { activeTrack.compareAndSet(it, null) },
+                        )
+                    },
                 )
                 releaseAudioFocus()
                 if (started && !stopped) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
@@ -185,5 +195,19 @@ class InflectMicroVoiceOutputController @Inject constructor(
     private companion object {
         const val TAG = "KernelAI"
         const val SHERPA_ESPEAK_DATA_DIR = "espeak-ng-data"
+    }
+}
+
+internal fun <T> runInflectChunks(
+    chunks: List<InflectMicroTextFrontend.PhonemizedChunk>,
+    shouldContinue: () -> Boolean,
+    synthesize: (String) -> T,
+    play: (T) -> Unit,
+) {
+    for (chunk in chunks) {
+        if (!shouldContinue()) return
+        val synthesis = synthesize(chunk.phonemes)
+        if (!shouldContinue()) return
+        play(synthesis)
     }
 }

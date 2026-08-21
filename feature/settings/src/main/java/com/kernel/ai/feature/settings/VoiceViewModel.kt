@@ -165,6 +165,9 @@ class VoiceViewModel @Inject constructor(
         InflectMicroModelSpec.requiredModels.map { required ->
             KernelModel.entries.first { it.fileName == required.fileName }
         }
+
+    private var sherpaVoiceDownloadStatesLoaded = false
+    private var inflectModelDownloadStatesLoaded = false
     private val _uiState = MutableStateFlow(
         VoiceUiState(
             availableOutputEngines = VoiceOutputEngine.entriesForBuild(isReleaseBuild),
@@ -206,6 +209,7 @@ class VoiceViewModel @Inject constructor(
                 if (effectiveEngine != engine) {
                     voiceOutputPreferences.setSelectedEngine(effectiveEngine)
                 }
+                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -219,6 +223,7 @@ class VoiceViewModel @Inject constructor(
                         isInflectMicroReady = state.hasAllInflectModelsDownloaded() && selectedVoiceDownloaded,
                     )
                 }
+                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -248,6 +253,7 @@ class VoiceViewModel @Inject constructor(
         }
         viewModelScope.launch {
             sherpaVoicePackDownloadManager.downloadStates.collect { states ->
+                sherpaVoiceDownloadStatesLoaded = true
                 _uiState.update {
                     val sherpaRows = visibleSherpaVoices.map { voice ->
                         SherpaVoiceRowUiState(
@@ -266,19 +272,12 @@ class VoiceViewModel @Inject constructor(
                         },
                         isSelectedSherpaVoiceDownloaded = selectedVoiceDownloaded,
                         isInflectMicroReady = inflectReady,
-                        selectedOutputEngine = if (
-                            it.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental &&
-                            !inflectReady
-                        ) {
-                            VoiceOutputEngine.AndroidTts
-                        } else {
-                            it.selectedOutputEngine
-                        },
                         sherpaVoiceAvailability = visibleSherpaVoices.associateWith { voice ->
                             (states[voice] ?: VoicePackDownloadState.NotDownloaded).toModelAvailability()
                         },
                     )
                 }
+                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -351,27 +350,40 @@ class VoiceViewModel @Inject constructor(
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
+                inflectModelDownloadStatesLoaded = true
                 _uiState.update {
                     val inflectReady = inflectStates.allModelsDownloaded() &&
                         it.isSelectedSherpaVoiceDownloaded
                     it.copy(
                         inflectMicroStates = inflectStates,
                         isInflectMicroReady = inflectReady,
-                        selectedOutputEngine = if (
-                            it.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental &&
-                            !inflectReady
-                        ) {
-                            VoiceOutputEngine.AndroidTts
-                        } else {
-                            it.selectedOutputEngine
-                        },
                         sherpaSttStates = perFamilyStates,
                         sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
                             state.toModelAvailability()
                         },
                     )
                 }
+                persistInflectDemotionIfNeeded()
             }
+        }
+    }
+
+    private suspend fun persistInflectDemotionIfNeeded() {
+        if (!sherpaVoiceDownloadStatesLoaded || !inflectModelDownloadStatesLoaded) return
+        var demoted = false
+        _uiState.update { state ->
+            if (
+                state.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental &&
+                !state.isInflectMicroReady
+            ) {
+                demoted = true
+                state.copy(selectedOutputEngine = VoiceOutputEngine.AndroidTts)
+            } else {
+                state
+            }
+        }
+        if (demoted) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
     }
     private fun Map<KernelModel, DownloadState>.allModelsDownloaded(): Boolean =

@@ -459,6 +459,67 @@ class VoiceViewModelTest {
         assertTrue(viewModel.uiState.value.isSelectedSherpaVoiceDownloaded)
         assertTrue(viewModel.uiState.value.isInflectMicroReady)
     }
+
+    @Test
+    fun `persistently demotes Inflect when a required graph becomes unavailable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+
+        val durationModel = KernelModel.entries.first {
+            it.fileName == InflectMicroModelSpec.requiredModels.first().fileName
+        }
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(durationModel, DownloadState.NotDownloaded)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
+        coVerify(exactly = 1) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+    }
+
+    @Test
+    fun `persistently demotes Inflect when the selected Sherpa voice becomes unavailable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.NotDownloaded)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
+        coVerify(exactly = 1) {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+    }
     @Test
     fun `setSherpaVoice updates ui state immediately`() = runTest {
         sherpaDownloadStates.value = mapOf(

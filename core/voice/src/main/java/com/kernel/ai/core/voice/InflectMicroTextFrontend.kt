@@ -124,6 +124,72 @@ object InflectMicroTextFrontend {
         return value.replace(whitespace, " ").trim()
     }
 
+    data class PhonemizedChunk(
+        val text: String,
+        val phonemes: String,
+    )
+
+    /**
+     * Splits normalized runtime text at punctuation boundaries, then at words only when one
+     * punctuation-delimited segment still exceeds the ONNX frontend bound.
+     */
+    fun phonemizeChunks(
+        normalizedText: String,
+        maxPhonemeLength: Int = InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH,
+        phonemize: (String) -> String,
+    ): List<PhonemizedChunk> {
+        require(maxPhonemeLength > 0) { "maxPhonemeLength must be positive" }
+        return normalizedText
+            .split(Regex("(?<=[.!?;,:])\\s+"))
+            .asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .flatMap { segment ->
+                phonemizeSegment(segment, maxPhonemeLength, phonemize).asSequence()
+            }
+            .toList()
+    }
+
+    private fun phonemizeSegment(
+        text: String,
+        maxPhonemeLength: Int,
+        phonemize: (String) -> String,
+    ): List<PhonemizedChunk> {
+        fun phonemizeChecked(value: String): String =
+            phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
+
+        val phonemes = phonemizeChecked(text)
+        if (phonemes.length <= maxPhonemeLength) {
+            return listOf(PhonemizedChunk(text, phonemes))
+        }
+
+        val chunks = mutableListOf<PhonemizedChunk>()
+        var currentText: String? = null
+        var currentPhonemes: String? = null
+        for (word in text.split(whitespace).filter(String::isNotEmpty)) {
+            val candidateText = currentText?.let { "$it $word" } ?: word
+            val candidatePhonemes = phonemizeChecked(candidateText)
+            if (candidatePhonemes.length <= maxPhonemeLength) {
+                currentText = candidateText
+                currentPhonemes = candidatePhonemes
+                continue
+            }
+            val completedText = currentText
+            val completedPhonemes = currentPhonemes
+            if (completedText != null && completedPhonemes != null) {
+                chunks += PhonemizedChunk(completedText, completedPhonemes)
+            }
+            val wordPhonemes = phonemizeChecked(word)
+            require(wordPhonemes.length <= maxPhonemeLength) {
+                "Inflect word exceeds $maxPhonemeLength phoneme characters."
+            }
+            currentText = word
+            currentPhonemes = wordPhonemes
+        }
+        currentText?.let { chunks += PhonemizedChunk(it, currentPhonemes!!) }
+        return chunks
+    }
+
     private fun expandDigits(value: String): String =
         value.mapIndexed { index, digit ->
             if (digit == '0' && index > 0) "oh" else smallCardinals[digit - '0']
@@ -186,15 +252,30 @@ object InflectMicroTextFrontend {
         if (value < ordinalSmall.size) return ordinalSmall[value.toInt()]
         if (value < 100L) {
             val remainder = (value % 10).toInt()
-            return if (remainder == 0) ordinalTens[(value / 10).toInt()] else "${tens[(value / 10).toInt()]} ${ordinalSmall[remainder]}"
+            return if (remainder == 0) {
+                ordinalTens[(value / 10).toInt()]
+            } else {
+                "${tens[(value / 10).toInt()]} ${ordinalSmall[remainder]}"
+            }
         }
         val scale = largestScale(value)
-        if (scale == 0) return "${cardinal(value / 100)} hundredth"
+        if (scale == 0) {
+            val hundreds = value / 100
+            val remainder = value % 100
+            return if (remainder == 0L) {
+                "${cardinal(hundreds)} hundredth"
+            } else {
+                "${cardinal(hundreds)} hundred and ${numberToWords(remainder, ordinal = true)}"
+            }
+        }
         val unit = scaleValue(scale)
-        return if (value % unit == 0L) {
-            "${cardinal(value / unit)} ${scaleOrdinals[scale]}"
+        val major = value / unit
+        val remainder = value % unit
+        return if (remainder == 0L) {
+            "${cardinal(major)} ${scaleOrdinals[scale]}"
         } else {
-            "${cardinal(value / unit)} ${scales[scale]} ${numberToWords(value % unit, ordinal = true)}"
+            val conjunction = if (remainder < 100L) " and " else " "
+            "${cardinal(major)} ${scales[scale]}$conjunction${numberToWords(remainder, ordinal = true)}"
         }
     }
 
@@ -202,18 +283,31 @@ object InflectMicroTextFrontend {
         if (value < 20L) return smallCardinals[value.toInt()]
         if (value < 100L) {
             val remainder = (value % 10).toInt()
-            return if (remainder == 0) tens[(value / 10).toInt()] else "${tens[(value / 10).toInt()]} ${smallCardinals[remainder]}"
+            return if (remainder == 0) {
+                tens[(value / 10).toInt()]
+            } else {
+                "${tens[(value / 10).toInt()]} ${smallCardinals[remainder]}"
+            }
         }
         val scale = largestScale(value)
         if (scale == 0) {
             val hundreds = value / 100
             val remainder = value % 100
-            return if (remainder == 0L) "${cardinal(hundreds)} hundred" else "${cardinal(hundreds)} hundred ${cardinal(remainder)}"
+            return if (remainder == 0L) {
+                "${cardinal(hundreds)} hundred"
+            } else {
+                "${cardinal(hundreds)} hundred and ${cardinal(remainder)}"
+            }
         }
         val unit = scaleValue(scale)
         val major = value / unit
         val remainder = value % unit
-        return if (remainder == 0L) "${cardinal(major)} ${scales[scale]}" else "${cardinal(major)} ${scales[scale]} ${cardinal(remainder)}"
+        return if (remainder == 0L) {
+            "${cardinal(major)} ${scales[scale]}"
+        } else {
+            val conjunction = if (remainder < 100L) " and " else " "
+            "${cardinal(major)} ${scales[scale]}$conjunction${cardinal(remainder)}"
+        }
     }
 
     private fun largestScale(value: Long): Int =
