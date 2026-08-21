@@ -3,6 +3,9 @@ package com.kernel.ai.feature.settings
 import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ActionReason
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
@@ -408,6 +411,45 @@ class VoiceViewModelTest {
     }
 
     @Test
+    fun `Inflect graph states aggregate into one model availability state`() {
+        val requiredModels = InflectMicroModelSpec.requiredModels.map { required ->
+            KernelModel.entries.first { it.fileName == required.fileName }
+        }
+        val notDownloaded: Map<KernelModel, DownloadState> = requiredModels.associateWith {
+            DownloadState.NotDownloaded
+        }
+
+        assertEquals(
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            notDownloaded.toInflectMicroAvailability(requiredModels),
+        )
+
+        val downloading = notDownloaded.toMutableMap().apply {
+            put(requiredModels.first(), DownloadState.Downloading(progress = 0.5f))
+        }
+        assertTrue(
+            downloading.toInflectMicroAvailability(requiredModels) is ModelAvailabilityState.Preparing,
+        )
+
+        val failed = notDownloaded.toMutableMap().apply {
+            put(requiredModels.first(), DownloadState.Error("network failure"))
+        }.toInflectMicroAvailability(requiredModels)
+        assertTrue(failed is ModelAvailabilityState.ActionRequired)
+        assertEquals(
+            ActionReason.DownloadFailed("network failure"),
+            (failed as ModelAvailabilityState.ActionRequired).reason,
+        )
+
+        val downloaded = requiredModels.associateWith {
+            DownloadState.Downloaded("/models/${it.fileName}")
+        }
+        assertEquals(
+            ModelAvailabilityState.Ready,
+            downloaded.toInflectMicroAvailability(requiredModels),
+        )
+    }
+
+    @Test
     fun `setVoiceOutputEngine accepts Inflect when all required assets are ready`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
@@ -423,6 +465,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.isInflectMicroReady)
+        assertEquals(ModelAvailabilityState.Ready, viewModel.uiState.value.inflectMicroAvailability)
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 

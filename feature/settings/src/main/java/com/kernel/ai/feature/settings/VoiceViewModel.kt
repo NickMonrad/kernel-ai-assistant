@@ -101,6 +101,10 @@ data class VoiceUiState(
     val inflectMicroStates: Map<KernelModel, DownloadState> = emptyMap(),
     /** True only when both Inflect graphs and the selected Sherpa eSpeak pack exist. */
     val isInflectMicroReady: Boolean = false,
+    /** Aggregate availability for the two Inflect graph files shown in Voice settings. */
+    val inflectMicroAvailability: ModelAvailabilityState = ModelAvailabilityState.Unavailable(
+        UnavailableReason.NotBundled,
+    ),
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
     /** Per-family download state for each Sherpa STT engine. */
     val sherpaSttStates: Map<VoiceInputEngine, SherpaSttDownloadState> = emptyMap(),
@@ -132,6 +136,43 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
     is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.Unavailable(
         UnavailableReason.NotBundled
     )
+}
+
+/**
+ * Aggregates the two Inflect graph download states into the logical state shown in Voice
+ * settings. The graph downloads remain independently managed by [ModelDownloadManager].
+ */
+internal fun Map<KernelModel, DownloadState>.toInflectMicroAvailability(
+    requiredModels: List<KernelModel>,
+): ModelAvailabilityState {
+    if (requiredModels.isEmpty()) {
+        return ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    }
+    val requiredStates = requiredModels.map { model ->
+        this[model] ?: DownloadState.NotDownloaded
+    }
+    return when {
+        requiredStates.all { it is DownloadState.Downloaded } -> ModelAvailabilityState.Ready
+        requiredStates.any { it is DownloadState.Downloading } -> {
+            val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
+            val downloadedBytes = requiredModels.mapIndexed { index, model ->
+                val state = requiredStates[index]
+                val weight = model.approxSizeBytes.toFloat()
+                when (state) {
+                    is DownloadState.Downloaded -> weight
+                    is DownloadState.Downloading -> state.progress.coerceIn(0f, 1f) * weight
+                    else -> 0f
+                }
+            }.sum()
+            ModelAvailabilityState.Preparing(
+                progress = if (totalBytes > 0f) downloadedBytes / totalBytes else 0f,
+                isAutoQueued = false,
+            )
+        }
+        else -> requiredStates.filterIsInstance<DownloadState.Error>().firstOrNull()?.let { error ->
+            ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(error.message))
+        } ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    }
 }
 
 /**
@@ -356,6 +397,7 @@ class VoiceViewModel @Inject constructor(
                         it.isSelectedSherpaVoiceDownloaded
                     it.copy(
                         inflectMicroStates = inflectStates,
+                        inflectMicroAvailability = inflectStates.toInflectMicroAvailability(inflectModels),
                         isInflectMicroReady = inflectReady,
                         sherpaSttStates = perFamilyStates,
                         sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
