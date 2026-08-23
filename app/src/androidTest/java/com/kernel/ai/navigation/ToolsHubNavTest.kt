@@ -35,6 +35,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -56,8 +57,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import org.junit.Before
 
 @RunWith(AndroidJUnit4::class)
@@ -68,11 +67,7 @@ class ToolsHubNavTest {
 
     @Before
     fun setUp() {
-        ApplicationProvider.getApplicationContext<Context>()
-            .getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
+        // No per-test state to clear: ToolsHubScreen no longer persists Learn expansion.
     }
 
     @Test
@@ -184,8 +179,9 @@ class ToolsHubNavTest {
         composeTestRule.onNodeWithText("Example prompts to get started").assertIsDisplayed()
     }
 
+
     @Test
-    fun toolsHub_learnCollapseHidesExpandedRow() {
+    fun toolsHub_learnRowIsAlwaysVisibleWithoutCollapsedState() {
         composeTestRule.setContent {
             ToolsHubScreen(
                 onOpenDrawer = {},
@@ -193,64 +189,9 @@ class ToolsHubNavTest {
             )
         }
 
-        // Initially expanded — collapse button visible
-        composeTestRule.onNodeWithTag("tools_learn_collapse").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
-
-        // Collapse
-        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
-        composeTestRule.waitForIdle()
-
-        // Expanded row hidden, collapsed row shown
-        composeTestRule.onNodeWithTag("tools_learn_collapsed").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Getting started").assertIsDisplayed()
-    }
-
-    @Test
-    fun toolsHub_learnCollapsedClickReExpands() {
-        composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
-            )
-        }
-
-        // Start expanded → collapse
-        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tools_learn_collapsed").assertIsDisplayed()
-
-        // Re-expand
-        composeTestRule.onNodeWithTag("tools_learn_collapsed", useUnmergedTree = true).performClick()
-        composeTestRule.waitForIdle()
-
-        // Expanded row back
-        composeTestRule.onNodeWithTag("tools_row_learn").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_learn_collapse").assertIsDisplayed()
-        composeTestRule.onAllNodesWithTag("tools_learn_collapsed", useUnmergedTree = true)
-            .fetchSemanticsNodes().let { nodes ->
-                assertTrue("Expected no collapsed row after re-expand", nodes.isEmpty())
-            }
-    }
-
-    @Test
-    fun toolsHub_learnCollapsedStateSearchStillWorks() {
-        composeTestRule.setContent {
-            ToolsHubScreen(
-                onOpenDrawer = {},
-                onNavigateToRoute = {},
-                onNavigateToSettings = {},
-            )
-        }
-
-        // Collapse learn
-        composeTestRule.onNodeWithTag("tools_learn_collapse", useUnmergedTree = true).performClick()
-        composeTestRule.waitForIdle()
-
-        // Search still works
-        composeTestRule.onNodeWithTag("tools_search_field").performTextInput("convert")
-        composeTestRule.onNodeWithTag("tools_search_results_header").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_search_result_convert").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools_learn_collapse").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("tools_learn_collapsed").assertDoesNotExist()
     }
 
     @Test
@@ -342,7 +283,9 @@ class ToolsHubNavTest {
 
         composeTestRule.onNodeWithTag("tools_learn_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tools_learn_helper_copy").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tools_learn_privacy_note").assertIsDisplayed()
+        composeTestRule.onNodeWithText(
+            "Tap an example to open it in Actions, where you can review or edit it before running. Some examples may ask a follow-up question.",
+        ).assertIsDisplayed()
     }
 
     @Test
@@ -438,6 +381,36 @@ class ToolsHubNavTest {
         composeTestRule.onNodeWithTag("tools_learn_time_timer_10", useUnmergedTree = true).performClick()
 
         assertEquals("Set a timer for 10 minutes", lastPrompt)
+    }
+
+    @Test
+    fun toolsLearnScreen_exampleRowIsInteractiveWithNavigationAffordance() {
+        composeTestRule.setContent {
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = {},
+            )
+        }
+
+        val screenNode = composeTestRule.onNodeWithTag("tools_learn_screen")
+        screenNode.performScrollToNode(hasTestTag("tools_learn_time_timer_10"))
+        composeTestRule.onNodeWithTag("tools_learn_time_timer_10", useUnmergedTree = true)
+            .assertIsDisplayed()
+            .assertHasClickAction()
+    }
+
+    @Test
+    fun toolsLearnScreen_tappingExampleDoesNotAutoExecute() {
+        var promptOpens = 0
+        composeTestRule.setContent {
+            ToolsLearnScreen(
+                onBack = {},
+                onOpenPrompt = { promptOpens++ },
+            )
+        }
+
+        // Rendering the Learn screen alone must never open Actions.
+        assertEquals(0, promptOpens)
     }
 
     @Test

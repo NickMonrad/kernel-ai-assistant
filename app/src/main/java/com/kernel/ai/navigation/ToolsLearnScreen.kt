@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -173,20 +174,12 @@ fun ToolsLearnScreen(
                 .testTag("tools_learn_screen"),
         ) {
             Text(
-                text = "Example prompts for actions, planning, weather, maps, media, and more",
+                text = "Tap an example to open it in Actions, where you can review or edit it before running. Some examples may ask a follow-up question.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .testTag("tools_learn_helper_copy"),
-            )
-            Text(
-                text = "Examples open in Actions so you can review or edit before running. Some examples may ask a follow-up question.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .testTag("tools_learn_privacy_note"),
             )
             Spacer(modifier = Modifier.height(8.dp))
             allExampleSections.forEachIndexed { index, section ->
@@ -296,8 +289,16 @@ private fun ToolsExampleRow(
             .testTag(testTag),
         headlineContent = {
             Text(
-                text = "\u2022 $label",
+                text = label,
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        trailingContent = {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     )
