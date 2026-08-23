@@ -19,6 +19,9 @@ import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.permissions.MicrophoneReadiness
+import com.kernel.ai.core.model.availability.ActionReason
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.UnavailableReason
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -34,6 +37,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -377,6 +381,117 @@ class VoiceViewModelTest {
             }
         )
     }
+    @Test
+    fun `debug builds expose Inflect while release builds hide it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.availableOutputEngines.contains(
+                VoiceOutputEngine.InflectMicroExperimental,
+            ),
+        )
+
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            releaseContext,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(
+            releaseViewModel.uiState.value.availableOutputEngines.contains(
+                VoiceOutputEngine.InflectMicroExperimental,
+            ),
+        )
+    }
+
+    @Test
+    fun `both Inflect graphs missing map to one downloadable logical model`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+    }
+
+    @Test
+    fun `either Inflect graph downloading maps to Preparing`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Error("stale partial file"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.inflectMicroAvailability
+                is ModelAvailabilityState.Preparing,
+        )
+    }
+
+    @Test
+    fun `either Inflect graph error maps to retryable logical model`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Error("network timeout"))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.ActionRequired(
+                ActionReason.DownloadFailed("network timeout"),
+            ),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+    }
+
+    @Test
+    fun `both Inflect graphs downloaded map to available but readiness still requires Sherpa`() =
+        runTest {
+            modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+                put(
+                    KernelModel.INFLECT_MICRO_DURATION,
+                    DownloadState.Downloaded("/models/duration.onnx"),
+                )
+                put(
+                    KernelModel.INFLECT_MICRO_DECODE,
+                    DownloadState.Downloaded("/models/decode.onnx"),
+                )
+            }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                ModelAvailabilityState.Ready,
+                viewModel.uiState.value.inflectMicroAvailability,
+            )
+            assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        }
+
+    @Test
+    fun `partial Inflect graph availability never maps to ready`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(
+                KernelModel.INFLECT_MICRO_DURATION,
+                DownloadState.Downloaded("/models/duration.onnx"),
+            )
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.NotDownloaded)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    }
+
 
     @Test
     fun `setVoiceOutputEngine updates ui state immediately`() = runTest {
