@@ -458,11 +458,12 @@ class NativeIntentHandler @Inject constructor(
                             "The alarm may not persist across device restarts."
                     }
                 }
+                val confirmation = "Alarm set for $formattedTime${if (label != null) " — $label" else ""}."
                 val message = buildString {
-                    append("Alarm set for $formattedTime${if (label != null) " — $label" else ""}.")
+                    append(confirmation)
                     if (warningText.isNotEmpty()) append(" $warningText")
                 }
-                SkillResult.Success(message)
+                SkillResult.Success(content = message, spokenSummary = confirmation)
             }
             is SchedulingResult.ExactAlarmBlocked ->
                 SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission in system settings.")
@@ -501,11 +502,12 @@ class NativeIntentHandler @Inject constructor(
                             "The timer may not persist across device restarts."
                     }
                 }
+                val confirmation = "Timer set for $durationStr."
                 val message = buildString {
-                    append("Timer set for $durationStr.")
+                    append(confirmation)
                     if (warningText.isNotEmpty()) append(" $warningText")
                 }
-                SkillResult.Success(message)
+                SkillResult.Success(content = message, spokenSummary = confirmation)
             }
             is SchedulingResult.ExactAlarmBlocked ->
                 SkillResult.Failure("run_intent", "Exact alarm scheduling is unavailable right now. Please grant exact alarm permission.")

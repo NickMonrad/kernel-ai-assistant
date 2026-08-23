@@ -19,6 +19,7 @@ import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.SchedulingResult
+import com.kernel.ai.core.memory.clock.SchedulingWarning
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.StopwatchLap
 import com.kernel.ai.core.memory.clock.StopwatchStatus
@@ -51,6 +52,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -863,7 +865,10 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
         assertTrue(result is SkillResult.Success)
-        assertTrue((result as SkillResult.Success).content.contains("Alarm set for"))
+        val success = result as SkillResult.Success
+        assertTrue(success.content.contains("Alarm set for"))
+        assertTrue(success.content.contains("Wake"))
+        assertEquals(success.content, success.spokenSummary)
         coVerify(exactly = 1) { clockRepository.createAlarm(any()) }
         verify(exactly = 0) { context.startActivity(any()) }
     }
@@ -1014,7 +1019,185 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_timer", mapOf("duration_seconds" to "90", "label" to "Tea"))
 
         assertTrue(result is SkillResult.Success)
-        assertEquals("Timer set for 1 min 30 sec.", (result as SkillResult.Success).content)
+        val success = result as SkillResult.Success
+        assertEquals("Timer set for 1 min 30 sec.", success.content)
+        assertEquals("Timer set for 1 min 30 sec.", success.spokenSummary)
+    }
+
+    @Test
+    fun `set_alarm keeps full-screen warning visible but excludes it from spoken summary`() {
+        val alarm = ClockAlarm(
+            id = "alarm-1",
+            label = "Wake",
+            createdAtMillis = 1_699_000_000_000L,
+            enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_700_000_000_000L,
+        )
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.Success(
+            alarm,
+            warnings = listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE),
+        )
+
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        assertTrue(result is SkillResult.Success)
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("Alarm set for"))
+        assertTrue(success.content.contains("Full-screen alerts are unavailable for this alarm."))
+        assertFalse(spoken.contains("Full-screen alerts are unavailable for this alarm."))
+        assertEquals(
+            success.content.replace(" Full-screen alerts are unavailable for this alarm.", ""),
+            spoken,
+        )
+    }
+
+    @Test
+    fun `set_alarm keeps boot-restore warning visible but excludes it from spoken summary`() {
+        val alarm = ClockAlarm(
+            id = "alarm-1",
+            label = "Wake",
+            createdAtMillis = 1_699_000_000_000L,
+            enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_700_000_000_000L,
+        )
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.Success(
+            alarm,
+            warnings = listOf(SchedulingWarning.BOOT_RESTORE_LIMITED),
+        )
+
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("Alarm set for"))
+        assertTrue(success.content.contains("The alarm may not persist across device restarts."))
+        assertFalse(spoken.contains("The alarm may not persist across device restarts."))
+        assertEquals(
+            success.content.replace(" The alarm may not persist across device restarts.", ""),
+            spoken,
+        )
+    }
+
+    @Test
+    fun `set_alarm keeps multiple warnings visible but none are spoken`() {
+        val alarm = ClockAlarm(
+            id = "alarm-1",
+            label = "Wake",
+            createdAtMillis = 1_699_000_000_000L,
+            enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_700_000_000_000L,
+        )
+        coEvery { clockRepository.createAlarm(any()) } returns SchedulingResult.Success(
+            alarm,
+            warnings = listOf(
+                SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE,
+                SchedulingWarning.BOOT_RESTORE_LIMITED,
+            ),
+        )
+
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("Full-screen alerts are unavailable for this alarm."))
+        assertTrue(success.content.contains("The alarm may not persist across device restarts."))
+        assertFalse(spoken.contains("Full-screen alerts are unavailable for this alarm."))
+        assertFalse(spoken.contains("The alarm may not persist across device restarts."))
+        val expected = success.content
+            .replace(" Full-screen alerts are unavailable for this alarm.", "")
+            .replace(" The alarm may not persist across device restarts.", "")
+        assertEquals(expected, spoken)
+
+    }
+
+    @Test
+    fun `set_timer keeps full-screen warning visible but excludes it from spoken summary`() {
+        coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
+            com.kernel.ai.core.memory.clock.ClockTimer(
+                id = "timer-1",
+                triggerAtMillis = 5_000L,
+                label = "Tea",
+                createdAtMillis = 1_000L,
+                durationMs = 90_000L,
+                startedAtMillis = 2_000L,
+            ),
+            warnings = listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE),
+        )
+
+        val result = handleIntent("set_timer", mapOf("duration_seconds" to "90", "label" to "Tea"))
+
+        assertTrue(result is SkillResult.Success)
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("Full-screen alerts are unavailable for this timer."))
+        assertFalse(spoken.contains("Full-screen alerts are unavailable for this timer."))
+        assertEquals("Timer set for 1 min 30 sec.", spoken)
+        assertEquals("Timer set for 1 min 30 sec. Full-screen alerts are unavailable for this timer.", success.content)
+    }
+
+    @Test
+    fun `set_timer keeps boot-restore warning visible but excludes it from spoken summary`() {
+        coEvery { clockRepository.scheduleTimer(60_000L, null) } returns SchedulingResult.Success(
+            com.kernel.ai.core.memory.clock.ClockTimer(
+                id = "timer-1",
+                triggerAtMillis = 5_000L,
+                label = null,
+                createdAtMillis = 1_000L,
+                durationMs = 60_000L,
+                startedAtMillis = 2_000L,
+            ),
+            warnings = listOf(SchedulingWarning.BOOT_RESTORE_LIMITED),
+        )
+
+        val result = handleIntent("set_timer", mapOf("duration_seconds" to "60"))
+        assertTrue(result is SkillResult.Success)
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("The timer may not persist across device restarts."))
+        assertFalse(spoken.contains("The timer may not persist across device restarts."))
+        assertEquals("Timer set for 1 minute.", spoken)
+        assertEquals("Timer set for 1 minute. The timer may not persist across device restarts.", success.content)
+    }
+
+    @Test
+    fun `set_timer keeps multiple warnings visible but none are spoken`() {
+        coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
+            com.kernel.ai.core.memory.clock.ClockTimer(
+                id = "timer-1",
+                triggerAtMillis = 5_000L,
+                label = "Tea",
+                createdAtMillis = 1_000L,
+                durationMs = 90_000L,
+                startedAtMillis = 2_000L,
+            ),
+            warnings = listOf(
+                SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE,
+                SchedulingWarning.BOOT_RESTORE_LIMITED,
+            ),
+        )
+
+        val result = handleIntent("set_timer", mapOf("duration_seconds" to "90", "label" to "Tea"))
+
+        assertTrue(result is SkillResult.Success)
+        val success = result as SkillResult.Success
+        val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
+        assertTrue(success.content.contains("Full-screen alerts are unavailable for this timer."))
+        assertTrue(success.content.contains("The timer may not persist across device restarts."))
+        assertFalse(spoken.contains("Full-screen alerts are unavailable for this timer."))
+        assertFalse(spoken.contains("The timer may not persist across device restarts."))
+        assertEquals("Timer set for 1 min 30 sec.", spoken)
     }
 
     @Test
