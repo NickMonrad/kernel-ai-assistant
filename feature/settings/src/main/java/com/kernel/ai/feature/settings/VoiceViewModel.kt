@@ -101,7 +101,7 @@ data class VoiceUiState(
     // ── Debug-only Inflect Micro model pair ───────────────────────────────────
     val inflectMicroStates: Map<KernelModel, DownloadState> = emptyMap(),
     val inflectMicroAvailability: ModelAvailabilityState =
-        ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+        ModelAvailabilityState.NotDisplayed,
     /** True only when both Inflect graphs and the selected Sherpa eSpeak pack exist. */
     val isInflectMicroReady: Boolean = false,
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
@@ -182,7 +182,7 @@ internal fun aggregateInflectMicroAvailability(
         return (state as DownloadState.Error).toAvailability(model, hfAuth = false)
     }
 
-    return ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    return ModelAvailabilityState.NotDisplayed
 }
 
 /**
