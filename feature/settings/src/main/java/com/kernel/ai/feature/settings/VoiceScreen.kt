@@ -78,9 +78,6 @@ import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
-import com.kernel.ai.core.inference.download.DownloadState
-import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
@@ -792,7 +789,7 @@ private fun VoiceScreenContent(
                             Text(
                                 text = when {
                                     !engineSelectable ->
-                                        "Download both Inflect graphs and the selected Sherpa voice pack first."
+                                        "Download Inflect Micro and the selected Sherpa voice pack first."
                                     uiState.selectedOutputEngine == engine ->
                                         "Currently active"
                                     else ->
@@ -1007,15 +1004,18 @@ private fun VoiceScreenContent(
                 }
             }
 
+            val inflectModelState = uiState.inflectMicroAvailability
             if (
                 VoiceOutputEngine.InflectMicroExperimental in uiState.availableOutputEngines &&
-                (!uiState.isInflectMicroReady ||
-                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental)
+                (
+                    inflectModelState !is ModelAvailabilityState.Ready ||
+                        uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+                    )
             ) {
                 val inflectActive =
                     uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
                 Text(
-                    text = "Inflect Micro debug models",
+                    text = "Inflect Micro debug model",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -1027,44 +1027,53 @@ private fun VoiceScreenContent(
                         "Inflect Micro (Debug) is available"
                     },
                     message = if (inflectActive) {
-                        "This debug-only path normalizes runtime text, reuses the selected Sherpa eSpeak frontend, and runs the official Inflect Micro v2 ONNX graphs. It falls back to Android TTS until both graphs and the Sherpa voice pack are available."
+                        "This debug-only path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available only while the model bundle and selected Sherpa voice pack are downloaded."
                     } else {
-                        "Download both Inflect graphs and a Sherpa voice pack to enable this debug-only quality path."
+                        "Download Inflect Micro and the selected Sherpa voice pack to enable this debug-only quality path."
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                InflectMicroModelSpec.requiredModels.forEach { required ->
-                    val model = KernelModel.entries.first { it.fileName == required.fileName }
-                    val state = uiState.inflectMicroStates[model] ?: DownloadState.NotDownloaded
-                    ListItem(
-                        headlineContent = { Text(model.displayName) },
-                        supportingContent = {
-                            Text(
-                                when (state) {
-                                    DownloadState.NotDownloaded -> "Not downloaded"
-                                    is DownloadState.Downloading -> "Downloading ${(state.progress * 100).roundToInt()}%"
-                                    is DownloadState.Downloaded -> "Downloaded"
-                                    is DownloadState.Error -> state.message
-                                },
-                            )
-                        },
-                        trailingContent = {
-                            when (state) {
-                                DownloadState.NotDownloaded,
-                                is DownloadState.Error -> {
-                                    Button(onClick = onDownloadInflectMicro) { Text("Download") }
-                                }
-                                is DownloadState.Downloading -> {
-                                    OutlinedButton(onClick = onCancelInflectMicro) { Text("Cancel") }
-                                }
-                                is DownloadState.Downloaded -> {
-                                    TextButton(onClick = onDeleteInflectMicro) { Text("Delete") }
-                                }
-                            }
-                        },
-                    )
-                    HorizontalDivider()
+                ModelCardCompact(
+                    title = "Inflect Micro (Debug)",
+                    description = "Debug-only local TTS model; uses the selected Sherpa voice pack for its frontend.",
+                    state = inflectModelState,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                when {
+                    inflectModelState is ModelAvailabilityState.Preparing -> {
+                        OutlinedButton(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            onClick = onCancelInflectMicro,
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                    inflectModelState is ModelAvailabilityState.Ready -> {
+                        OutlinedButton(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            onClick = onDeleteInflectMicro,
+                        ) {
+                            Text("Delete")
+                        }
+                    }
+                    inflectModelState is ModelAvailabilityState.ActionRequired -> {
+                        OutlinedButton(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            onClick = onDownloadInflectMicro,
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                    else -> {
+                        Button(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            onClick = onDownloadInflectMicro,
+                        ) {
+                            Text("Download")
+                        }
+                    }
                 }
+                HorizontalDivider()
             }
 
             if (uiState.selectedOutputEngine == VoiceOutputEngine.KokoroExperimental) {

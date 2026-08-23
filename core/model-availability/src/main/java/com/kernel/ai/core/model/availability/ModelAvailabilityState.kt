@@ -20,8 +20,8 @@ sealed class ModelAvailabilityState {
     ) : ModelAvailabilityState()
     data class ActionRequired(val reason: ActionReason) : ModelAvailabilityState()
     data class Unavailable(val reason: UnavailableReason) : ModelAvailabilityState()
-    /** Internal sentinel — the mapper returns this when no badge should be shown. */
-    internal data object NotDisplayed : ModelAvailabilityState()
+    /** Sentinel used when no availability badge should be shown. */
+    data object NotDisplayed : ModelAvailabilityState()
 }
 
 sealed class ActionReason {

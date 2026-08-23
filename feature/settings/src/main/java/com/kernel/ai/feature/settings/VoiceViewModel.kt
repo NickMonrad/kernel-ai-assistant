@@ -36,6 +36,7 @@ import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.UnavailableReason
+import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import javax.inject.Inject
 
@@ -99,6 +100,8 @@ data class VoiceUiState(
     val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
     // ── Debug-only Inflect Micro model pair ───────────────────────────────────
     val inflectMicroStates: Map<KernelModel, DownloadState> = emptyMap(),
+    val inflectMicroAvailability: ModelAvailabilityState =
+        ModelAvailabilityState.NotDisplayed,
     /** True only when both Inflect graphs and the selected Sherpa eSpeak pack exist. */
     val isInflectMicroReady: Boolean = false,
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
@@ -132,6 +135,54 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
     is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.Unavailable(
         UnavailableReason.NotBundled
     )
+}
+
+/**
+ * Aggregates the two Inflect graph states into one logical model-management state.
+ *
+ * A partial bundle is never ready. Downloading takes precedence over an error so that the
+ * single Cancel action remains available while either graph is still in progress.
+ */
+internal fun aggregateInflectMicroAvailability(
+    requiredModels: List<KernelModel>,
+    states: Map<KernelModel, DownloadState>,
+): ModelAvailabilityState {
+    val resolvedStates = requiredModels.map { model ->
+        model to (states[model] ?: DownloadState.NotDownloaded)
+    }
+    if (
+        resolvedStates.isNotEmpty() &&
+        resolvedStates.all { (_, state) -> state is DownloadState.Downloaded }
+    ) {
+        return ModelAvailabilityState.Ready
+    }
+
+    if (resolvedStates.any { (_, state) -> state is DownloadState.Downloading }) {
+        val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes }.toFloat()
+        val downloadedBytes = resolvedStates.fold(0f) { total, (model, state) ->
+            total + when (state) {
+                is DownloadState.Downloaded -> model.approxSizeBytes.toFloat()
+                is DownloadState.Downloading -> model.approxSizeBytes * state.progress
+                else -> 0f
+            }
+        }
+        return ModelAvailabilityState.Preparing(
+            progress = if (totalBytes > 0f) {
+                (downloadedBytes / totalBytes).coerceIn(0f, 1f)
+            } else {
+                0f
+            },
+            isAutoQueued = false,
+        )
+    }
+
+    val error = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
+    if (error != null) {
+        val (model, state) = error
+        return (state as DownloadState.Error).toAvailability(model, hfAuth = false)
+    }
+
+    return ModelAvailabilityState.NotDisplayed
 }
 
 /**
@@ -356,6 +407,10 @@ class VoiceViewModel @Inject constructor(
                         it.isSelectedSherpaVoiceDownloaded
                     it.copy(
                         inflectMicroStates = inflectStates,
+                        inflectMicroAvailability = aggregateInflectMicroAvailability(
+                            requiredModels = inflectModels,
+                            states = states,
+                        ),
                         isInflectMicroReady = inflectReady,
                         sherpaSttStates = perFamilyStates,
                         sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
