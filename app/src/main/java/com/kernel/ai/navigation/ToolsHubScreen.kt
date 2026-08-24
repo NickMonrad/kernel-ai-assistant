@@ -40,8 +40,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import android.content.Context
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 
@@ -159,11 +156,6 @@ fun ToolsHubScreen(
     onToggleFavourite: (String) -> Unit = {},
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val context = LocalContext.current
-    var learnSectionExpanded by remember {
-        val prefs = context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
-        mutableStateOf(prefs.getBoolean("tools_learn_expanded", true))
-    }
 
     Scaffold(
         topBar = {
@@ -212,82 +204,14 @@ fun ToolsHubScreen(
             )
 
             if (searchQuery.isBlank()) {
-                // ── Full grouped layout ──────────────────────────────────────
-                // Compact, collapsible Learn entry
-                if (learnSectionExpanded) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToRoute(ROUTE_TOOLS_LEARN) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                            .testTag("tools_row_learn"),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.MenuBook,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "Learn what Jandal can do",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Text(
-                                "Example prompts to get started",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                learnSectionExpanded = false
-                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putBoolean("tools_learn_expanded", false)
-                                    .apply()
-                            },
-                            modifier = Modifier.testTag("tools_learn_collapse"),
-                        ) {
-                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Collapse")
-                        }
-                    }
-                    HorizontalDivider()
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                learnSectionExpanded = true
-                                context.getSharedPreferences("tools_hub", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putBoolean("tools_learn_expanded", true)
-                                    .apply()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                            .testTag("tools_learn_collapsed"),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.MenuBook,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Text(
-                            "Getting started",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Show",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    HorizontalDivider()
-                }
+                // ── Learn entry: always-visible direct navigation row ────────
+                ToolsListItem(
+                    testTag = "tools_row_learn",
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                    title = "Learn what Jandal can do",
+                    subtitle = "Example prompts to get started",
+                    onClick = { onNavigateToRoute(ROUTE_TOOLS_LEARN) },
+                )
 
                 Text(
                     text = "Productivity",
