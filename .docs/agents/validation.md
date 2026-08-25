@@ -28,6 +28,32 @@ Load this when deciding how to verify a change.
 - Inference tests use mocked `InferenceEngine` — never download models in CI
 - Compose UI tests run via Android Emulator (API 35 system image)
 
+## Connected Compose/UI tests on a physical device
+
+Before running connected Compose/UI instrumentation tests on a physical device,
+verify the device is:
+
+- visible and authorised in `adb devices`
+- awake
+- unlocked / keyguard dismissed
+
+For longer runs, keep the device awake:
+
+```bash
+adb shell svc power stayon usb
+```
+
+If you temporarily change the device keep-awake setting for validation, restore
+the prior/default state after the run unless the operator explicitly asks to
+leave it enabled.
+
+**Troubleshooting:** `IllegalStateException: No compose hierarchies found in the app`
+can occur when the physical device is dozing or the screen is off — the Compose
+test host cannot stay resumed long enough to register a test root. Check the
+device's wake/unlock state before classifying this error as a product or
+Compose test-harness defect. This failure mode was observed during #1482
+validation.
+
 ## Pre-PR checklist
 
 1. `./gradlew test` passes
