@@ -102,7 +102,10 @@ object InflectMicroTextFrontend {
         value = value.replace(Regex("\\b(\\d+)(st|nd|rd|th)\\b", RegexOption.IGNORE_CASE)) { match ->
             numberToWords(match.groupValues[1].toLong(), ordinal = true)
         }
-        value = value.replace(Regex("\\b(\\d+(?:\\s+\\d+)+)\\b")) { match ->
+        // #1486 grouped-digit identifiers: only runs of THREE OR MORE space-separated integer
+        // groups are treated as a digit-sequence (e.g. "1300 555 019"). Two adjacent integers
+        // such as "3 20" or "2 500" are ordinary quantities and must keep cardinal semantics.
+        value = value.replace(Regex("\\b(\\d+(?:\\s+\\d+){2,})\\b")) { match ->
             match.value.split(whitespace).joinToString(", ") { group ->
                 group.map { smallCardinals[it - '0'] }.joinToString(" ")
             }

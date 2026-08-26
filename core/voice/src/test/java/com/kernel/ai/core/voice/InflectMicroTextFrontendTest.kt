@@ -108,6 +108,27 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun normalize_does_not_group_two_adjacent_quantities() {
+        // "3 20-minute" and "2 500" are ordinary quantities, not grouped identifiers.
+        assertEquals(
+            "I found three twenty-minute slots",
+            InflectMicroTextFrontend.normalize("I found 3 20-minute slots"),
+        )
+        assertEquals(
+            "Use two five hundred ml bottles",
+            InflectMicroTextFrontend.normalize("Use 2 500 ml bottles"),
+        )
+    }
+
+    @Test
+    fun normalize_keeps_two_group_numeric_pair_cardinal() {
+        assertEquals(
+            "use four six volt batteries",
+            InflectMicroTextFrontend.normalize("use 4 6 volt batteries"),
+        )
+    }
+
+    @Test
     fun normalize_preserves_currency_expansion_regression() {
         assertEquals(
             "forty nine dollars and ninety five cents",
