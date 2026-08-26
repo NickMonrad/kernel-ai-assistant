@@ -85,7 +85,7 @@ object InflectMicroTextFrontend {
         ) { match -> expandDigits(match.groupValues[1]) }
         value = value.replace(Regex("\\$(\\d[\\d,]*(?:\\.\\d{1,2})?)")) { match -> expandMoney(match.groupValues[1]) }
         value = value.replace(Regex("\\b(0?[1-9]|1[0-2])/(0?[1-9]|[12]\\d|3[01])/(20\\d{2}|19\\d{2})\\b")) { match -> expandDate(match) }
-        value = value.replace(Regex("\\b(\\d{1,2}):(\\d{2})\\s*([AaPp]\\.?\\s*[Mm]\\.?)?\\b")) { match -> expandTime(match) }
+        value = value.replace(Regex("\\b(\\d{1,2}):(\\d{2})(?:\\s*([AaPp]\\.?\\s*[Mm]\\.?))?\\b")) { match -> expandTime(match) }
         value = value.replace(Regex("\\b(\\d{1,2})\\s*([AaPp]\\.?\\s*[Mm]\\.?)\\b")) { match ->
             val suffix = lettersOnly(match.groupValues[2]).lowercase(Locale.US)
             "${numberToWords(match.groupValues[1].toLong())} ${suffix.map { it.toString() }.joinToString(" ")}"
@@ -101,6 +101,11 @@ object InflectMicroTextFrontend {
         }
         value = value.replace(Regex("\\b(\\d+)(st|nd|rd|th)\\b", RegexOption.IGNORE_CASE)) { match ->
             numberToWords(match.groupValues[1].toLong(), ordinal = true)
+        }
+        value = value.replace(Regex("\\b(\\d+(?:\\s+\\d+)+)\\b")) { match ->
+            match.value.split(whitespace).joinToString(", ") { group ->
+                group.map { smallCardinals[it - '0'] }.joinToString(" ")
+            }
         }
         value = value.replace(Regex("\\b\\d[\\d,]*\\b")) { match ->
             val raw = match.value.replace(",", "")

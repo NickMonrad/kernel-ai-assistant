@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -57,6 +58,61 @@ class InflectMicroTextFrontendTest {
         vectors.forEach { (input, expected) ->
             assertEquals(expected, InflectMicroTextFrontend.normalize(input), input)
         }
+    }
+
+    @Test
+    fun normalize_preserves_token_boundary_after_expanded_time() {
+        assertEquals(
+            "three thirty this afternoon",
+            InflectMicroTextFrontend.normalize("3:30 this afternoon"),
+        )
+        assertEquals(
+            "nine ten the next morning",
+            InflectMicroTextFrontend.normalize("9:10 the next morning"),
+        )
+        assertEquals(
+            "eight o clock your meeting",
+            InflectMicroTextFrontend.normalize("8:00 your meeting"),
+        )
+    }
+
+    @Test
+    fun normalize_preserves_time_boundary_before_apostrophe() {
+        val normalized = InflectMicroTextFrontend.normalize("11:15 there's ...")
+        assertTrue(normalized.contains("eleven fifteen there's"))
+        assertFalse(normalized.contains("fifteenthere's"))
+        assertFalse(normalized.contains("thirtythis"))
+    }
+
+    @Test
+    fun normalize_keeps_punctuation_following_time() {
+        assertEquals("four o clock,", InflectMicroTextFrontend.normalize("4:00,"))
+        assertEquals("seven o clock.", InflectMicroTextFrontend.normalize("7:00."))
+    }
+
+    @Test
+    fun normalize_expands_grouped_digit_sequence_digit_by_digit() {
+        val normalized = InflectMicroTextFrontend.normalize("1300 555 019")
+        assertEquals("one three zero zero, five five five, zero one nine", normalized)
+        assertFalse(normalized.contains("one thousand"))
+        assertFalse(normalized.contains("nineteen"))
+        assertTrue(normalized.contains("zero one nine"))
+    }
+
+    @Test
+    fun normalize_keeps_ordinary_cardinal_for_single_quantity() {
+        assertEquals(
+            "one thousand three hundred people",
+            InflectMicroTextFrontend.normalize("1300 people"),
+        )
+    }
+
+    @Test
+    fun normalize_preserves_currency_expansion_regression() {
+        assertEquals(
+            "forty nine dollars and ninety five cents",
+            InflectMicroTextFrontend.normalize("$49.95"),
+        )
     }
 
 
