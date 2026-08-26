@@ -117,6 +117,46 @@ class InflectMicroTextFrontendTest {
 
 
     @Test
+    fun normalize_preserves_boundary_for_am_pm_time_suffix_variants() {
+        assertEquals(
+            "six forty five p m tomorrow",
+            InflectMicroTextFrontend.normalize("6:45 pm tomorrow"),
+        )
+        // A "p.m." (with periods) between words keeps its final period attached to the am/pm
+        // token (pre-existing behaviour, unchanged by the #1486 boundary fix). An end-of-input
+        // "p.m." stays clean.
+        assertEquals(
+            "six forty five p m. tomorrow",
+            InflectMicroTextFrontend.normalize("6:45 p.m. tomorrow"),
+        )
+        assertEquals(
+            "six forty five p m.",
+            InflectMicroTextFrontend.normalize("6:45 p.m."),
+        )
+    }
+
+    @Test
+    fun normalize_leaves_non_target_number_paths_unchanged() {
+        assertEquals(
+            "two thousand and twenty five",
+            InflectMicroTextFrontend.normalize("2025"),
+        )
+        assertEquals(
+            "two oh three, zero six seven eight",
+            InflectMicroTextFrontend.normalize("203-0678"),
+        )
+        assertEquals(
+            "two hundred and fifty millilitres",
+            InflectMicroTextFrontend.normalize("250 millilitres"),
+        )
+        assertEquals(
+            "three point seven five kilograms",
+            InflectMicroTextFrontend.normalize("3.75 kilograms"),
+        )
+    }
+
+
+    @Test
     fun phonemizeChunks_keeps_short_multi_sentence_utterance_together() {
         val text = "Sure. I've set the reminder for tomorrow morning."
         val phonemizedInputs = mutableListOf<String>()
