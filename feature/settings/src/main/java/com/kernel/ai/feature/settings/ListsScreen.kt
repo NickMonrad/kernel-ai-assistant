@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -105,6 +107,18 @@ fun ListsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
     var showBulkArchiveDialog by remember { mutableStateOf(false) }
+    val handleAddShortcut: () -> Unit = {
+        val result = ListsShortcut.requestPin(context)
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                when (result) {
+                    ListsShortcut.PinResult.Requested -> "Lists shortcut request sent"
+                    ListsShortcut.PinResult.Unsupported ->
+                        "Home-screen shortcuts aren't supported on this device"
+                },
+            )
+        }
+    }
 
     // Active view: apply search on top of already sort/filter-applied displayedLists
     // Archived view: show archivedLists (no search/sort/filter applied)
@@ -224,6 +238,7 @@ fun ListsScreen(
                                 onSortSelected = { viewModel.listSort = it },
                                 onFilterSelected = { viewModel.listFilter = it },
                                 onDismiss = { showSortMenu = false },
+                                onAddShortcut = { handleAddShortcut() },
                             )
                         }
                     },
@@ -708,6 +723,7 @@ private fun SortFilterMenu(
     onFilterSelected: (ListFilter) -> Unit,
     onToggleArchived: () -> Unit,
     onDismiss: () -> Unit,
+    onAddShortcut: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // ── Archive toggle ──────────────────────────────────────────────────
@@ -790,6 +806,14 @@ private fun SortFilterMenu(
             label = "Pinned only",
             selected = currentFilter == ListFilter.PINNED_ONLY,
             onClick = { onFilterSelected(ListFilter.PINNED_ONLY); onDismiss() },
+        )
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        DropdownMenuItem(
+            text = { Text("Add Lists shortcut to Home screen") },
+            leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
+            onClick = { onDismiss(); onAddShortcut() },
+            modifier = Modifier.testTag("lists_add_home_shortcut"),
         )
     }
 }

@@ -81,6 +81,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- WorkManager foreground service for model downloads -->
@@ -209,6 +212,18 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/kernel_widget_info" />
         </receiver>
+        <!-- Lists home-screen widget -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lists_widget_info" />
+        </receiver>
 
         <!--
             Jandal as Android Default Digital Assistant.
@@ -310,6 +325,11 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:excludeFromRecents="true" />
+        <!-- Lists widget configuration screen -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.ListsWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.KernelAI" />
     </application>
 
 </manifest>

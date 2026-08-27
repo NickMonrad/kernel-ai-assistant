@@ -344,6 +344,10 @@ fun KernelNavHost(
     initialSlotReply: String? = null,
     favouriteShortcutRepository: FavouriteShortcutRepository? = null,
     recentShortcutTracker: RecentShortcutTracker? = null,
+    initialNavigationRoute: String? = null,
+    /** Monotonic counter incremented by MainActivity on every delivery — ensures the
+     *  [LaunchedEffect] re-fires even when the route is identical to the prior one. */
+    navigationRouteSerial: Int = 0,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -373,6 +377,17 @@ fun KernelNavHost(
                 "$ROUTE_ACTIONS?$ARG_WIDGET_QUERY=$encoded&$ARG_WIDGET_VOICE=$initialQuickActionIsVoice"
             ) {
                 popUpTo(ROUTE_LIST)
+            }
+        }
+    }
+    // Launcher shortcut / Lists widget: deep-link to a top-level list route
+    // ("lists" overview, or "lists/{listId}" detail). Reuses the same external-entry
+    // seam as the ADB chat/quick-action hooks — no new routing concept.
+    LaunchedEffect(initialNavigationRoute, navigationRouteSerial) {
+        if (!initialNavigationRoute.isNullOrBlank()) {
+            navController.navigate(initialNavigationRoute) {
+                popUpTo(ROUTE_LIST)
+                launchSingleTop = true
             }
         }
     }

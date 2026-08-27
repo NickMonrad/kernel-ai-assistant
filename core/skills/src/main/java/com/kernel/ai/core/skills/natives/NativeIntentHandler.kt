@@ -34,6 +34,7 @@ import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
@@ -1918,6 +1919,7 @@ class NativeIntentHandler @Inject constructor(
             )
             listItemDao.getByList(listId)
         }
+        ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Added \"$item\" to your $listName.",
             presentation = buildListPreview(listName, items),
@@ -1947,6 +1949,7 @@ class NativeIntentHandler @Inject constructor(
             }
             listItemDao.getByList(listId)
         }
+        ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
                 items.joinToString(", "),
@@ -1959,6 +1962,7 @@ class NativeIntentHandler @Inject constructor(
         val name = normalizeListName(raw)
         val now = System.currentTimeMillis()
         runBlocking { listNameDao.insert(ListNameEntity(name = name, createdAt = now, updatedAt = now)) }
+        ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Created list \"$name\".",
             presentation = buildListPreview(name, emptyList(), "No items yet."),
@@ -2002,6 +2006,7 @@ class NativeIntentHandler @Inject constructor(
             val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
             listItemDao.getByList(list.id)
         }
+        ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Removed \"${match.text}\" from $listName.",
             presentation = buildListPreview(listName, remaining, "No items left."),
@@ -2121,6 +2126,7 @@ class NativeIntentHandler @Inject constructor(
 
         val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
         val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+        ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Reminder set: \"$item\" on $dayDisplay at $timeDisplay.",
             presentation = buildListPreview(persistedListName, allItems),

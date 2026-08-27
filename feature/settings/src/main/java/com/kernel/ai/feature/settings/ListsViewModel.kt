@@ -6,11 +6,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.lists.ListsDataChanged
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
 data class ListItemCounts(val active: Int, val completed: Int) {
@@ -49,7 +52,16 @@ class ListsViewModel @Inject constructor(
     private val dao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val scheduler: ListNotificationScheduler,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
+    init {
+        // Keep the Lists home-screen widget in sync with in-app list mutations. Emitted only on a
+        // real Room change (i.e. after a successful write), so a failed persistence never triggers
+        // a widget refresh.
+        viewModelScope.launch {
+            dao.observeAll().collect { ListsDataChanged.broadcast(appContext) }
+        }
+    }
 
     /** Full list entities — exposes id, name, pinned, updatedAt for the overview screen. */
     val listEntities: StateFlow<List<ListNameEntity>> =
