@@ -86,9 +86,11 @@ class MainActivity : ComponentActivity() {
 
     /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
     private val adbSlotReplyInput = mutableStateOf<String?>(null)
-    /** Bridges launcher shortcut / widget deep-link into the nav graph via the "navigation_route" extra. */
-    private val adbNavigationRoute = mutableStateOf<String?>(null)
-    private var navigationRouteSerial = 0
+    /** Bridges launcher shortcut / widget deep-link into the nav graph via the "navigation_route" extra.
+     *  Wrapped in [NavRouteRequest] so every delivery — even of the same route string — produces a
+     *  distinct observable value and re-fires KernelNavHost's LaunchedEffect. */
+    private data class NavRouteRequest(val route: String, val serial: Int)
+    private val adbNavigationRoute = mutableStateOf<NavRouteRequest?>(null)
 
     private val requestOnboardingPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
@@ -107,11 +109,10 @@ class MainActivity : ComponentActivity() {
                 adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
                 adbQuickActionIsVoice.value = voice
             }
-            intent.getStringExtra("navigation_route")?.takeIf { it.isNotBlank() }?.let {
-                adbNavigationRoute.value = it
-                navigationRouteSerial++
+            intent.getStringExtra("navigation_route")?.takeIf { it.isNotBlank() }?.let { route ->
+                val prev = adbNavigationRoute.value
+                adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
             }
-            consumeWidgetRoute()
         }
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
@@ -125,8 +126,8 @@ class MainActivity : ComponentActivity() {
                     initialQuickActionQuery = adbQuickActionInput.value?.query,
                     initialQuickActionIsVoice = adbQuickActionInput.value?.isVoice ?: false,
                     quickActionSerial = adbQuickActionInput.value?.serial ?: 0,
-                    initialNavigationRoute = adbNavigationRoute.value,
-                    navigationRouteSerial = navigationRouteSerial,
+                    initialNavigationRoute = adbNavigationRoute.value?.route,
+                    navigationRouteSerial = adbNavigationRoute.value?.serial ?: 0,
                     initialSlotReply = adbSlotReplyInput.value,
                     favouriteShortcutRepository = favouriteShortcutRepository,
                     recentShortcutTracker = recentShortcutTracker,
@@ -167,11 +168,10 @@ class MainActivity : ComponentActivity() {
         // if the composable re-enters between independent commands, causing the previous
         // case's slot reply to overwrite the newly primed pending slot.
         adbSlotReplyInput.value = null
-        intent.getStringExtra("navigation_route")?.takeIf { it.isNotBlank() }?.let {
-            adbNavigationRoute.value = it
-            navigationRouteSerial++
+        intent.getStringExtra("navigation_route")?.takeIf { it.isNotBlank() }?.let { route ->
+            val prev = adbNavigationRoute.value
+            adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
         }
-        consumeWidgetRoute()
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
         readQuickActionInput(intent)?.let {
             val voice = intent.getBooleanExtra("quick_action_is_voice", false)
@@ -228,17 +228,5 @@ class MainActivity : ComponentActivity() {
             prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
         }
         requestOnboardingPermissions.launch(missingPermissions.toTypedArray())
-    }
-    /**
-     * If the Lists widget rendered a deep-link route on its most recent render, navigate there.
-     *
-     * Glance 1.1.1 widget clicks can only launch an Activity by class (no intent extras), so the
-     * route is handed off through [ListsWidgetConfig] and read here. This also fires on a plain
-     * launcher cold start while a widget exists, which is acceptable for a Lists-widget user.
-     */
-    private fun consumeWidgetRoute() {
-        val route = ListsWidgetConfig.from(this).getLastRoute() ?: return
-        adbNavigationRoute.value = route
-        navigationRouteSerial++
     }
 }

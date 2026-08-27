@@ -49,9 +49,8 @@ object ListsShortcut {
      * Pin the canonical Lists shortcut to the home screen.
      *
      * Returns [PinResult.Requested] only when the device supports pinning AND the pin request was
-     * accepted; otherwise [PinResult.Unsupported]. The caller must NOT report success when the
-     * result is [PinResult.Unsupported] — pinning is a user-confirmed, asynchronous system flow and
-     * we never claim the shortcut is placed.
+     * accepted; [PinResult.Rejected] when the device supports pinning but the request was declined
+     * or threw (we must NOT report success in that case); otherwise [PinResult.Unsupported].
      */
     fun requestPin(context: Context): PinResult {
         val manager = context.getSystemService(ShortcutManager::class.java) ?: return PinResult.Unsupported
@@ -60,8 +59,8 @@ object ListsShortcut {
         }
         val ok = runCatching { manager.requestPinShortcut(buildShortcutInfo(context), null) }
             .getOrDefault(false)
-        return if (ok) PinResult.Requested else PinResult.Unsupported
+        return if (ok) PinResult.Requested else PinResult.Rejected
     }
 
-    enum class PinResult { Requested, Unsupported }
+    enum class PinResult { Requested, Rejected, Unsupported }
 }

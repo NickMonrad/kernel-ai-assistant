@@ -12,4 +12,5 @@
     android:initialLayout="@layout/glance_default_loading_layout"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
+    android:previewLayout="@layout/glance_default_loading_layout"
     android:configure="com.kernel.ai.feature.widget.ListsWidgetConfigureActivity" />

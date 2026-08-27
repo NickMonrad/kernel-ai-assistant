@@ -12,9 +12,10 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.kernel.ai"
-            android:targetClass="com.kernel.ai.MainActivity" />
-        <extra
-            android:name="navigation_route"
-            android:value="lists" />
+            android:targetClass="com.kernel.ai.MainActivity">
+            <extra
+                android:name="navigation_route"
+                android:value="lists" />
+        </intent>
     </shortcut>
 </shortcuts>

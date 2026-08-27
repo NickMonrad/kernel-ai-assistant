@@ -43,6 +43,7 @@ class ListsWidgetProjectionTest {
     fun `empty when the active list has no active items`() {
         val projected = projectListsWidget(1L, activeName, listOf(item(1, "done", checked = true)))
         assertEquals(ListsWidgetProjection.Empty(1L, "shopping list"), projected)
+        assertEquals(1L, projected.listId)
     }
 
     @Test
@@ -58,6 +59,7 @@ class ListsWidgetProjectionTest {
         projected as ListsWidgetProjection.Configured
         assertEquals("shopping list", projected.listName)
         assertEquals(listOf("A", "B", "C"), projected.activeItems)
+        assertEquals(1L, projected.listId)
     }
 
     @Test
@@ -74,5 +76,20 @@ class ListsWidgetProjectionTest {
         assertTrue(projected is ListsWidgetProjection.Archived)
         projected as ListsWidgetProjection.Archived
         assertEquals(listOf("A"), projected.activeItems)
+        assertEquals(1L, projected.listId)
+    }
+
+    @Test
+    fun `orders equal display order by createdAt then id`() {
+        // Two items share displayOrder 0; the secondary key is createdAt (ascending), so the
+        // earlier-created item comes first and ordering stays deterministic via the id tie-break.
+        val items = listOf(
+            item(2, "later", displayOrder = 0L, createdAt = 20L),
+            item(1, "earlier", displayOrder = 0L, createdAt = 10L),
+        )
+        val projected = projectListsWidget(1L, activeName, items)
+        assertTrue(projected is ListsWidgetProjection.Configured)
+        projected as ListsWidgetProjection.Configured
+        assertEquals(listOf("earlier", "later"), projected.activeItems)
     }
 }

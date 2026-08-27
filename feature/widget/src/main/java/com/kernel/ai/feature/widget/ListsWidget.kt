@@ -1,13 +1,15 @@
 package com.kernel.ai.feature.widget
 
-import android.content.ComponentName
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalContext
-import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.action.ActionParameters
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.AppWidgetId
 import androidx.glance.appwidget.GlanceAppWidget
@@ -73,32 +75,54 @@ class ListsWidget : GlanceAppWidget() {
             ListsWidgetProjection.NotConfigured
         }
 
-        ListsWidgetConfig.from(context).setLastRoute(routeFor(projection))
         provideContent { ListsWidgetContent(projection) }
     }
+        /** Clear per-widget config when the instance is deleted so storage stays bounded. */
+        @SuppressLint("RestrictedApi")
+        override suspend fun onDelete(context: Context, glanceId: GlanceId) {
+            val appWidgetId = (glanceId as AppWidgetId).appWidgetId
+            ListsWidgetConfig.from(context).clear(appWidgetId)
+        }
 }
 
 /**
- * Deep-link route for a widget tap: the bound list when configured, else the Lists overview.
+ * Glance action callback fired when a Lists widget is tapped.
  *
- * Glance 1.1.1 widget clicks can only launch an Activity by class (no intent extras), so the
- * route is persisted via [ListsWidgetConfig.setLastRoute] and consumed by MainActivity on launch.
+ * Glance 1.1.1 widget clicks cannot carry intent extras, but an [ActionCallback] receives the
+ * widget's [GlanceId] (which is its [AppWidgetId]); from that we resolve the bound list and start
+ * MainActivity with the `navigation_route` extra — the same deep-link seam the static launcher
+ * shortcut uses. This keeps the per-widget route local to the widget and out of any global state,
+ * so multiple widgets route to their own lists and the route never leaks into unrelated launches.
  */
-private fun routeFor(projection: ListsWidgetProjection): String =
-    if (projection is ListsWidgetProjection.Configured ||
-        projection is ListsWidgetProjection.Empty ||
-        projection is ListsWidgetProjection.Archived
+class ListsWidgetLaunchCallback : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
     ) {
-        "lists/${projection.listId}"
-    } else {
-        "lists"
+        @SuppressLint("RestrictedApi")
+        val appWidgetId = (glanceId as AppWidgetId).appWidgetId
+        val selectedListId = ListsWidgetConfig.from(context).getSelectedListId(appWidgetId)
+        val route = routeFor(selectedListId)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setClassName(context.packageName, "com.kernel.ai.MainActivity")
+            putExtra("navigation_route", route)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        context.startActivity(intent)
     }
+    companion object {
+        /** Deep-link route for a bound list id, or the Lists overview when unconfigured. */
+        internal fun routeFor(selectedListId: Long): String =
+            if (selectedListId > 0L) "lists/$selectedListId" else "lists"
+    }
+}
 
 @Composable
 private fun ListsWidgetContent(projection: ListsWidgetProjection) {
     GlanceTheme {
         val context = LocalContext.current
-        val rootAction = actionStartActivity(ComponentName(context.packageName, "com.kernel.ai.MainActivity"))
+        val rootAction = actionRunCallback(ListsWidgetLaunchCallback::class.java)
 
         val title = when (projection) {
             is ListsWidgetProjection.Configured -> projection.listName

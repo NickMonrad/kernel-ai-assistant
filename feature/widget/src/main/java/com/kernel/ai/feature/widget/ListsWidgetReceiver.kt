@@ -1,27 +1,16 @@
 package com.kernel.ai.feature.widget
 
-import android.content.Context
-import android.content.Intent
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import com.kernel.ai.core.memory.lists.ListsDataChanged
 
 /**
- * AppWidget broadcast receiver for the Lists widget.
+ * AppWidget lifecycle receiver for the Lists widget.
  *
- * In addition to the standard Glance lifecycle (`APPWIDGET_UPDATE`, etc.), it listens for the
- * dependency-safe [ListsDataChanged.ACTION] broadcast emitted after any successful local list
- * mutation (in-app or via `add_to_list`). On that signal it asks Glance to re-render every
- * widget instance, which causes [ListsWidget.provideGlance] to re-read the shared list store.
+ * It only handles the standard app-widget lifecycle (`APPWIDGET_UPDATE`, etc.). The internal
+ * [com.kernel.ai.core.memory.lists.ListsDataChanged.ACTION] refresh signal is handled by the
+ * non-exported [ListsDataChangedReceiver] so another app cannot spoof it to force a widget
+ * re-render or DB read.
  */
 class ListsWidgetReceiver : GlanceAppWidgetReceiver() {
-
     override val glanceAppWidget: GlanceAppWidget = ListsWidget()
-
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        if (intent.action == ListsDataChanged.ACTION) {
-            ListsWidgetRefresher.refresh(context)
-        }
-    }
 }

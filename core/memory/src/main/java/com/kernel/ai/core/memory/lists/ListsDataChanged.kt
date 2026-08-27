@@ -31,7 +31,7 @@ object ListsDataChanged {
      */
     fun broadcast(context: Context) {
         try {
-            context.sendBroadcast(Intent(ACTION))
+            context.sendBroadcast(Intent(ACTION).apply { setPackage(context.packageName) })
         } catch (_: Throwable) {
             // A failed/unsupported broadcast must never roll back a successful list mutation.
         }

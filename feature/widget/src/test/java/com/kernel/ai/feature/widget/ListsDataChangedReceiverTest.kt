@@ -12,7 +12,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
-class ListsWidgetReceiverTest {
+class ListsDataChangedReceiverTest {
 
     @BeforeEach
     fun setUp() { mockkObject(ListsWidgetRefresher) }
@@ -26,14 +26,17 @@ class ListsWidgetReceiverTest {
         // Intent.getAction() is a stubbed no-op under the JVM unit-test runtime, so the action
         // must be mocked for the receiver's `intent.action == ACTION` gate to pass.
         val intent = mockk<Intent> { every { action } returns ListsDataChanged.ACTION }
-        ListsWidgetReceiver().onReceive(context, intent)
+        ListsDataChangedReceiver().onReceive(context, intent)
         verify { ListsWidgetRefresher.refresh(context) }
     }
 
     @Test
     fun `ignores unrelated actions`() {
         val context = mockk<Context>(relaxed = true)
-        ListsWidgetReceiver().onReceive(context, Intent("com.kernel.ai.action.SOMETHING_ELSE"))
+        // Mock the action explicitly (a plain Intent would return null under the JVM runtime and
+        // only exercise the null path, not the genuine mismatch).
+        val intent = mockk<Intent> { every { action } returns "com.kernel.ai.action.SOMETHING_ELSE" }
+        ListsDataChangedReceiver().onReceive(context, intent)
         verify(exactly = 0) { ListsWidgetRefresher.refresh(any()) }
     }
 }

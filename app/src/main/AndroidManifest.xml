@@ -213,16 +213,24 @@
                 android:resource="@xml/kernel_widget_info" />
         </receiver>
         <!-- Lists home-screen widget -->
+        <!-- Lists home-screen widget (lifecycle only; refresh signal handled by ListsDataChangedReceiver) -->
         <receiver
             android:name="com.kernel.ai.feature.widget.ListsWidgetReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/lists_widget_info" />
+        </receiver>
+        <!-- Internal, non-exported receiver for the lists-changed widget refresh signal -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsDataChangedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
+            </intent-filter>
         </receiver>
 
         <!--

@@ -33,13 +33,6 @@ class ListsWidgetConfig(private val prefs: SharedPreferences) {
         prefs.edit { remove(key(appWidgetId)) }
     }
 
-    /** Most recent deep-link route rendered for a widget tap (consumed by MainActivity). */
-    fun getLastRoute(): String? = prefs.getString(KEY_LAST_ROUTE, null)
-
-    /** Persist the deep-link route for the next widget tap. */
-    fun setLastRoute(route: String) {
-        prefs.edit { putString(KEY_LAST_ROUTE, route) }
-    }
 
     private fun key(appWidgetId: Int) = "list_id_$appWidgetId"
 
@@ -48,7 +41,6 @@ class ListsWidgetConfig(private val prefs: SharedPreferences) {
         const val INVALID: Long = -1L
 
         private const val PREF_FILE = "lists_widget_config"
-        private const val KEY_LAST_ROUTE = "last_route"
 
         /** Runtime accessor — resolves the dedicated preferences file from a [Context]. */
         fun from(context: Context): ListsWidgetConfig =

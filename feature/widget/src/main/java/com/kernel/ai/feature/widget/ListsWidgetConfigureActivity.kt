@@ -42,6 +42,9 @@ import com.kernel.ai.core.ui.theme.KernelAITheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
  * Configuration screen for the Lists widget.
@@ -84,7 +87,13 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
 
     private fun persistAndFinish(listId: Long) {
         ListsWidgetConfig.from(this).setSelectedListId(appWidgetId, listId)
-        finishWith(RESULT_OK)
+        // The config-activity completion does NOT auto-fire APPWIDGET_UPDATE, so render the new
+        // widget here. The refresh signal is internal and safe to call from the UI scope.
+        lifecycleScope.launch {
+            val glanceId = GlanceAppWidgetManager(this@ListsWidgetConfigureActivity).getGlanceIdBy(appWidgetId)
+            ListsWidget().update(this@ListsWidgetConfigureActivity, glanceId)
+            finishWith(RESULT_OK)
+        }
     }
 
     private fun finishWith(result: Int) {

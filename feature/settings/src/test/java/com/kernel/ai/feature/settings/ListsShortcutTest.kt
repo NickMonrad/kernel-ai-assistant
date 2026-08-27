@@ -52,9 +52,9 @@ class ListsShortcutTest {
     }
 
     @Test
-    fun `requestPin reports Unsupported when the system rejects the pin`() {
+    fun `reports rejected when the pin request is declined`() {
         every { manager.isRequestPinShortcutSupported } returns true
         every { manager.requestPinShortcut(any(), any()) } returns false
-        assertEquals(ListsShortcut.PinResult.Unsupported, ListsShortcut.requestPin(context))
+        assertEquals(ListsShortcut.PinResult.Rejected, ListsShortcut.requestPin(context))
     }
 }

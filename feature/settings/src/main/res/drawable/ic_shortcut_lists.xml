@@ -8,20 +8,30 @@
         android:fillColor="#1F6F4A"
         android:pathData="M4,2h16a2,2 0 0 1 2,2v16a2,2 0 0 1 -2,2H4a2,2 0 0 1 -2,-2V4a2,2 0 0 1 2,-2Z" />
     <!-- Checklist: a tick then list rows -->
+    <!-- Checklist: stroked check marks + filled list rows -->
     <path
-        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="M5.5,7L7,8.5L10,5.5" />
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M11.5,5.5h6v1.8h-6z" />
     <path
-        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="M5.5,12L7,13.5L10,10.5" />
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M11.5,10.5h6v1.8h-6z" />
     <path
-        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="M5.5,17L7,18.5L10,15.5" />
     <path
         android:fillColor="#FFFFFF"

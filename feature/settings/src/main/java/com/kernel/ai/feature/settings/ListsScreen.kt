@@ -113,9 +113,11 @@ fun ListsScreen(
             snackbarHostState.showSnackbar(
                 when (result) {
                     ListsShortcut.PinResult.Requested -> "Lists shortcut request sent"
+                    ListsShortcut.PinResult.Rejected ->
+                        "Couldn't add the shortcut — check your launcher's home-screen settings"
                     ListsShortcut.PinResult.Unsupported ->
                         "Home-screen shortcuts aren't supported on this device"
-                },
+                }
             )
         }
     }

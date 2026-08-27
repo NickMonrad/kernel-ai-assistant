@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -55,11 +56,21 @@ class ListsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
     init {
-        // Keep the Lists home-screen widget in sync with in-app list mutations. Emitted only on a
-        // real Room change (i.e. after a successful write), so a failed persistence never triggers
-        // a widget refresh.
+        // Keep the Lists home-screen widget in sync with in-app list mutations. A single combined
+        // flow over the item DAO and the list-name DAO emits once on subscription (the initial Room
+        // replay); we skip that first emission explicitly so a cold-start VM never broadcasts. Every
+        // subsequent real write (item OR list metadata: rename, archive, pin, reorder, delete) emits
+        // exactly one widget-refresh broadcast, and a failed persistence never triggers one.
         viewModelScope.launch {
-            dao.observeAll().collect { ListsDataChanged.broadcast(appContext) }
+            var isFirst = true
+            combine(dao.observeAll(), listNameDao.observeActiveLists()) { _, _ -> }
+                .collect {
+                    if (isFirst) {
+                        isFirst = false
+                        return@collect
+                    }
+                    ListsDataChanged.broadcast(appContext)
+                }
         }
     }
 
