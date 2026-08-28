@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.widget
 
 import android.appwidget.AppWidgetManager
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -70,8 +71,14 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Default to CANCELED (with the widget id attached) so any early exit — invalid id or an
+        // error before a selection — never leaves the launcher with a half-placed, unconfigured widget.
+        setResult(
+            RESULT_CANCELED,
+            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+        )
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
-            finishWith(RESULT_CANCELED)
+            finish()
             return
         }
         setContent {
@@ -86,13 +93,19 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
     }
 
     private fun persistAndFinish(listId: Long) {
-        ListsWidgetConfig.from(this).setSelectedListId(appWidgetId, listId)
-        // The config-activity completion does NOT auto-fire APPWIDGET_UPDATE, so render the new
-        // widget here. The refresh signal is internal and safe to call from the UI scope.
+        // Persist synchronously before any best-effort render work, so the selection always
+        // outlives the config activity even if the glance update below fails or throws.
         lifecycleScope.launch {
-            val glanceId = GlanceAppWidgetManager(this@ListsWidgetConfigureActivity).getGlanceIdBy(appWidgetId)
-            ListsWidget().update(this@ListsWidgetConfigureActivity, glanceId)
-            finishWith(RESULT_OK)
+            val result = persistSelectionAndResult(
+                ListsWidgetConfig.from(this@ListsWidgetConfigureActivity),
+                appWidgetId,
+                listId,
+            ) {
+                val glanceId = GlanceAppWidgetManager(this@ListsWidgetConfigureActivity)
+                    .getGlanceIdBy(appWidgetId)
+                ListsWidget().update(this@ListsWidgetConfigureActivity, glanceId)
+            }
+            finishWith(result)
         }
     }
 
@@ -174,4 +187,28 @@ private fun ListsWidgetConfigScreen(
             }
         }
     }
+}
+
+/**
+ * Persists the selected list for [appWidgetId] and returns the config result.
+ *
+ * The [render] is best-effort and intentionally non-fatal: on some devices the glance id for a
+ * freshly placed widget is not yet resolvable from the config activity, so [render] may throw.
+ * A failed render must never block [Activity.RESULT_OK] — the system fires `APPWIDGET_UPDATE`
+ * after a successful config, which re-renders from the persisted selection, so the binding is
+ * preserved either way.
+ */
+internal suspend fun persistSelectionAndResult(
+    config: ListsWidgetConfig,
+    appWidgetId: Int,
+    listId: Long,
+    render: suspend () -> Unit,
+): Int {
+    config.setSelectedListId(appWidgetId, listId)
+    try {
+        render()
+    } catch (_: Throwable) {
+        // Non-fatal: the system's APPWIDGET_UPDATE after RESULT_OK re-renders from the persisted config.
+    }
+    return Activity.RESULT_OK
 }
