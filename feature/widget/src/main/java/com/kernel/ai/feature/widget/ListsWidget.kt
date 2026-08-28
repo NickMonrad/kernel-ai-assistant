@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
+import android.widget.RemoteViews
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -13,6 +15,8 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.AppWidgetId
+import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
+import androidx.glance.appwidget.GlanceRemoteViews
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.cornerRadius
@@ -28,6 +32,7 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
@@ -60,10 +65,39 @@ class ListsWidget : GlanceAppWidget() {
 
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val projection = loadProjection(context, id)
+        provideContent { ListsWidgetContent(projection) }
+    }
+
+    /**
+     * Compose one synchronous RemoteViews tree for configuration completion.
+     *
+     * Normal refreshes continue through [update]; this path exists only because a freshly configured
+     * launcher widget can defer delivery of Glance's session-backed update until a later host event.
+     */
+    @OptIn(ExperimentalGlanceRemoteViewsApi::class)
+    internal suspend fun compose(
+        context: Context,
+        id: GlanceId,
+        size: DpSize,
+        appWidgetOptions: Bundle,
+    ): RemoteViews {
+        val projection = loadProjection(context, id)
+        return GlanceRemoteViews().compose(
+            context = context,
+            size = size,
+            appWidgetOptions = appWidgetOptions,
+        ) {
+            ListsWidgetContent(projection)
+        }.remoteViews
+    }
+
+    @SuppressLint("RestrictedApi")
+    private suspend fun loadProjection(context: Context, id: GlanceId): ListsWidgetProjection {
         val appWidgetId = (id as AppWidgetId).appWidgetId
         val selectedListId = ListsWidgetConfig.from(context).getSelectedListId(appWidgetId)
 
-        val projection = if (selectedListId > 0L) {
+        return if (selectedListId > 0L) {
             val entry = EntryPointAccessors.fromApplication(
                 context.applicationContext,
                 ListsWidgetDataEntryPoint::class.java,
@@ -74,8 +108,6 @@ class ListsWidget : GlanceAppWidget() {
         } else {
             ListsWidgetProjection.NotConfigured
         }
-
-        provideContent { ListsWidgetContent(projection) }
     }
     /** Clear per-widget config when the instance is deleted so storage stays bounded. */
     @SuppressLint("RestrictedApi")

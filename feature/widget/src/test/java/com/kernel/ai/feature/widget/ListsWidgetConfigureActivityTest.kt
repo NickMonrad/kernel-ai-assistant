@@ -45,16 +45,26 @@ class ListsWidgetConfigureActivityTest {
     }
 
     @Test
-    fun `commit success persists selection but returns RESULT_CANCELED when initial render fails`() = runTest {
+    fun `commit success persists selection but returns RESULT_CANCELED when initial composition fails`() = runTest {
         val config = ListsWidgetConfig(makePrefs())
         var rendered = false
         val result = persistSelectionAndResult(config, 12, 99L) {
             rendered = true
-            throw RuntimeException("initial widget render failed")
+            throw RuntimeException("initial widget composition failed")
         }
         assertEquals(Activity.RESULT_CANCELED, result)
         assertEquals(true, rendered)
         assertEquals(99L, config.getSelectedListId(12))
+    }
+
+    @Test
+    fun `platform RemoteViews update failure returns RESULT_CANCELED`() = runTest {
+        val config = ListsWidgetConfig(makePrefs())
+        val result = persistSelectionAndResult(config, 13, 100L) {
+            throw IllegalStateException("AppWidgetManager.updateAppWidget failed")
+        }
+        assertEquals(Activity.RESULT_CANCELED, result)
+        assertEquals(100L, config.getSelectedListId(13))
     }
 
     @Test
