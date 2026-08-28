@@ -2,6 +2,12 @@ package com.kernel.ai.feature.widget
 
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * Pure, framework-free projection of list data into the widget's display states.
@@ -72,3 +78,29 @@ fun projectListsWidget(
         ListsWidgetProjection.Configured(selectedListId, name.name, activeItems)
     }
 }
+
+/**
+ * Observe one widget's selected list and project live metadata/items into widget content.
+ *
+ * The selected-list flow is per-widget, while the Room metadata flow covers all lists and is
+ * filtered to the current selection. [flatMapLatest] drops the old item observation after
+ * reconfiguration.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun observeListsWidgetProjection(
+    selectedListIds: Flow<Long>,
+    listMetadata: Flow<List<ListNameEntity>>,
+    listItems: (Long) -> Flow<List<ListItemEntity>>,
+): Flow<ListsWidgetProjection> =
+    selectedListIds.flatMapLatest { selectedListId ->
+        if (selectedListId <= 0L) {
+            flowOf(ListsWidgetProjection.NotConfigured)
+        } else {
+            combine(
+                listMetadata.map { lists -> lists.firstOrNull { it.id == selectedListId } },
+                listItems(selectedListId),
+            ) { name, items ->
+                projectListsWidget(selectedListId, name, items)
+            }
+        }
+    }

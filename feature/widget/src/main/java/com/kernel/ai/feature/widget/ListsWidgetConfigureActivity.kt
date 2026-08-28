@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.unit.DpSize
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -102,22 +101,10 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
                 appWidgetId,
                 listId,
             ) {
-                val manager = GlanceAppWidgetManager(this@ListsWidgetConfigureActivity)
-                val glanceId = manager.getGlanceIdBy(intent)
+                val glanceId = GlanceAppWidgetManager(this@ListsWidgetConfigureActivity)
+                    .getGlanceIdBy(intent)
                     ?: error("Unable to resolve Glance ID from widget configuration intent")
-                val appWidgetManager = AppWidgetManager.getInstance(this@ListsWidgetConfigureActivity)
-                val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
-                val size = DpSize(
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).dp,
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT).dp,
-                )
-                val remoteViews = ListsWidget().compose(
-                    context = this@ListsWidgetConfigureActivity,
-                    id = glanceId,
-                    size = size,
-                    appWidgetOptions = options,
-                )
-                appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
+                ListsWidget().update(this@ListsWidgetConfigureActivity, glanceId)
             }
             finishWith(result)
         }

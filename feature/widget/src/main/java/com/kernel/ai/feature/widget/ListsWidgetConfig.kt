@@ -3,6 +3,9 @@ package com.kernel.ai.feature.widget
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 
 /**
  * Per-widget configuration: which local Jandal list each widget instance displays.
@@ -21,6 +24,24 @@ class ListsWidgetConfig(private val prefs: SharedPreferences) {
     fun getSelectedListId(appWidgetId: Int): Long {
         val stored = prefs.getLong(key(appWidgetId), INVALID)
         return if (stored > 0L) stored else INVALID
+    }
+
+    /**
+     * Observes the selected list for one widget instance.
+     *
+     * The current value is emitted immediately, and subsequent emissions are limited to changes
+     * for this widget's own preference key.
+     */
+    fun observeSelectedListId(appWidgetId: Int): Flow<Long> = callbackFlow {
+        val selectedKey = key(appWidgetId)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
+            if (changedKey == selectedKey) {
+                trySend(getSelectedListId(appWidgetId))
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(getSelectedListId(appWidgetId))
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
     /** Persist the selected list id for [appWidgetId] (asynchronous; non-config writes). */
