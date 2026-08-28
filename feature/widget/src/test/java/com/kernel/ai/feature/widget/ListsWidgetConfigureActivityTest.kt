@@ -45,20 +45,27 @@ class ListsWidgetConfigureActivityTest {
     }
 
     @Test
-    fun `commit success persists selection and still returns RESULT_OK when render throws`() = runTest {
+    fun `commit success persists selection but returns RESULT_CANCELED when initial render fails`() = runTest {
         val config = ListsWidgetConfig(makePrefs())
+        var rendered = false
         val result = persistSelectionAndResult(config, 12, 99L) {
-            throw RuntimeException("glance id not resolvable yet on fresh placement")
+            rendered = true
+            throw RuntimeException("initial widget render failed")
         }
-        assertEquals(Activity.RESULT_OK, result)
+        assertEquals(Activity.RESULT_CANCELED, result)
+        assertEquals(true, rendered)
         assertEquals(99L, config.getSelectedListId(12))
     }
 
     @Test
-    fun `commit failure does not report RESULT_OK and does not persist selection`() = runTest {
+    fun `commit failure returns RESULT_CANCELED without attempting initial render`() = runTest {
         val config = ListsWidgetConfig(makePrefs(commitSucceeds = false))
-        val result = persistSelectionAndResult(config, 7, 555L) { /* render must not run */ }
+        var rendered = false
+        val result = persistSelectionAndResult(config, 7, 555L) {
+            rendered = true
+        }
         assertEquals(Activity.RESULT_CANCELED, result)
+        assertEquals(false, rendered)
         assertEquals(ListsWidgetConfig.INVALID, config.getSelectedListId(7))
     }
 
