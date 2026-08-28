@@ -9,3 +9,8 @@
 
 # Keep Chicory Wasm runtime (Phase 4)
 -keep class com.dylibso.chicory.** { *; }
+
+# Glance instantiates ActionCallbacks reflectively from their serialized class name.
+-keep class com.kernel.ai.feature.widget.ListsWidgetLaunchCallback {
+    public <init>();
+}

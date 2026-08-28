@@ -103,7 +103,16 @@ class ListsWidgetLaunchCallback : ActionCallback {
         @SuppressLint("RestrictedApi")
         val appWidgetId = (glanceId as AppWidgetId).appWidgetId
         val selectedListId = ListsWidgetConfig.from(context).getSelectedListId(appWidgetId)
-        val route = routeFor(selectedListId)
+        val listExists = if (selectedListId > 0L) {
+            val entry = EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                ListsWidgetDataEntryPoint::class.java,
+            )
+            entry.listNameDao().getById(selectedListId) != null
+        } else {
+            false
+        }
+        val route = routeFor(selectedListId, listExists)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setClassName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("navigation_route", route)
@@ -112,9 +121,9 @@ class ListsWidgetLaunchCallback : ActionCallback {
         context.startActivity(intent)
     }
     companion object {
-        /** Deep-link route for a bound list id, or the Lists overview when unconfigured. */
-        internal fun routeFor(selectedListId: Long): String =
-            if (selectedListId > 0L) "lists/$selectedListId" else "lists"
+        /** Deep-link route for an existing bound list, or the Lists overview otherwise. */
+        internal fun routeFor(selectedListId: Long, listExists: Boolean): String =
+            if (selectedListId > 0L && listExists) "lists/$selectedListId" else "lists"
     }
 }
 
