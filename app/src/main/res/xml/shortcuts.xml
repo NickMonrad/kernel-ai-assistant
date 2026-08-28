@@ -11,7 +11,7 @@
         android:shortcutShortLabel="@string/shortcut_lists_label">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.kernel.ai"
+            android:targetPackage="@string/shortcut_target_package"
             android:targetClass="com.kernel.ai.MainActivity">
             <extra
                 android:name="navigation_route"
