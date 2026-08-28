@@ -23,9 +23,20 @@ class ListsWidgetConfig(private val prefs: SharedPreferences) {
         return if (stored > 0L) stored else INVALID
     }
 
-    /** Persist the selected list id for [appWidgetId]. */
+    /** Persist the selected list id for [appWidgetId] (asynchronous; non-config writes). */
     fun setSelectedListId(appWidgetId: Int, listId: Long) {
         prefs.edit { putLong(key(appWidgetId), listId) }
+    }
+
+    /**
+     * Synchronously commit the selected list id for [appWidgetId].
+     *
+     * Used by the configuration activity so the binding is durable on disk *before* it returns
+     * [android.app.Activity.RESULT_OK]. Returns the result of [SharedPreferences.Editor.commit]
+     * so the caller can detect a failed write and avoid reporting a successful configuration.
+     */
+    fun setSelectedListIdSync(appWidgetId: Int, listId: Long): Boolean {
+        return prefs.edit().putLong(key(appWidgetId), listId).commit()
     }
 
     /** Remove configuration for a deleted widget instance. */

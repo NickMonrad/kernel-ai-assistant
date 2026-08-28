@@ -3,47 +3,79 @@ package com.kernel.ai.feature.widget
 import android.app.Activity
 import android.content.SharedPreferences
 import io.mockk.every
+import org.junit.jupiter.api.Test
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Test
 import kotlinx.coroutines.test.runTest
 
 class ListsWidgetConfigureActivityTest {
 
-    private fun makePrefs(): SharedPreferences {
+    /**
+     * Fake prefs that distinguish synchronous [SharedPreferences.Editor.commit] from asynchronous
+     * [SharedPreferences.Editor.apply]: [SharedPreferences.Editor.putLong] only stages a value, and
+     * [SharedPreferences.Editor.commit] (when [commitSucceeds]) is what flushes it to the readable
+     * store. This proves the configuration path relies on the synchronous commit, not apply.
+     */
+    private fun makePrefs(commitSucceeds: Boolean = true): SharedPreferences {
         val store = mutableMapOf<String, Long>()
+        val staged = mutableMapOf<String, Long>()
         val prefs = mockk<SharedPreferences>()
-        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+        val editor = mockk<SharedPreferences.Editor>()
         every { prefs.edit() } returns editor
         every { prefs.getLong(any(), any()) } answers { store[firstArg()] ?: secondArg() }
-        every { editor.putLong(any(), any()) } answers {
-            store[firstArg()] = secondArg()
-            editor
+        every { editor.putLong(any(), any()) } answers { staged[firstArg()] = secondArg(); editor }
+        every { editor.remove(any()) } answers { staged.remove(firstArg()); editor }
+        every { editor.commit() } answers {
+            val ok = commitSucceeds
+            if (ok) { store.putAll(staged); staged.clear() }
+            ok
         }
-        every { editor.remove(any()) } answers {
-            store.remove(firstArg())
-            editor
-        }
+        every { editor.apply() } answers { /* asynchronous: not flushed synchronously */ }
         return prefs
     }
 
     @Test
-    fun `selection persists and RESULT_OK returned even when render throws`() = runTest {
+    fun `commit success persists selection and returns RESULT_OK on render success`() = runTest {
         val config = ListsWidgetConfig(makePrefs())
-        val result = persistSelectionAndResult(config, 11, 4242L) {
-            throw RuntimeException("glance id not resolvable yet on fresh placement")
-        }
+        var rendered = false
+        val result = persistSelectionAndResult(config, 11, 4242L) { rendered = true }
         assertEquals(Activity.RESULT_OK, result)
         assertEquals(4242L, config.getSelectedListId(11))
+        assertEquals(true, rendered)
     }
 
     @Test
-    fun `selection persists and RESULT_OK returned when render succeeds`() = runTest {
+    fun `commit success persists selection and still returns RESULT_OK when render throws`() = runTest {
         val config = ListsWidgetConfig(makePrefs())
-        var rendered = false
-        val result = persistSelectionAndResult(config, 12, 99L) { rendered = true }
+        val result = persistSelectionAndResult(config, 12, 99L) {
+            throw RuntimeException("glance id not resolvable yet on fresh placement")
+        }
         assertEquals(Activity.RESULT_OK, result)
         assertEquals(99L, config.getSelectedListId(12))
-        assertEquals(true, rendered)
+    }
+
+    @Test
+    fun `commit failure does not report RESULT_OK and does not persist selection`() = runTest {
+        val config = ListsWidgetConfig(makePrefs(commitSucceeds = false))
+        val result = persistSelectionAndResult(config, 7, 555L) { /* render must not run */ }
+        assertEquals(Activity.RESULT_CANCELED, result)
+        assertEquals(ListsWidgetConfig.INVALID, config.getSelectedListId(7))
+    }
+
+    @Test
+    fun `same appWidgetId is used for the committed binding`() = runTest {
+        val config = ListsWidgetConfig(makePrefs())
+        persistSelectionAndResult(config, 21, 808L) {}
+        assertEquals(808L, config.getSelectedListId(21))
+        assertEquals(ListsWidgetConfig.INVALID, config.getSelectedListId(22))
+    }
+
+    @Test
+    fun `multiple widget ids remain independently persisted`() = runTest {
+        val config = ListsWidgetConfig(makePrefs())
+        assertEquals(Activity.RESULT_OK, persistSelectionAndResult(config, 31, 1L) {})
+        assertEquals(Activity.RESULT_OK, persistSelectionAndResult(config, 32, 2L) {})
+        assertEquals(1L, config.getSelectedListId(31))
+        assertEquals(2L, config.getSelectedListId(32))
     }
 }

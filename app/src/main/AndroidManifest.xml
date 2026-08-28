@@ -216,6 +216,7 @@
         <!-- Lists home-screen widget (lifecycle only; refresh signal handled by ListsDataChangedReceiver) -->
         <receiver
             android:name="com.kernel.ai.feature.widget.ListsWidgetReceiver"
+            android:label="@string/lists_widget_label"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

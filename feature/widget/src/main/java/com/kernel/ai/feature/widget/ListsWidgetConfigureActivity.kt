@@ -192,11 +192,15 @@ private fun ListsWidgetConfigScreen(
 /**
  * Persists the selected list for [appWidgetId] and returns the config result.
  *
- * The [render] is best-effort and intentionally non-fatal: on some devices the glance id for a
- * freshly placed widget is not yet resolvable from the config activity, so [render] may throw.
- * A failed render must never block [Activity.RESULT_OK] — the system fires `APPWIDGET_UPDATE`
- * after a successful config, which re-renders from the persisted selection, so the binding is
- * preserved either way.
+ * The selection is **synchronously committed** to disk before any [render] work, so the binding is
+ * durable even if the process dies immediately after the config activity returns. If the commit
+ * fails, [android.app.Activity.RESULT_CANCELED] is returned so the launcher never places an
+ * unconfigured widget (which would show "Choose a list").
+ *
+ * [render] is best-effort and intentionally non-fatal: on some devices the glance id for a freshly
+ * placed widget is not yet resolvable from the config activity, so [render] may throw. A failed
+ * render must never undo the committed binding — the system fires `APPWIDGET_UPDATE` after a
+ * successful config, which re-renders from the persisted selection.
  */
 internal suspend fun persistSelectionAndResult(
     config: ListsWidgetConfig,
@@ -204,11 +208,12 @@ internal suspend fun persistSelectionAndResult(
     listId: Long,
     render: suspend () -> Unit,
 ): Int {
-    config.setSelectedListId(appWidgetId, listId)
+    val committed = config.setSelectedListIdSync(appWidgetId, listId)
+    if (!committed) return Activity.RESULT_CANCELED
     try {
         render()
     } catch (_: Throwable) {
-        // Non-fatal: the system's APPWIDGET_UPDATE after RESULT_OK re-renders from the persisted config.
+        // Non-fatal: the committed binding survives; APPWIDGET_UPDATE re-renders from the persisted config.
     }
     return Activity.RESULT_OK
 }
