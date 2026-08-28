@@ -21,19 +21,47 @@ import org.junit.jupiter.api.Test
 class ListsWidgetLaunchCallbackTest {
 
     @Test
-    fun `routeFor maps an existing configured list to its deep link`() {
-        assertEquals("lists/42", ListsWidgetLaunchCallback.routeFor(42L, listExists = true))
+    fun `launch destination uses list detail for an existing configured list`() {
+        assertEquals(
+            ListsWidgetLaunchDestination.Detail("lists/42"),
+            ListsWidgetLaunchCallback.launchDestinationFor(
+                42L,
+                listExists = true,
+                appWidgetId = APPWIDGET_ID,
+            ),
+        )
     }
 
     @Test
-    fun `routeFor falls back to the overview for unconfigured or invalid ids`() {
-        assertEquals("lists", ListsWidgetLaunchCallback.routeFor(-1L, listExists = false))
-        assertEquals("lists", ListsWidgetLaunchCallback.routeFor(0L, listExists = false))
+    fun `launch destination requests configuration for an unconfigured widget`() {
+        assertEquals(
+            ListsWidgetLaunchDestination.Configure(APPWIDGET_ID),
+            ListsWidgetLaunchCallback.launchDestinationFor(
+                selectedListId = 0L,
+                listExists = false,
+                appWidgetId = APPWIDGET_ID,
+            ),
+        )
+        assertEquals(
+            ListsWidgetLaunchDestination.Configure(APPWIDGET_ID),
+            ListsWidgetLaunchCallback.launchDestinationFor(
+                selectedListId = -1L,
+                listExists = false,
+                appWidgetId = APPWIDGET_ID,
+            ),
+        )
     }
 
     @Test
-    fun `routeFor falls back to the overview when the configured list was deleted`() {
-        assertEquals("lists", ListsWidgetLaunchCallback.routeFor(42L, listExists = false))
+    fun `launch destination requests configuration when the configured list was deleted`() {
+        assertEquals(
+            ListsWidgetLaunchDestination.Configure(APPWIDGET_ID),
+            ListsWidgetLaunchCallback.launchDestinationFor(
+                selectedListId = 42L,
+                listExists = false,
+                appWidgetId = APPWIDGET_ID,
+            ),
+        )
     }
 
     @Test

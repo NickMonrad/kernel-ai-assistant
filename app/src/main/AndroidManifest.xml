@@ -337,7 +337,11 @@
         <activity
             android:name="com.kernel.ai.feature.widget.ListsWidgetConfigureActivity"
             android:exported="true"
-            android:theme="@style/Theme.KernelAI" />
+            android:theme="@style/Theme.KernelAI">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
