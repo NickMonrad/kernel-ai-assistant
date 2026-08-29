@@ -121,6 +121,7 @@ private const val ARG_INITIAL_QUERY = "initialQuery"
 private const val ARG_MINIMAL_CONTEXT = "minimalContext"
 private const val ARG_SPEAK_RESPONSE = "speakResponse"
 private const val ARG_START_VOICE = "startVoice"
+private val LISTS_WIDGET_DEEP_LINK = Regex("^lists/\\d+$")
 private const val ARG_WIDGET_QUERY = "widgetQuery"
 private const val ARG_WIDGET_VOICE = "widgetVoice"
 private const val ARG_DRAFT_QUERY = "draftQuery"
@@ -344,6 +345,10 @@ fun KernelNavHost(
     initialSlotReply: String? = null,
     favouriteShortcutRepository: FavouriteShortcutRepository? = null,
     recentShortcutTracker: RecentShortcutTracker? = null,
+    initialNavigationRoute: String? = null,
+    /** Monotonic counter incremented by MainActivity on every delivery — ensures the
+     *  [LaunchedEffect] re-fires even when the route is identical to the prior one. */
+    navigationRouteSerial: Int = 0,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -373,6 +378,20 @@ fun KernelNavHost(
                 "$ROUTE_ACTIONS?$ARG_WIDGET_QUERY=$encoded&$ARG_WIDGET_VOICE=$initialQuickActionIsVoice"
             ) {
                 popUpTo(ROUTE_LIST)
+            }
+        }
+    }
+    // Launcher shortcut / Lists widget: deep-link to a top-level list route
+    // ("lists" overview, or "lists/{listId}" detail). Reuses the same external-entry
+    // seam as the ADB chat/quick-action hooks — no new routing concept.
+    LaunchedEffect(initialNavigationRoute, navigationRouteSerial) {
+        val route = initialNavigationRoute
+        // Only accept the Lists deep-link seam; external/garbage routes must never reach
+        // navController.navigate (which would throw on an unknown route).
+        if (route != null && (route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK))) {
+            navController.navigate(route) {
+                popUpTo(ROUTE_LIST)
+                launchSingleTop = true
             }
         }
     }

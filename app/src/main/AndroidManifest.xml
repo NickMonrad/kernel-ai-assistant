@@ -81,6 +81,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- WorkManager foreground service for model downloads -->
@@ -209,6 +212,27 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/kernel_widget_info" />
         </receiver>
+        <!-- Lists home-screen widget -->
+        <!-- Lists home-screen widget (lifecycle only; refresh signal handled by ListsDataChangedReceiver) -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsWidgetReceiver"
+            android:label="@string/lists_widget_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lists_widget_info" />
+        </receiver>
+        <!-- Internal, non-exported receiver for the lists-changed widget refresh signal -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsDataChangedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!--
             Jandal as Android Default Digital Assistant.
@@ -310,6 +334,15 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:excludeFromRecents="true" />
+        <!-- Lists widget configuration screen -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.ListsWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.KernelAI">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

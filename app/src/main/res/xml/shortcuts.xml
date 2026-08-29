@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Canonical launcher shortcut for Lists. Mirrors the in-app pin action built in
+         com.kernel.ai.feature.settings.ListsShortcut — same id, label, icon, and route.
+         Tapping deep-links into the app via the "navigation_route" extra that MainActivity
+         / KernelNavHost already consume. -->
+    <shortcut
+        android:shortcutId="lists"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_lists"
+        android:shortcutShortLabel="@string/shortcut_lists_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.kernel.ai"
+            android:targetClass="com.kernel.ai.MainActivity">
+            <extra
+                android:name="navigation_route"
+                android:value="lists" />
+        </intent>
+    </shortcut>
+</shortcuts>

@@ -1,3 +1,4 @@
+import java.io.File
 import java.time.Instant
 import java.util.zip.ZipFile
 
@@ -95,6 +96,66 @@ android {
                 "lib/x86_64/libonnxruntime.so",
             )
         }
+    }
+}
+
+/**
+ * Verifies literal variant-specific shortcut metadata in the packaged APKs.
+ */
+tasks.register("verifyListsShortcutVariants") {
+    dependsOn("assembleDebug", "assembleRelease")
+    doLast {
+        val sdkDirectory = sequenceOf(
+            System.getenv("ANDROID_HOME"),
+            System.getenv("ANDROID_SDK_ROOT"),
+        ).filterNotNull()
+            .map(::File)
+            .firstOrNull { it.isDirectory }
+            ?: rootProject.file("local.properties").readLines()
+                .firstOrNull { it.startsWith("sdk.dir=") }
+                ?.substringAfter("sdk.dir=")
+                ?.let(::File)
+            ?: error("Unable to locate the Android SDK")
+        val aapt2 = sdkDirectory.resolve("build-tools")
+            .listFiles()
+            ?.filter { it.isDirectory }
+            ?.maxByOrNull { it.name }
+            ?.resolve("aapt2")
+            ?.takeIf { it.isFile }
+            ?: error("Unable to locate aapt2")
+
+        fun packagedShortcut(artifact: File): String {
+            check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
+            val resources = providers.exec {
+                commandLine(aapt2.absolutePath, "dump", "resources", artifact.absolutePath)
+            }.standardOutput.asText.get()
+            val packagedPath = Regex(
+                """resource \S+ xml/shortcuts\s+\(\) \(file\) (res/\S+) type=XML""",
+            ).find(resources)?.groupValues?.get(1)
+                ?: error("Packaged shortcuts.xml missing from ${artifact.path}")
+            return providers.exec {
+                commandLine(aapt2.absolutePath, "dump", "xmltree", artifact.absolutePath, "--file", packagedPath)
+            }.standardOutput.asText.get()
+        }
+
+        fun verify(artifact: File, expectedTarget: String) {
+            val xml = packagedShortcut(artifact)
+            val target = xml.lineSequence().firstOrNull { "targetPackage(" in it }
+                ?: error("Packaged targetPackage missing from ${artifact.path}")
+            check("""="$expectedTarget" (Raw: "$expectedTarget")""" in target && "=@" !in target) {
+                "Packaged targetPackage must be literal $expectedTarget in ${artifact.path}"
+            }
+            check(Regex("""shortcutId\([^)]*\)="lists" \(Raw: "lists"\)""").containsMatchIn(xml))
+            check(Regex("""targetClass\([^)]*\)="com\.kernel\.ai\.MainActivity" """).containsMatchIn(xml))
+            check(Regex("""name\([^)]*\)="navigation_route" """).containsMatchIn(xml))
+            check(Regex("""value\([^)]*\)="lists" """).containsMatchIn(xml))
+        }
+
+        verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, "com.kernel.ai.debug")
+        verify(
+            layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk").get().asFile,
+            "com.kernel.ai",
+        )
     }
 }
 
