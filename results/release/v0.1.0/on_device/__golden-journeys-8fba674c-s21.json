@@ -45,18 +45,18 @@
     ],
     "blocker_refs": ["#1260", "#1261", "#1447", "#1449"],
     "manual_checks": [
-      "Signed/Play-delivered candidate validation",
-      "Model-ready local generation, streaming, cancel, and relaunch",
-      "Populated-install upgrade preservation",
-      "S23 Ultra journeys 1–3 and Hey Jandal lifecycle",
-      "Complete physical journeys 4–10 including permissions, weather, PTT, and locked-screen delivery"
+      "Signed or Play-delivered candidate validation, including model-ready local generation and lifecycle checks",
+      "Populated-install upgrade preservation for conversations, memories, lists, notes, settings, models, favourites, and recent tools",
+      "Complete physical journeys 3–10 on a model-ready candidate",
+      "S23 Ultra reference-device golden-journey lifecycle coverage",
+      "Final permission, crash, and declaration scan on the exact signed or Play artifact"
     ],
     "recommendation": "additional_validation_required"
   },
   "artifact_refs": [],
   "cases": [
     {
-      "name": "Cold start and model readiness",
+      "name": "Fresh install to first useful action",
       "journey": 1,
       "status": "partial",
       "passed": false,
@@ -64,10 +64,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "App launch and setup were observed; model-ready local generation remains unproven."
+      "notes": "Uninstall/install/launch succeeded on S21; setup state, notification prompt, and useful home actions were understandable. No model was installed and Hugging Face auth was unavailable, so required model load and local response remain unproven."
     },
     {
-      "name": "Upgrade preservation",
+      "name": "Upgrade over an existing install",
       "journey": 2,
       "status": "manual_remaining",
       "passed": false,
@@ -75,10 +75,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Populated-install upgrade path was not executed on the candidate."
+      "notes": "adb install -r was exercised, but the prior install contained no meaningful user data or downloaded model. Populated-install preservation and no unnecessary re-download remain unproven."
     },
     {
-      "name": "First-run setup",
+      "name": "Local chat and generation lifecycle",
       "journey": 3,
       "status": "manual_remaining",
       "passed": false,
@@ -86,10 +86,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Full first-run journey is not proven on the candidate."
+      "notes": "No model/auth was available. Complete response, streaming, cancellation/retry, background/resume, relaunch, persistence, and recovery from a cancelled generation were not proven; connected chat instrumentation is UI coverage only."
     },
     {
-      "name": "Permission and notification handling",
+      "name": "Memory",
       "journey": 4,
       "status": "partial",
       "passed": false,
@@ -97,10 +97,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Partial physical coverage; complete permission and notification flow remains."
+      "notes": "42 S21 memory instrumentation tests passed. Real create, display, retrieve, delete, and restart persistence through the UI or assistant flow remains unproven without a model-ready run."
     },
     {
-      "name": "Weather skill",
+      "name": "Lists and notes",
       "journey": 5,
       "status": "partial",
       "passed": false,
@@ -108,10 +108,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Partial coverage; end-to-end populated weather result is not complete."
+      "notes": "Current instrumentation baseline passed where present. Natural-language add/edit/complete/remove, note retrieval, restart persistence, and ambiguous-mutation safety were not executed because the model was unavailable."
     },
     {
-      "name": "Push-to-talk voice",
+      "name": "Alarm and timer reliability",
       "journey": 6,
       "status": "partial",
       "passed": false,
@@ -119,10 +119,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Partial physical coverage; complete push-to-talk flow remains."
+      "notes": "App clock UI instrumentation passed 130/130 and settings instrumentation passed 31/31 with 1 skip. Background/locked-screen delivery, dismiss/cancel, degraded fallback, and permission repair were not physically completed."
     },
     {
-      "name": "Theme and navigation",
+      "name": "Weather and location fallback",
       "journey": 7,
       "status": "manual_remaining",
       "passed": false,
@@ -130,10 +130,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Full theme and navigation journey is not proven on the candidate."
+      "notes": "No live model-ready weather request or completed permission-scenario result was available. Typed-city fallback, granted/denied location behavior, and settings refresh remain unproven."
     },
     {
-      "name": "Background and locked-screen delivery",
+      "name": "Push-to-talk and spoken response",
       "journey": 8,
       "status": "manual_remaining",
       "passed": false,
@@ -141,10 +141,10 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Locked-screen and background delivery remain unproven."
+      "notes": "No model-ready spoken turn was available. Transcript, spoken-response completion, stop/restart, background/audio-focus recovery, and human audible-quality checks remain unproven."
     },
     {
-      "name": "Data and conversation persistence",
+      "name": "Permission revocation and repair",
       "journey": 9,
       "status": "partial",
       "passed": false,
@@ -152,7 +152,7 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Partial persistence coverage; full populated-state validation remains."
+      "notes": "The focused physical retry reached App Permissions and captured dashboard state/Refresh navigation; current settings instrumentation passed. The full revoke, diagnose, repair, refresh, and retry journey produced no valid runner report because the runner artifact schema was invalid."
     },
     {
       "name": "Hey Jandal lifecycle",
@@ -163,7 +163,7 @@
       "devices": ["s21-exynos"],
       "blocker_refs": [],
       "failures": [],
-      "notes": "Not proven on the candidate; S23 Ultra reference journey is unavailable."
+      "notes": "Not proven on this candidate because the S23 Ultra reference device was unavailable. Existing wake qualification evidence remains authoritative for the previously tested commit; no endurance or reliability matrix was repeated."
     }
   ]
 }
