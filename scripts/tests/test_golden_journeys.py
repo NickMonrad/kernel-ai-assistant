@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from jsonschema import Draft7Validator
+
 HERE = Path(__file__).resolve().parent
 SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -47,6 +49,15 @@ EXPECTED_JOURNEY_NAMES = {
 class GoldenJourneyDashboardTests(unittest.TestCase):
     def setUp(self) -> None:
         self.record = json.loads(FIXTURE.read_text())
+
+    def test_synthetic_fixture_matches_canonical_schema(self) -> None:
+        schema_path = SCRIPT_DIR / "testdata" / "test_evidence.schema.json"
+        schema = json.loads(schema_path.read_text())
+        errors = list(Draft7Validator(schema).iter_errors(self.record))
+        self.assertFalse(
+            errors,
+            "\n".join(error.message for error in errors),
+        )
 
     def test_release_readiness_keeps_semantic_statuses_separate(self) -> None:
         aggregates = _build_aggregates([self.record])

@@ -16,9 +16,9 @@
     "manufacturer": "Synthetic",
     "model": "Example Device",
     "soc": "Synthetic SoC",
-    "tier": "ci",
+    "tier": "tracked",
     "android_api": 35,
-    "execution": "github_hosted_runner"
+    "execution": "physical"
   },
   "model": {
     "name": "Synthetic model",
