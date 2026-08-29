@@ -525,7 +525,7 @@ def _collect_input_files(args: argparse.Namespace) -> list[Path]:
             sys.exit(1)
         return allowed
 
-    in_path = Path(args.input_file)
+    in_path = Path(args.input)
     if not in_path.is_file() or in_path.is_symlink():
         print(f"ERROR: input file not found or unsafe: {in_path}", file=sys.stderr)
         sys.exit(1)

@@ -310,6 +310,23 @@ The schema (`docs/testing/test-evidence-schema.md`) distinguishes `ci` from `on_
 | PR-number-first workflow | `.github/workflows/publish-pr-test-evidence.yml` | PR-number-only dispatch → resolve run/artifact → publish → dashboard rebuild |
 | Dashboard publishing workflow | `.github/workflows/publish-test-dashboard.yml` | Manual dispatch OR push to main OR repository_dispatch |
 
+### Store availability and deletion protection
+
+The dashboard workflow treats `test-results/results/` as a required checkout
+contract. A missing or unreadable branch, or a checkout without `results/`,
+fails the workflow before Pages packaging; it must not be replaced with an
+empty directory. An existing empty `results/` directory remains valid and
+renders an intentionally empty dashboard. The local dashboard builder enforces
+the same distinction.
+
+The `test-results` branch must have GitHub branch protection with deletion and
+force-push protection enabled, while leaving required status checks and pull
+request reviews unset so the evidence publishers can append directly. If the
+repository cannot apply that protection through its available administration
+permissions, configure it manually at **Settings → Rules → Rulesets → New
+branch ruleset**, target `test-results`, enable **Restrict deletions** and
+**Block force pushes**, and leave merge/status requirements disabled.
+
 ## Current non-goals
 
 - **No merge gates** — evidence publishing is not required to merge.

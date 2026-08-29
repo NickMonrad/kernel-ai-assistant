@@ -22,6 +22,7 @@ from build_test_dashboard import (
     _build_metrics_json,
     _render_metrics_section,
     _render_wake_metrics_section,
+    _require_results_dir,
 )
 
 
@@ -92,6 +93,20 @@ def _make_record(**overrides: object) -> dict:
 
 class DashboardMetricsIntegrationTest(unittest.TestCase):
     """Tests for the metrics block in build_test_dashboard.py."""
+    def test_missing_results_dir_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "results"
+            with self.assertRaisesRegex(
+                SystemExit, "evidence store is unavailable"
+            ):
+                _require_results_dir(missing)
+
+    def test_empty_results_dir_remains_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "results"
+            empty.mkdir()
+            _require_results_dir(empty)
+
     def test_device_latest_run_is_separate_from_historical_aggregate(self) -> None:
         old = _make_record(
             timestamp="2026-06-13T00:00:00Z",

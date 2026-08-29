@@ -1441,6 +1441,26 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _require_results_dir(results_dir: Path) -> None:
+    """Fail closed when the evidence store is unavailable.
+
+    An existing but empty ``results/`` directory is valid and renders the
+    normal empty dashboard.  A missing, non-directory, or unreadable store
+    must not silently look like an empty evidence history.
+    """
+    if not results_dir.is_dir():
+        raise SystemExit(
+            f"ERROR: test-results evidence store is unavailable at {results_dir}; "
+            "refusing to build an empty dashboard"
+        )
+    try:
+        next(results_dir.iterdir(), None)
+    except OSError as exc:
+        raise SystemExit(
+            f"ERROR: test-results evidence store is unreadable at {results_dir}: {exc}"
+        ) from exc
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -1453,6 +1473,8 @@ def main() -> None:
 
     print(f"Results dir: {results_dir}")
     print(f"Output dir:  {out_dir}")
+
+    _require_results_dir(results_dir)
 
     # Load evidence
     evidence = _discover_results(results_dir)
