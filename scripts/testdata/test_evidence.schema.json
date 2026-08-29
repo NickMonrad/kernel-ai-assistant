@@ -125,6 +125,32 @@
       }
     },
     {
+      "description": "Golden-journey release evidence is a physical on-device 1.0 record.",
+      "if": {
+        "properties": {
+          "suite": {
+            "const": "golden_journeys"
+          }
+        },
+        "required": [
+          "suite"
+        ]
+      },
+      "then": {
+        "required": [
+          "golden_journeys"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "source": {
+            "const": "on_device"
+          }
+        }
+      }
+    },
+    {
       "description": "Acoustic wake evidence requires its extension and permits an unverified accelerator only as null.",
       "if": {
         "properties": {
@@ -269,6 +295,108 @@
       "items": {
         "$ref": "#/definitions/safeRelativeArtifactPath"
       }
+    },
+    "golden_journeys": {
+      "type": "object",
+      "description": "Release-candidate golden-journey evidence extension.",
+      "required": [
+        "artifact_type",
+        "evidence_type",
+        "devices",
+        "blocker_refs",
+        "manual_checks",
+        "recommendation"
+      ],
+      "properties": {
+        "version": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "build_identifier": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "artifact_type": {
+          "type": "string",
+          "enum": [
+            "local_debug",
+            "signed_candidate",
+            "play_delivered_candidate",
+            "other"
+          ]
+        },
+        "evidence_type": {
+          "type": "string",
+          "enum": [
+            "automated",
+            "agent_adb_physical_device",
+            "human_observation",
+            "mixed"
+          ]
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "evidence_type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "evidence_type": {
+                "type": "string",
+                "enum": [
+                  "automated",
+                  "agent_adb_physical_device",
+                  "human_observation",
+                  "mixed"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "blocker_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "manual_checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "additional_validation_required",
+            "blocked",
+            "not_ready"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "device": {
       "type": "object",
@@ -574,6 +702,78 @@
               "artifact_refs": {
                 "type": "array",
                 "description": "Paths relative to the evidence record for case-level logs or media.",
+                "items": {
+                  "$ref": "#/definitions/safeRelativeArtifactPath"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "journey",
+              "status",
+              "passed",
+              "evidence_type",
+              "devices",
+              "blocker_refs",
+              "failures"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "journey": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "proven",
+                  "partial",
+                  "blocked",
+                  "manual_remaining"
+                ]
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "evidence_type": {
+                "type": "string",
+                "enum": [
+                  "automated",
+                  "agent_adb_physical_device",
+                  "human_observation",
+                  "mixed"
+                ]
+              },
+              "devices": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "blocker_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "failures": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "notes": {
+                "type": "string"
+              },
+              "artifact_refs": {
+                "type": "array",
                 "items": {
                   "$ref": "#/definitions/safeRelativeArtifactPath"
                 }

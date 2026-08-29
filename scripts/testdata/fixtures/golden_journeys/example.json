@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "golden_journeys",
+  "timestamp": "2000-01-01T00:00:00Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "fixture/synthetic",
+  "commit": "0000000000000000000000000000000000000000",
+  "pr": null,
+  "release": "synthetic-0.0.0",
+  "run_id": "synthetic-golden-journey-example",
+  "device": {
+    "id": "s21-exynos",
+    "serial": null,
+    "label": "Synthetic S21",
+    "manufacturer": "Synthetic",
+    "model": "Example Device",
+    "soc": "Synthetic SoC",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Synthetic model",
+    "runtime": "Synthetic runtime",
+    "backend": "Synthetic backend"
+  },
+  "summary": {
+    "total": 10,
+    "passed": 2,
+    "failed": 1,
+    "pass_rate": 0.2
+  },
+  "golden_journeys": {
+    "version": "synthetic",
+    "build_identifier": "synthetic-fixture-build",
+    "artifact_type": "other",
+    "evidence_type": "mixed",
+    "devices": [
+      {
+        "id": "s21-exynos",
+        "evidence_type": "agent_adb_physical_device",
+        "required": true
+      },
+      {
+        "id": "s23-ultra",
+        "evidence_type": "human_observation",
+        "required": false
+      }
+    ],
+    "blocker_refs": [],
+    "manual_checks": [
+      "Synthetic manual check"
+    ],
+    "recommendation": "additional_validation_required"
+  },
+  "artifact_refs": [],
+  "cases": [
+    {
+      "name": "Fresh install to first useful action",
+      "journey": 1,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic partial fixture case."
+    },
+    {
+      "name": "Upgrade over an existing install",
+      "journey": 2,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic manual fixture case."
+    },
+    {
+      "name": "Local chat and generation lifecycle",
+      "journey": 3,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "automated",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic proven fixture case."
+    },
+    {
+      "name": "Memory",
+      "journey": 4,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic partial fixture case."
+    },
+    {
+      "name": "Lists and notes",
+      "journey": 5,
+      "status": "blocked",
+      "passed": false,
+      "evidence_type": "human_observation",
+      "devices": ["s21-exynos"],
+      "blocker_refs": ["#fixture"],
+      "failures": ["Synthetic fixture blocker"],
+      "notes": "Synthetic blocked fixture case."
+    },
+    {
+      "name": "Alarm and timer reliability",
+      "journey": 6,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "human_observation",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic manual fixture case."
+    },
+    {
+      "name": "Weather and location fallback",
+      "journey": 7,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "automated",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic proven fixture case."
+    },
+    {
+      "name": "Push-to-talk and spoken response",
+      "journey": 8,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "human_observation",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic manual fixture case."
+    },
+    {
+      "name": "Permission revocation and repair",
+      "journey": 9,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic partial fixture case."
+    },
+    {
+      "name": "Hey Jandal lifecycle",
+      "journey": 10,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "human_observation",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Synthetic manual fixture case."
+    }
+  ]
+}

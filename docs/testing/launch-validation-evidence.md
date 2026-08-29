@@ -171,6 +171,33 @@ gh api repos/NickMonrad/kernel-ai-assistant/dispatches \
 Or use the "Publish test evidence" GitHub Actions workflow from the Actions
 tab, providing the CI run ID (if publishing CI results) or running
 `publish_test_evidence.py` locally first for on_device results.
+### Golden-journey release-candidate bundle
+
+Issue #1505 uses the same normalized record and publisher path for release
+readiness. The record has `suite: "golden_journeys"`, `source: "on_device"`,
+the tested 40-character commit, one physical `device` registry entry, and
+exactly ten `cases` with semantic statuses (`proven`, `partial`, `blocked`,
+or `manual_remaining`). Its `golden_journeys` extension records artifact
+identity, device evidence type, blocker references, remaining manual checks,
+and the release recommendation. Unrun journeys are manual checks, not failed
+tests.
+
+Publish the normalized file only to `test-results`:
+
+```bash
+python3 scripts/publish_test_evidence.py \
+  --input <golden-journeys.json> \
+  --source on_device \
+  --release <candidate-version> \
+  --commit <tested-40-character-SHA>
+```
+
+The publisher stores it under
+`results/release/<candidate-version>/on_device/`. Do not publish raw logs,
+device serials, private paths, or unsigned artifact contents. The Overview
+uses the newest valid golden record as the current release-readiness signal;
+generic historical metrics remain diagnostic.
+
 
 ## Evidence accounting
 
