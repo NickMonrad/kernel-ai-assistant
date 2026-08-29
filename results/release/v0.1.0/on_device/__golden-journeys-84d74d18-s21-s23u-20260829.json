@@ -15,9 +15,9 @@
     "label": "S23 Ultra",
     "manufacturer": "Samsung",
     "model": "SM-S918B",
-    "soc": "Qualcomm Snapdragon 8 Gen 2 for Galaxy",
+    "soc": "Snapdragon 8 Gen 2",
     "tier": "reference",
-    "android_api": 36,
+    "android_api": 35,
     "execution": "physical"
   },
   "model": {
