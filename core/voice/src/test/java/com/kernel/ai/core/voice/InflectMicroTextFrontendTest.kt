@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -57,6 +58,122 @@ class InflectMicroTextFrontendTest {
         vectors.forEach { (input, expected) ->
             assertEquals(expected, InflectMicroTextFrontend.normalize(input), input)
         }
+    }
+
+    @Test
+    fun normalize_preserves_token_boundary_after_expanded_time() {
+        assertEquals(
+            "three thirty this afternoon",
+            InflectMicroTextFrontend.normalize("3:30 this afternoon"),
+        )
+        assertEquals(
+            "nine ten the next morning",
+            InflectMicroTextFrontend.normalize("9:10 the next morning"),
+        )
+        assertEquals(
+            "eight o clock your meeting",
+            InflectMicroTextFrontend.normalize("8:00 your meeting"),
+        )
+    }
+
+    @Test
+    fun normalize_preserves_time_boundary_before_apostrophe() {
+        val normalized = InflectMicroTextFrontend.normalize("11:15 there's ...")
+        assertTrue(normalized.contains("eleven fifteen there's"))
+        assertFalse(normalized.contains("fifteenthere's"))
+        assertFalse(normalized.contains("thirtythis"))
+    }
+
+    @Test
+    fun normalize_keeps_punctuation_following_time() {
+        assertEquals("four o clock,", InflectMicroTextFrontend.normalize("4:00,"))
+        assertEquals("seven o clock.", InflectMicroTextFrontend.normalize("7:00."))
+    }
+
+    @Test
+    fun normalize_expands_grouped_digit_sequence_digit_by_digit() {
+        val normalized = InflectMicroTextFrontend.normalize("1300 555 019")
+        assertEquals("one three zero zero, five five five, zero one nine", normalized)
+        assertFalse(normalized.contains("one thousand"))
+        assertFalse(normalized.contains("nineteen"))
+        assertTrue(normalized.contains("zero one nine"))
+    }
+
+    @Test
+    fun normalize_keeps_ordinary_cardinal_for_single_quantity() {
+        assertEquals(
+            "one thousand three hundred people",
+            InflectMicroTextFrontend.normalize("1300 people"),
+        )
+    }
+
+    @Test
+    fun normalize_does_not_group_two_adjacent_quantities() {
+        // "3 20-minute" and "2 500" are ordinary quantities, not grouped identifiers.
+        assertEquals(
+            "I found three twenty-minute slots",
+            InflectMicroTextFrontend.normalize("I found 3 20-minute slots"),
+        )
+        assertEquals(
+            "Use two five hundred ml bottles",
+            InflectMicroTextFrontend.normalize("Use 2 500 ml bottles"),
+        )
+    }
+
+    @Test
+    fun normalize_keeps_two_group_numeric_pair_cardinal() {
+        assertEquals(
+            "use four six volt batteries",
+            InflectMicroTextFrontend.normalize("use 4 6 volt batteries"),
+        )
+    }
+
+    @Test
+    fun normalize_preserves_currency_expansion_regression() {
+        assertEquals(
+            "forty nine dollars and ninety five cents",
+            InflectMicroTextFrontend.normalize("$49.95"),
+        )
+    }
+
+
+    @Test
+    fun normalize_preserves_boundary_for_am_pm_time_suffix_variants() {
+        assertEquals(
+            "six forty five p m tomorrow",
+            InflectMicroTextFrontend.normalize("6:45 pm tomorrow"),
+        )
+        // A "p.m." (with periods) between words keeps its final period attached to the am/pm
+        // token (pre-existing behaviour, unchanged by the #1486 boundary fix). An end-of-input
+        // "p.m." stays clean.
+        assertEquals(
+            "six forty five p m. tomorrow",
+            InflectMicroTextFrontend.normalize("6:45 p.m. tomorrow"),
+        )
+        assertEquals(
+            "six forty five p m.",
+            InflectMicroTextFrontend.normalize("6:45 p.m."),
+        )
+    }
+
+    @Test
+    fun normalize_leaves_non_target_number_paths_unchanged() {
+        assertEquals(
+            "two thousand and twenty five",
+            InflectMicroTextFrontend.normalize("2025"),
+        )
+        assertEquals(
+            "two oh three, zero six seven eight",
+            InflectMicroTextFrontend.normalize("203-0678"),
+        )
+        assertEquals(
+            "two hundred and fifty millilitres",
+            InflectMicroTextFrontend.normalize("250 millilitres"),
+        )
+        assertEquals(
+            "three point seven five kilograms",
+            InflectMicroTextFrontend.normalize("3.75 kilograms"),
+        )
     }
 
 
