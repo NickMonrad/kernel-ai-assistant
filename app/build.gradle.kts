@@ -100,9 +100,7 @@ android {
 }
 
 /**
- * Verifies the packaged shortcut target rather than only checking the source XML. The debug
- * application id has an applicationIdSuffix, so its static shortcut must resolve independently
- * from the release resource value.
+ * Verifies literal variant-specific shortcut metadata in the packaged APKs.
  */
 tasks.register("verifyListsShortcutVariants") {
     dependsOn("assembleDebug", "assembleRelease")
@@ -118,72 +116,47 @@ tasks.register("verifyListsShortcutVariants") {
                 ?.substringAfter("sdk.dir=")
                 ?.let(::File)
             ?: error("Unable to locate the Android SDK")
-        val buildToolsDirectory = sdkDirectory.resolve("build-tools")
-        val aapt2 = buildToolsDirectory
+        val aapt2 = sdkDirectory.resolve("build-tools")
             .listFiles()
             ?.filter { it.isDirectory }
             ?.maxByOrNull { it.name }
             ?.resolve("aapt2")
             ?.takeIf { it.isFile }
-            ?: error("Unable to locate aapt2 under ${buildToolsDirectory.path}")
+            ?: error("Unable to locate aapt2")
 
-        fun dumpResources(artifact: File): String {
+        fun packagedShortcut(artifact: File): String {
             check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
-            return providers.exec {
+            val resources = providers.exec {
                 commandLine(aapt2.absolutePath, "dump", "resources", artifact.absolutePath)
             }.standardOutput.asText.get()
-        }
-
-        fun dumpShortcutXml(artifact: File, resources: String): String {
             val packagedPath = Regex(
                 """resource \S+ xml/shortcuts\s+\(\) \(file\) (res/\S+) type=XML""",
             ).find(resources)?.groupValues?.get(1)
                 ?: error("Packaged shortcuts.xml missing from ${artifact.path}")
             return providers.exec {
-                commandLine(
-                    aapt2.absolutePath,
-                    "dump",
-                    "xmltree",
-                    artifact.absolutePath,
-                    "--file",
-                    packagedPath,
-                )
+                commandLine(aapt2.absolutePath, "dump", "xmltree", artifact.absolutePath, "--file", packagedPath)
             }.standardOutput.asText.get()
         }
 
-        fun verifyShortcut(artifact: File, expectedTarget: String) {
-            val resources = dumpResources(artifact)
-            val shortcutXml = dumpShortcutXml(artifact, resources)
-            val targetResource = Regex(
-                """resource (0x[0-9a-f]+) string/shortcut_target_package\s+\(\) "([^"]+)"""",
-            ).find(resources)
-                ?: error("Packaged shortcut_target_package missing from ${artifact.path}")
-            val targetAttribute = Regex(
-                """targetPackage\([^)]*\)=@(0x[0-9a-f]+)""",
-            ).find(shortcutXml)
-                ?: error("Packaged Lists shortcut targetPackage missing from ${artifact.path}")
-
-            check(targetResource.groupValues[2] == expectedTarget) {
-                "Packaged Lists shortcut resource must target $expectedTarget"
+        fun verify(artifact: File, expectedTarget: String) {
+            val xml = packagedShortcut(artifact)
+            val target = xml.lineSequence().firstOrNull { "targetPackage(" in it }
+                ?: error("Packaged targetPackage missing from ${artifact.path}")
+            check("""="$expectedTarget" (Raw: "$expectedTarget")""" in target && "=@" !in target) {
+                "Packaged targetPackage must be literal $expectedTarget in ${artifact.path}"
             }
-            check(targetAttribute.groupValues[1] == targetResource.groupValues[1]) {
-                "Packaged Lists shortcut must use shortcut_target_package"
-            }
-            check("""shortcutId(0x01010528)="lists" (Raw: "lists")""" in shortcutXml)
-            check("""targetClass(0x0101002f)="com.kernel.ai.MainActivity" (Raw: "com.kernel.ai.MainActivity")""" in shortcutXml)
-            check("""name(0x01010003)="navigation_route" (Raw: "navigation_route")""" in shortcutXml)
-            check("""value(0x01010024)="lists" (Raw: "lists")""" in shortcutXml)
+            check(Regex("""shortcutId\([^)]*\)="lists" \(Raw: "lists"\)""").containsMatchIn(xml))
+            check(Regex("""targetClass\([^)]*\)="com\.kernel\.ai\.MainActivity" """).containsMatchIn(xml))
+            check(Regex("""name\([^)]*\)="navigation_route" """).containsMatchIn(xml))
+            check(Regex("""value\([^)]*\)="lists" """).containsMatchIn(xml))
         }
 
-        verifyShortcut(
-            layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile,
-            "com.kernel.ai.debug",
-        )
-        verifyShortcut(
+        verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, "com.kernel.ai.debug")
+        verify(
             layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk").get().asFile,
             "com.kernel.ai",
         )
-}
+    }
 }
 
 tasks.register("verifyAcousticStimulusReleaseIsolation") {
