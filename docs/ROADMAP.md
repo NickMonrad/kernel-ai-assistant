@@ -1,8 +1,8 @@
-# Kernel AI Assistant — Roadmap
+# Jandal AI — Roadmap
 
-> **Last updated:** 2026-06-08 (PR #1111 merged: hardened llm_tools assertions; PR #1108 merged: llm_tools E2E harness; PR #1106 merged: orchestration eval framework; PR #1095 merged: Intent Recovery Orchestrator; PR #1089 merged: Exynos S21 GPU fixes; PR #1082 merged: AGP 9/Gradle 9/Kotlin 2.3.21 toolchain upgrade; PR #1070 merged: STT transcript normaliser; PR #1067 merged: Model Availability UX overhaul)
+> **Last updated:** 2026-08-29 (reconciled with #1014 launch state and the current public backlog)
 >
-> This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
+> This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
 > and it'll get woven in here.
 
@@ -26,6 +26,20 @@
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
 | **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM); S21 Exynos (Mali GPU, 8GB RAM) |
+
+---
+
+## v0.1 Play Store release candidate 🔄 Active
+
+[#1014](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) and the `launch:blocking` label are the source of truth for the frozen v0.1 release scope.
+
+Current release gates are deliberately narrow:
+
+- [#1329](https://github.com/NickMonrad/kernel-ai-assistant/issues/1329) — release-candidate golden-journey validation;
+- [#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447) — ship one higher-quality local TTS option, with current candidate safety/evidence in #1449 and #1485;
+- [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
+
+Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
 
 ---
 
@@ -114,13 +128,12 @@ tri-tiered memory architecture inspired by the
 > the architecture was redesigned to a three-tier **Resident Agent** pattern.
 >
 > **Issue structure:** Phase 3 now spans the original shipped architecture tranche plus live follow-on parent issues. The active GitHub parent issues are:
-> [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346),
 > [#347](https://github.com/NickMonrad/kernel-ai-assistant/issues/347),
 > [#348](https://github.com/NickMonrad/kernel-ai-assistant/issues/348),
 > [#349](https://github.com/NickMonrad/kernel-ai-assistant/issues/349),
 > [#350](https://github.com/NickMonrad/kernel-ai-assistant/issues/350),
 > [#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704),
-> and [#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708).
+> and [#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708). Completed [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346) remains below as historical context.
 > See [GitHub milestone](https://github.com/NickMonrad/kernel-ai-assistant/milestone/3).
 
 ### Three-Tier Intent Architecture (with Intent Recovery)
@@ -180,12 +193,12 @@ Active follow-on model/runtime investigations now live under
 
 ---
 
-### 3B: Brand & Visual Identity ([#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346))
+### 3B: Brand & Visual Identity ✅ Complete ([#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346))
 
 | Sub-Issue | Title | Status | Notes |
 |-----------|-------|--------|-------|
-| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | Jandal visual identity — Fern Green palette, Paua loading shimmer, 🩴 UI | 🟡 In progress | Theme foundation (palette + fallback schemes + launcher icon) done in #1185. Paua shimmer & full UI remaining. |
-| [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns across the app | ⬜ Pending | Material 3 audit |
+| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | Jandal visual identity — Fern Green palette, Paua loading shimmer, 🩴 UI | ✅ Done | Visual identity foundation, static branding, Dynamic Colour support, and Paua loading/thinking treatment completed through #1182–#1184/#1195. |
+| [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns across the app | ✅ Done | Material 3/UI audit completed; findings recorded. |
 
 **Already completed:**
 - ✅ Jandal personality: Kiwi prompt, dynamic vocab (#225, PR #268)
@@ -205,7 +218,7 @@ Active follow-on model/runtime investigations now live under
 | [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | ✅ Done | 🔴 High |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI — settings screen with enable/disable | ⬜ Pending | 🟡 Medium |
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ✅ Done | 🟡 Medium |
-| [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
+| [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Embedded map result / in-chat location preview follow-on | ⬜ Pending — #222 foundation complete | 🟢 Low |
 | [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ✅ Done | 🟢 Low |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
 | [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ✅ Done — PR #797 | 🟡 Medium |
@@ -310,8 +323,8 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#727](https://github.com/NickMonrad/kernel-ai-assistant/issues/727) | Chat voice foundation for conversational push-to-talk | ✅ Done — PR #731 | 🟡 Medium |
 | [#728](https://github.com/NickMonrad/kernel-ai-assistant/issues/728) | Chat voice UI/UX and turn-taking controls | ✅ Done — PR #735 | 🟡 Medium |
 | [#741](https://github.com/NickMonrad/kernel-ai-assistant/issues/741) | Chat voice mode switch (one-shot vs back-and-forth) | ✅ Done — PR #744 | 🟡 Medium |
-| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Sherpa-ONNX dual-threshold verification | ✅ Partially — PRs #987, #1000 (infrastructure); FP tuning #986 → 🟡 Post-Launch | 🟡 Medium |
-| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
+| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word + Android Default Assistant | ✅ Launch-qualified foundation; post-launch hardening remains | 🟡 Medium |
+| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | 🧪 Research required — post-launch | 🟢 Low |
 
 **Current state after merged PRs #780, #789, #805, #818, #995, #1044, #987, #1000, #1070, and #1067:**
 
@@ -321,8 +334,8 @@ Lower-priority skill additions — third-party integrations and local utilities.
 - Voice quality slice complete: URL colon preservation in `cleanTextForSpeech()`, speech rate clamping, abbreviation-aware sentence splitting, and Sherpa quality evaluation done on Samsung Galaxy S23 Ultra.
 - `autoSpeakEnabled` is now a cached field in `ChatViewModel` — chat auto-speak is fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
 - **Sherpa-ONNX STT shipped** as the primary STT engine (#821/#1022, PRs #995/#1044): selectable Zipformer (streaming, default), SenseVoice (multilingual), Whisper tiny.en, and Paraformer families via Settings → Voice. All engines pass through the central `TranscriptNormaliser` (#1070) for Kiwi phonetic normalisation, unit alias tables, and trailing-punctuation strip.
-- **"Hey Jandal" wake word infrastructure shipped** (#983/#984, PRs #987/#1000): trained ML model with Sherpa-ONNX dual-threshold verification; integrates with Android Default Assistant. FP-rate tuning tracked as post-launch (#986).
-- Remaining voice research: Kokoro-82M/VoxSherpa (#783, including expressiveness/emotion exploration), Kiwi corpus tuning (#784), VITS noise_scale (#788).
+- **"Hey Jandal" wake word/default-assistant foundation is launch-qualified** (#65): battery qualification (#1142/#1391) and unattended reliability (#1402/#1410) are complete for v0.1. Remaining session-isolation, screen-off, and optimisation work is post-launch.
+- Remaining voice work is post-launch except the bounded v0.1 higher-quality TTS gate (#1447); #824 remains the broader living QA matrix and #64 requires a fresh design/research decision before implementation.
 - Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) remain tracked separately.
 
 ---
@@ -419,6 +432,17 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 | Actions tab FallThrough → LLM bridge | ✅ Done | #373/#405 — FallThrough queries correctly navigate to Chat with query intact (PR #410) |
 | MiniLM-L6-v2 INT8 classifier ([#353](https://github.com/NickMonrad/kernel-ai-assistant/issues/353)) | ✅ Done | Phase 2 complete — 30+ intents, 10-12 phrases each, bundled TFLite model (PRs #406 #408 #409) |
 
+### Lists: current public roadmap ([#1141](https://github.com/NickMonrad/kernel-ai-assistant/issues/1141))
+
+Existing Room-backed Lists remain the source of truth for the UI, skills, sharing, and future widget/sync consumers.
+
+- [#1489](https://github.com/NickMonrad/kernel-ai-assistant/issues/1489) is a high-priority post-launch visibility feature: a local-data home-screen list widget and Lists shortcut. It is independently implementable and does not depend on cross-device sync.
+- [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) is the public local-first shared Lists umbrella.
+- The shared-data sequence is [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494): contract, sync-ready persistence, encrypted package exchange, then bounded local paired-device convergence proof.
+- [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) remains non-blocking for the first shared-list sync MVP. [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) remains the hierarchy authority and completed [#908](https://github.com/NickMonrad/kernel-ai-assistant/issues/908) remains the plain-text Share/Copy path.
+
+This public roadmap intentionally stops at transport-independent/local client foundations and local/nearby convergence proof; production internet transport is not part of #1490–#1494.
+
 ### Known Issues / Decisions
 
 | Issue | Description |
@@ -447,7 +471,7 @@ WorkManager runs three sequential phases while the device is charging and idle:
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Semantic Cache ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | ⬜ Pending | `semantic_cache` vec table; bypass Gemma-4 for repeated knowledge queries (≥0.95 cosine similarity); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Light Sleep |
+| Semantic Cache ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | 🧪 Research required | Product goal retained, but the historical FunctionGemma-270M routing design is superseded; re-spec against the current QuickIntentRouter/model-fallback and memory/dreaming seams before implementation. |
 | Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | Replace free-text profile with structured fields (name, role, env, rules, sandbox). Gemma-4 promotes sandbox → core identity or core memories in Deep Sleep. |
 | WorkManager chain scaffold | ⬜ Pending | Light Sleep → REM Sleep → Deep Sleep chained workers, runs on CHARGING + IDLE |
 | Episodic distillation (overnight batch) | ⬜ Pending | Move Phase 3's inline distillation to REM Sleep batch |
@@ -520,15 +544,15 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 6 | ✅ Done |
 | [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46) | Model Settings UI | Phase 3 | ✅ Done |
 | [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 4 | ⬜ Pending |
-| [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 4 | ⬜ Pending |
+| [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 4 | 🧪 Research required |
 | [#56](https://github.com/NickMonrad/kernel-ai-assistant/issues/56) | Download worker saves to wrong path | Phase 1 | ✅ Fixed (#57) |
 | [#58](https://github.com/NickMonrad/kernel-ai-assistant/issues/58) | Engine init stuck (stale WorkManager) | Phase 1 | ✅ Fixed (#75) |
 | [#59](https://github.com/NickMonrad/kernel-ai-assistant/issues/59) | Settings: show active model/backend/tier | Phase 2 | ✅ Done (#72) |
 | [#60](https://github.com/NickMonrad/kernel-ai-assistant/issues/60) | Model selection: choose E2B/E4B | Phase 2 | ✅ Done (#72) |
 | [#61](https://github.com/NickMonrad/kernel-ai-assistant/issues/61) | Full markdown rendering | Phase 2 | ✅ Done (#63) |
-| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Sherpa-ONNX dual-threshold verification | ✅ Partially — PRs #987, #1000 (infrastructure); FP tuning #986 → 🟡 Post-Launch | 🟡 Medium |
-| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
-| [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns | Phase 3 | ⬜ Pending |
+| [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word + Android Default Assistant | Phase 3F | ✅ Launch-qualified foundation; post-launch hardening remains |
+| [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | Phase 3F | 🧪 Research required — post-launch |
+| [#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71) | Review UI patterns | Phase 3 | ✅ Done |
 | [#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78) | Copy chat content | Phase 3 | ✅ Done |
 | [#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84) | Gemma 4 native tool calling | Phase 3 | ✅ Done |
 | [#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86) | GetSystemInfo native skill | Phase 3 | ✅ Done |
@@ -550,13 +574,13 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#254](https://github.com/NickMonrad/kernel-ai-assistant/issues/254) | GPS weather location name (Nominatim) | Phase 3 | ✅ Done — #257 |
 | [#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255) | Weather forecast for tomorrow / next N days | Phase 3 | ✅ Done — PR #269/#274 |
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contact name | Phase 3 | ✅ Done |
-| [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location skills (navigate, open, find nearby) | Phase 3/5 | ⬜ Pending — native intents Phase 3; JS nearby search Phase 5 |
+| [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Embedded map result / in-chat location preview follow-on | Phase 3C | ⬜ Pending — #222 foundation complete |
 | [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) | Copy tool call content for debugging | Phase 3 | ✅ Done — PR #325/#326 |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI | Phase 3 | ⬜ Pending |
 | [#264](https://github.com/NickMonrad/kernel-ai-assistant/issues/264) | Jandal doesn't know his own culture | Phase 3 | ✅ Done (PR #268) |
 | [#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265) | Calendar event intent | Phase 3 | ✅ Done — PR #309 |
-| [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | Phase 3 (technical debt) | ⬜ Open — workaround already in place, needs comment/doc clarity |
-| [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback rejects QTI Snapdragon devices | Phase 3 (device compat) | ⬜ Open — high priority bug, partial-match fix needed |
+| [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | Phase 3 (technical debt) | ✅ Done |
+| [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback rejects QTI Snapdragon devices | Phase 3 (device compat) | ✅ Done |
 | [#232](https://github.com/NickMonrad/kernel-ai-assistant/issues/232) | Chicory WASM performance design constraint | Phase 5 | ⬜ Open — design note, guides skill authoring guidelines |
 | [#272](https://github.com/NickMonrad/kernel-ai-assistant/issues/272) | GPS weather routing — model always used JS skill | Phase 3 | ✅ Done (PR #274) |
 | [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | Phase 3A | ✅ Done |
@@ -583,7 +607,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings: topK, temperature, task-aware presets | Phase 3A | ✅ Done — PR #388 |
 | [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration (toggle + budget) | Phase 3A | ✅ Done — PR #413 (toggle wired to LiteRT-LM Channel API) |
 | [#345](https://github.com/NickMonrad/kernel-ai-assistant/issues/345) | Phase 3A: Inference & Prompt Architecture (parent) | Phase 3 | 🔖 Tracking |
-| [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346) | Phase 3B: Brand & Visual Identity (parent) | Phase 3 | 🔖 Tracking |
+| [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346) | Phase 3B: Brand & Visual Identity (parent) | Phase 3 | ✅ Closed — completed |
 | [#347](https://github.com/NickMonrad/kernel-ai-assistant/issues/347) | Phase 3C: Core Skills Completion (parent) | Phase 3 | 🔖 Tracking |
 | [#348](https://github.com/NickMonrad/kernel-ai-assistant/issues/348) | Phase 3D: Memory & Data Improvements (parent) | Phase 3 | 🔖 Tracking |
 | [#349](https://github.com/NickMonrad/kernel-ai-assistant/issues/349) | Phase 3E: Community & Integration Skills (parent) | Phase 3 | 🔖 Tracking |

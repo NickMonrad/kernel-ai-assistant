@@ -16,19 +16,18 @@ Jandal is built around a **Brain-Memory-Action** model:
 
 Launch readiness is tracked in GitHub rather than duplicated in this README:
 
-- [#1014 - Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic and current launch tracking issue.
+- [#1014 - Jandal v0.1 Play Store release candidate](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) is the parent launch epic and current launch tracking issue.
 - The `launch:blocking` label and [Jandal Launch Backlog](https://github.com/users/NickMonrad/projects/5) project views are the live launch blocker queue and filtered work dashboard.
 - [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md) is a historical launch-slice snapshot, not the current plan.
 - [#1255 - Launch Plan: ordered implementation sequence and release gates](https://github.com/NickMonrad/kernel-ai-assistant/issues/1255) is the now-completed model-readiness preflight tracker, not the active launch plan.
 
 The current launch gates are:
 
-1. Launch scope and backlog sanity.
-2. Test/evidence foundation.
-3. Core app, accessibility, and first-run reliability.
-4. Permissions and Android capability repair.
-5. Voice and wake-word launch-risk validation.
-6. Final release QA and store readiness.
+1. Release-candidate golden journeys ([#1329](https://github.com/NickMonrad/kernel-ai-assistant/issues/1329)).
+2. A higher-quality local TTS option ([#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447)), with current candidate safety/evidence tracked in #1449 and #1485.
+3. Play Store, legal, and policy readiness ([#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441)), including #1260–#1264 and #1474.
+
+Wake-word launch qualification is complete. Broader permission orchestration, evidence-platform, and wake-word optimisation work remains post-launch unless a new release-candidate regression proves otherwise.
 
 ## Feature areas
 
@@ -42,7 +41,7 @@ Jandal currently includes:
 - push-to-talk voice input, optional spoken chat replies, per-message speaker playback, configurable TTS voices, and wake-word/default-assistant infrastructure;
 - local model management and model availability states for required, optional, preparing, gated, and unavailable model paths.
 
-Future roadmap work includes Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
+Future roadmap work includes Lists home-screen visibility and local-first shared-list foundations, Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
 
 ## Tech stack
 
