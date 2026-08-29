@@ -78,6 +78,11 @@ def _validate_path_segment(value: str, label: str) -> None:
         sys.exit(1)
 
 
+def _safe_output_stem(value: object) -> str:
+    """Make a metadata-derived filename safe and stable."""
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-._")
+    return stem or "evidence"
+
 # ── Remote URL resolution ──────────────────────────────────────────────────────
 
 
@@ -568,6 +573,17 @@ def _validate_evidence_file(path: Path, args: argparse.Namespace) -> dict:
     else:
         print(f"WARNING: schema not found at {schema_path}, skipping schema validation")
 
+    if data.get("suite") == "golden_journeys":
+        extension = data.get("golden_journeys")
+        journeys = data.get("cases")
+        if not isinstance(extension, dict) or not isinstance(journeys, list) or len(journeys) != 10:
+            print(
+                f"ERROR: {path} golden_journeys records must contain exactly ten journeys "
+                "and a golden_journeys metadata object",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     # Source consistency check
     if "source" in data and data["source"] != args.source:
         print(
@@ -619,8 +635,9 @@ def _build_output_paths(files: list[Path], args: argparse.Namespace, data: dict 
                 sys.exit(1)
             dest_name = relative.as_posix()
         else:
-            # Single input file: derive a descriptive name from evidence metadata
-            if data and args.source == "on_device":
+            if data and data.get("suite") == "golden_journeys" and data.get("run_id"):
+                dest_name = f"__{_safe_output_stem(data['run_id'])}{f.suffix}"
+            elif data and args.source == "on_device":
                 device_id = data.get("device", {}).get("id", "unknown")
                 suite = data.get("suite", "unknown")
                 dest_name = f"__{device_id}_{suite}{f.suffix}"

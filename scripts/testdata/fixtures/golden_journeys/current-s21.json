@@ -1,0 +1,169 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "golden_journeys",
+  "timestamp": "2026-08-29T05:08:02Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "8fba674cfd0f15f148192f30aba15878f2af45f8",
+  "pr": null,
+  "release": "v0.1.0",
+  "run_id": "golden-journeys-8fba674c-s21",
+  "device": {
+    "id": "s21-exynos",
+    "serial": null,
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "SM-G991B",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma 4 E-2B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 10,
+    "passed": 0,
+    "failed": 0,
+    "pass_rate": 0.0
+  },
+  "golden_journeys": {
+    "version": "0.1.0",
+    "build_identifier": "com.kernel.ai.debug versionCode 1",
+    "artifact_type": "local_debug",
+    "evidence_type": "mixed",
+    "devices": [
+      {
+        "id": "s21-exynos",
+        "evidence_type": "mixed",
+        "required": true
+      }
+    ],
+    "blocker_refs": ["#1260", "#1261", "#1447", "#1449"],
+    "manual_checks": [
+      "Signed/Play-delivered candidate validation",
+      "Model-ready local generation, streaming, cancel, and relaunch",
+      "Populated-install upgrade preservation",
+      "S23 Ultra journeys 1–3 and Hey Jandal lifecycle",
+      "Complete physical journeys 4–10 including permissions, weather, PTT, and locked-screen delivery"
+    ],
+    "recommendation": "additional_validation_required"
+  },
+  "artifact_refs": [],
+  "cases": [
+    {
+      "name": "Cold start and model readiness",
+      "journey": 1,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "App launch and setup were observed; model-ready local generation remains unproven."
+    },
+    {
+      "name": "Upgrade preservation",
+      "journey": 2,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Populated-install upgrade path was not executed on the candidate."
+    },
+    {
+      "name": "First-run setup",
+      "journey": 3,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Full first-run journey is not proven on the candidate."
+    },
+    {
+      "name": "Permission and notification handling",
+      "journey": 4,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Partial physical coverage; complete permission and notification flow remains."
+    },
+    {
+      "name": "Weather skill",
+      "journey": 5,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Partial coverage; end-to-end populated weather result is not complete."
+    },
+    {
+      "name": "Push-to-talk voice",
+      "journey": 6,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Partial physical coverage; complete push-to-talk flow remains."
+    },
+    {
+      "name": "Theme and navigation",
+      "journey": 7,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Full theme and navigation journey is not proven on the candidate."
+    },
+    {
+      "name": "Background and locked-screen delivery",
+      "journey": 8,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Locked-screen and background delivery remain unproven."
+    },
+    {
+      "name": "Data and conversation persistence",
+      "journey": 9,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Partial persistence coverage; full populated-state validation remains."
+    },
+    {
+      "name": "Hey Jandal lifecycle",
+      "journey": 10,
+      "status": "manual_remaining",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": ["s21-exynos"],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Not proven on the candidate; S23 Ultra reference journey is unavailable."
+    }
+  ]
+}

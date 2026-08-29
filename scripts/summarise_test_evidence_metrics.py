@@ -199,6 +199,7 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
     passed = _safe_int(summary.get("passed"))
     failed = _safe_int(summary.get("failed"))
     suite = str(record.get("suite") or "")
+    is_golden = suite == "golden_journeys"
     is_wake = suite == "wake_word_acoustic_reliability"
     # Wake records: accept both new (total = valid) and old (total = len(cases)) formats
     if is_wake:
@@ -210,6 +211,8 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
         issues.append("summary_counts_exceed_total")
 
     for idx, case in enumerate(cases):
+        if is_golden:
+            continue
         if not isinstance(case, dict):
             issues.append(f"case_{idx}:not_object")
             continue
@@ -251,6 +254,33 @@ def validate_record(record: dict[str, Any] | None, load_errors: list[str]) -> tu
             ):
                 if device.get(field) != reference.get(field):
                     issues.append(f"device_registry_mismatch:{field}")
+
+    if suite == "golden_journeys":
+        extension = record.get("golden_journeys")
+        if not isinstance(extension, dict):
+            issues.append("golden_journeys_not_object")
+        elif len(cases) != 10:
+            issues.append("golden_journeys_requires_ten_journeys")
+        else:
+            journey_numbers: list[int] = []
+            for idx, case in enumerate(cases):
+                if not isinstance(case, dict):
+                    continue
+                journey = case.get("journey")
+                status = case.get("status")
+                if not isinstance(journey, int) or not 1 <= journey <= 10:
+                    issues.append(f"case_{idx}:invalid_journey_number")
+                else:
+                    journey_numbers.append(journey)
+                if status not in {"proven", "partial", "blocked", "manual_remaining"}:
+                    issues.append(f"case_{idx}:invalid_journey_status")
+                if case.get("passed") is not (status == "proven"):
+                    issues.append(f"case_{idx}:journey_passed_mismatch")
+            if sorted(journey_numbers) != list(range(1, 11)):
+                issues.append("golden_journeys_missing_or_duplicate_journey")
+            declared_devices = extension.get("devices")
+            if not isinstance(declared_devices, list) or not declared_devices:
+                issues.append("golden_journeys_requires_devices")
 
     if not record.get("commit"):
         issues.append("missing_commit")
@@ -435,6 +465,10 @@ def summarise(records: list[tuple[Path, dict[str, Any] | None, list[str]]]) -> d
             continue
 
         suite = str(record.get("suite") or "unknown")
+        if suite == "golden_journeys":
+            # Release readiness has its own semantic aggregation in the
+            # dashboard; do not count journey statuses as generic test cases.
+            continue
         device_id = _device_id(record)
         if device_id not in by_device:
             by_device[device_id] = {**_empty_status_bucket(), **_device_context(record)}
