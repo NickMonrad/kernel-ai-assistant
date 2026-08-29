@@ -281,29 +281,32 @@ For acoustic wake-word runs, use `scripts/acoustic_wake_reliability_runner.py` r
 ### Golden-journey release evidence
 
 Golden-journey evidence is a release-candidate snapshot, not a generic test
-suite. Normalize exactly ten journeys into one `suite: "golden_journeys"`
-record using the additive extension documented in
-[`test-evidence-schema.md`](../../docs/testing/test-evidence-schema.md).
+suite. The validation agent creates and normalizes exactly ten journeys into
+one `suite: "golden_journeys"` record using the additive extension documented
+in [`test-evidence-schema.md`](../../docs/testing/test-evidence-schema.md).
 Use `proven`, `partial`, `blocked`, and `manual_remaining`; do not turn an
 unrun or unavailable journey into a failed test. Record the concrete artifact,
 tested commit, device IDs, blocker references, remaining manual checks, and
 recommendation.
 
-Publish only the normalized JSON to `test-results`:
+Validate the current run's normalized output, then publish only that output to
+`test-results`:
 
 ```bash
 python3 scripts/publish_test_evidence.py \
-  --input scripts/testdata/fixtures/golden_journeys/current-s21.json \
+  --input <normalised-golden-journey-result.json> \
   --source on_device \
-  --release v0.1.0 \
+  --release <candidate-version> \
   --commit <tested-40-character-commit>
 ```
 
-Use `--input-dir` only when publishing a directory whose relative artifact
-references must be preserved. The publisher writes release-scoped output under
-`results/release/<release>/on_device/`; golden records use their `run_id` in
-the filename so multiple devices or runs cannot overwrite one another. Never
-publish raw logcat, private paths, serials, or unsigned artifact contents.
+The input is produced by the current validation run; do not publish a tracked
+repository fixture or copy a prior release result. The publisher writes
+release-scoped output under `results/release/<release>/on_device/`; golden
+records use their `run_id` in the filename so multiple devices or runs cannot
+overwrite one another. Durable real evidence belongs only on `test-results`,
+not on `main`. Never publish raw logcat, private paths, serials, or unsigned
+artifact contents.
 
 **User responsibilities:**
 
