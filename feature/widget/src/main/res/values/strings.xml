@@ -1,3 +1,5 @@
 <resources>
     <string name="widget_description">Jandal quick actions widget</string>
+    <string name="lists_widget_label">Lists</string>
+    <string name="lists_widget_description">Shows items from one of your lists</string>
 </resources>

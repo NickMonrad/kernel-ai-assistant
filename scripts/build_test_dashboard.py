@@ -41,6 +41,27 @@ SOURCE_LABELS = {"ci": CI_LABEL, "on_device": ON_DEVICE_LABEL}
 
 # Passthrough fields preserved in data exports
 PASSTHROUGH = {"source", "suite", "timestamp", "commit", "pr", "release", "run_id"}
+GOLDEN_SUITE = "golden_journeys"
+GOLDEN_STATUS_LABELS = {
+    "proven": "Proven",
+    "partial": "Partial evidence",
+    "blocked": "Blocked",
+    "manual_remaining": "Manual checks remaining",
+    "not_tested": "Not tested in this pass",
+    "not_required": "Not required",
+}
+ARTIFACT_TYPE_LABELS = {
+    "local_debug": "Local debug",
+    "signed_candidate": "Signed candidate",
+    "play_delivered_candidate": "Play-delivered candidate",
+    "other": "Other artifact",
+}
+RECOMMENDATION_LABELS = {
+    "ready": "Ready for release",
+    "additional_validation_required": "Additional validation required",
+    "blocked": "Blocked",
+    "not_ready": "Not ready",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -243,13 +264,101 @@ def _source_links(results_url_base: str, latest_relpath: str, all_relpaths: list
     )
 
 
+def _is_golden(rec: dict) -> bool:
+    return str(rec.get("suite", "")) == GOLDEN_SUITE
+
+
+def _golden_status_counts(journeys: list[dict]) -> dict[str, int]:
+    counts = {status: 0 for status in GOLDEN_STATUS_LABELS if status in {
+        "proven", "partial", "blocked", "manual_remaining"
+    }}
+    for journey in journeys:
+        status = str(journey.get("status", ""))
+        if status in counts:
+            counts[status] += 1
+    return counts
+
+
+def _golden_device_status(journeys: list[dict], device_id: str, required: bool) -> str:
+    statuses = {
+        str(journey.get("status"))
+        for journey in journeys
+        if device_id in journey.get("devices", [])
+    }
+    for status in ("blocked", "partial", "manual_remaining", "proven"):
+        if status in statuses:
+            return status
+    return "not_tested" if required else "not_required"
+
+
+def _build_golden_aggregate(records: list[dict]) -> dict | None:
+    """Select the newest valid golden-journey record and summarise it."""
+    if not records:
+        return None
+    latest = max(records, key=lambda record: str(record.get("timestamp", "")))
+    extension = latest.get(GOLDEN_SUITE, {})
+    journeys = [
+        case for case in latest.get("cases", [])
+        if isinstance(case, dict)
+    ]
+    declared_devices = extension.get("devices", []) if isinstance(extension, dict) else []
+    device_defs = {
+        str(item.get("id")): item
+        for item in declared_devices
+        if isinstance(item, dict) and item.get("id")
+    }
+    device_ids = set(device_defs)
+    device_ids.update(
+        str(device_id)
+        for journey in journeys
+        for device_id in journey.get("devices", [])
+        if device_id
+    )
+    devices = []
+    for device_id in sorted(device_ids):
+        definition = device_defs.get(device_id, {})
+        reference = DEVICE_REGISTRY.get(device_id.lower(), {})
+        devices.append({
+            "id": device_id,
+            "label": reference.get("label", device_id),
+            "required": definition.get("required", True),
+            "evidence_type": definition.get("evidence_type", "—"),
+            "status": _golden_device_status(
+                journeys, device_id, definition.get("required", True)
+            ),
+            "journeys": sorted(
+                int(journey["journey"])
+                for journey in journeys
+                if device_id in journey.get("devices", [])
+                and isinstance(journey.get("journey"), int)
+            ),
+        })
+    return {
+        "timestamp": latest.get("timestamp", ""),
+        "commit": latest.get("commit", ""),
+        "run_id": latest.get("run_id", ""),
+        "source_path": latest.get("_source_relpath", ""),
+        "version": extension.get("version") if isinstance(extension, dict) else None,
+        "build_identifier": extension.get("build_identifier") if isinstance(extension, dict) else None,
+        "artifact_type": extension.get("artifact_type", "other") if isinstance(extension, dict) else "other",
+        "evidence_type": extension.get("evidence_type", "—") if isinstance(extension, dict) else "—",
+        "status_counts": _golden_status_counts(journeys),
+        "devices": devices,
+        "blocker_refs": extension.get("blocker_refs", []) if isinstance(extension, dict) else [],
+        "manual_checks": extension.get("manual_checks", []) if isinstance(extension, dict) else [],
+        "recommendation": extension.get("recommendation", "not_ready") if isinstance(extension, dict) else "not_ready",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Data aggregation
 # ---------------------------------------------------------------------------
 
 def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict:
     """Build aggregated data structures from flat evidence list."""
-    # Latest per source
+    golden_records = [record for record in evidence if _is_golden(record)]
+    golden_aggregate = _build_golden_aggregate(golden_records)
+
     latest_by_source: dict[str, dict | None] = {"ci": None, "on_device": None}
 
     # Group by PR, release, device
@@ -258,6 +367,8 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
     device_map: dict[str, list[dict]] = {}
 
     for rec in evidence:
+        if _is_golden(rec):
+            continue
         src = rec.get("source", "unknown")
         ts = rec.get("timestamp", "")
 
@@ -366,7 +477,11 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
             "od_summary": _merge_summaries(od_recs),
         })
 
-    # Per-device aggregates
+    # Golden journey evidence is release readiness, not a generic test suite.
+    golden_by_device = {
+        item["id"]: item
+        for item in (golden_aggregate or {}).get("devices", [])
+    }
     devices_data: list[dict] = []
     dev_tier_ordered = {"reference": 0, "tracked": 1, "experimental": 2, "ci": 3}
     sorted_devices = sorted(
@@ -496,6 +611,32 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
             "suite_breakdown": suite_breakdown,
             "scope_breakdown": scope_breakdown,
             "has_unscoped": any(str(row["scope_type"]) == "unscoped" for row in suite_breakdown),
+            "golden_journeys": golden_by_device.get(did),
+        })
+
+    for golden_device in (golden_aggregate or {}).get("devices", []):
+        did = str(golden_device["id"])
+        if any(device["device_id"] == did for device in devices_data):
+            continue
+        reference_info = DEVICE_REGISTRY.get(did.lower(), {})
+        devices_data.append({
+            "device_id": did,
+            "label": reference_info.get("label", did),
+            "tier": reference_info.get("tier", "unknown"),
+            "source": "on_device",
+            "latest": "",
+            "latest_commit": "",
+            "latest_summary": {},
+            "suites": [],
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "pass_rate": 0.0,
+            "failures_by_category": {},
+            "suite_breakdown": [],
+            "scope_breakdown": [],
+            "has_unscoped": False,
+            "golden_journeys": golden_device,
         })
 
     # Compute metrics via the optional summariser module
@@ -509,6 +650,7 @@ def _build_aggregates(evidence: list[dict], metrics: dict | None = None) -> dict
         metrics = summarise(metrics_records)
 
     return {
+        "golden_journeys": golden_aggregate,
         "latest_by_source": latest_by_source,
         "history": sorted(evidence, key=lambda r: r.get("timestamp", ""), reverse=True),
         "prs": prs_data,
@@ -599,6 +741,8 @@ footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-
 
 /* Responsive: scrollable tables on narrow screens */
 @media (max-width: 720px) {
+  .nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .nav a { padding: 6px 4px; font-size: 0.78rem; text-align: center; }
   .pr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { font-size: 0.85rem; }
   th, td { padding: 6px 8px; }
@@ -623,10 +767,46 @@ footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #30363d; font-
   .scope-card-header { align-items: flex-start; flex-direction: column; }
   .evidence-cell { min-width: 90px; }
 }
+.secondary-section { margin-top: 1.5em; }
+.diagnostic-details > summary { cursor: pointer; color: #8b949e; }
+.diagnostic-details > summary:hover { color: #c9d1d9; }
+.release-readiness { border: 1px solid #238636; background: #0f2417; border-radius: 8px; padding: 16px; }
+.release-readiness.empty-release { border-color: #30363d; background: #161b22; }
+.release-readiness.evidence-unavailable { border-color: #f85149; background: #2d1117; }
+.evidence-unavailable h1, .evidence-unavailable h2 { color: #ff7b72; }
+.readiness-header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.readiness-header .label { color: #8b949e; font-size: 0.82rem; }
+.readiness-header .value { font-size: 1.15rem; font-weight: 700; }
+.readiness-meta { margin-top: 8px; color: #c9d1d9; font-size: 0.86rem; }
+.readiness-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 14px 0; }
+.readiness-stat { background: #161b22; border-radius: 6px; padding: 10px; }
+.readiness-stat .count { display: block; font-size: 1.25rem; font-weight: 700; }
+.readiness-stat .name { color: #8b949e; font-size: 0.78rem; }
+.readiness-device { margin-top: 12px; padding-top: 12px; border-top: 1px solid #30363d; }
+.readiness-device .device-id { color: #8b949e; font-size: 0.8rem; }
+.status-proven { color: #3fb950; }
+.status-partial, .status-manual_remaining { color: #d29922; }
+.status-blocked { color: #f85149; }
+.status-not_tested, .status-not_required { color: #8b949e; }
+.device-id { font-size: 0.82rem; color: #8b949e; font-weight: 400; }
+.compact-empty { color: #8b949e; font-style: italic; }
+
 """
 
 
-def _page(title: str, body: str, extra_head: str = "") -> str:
+def _page(
+    title: str,
+    body: str,
+    extra_head: str = "",
+    *,
+    include_nav: bool = True,
+) -> str:
+    navigation = """<div class="nav">
+  <a href="index.html">Overview</a>
+  <a href="prs.html">Pull Requests</a>
+  <a href="devices.html">Devices</a>
+  <a href="releases.html">Releases</a>
+</div>""" if include_nav else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -639,18 +819,103 @@ def _page(title: str, body: str, extra_head: str = "") -> str:
 {extra_head}
 </head>
 <body>
-<div class="nav">
-  <a href="index.html">Overview</a>
-  <a href="prs.html">Pull Requests</a>
-  <a href="devices.html">Devices</a>
-  <a href="releases.html">Releases</a>
-</div>
+{navigation}
 {body}
 <footer>Generated by <code>build_test_dashboard.py</code></footer>
 </body>
 </html>"""
 
 
+def _render_unavailable_page(reason: str = "The durable test evidence store could not be loaded.") -> str:
+    safe_reason = html.escape(reason)
+    body = f"""<main class="evidence-unavailable" role="alert">
+<h1>Evidence unavailable</h1>
+<p>The durable test evidence store could not be loaded.</p>
+<p>{safe_reason}</p>
+<p>Release readiness cannot be determined until the evidence store is available.</p>
+</main>"""
+    return _page("Evidence unavailable", body, include_nav=False)
+
+
+def _write_unavailable_site(out_dir: Path, reason: str) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "index.html").write_text(_render_unavailable_page(reason), encoding="utf-8")
+    data_dir = out_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "evidence-store.json").write_text(
+        json.dumps({"state": "unavailable", "reason": reason}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print("  index.html — evidence unavailable")
+
+
+def _render_release_readiness(data: dict, results_url_base: str = "") -> str:
+    if data.get("evidence_store_state") == "unavailable":
+        return """<div class="section release-readiness evidence-unavailable" role="alert">
+<h2>Evidence unavailable</h2>
+<p>Release readiness cannot be determined because the durable test evidence store could not be loaded.</p>
+</div>"""
+    golden = data.get("golden_journeys")
+    if not isinstance(golden, dict):
+        return """<div class="section release-readiness empty-release">
+<h2>Release readiness</h2>
+<p class="compact-empty">No release-candidate golden-journey evidence published yet.</p>
+</div>"""
+
+    def esc(value: object) -> str:
+        return html.escape(str(value))
+
+    counts = golden.get("status_counts", {})
+    stats = "".join(
+        f'<div class="readiness-stat"><span class="count status-{status}">'
+        f'{_safe_int(counts.get(status))}</span><span class="name">{label}</span></div>'
+        for status, label in (
+            ("proven", "Proven"),
+            ("partial", "Partial"),
+            ("manual_remaining", "Manual checks remaining"),
+            ("blocked", "Blocked"),
+        )
+    )
+    device_rows = "".join(
+        f'<div class="readiness-device"><strong>{esc(device["label"])}</strong> '
+        f'<span class="device-id"><code>{esc(device["id"])}</code></span> · '
+        f'<span class="status-{esc(device["status"])}">{esc(GOLDEN_STATUS_LABELS.get(device["status"], device["status"]))}</span>'
+        f'<div class="readiness-meta">Journeys: {", ".join(str(j) for j in device["journeys"]) or "none"}'
+        f' · Evidence: {esc(device["evidence_type"])}</div></div>'
+        for device in golden.get("devices", [])
+    )
+    blockers = golden.get("blocker_refs", [])
+    manual_checks = golden.get("manual_checks", [])
+    blockers_html = (
+        "<strong>Open gates:</strong> " + ", ".join(f"<code>{esc(ref)}</code>" for ref in blockers)
+        if blockers else "<strong>Open gates:</strong> none recorded"
+    )
+    manual_html = "".join(f"<li>{esc(check)}</li>" for check in manual_checks)
+    source_link = ""
+    if results_url_base and golden.get("source_path"):
+        source_link = (
+            f' · <a href="{results_url_base.rstrip("/")}/{esc(golden["source_path"])}" '
+            'target="_blank" rel="noopener">View normalized JSON</a>'
+        )
+    return f"""<div class="section release-readiness">
+<h2>Release readiness</h2>
+<div class="readiness-header">
+  <div><div class="label">Release candidate</div>
+    <div class="value">{esc(golden.get("version") or "Unversioned")} · {esc(golden.get("build_identifier") or "build metadata unavailable")}</div>
+  </div>
+  <div><div class="label">Recommendation</div>
+    <div class="value status-{esc(golden.get("recommendation", "not_ready"))}">{esc(RECOMMENDATION_LABELS.get(golden.get("recommendation"), golden.get("recommendation", "Not ready")))}</div>
+  </div>
+</div>
+<div class="readiness-meta">Artifact: {esc(ARTIFACT_TYPE_LABELS.get(golden.get("artifact_type"), golden.get("artifact_type", "Other")))} ·
+Evidence: {esc(golden.get("evidence_type", "—"))} ·
+Observed: {esc(golden.get("timestamp", "—"))} ·
+Commit: <code>{esc(golden.get("commit", "—"))}</code>{source_link}</div>
+<div class="readiness-grid">{stats}</div>
+{device_rows or '<p class="compact-empty">No device-scoped golden evidence declared.</p>'}
+<div class="readiness-meta">{blockers_html}</div>
+{f'<details class="diagnostic-details"><summary>Manual checks ({len(manual_checks)})</summary><ul style="margin:8px 0 0 20px"> {manual_html}</ul></details>' if manual_checks else ""}
+</div>"""
 
 
 def _render_metrics_section(data: dict, results_url_base: str = "") -> str:
@@ -795,10 +1060,13 @@ def _render_metrics_section(data: dict, results_url_base: str = "") -> str:
     cards = "".join(filter(None, [validity_html, issue_rows, failure_html, stuck_html]))
     device_artifacts = "".join(filter(None, [device_html, artifact_html]))
 
-    body = f"""<div class="section">
+    body = f"""<div class="section secondary-section">
+<details class="diagnostic-details">
+<summary><strong>Reviewer metrics</strong> · historical diagnostics</summary>
 <h2>Reviewer Metrics</h2>
 <div class="summary-grid">{cards}</div>
 {device_artifacts}
+</details>
 </div>"""
     return body
 def _render_wake_metrics_section(data: dict) -> str:
@@ -940,7 +1208,9 @@ def _render_wake_metrics_section(data: dict) -> str:
                         "</tr>"
                     )
 
-    return f"""<div class="section">
+    return f"""<div class="section secondary-section">
+<details class="diagnostic-details">
+<summary><strong>Acoustic Wake Reliability</strong> · historical diagnostic evidence</summary>
 <h2>Acoustic Wake Reliability</h2>
 <div class="summary-grid">
   <div class="card"><div class="label">Valid attempt outcomes (all modes)</div>
@@ -985,6 +1255,7 @@ def _render_wake_metrics_section(data: dict) -> str:
 <p class="table-note">Times remain in their source or target device elapsed-realtime domain; no cross-device subtraction is performed.</p>
 <div class="pr-table-wrap"><table><thead><tr><th>Attempt</th><th>Timing source</th><th>Milestone</th><th>Monotonic ms</th><th>Clock domain</th></tr></thead>
 <tbody>{''.join(timeline_rows) or '<tr><td colspan="5">No timing milestones recorded</td></tr>'}</tbody></table></div></details>
+</details>
 </div>"""
 
 
@@ -1052,26 +1323,38 @@ def _render_overview(data: dict, results_url_base: str) -> str:
     if not rel_rows:
         rel_rows = '<tr><td colspan="4" class="empty">No release evidence yet</td></tr>'
 
-    # Device summary
     dev_rows = ""
     for dev in data["devices"]:
         latest_summary = dev.get("latest_summary", {})
+        golden = dev.get("golden_journeys")
+        golden_cell = ""
+        if golden:
+            golden_cell = (
+                f'<div class="table-note">Golden: '
+                f'<span class="status-{golden["status"]}">'
+                f'{GOLDEN_STATUS_LABELS.get(golden["status"], golden["status"])}</span></div>'
+            )
+        historical = f'{dev["passed"]}/{dev["total"]} passed'
+        if dev["total"]:
+            historical += f' · {dev["pass_rate"]:.1%}'
         dev_rows += f"""<tr>
-  <td><a href="devices.html#device-{dev['device_id']}">{dev['label']}</a></td>
+  <td><a href="devices.html#device-{dev['device_id']}">{dev['label']}</a><div class="table-note"><code>{dev['device_id']}</code></div></td>
   <td>{dev['tier']}</td>
-  <td>{', '.join(dev['suites'])}</td>
-  <td>{_result_cell(latest_summary)}<div class="table-note">{_iso_short(dev['latest'])}</div></td>
-  <td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['passed']}/{dev['total']}</td>
+  <td>{', '.join(dev['suites']) or '—'}</td>
+  <td>{_result_cell(latest_summary) if latest_summary else '—'}<div class="table-note">{_iso_short(dev['latest'])}</div>{golden_cell}</td>
+  <td>{historical}</td>
 </tr>"""
     if not dev_rows:
         dev_rows = '<tr><td colspan="5" class="empty">No device evidence yet</td></tr>'
 
+    release_readiness = _render_release_readiness(data, results_url_base)
     metrics_section = _render_metrics_section(data, results_url_base)
     wake_metrics_section = _render_wake_metrics_section(data)
 
     body = f"""<h1>Test Evidence Dashboard</h1>
+{release_readiness}
 
-<h2>Latest Results</h2>
+<h2>Latest Generic Results</h2>
 <div class="summary-grid">{cards}</div>
 
 {metrics_section}
@@ -1250,16 +1533,24 @@ def _render_devices(data: dict) -> str:
                 '</div>'
             )
 
-        sections += f"""<h2 id="device-{dev['device_id']}">{dev['label']} <code>{dev['device_id']}</code></h2>
+        golden = dev.get("golden_journeys")
+        golden_html = ""
+        if golden:
+            golden_html = f"""<div class="section release-readiness">
+<h3>Current golden-journey evidence</h3>
+<div class="readiness-meta">Status: <span class="status-{golden['status']}">{GOLDEN_STATUS_LABELS.get(golden['status'], golden['status'])}</span> · Journeys: {", ".join(str(j) for j in golden['journeys']) or "none"} · Evidence: {golden['evidence_type']}</div>
+</div>"""
+
+        sections += f"""<h2 id="device-{dev['device_id']}">{dev['label']} <span class="device-id"><code>{dev['device_id']}</code></span></h2>
 <div class="pr-table-wrap">
 <table>
 <thead><tr><th>Property</th><th>Value</th></tr></thead>
 <tbody>
 <tr><td>Tier</td><td>{dev['tier']}</td></tr>
 <tr><td>Source</td><td><span class="source-tag source-{"ci" if dev['source']=='ci' else 'od'}">{_source_label(dev['source'])}</span></td></tr>
-<tr><td>Suites</td><td>{', '.join(dev['suites'])}</td></tr>
-<tr><td>Merged Test Cases</td><td>{dev['total']} <span class="table-note">(total across all evidence, including historical)</span></td></tr>
-<tr><td>Pass Rate (merged)</td><td>{_status_badge(dev['pass_rate'], dev['total'])} {dev['pass_rate']:.1%} ({dev['passed']}/{dev['total']}) <span class="table-note">(see suite/scope breakdown below)</span></td></tr>
+<tr><td>Suites</td><td>{', '.join(dev['suites']) or '—'}</td></tr>
+<tr><td>Historical test cases</td><td>{dev['total']} <span class="table-note">(all generic evidence, including historical)</span></td></tr>
+<tr><td>Historical pass rate</td><td>{dev['passed']}/{dev['total']} passed{f" · {dev['pass_rate']:.1%}" if dev['total'] else ""} <span class="table-note">(see suite/scope breakdown below)</span></td></tr>
 <tr><td>Latest Run</td><td>{_iso_short(dev['latest'])}</td></tr>
 <tr><td>Latest Commit</td><td><code>{_truncate_sha(dev['latest_commit'])}</code></td></tr>
 </tbody>
@@ -1267,6 +1558,7 @@ def _render_devices(data: dict) -> str:
 </div>
 <div class="device-note">The merged totals above aggregate all evidence for this device. Use the suite and scope breakdowns below to distinguish PR-scoped runs, release baselines, and unscoped evidence. Each suite row links to the source evidence JSON file(s) for drilldown.</div>
 {unscoped_warning}
+{golden_html}
 
 <h3>By suite</h3>
 <div class="pr-table-wrap">
@@ -1388,6 +1680,11 @@ def _build_metrics_json(aggregates: dict) -> dict | None:
     return aggregates.get("metrics")
 
 
+def _build_golden_journeys_json(aggregates: dict) -> dict | None:
+    """Build the release-first golden journey readiness export."""
+    return aggregates.get("golden_journeys")
+
+
 def _build_json_data(aggregates: dict) -> dict[str, object]:
     """Build all JSON data dicts from aggregates for export."""
     metrics_data = _build_metrics_json(aggregates)
@@ -1398,6 +1695,9 @@ def _build_json_data(aggregates: dict) -> dict[str, object]:
         "devices.json": _build_devices_json(aggregates),
         "releases.json": _build_releases_json(aggregates),
     }
+    golden_data = _build_golden_journeys_json(aggregates)
+    if golden_data is not None:
+        json_data["golden_journeys.json"] = golden_data
     if metrics_data is not None:
         json_data["metrics.json"] = metrics_data
     return json_data
@@ -1438,12 +1738,38 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Base URL for source evidence files (e.g. https://github.com/owner/repo/blob/test-results/results). Auto-derived from evidence repo field if omitted.",
     )
+    parser.add_argument(
+        "--evidence-store-state",
+        choices=("available", "empty", "unavailable"),
+        default="available",
+        help="Evidence store state; unavailable renders a bounded error site.",
+    )
+    parser.add_argument(
+        "--evidence-store-reason",
+        default="The evidence store checkout or validation did not complete.",
+        help="Short operator-facing reason for an unavailable evidence store.",
+    )
     return parser.parse_args(argv)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def _require_results_dir(results_dir: Path) -> None:
+    """Fail closed when the evidence store is unavailable.
+
+    An existing but empty ``results/`` directory is valid and renders the
+    normal empty dashboard.  A missing, non-directory, or unreadable store
+    must not silently look like an empty evidence history.
+    """
+    if not results_dir.is_dir():
+        raise SystemExit(
+            f"ERROR: test-results evidence store is unavailable at {results_dir}; "
+            "refusing to build an empty dashboard"
+        )
+    try:
+        next(results_dir.iterdir(), None)
+    except OSError as exc:
+        raise SystemExit(
+            f"ERROR: test-results evidence store is unreadable at {results_dir}: {exc}"
+        ) from exc
 
 def main() -> None:
     args = _parse_args()
@@ -1453,6 +1779,12 @@ def main() -> None:
 
     print(f"Results dir: {results_dir}")
     print(f"Output dir:  {out_dir}")
+    if args.evidence_store_state == "unavailable":
+        _write_unavailable_site(out_dir, args.evidence_store_reason)
+        return
+
+    _require_results_dir(results_dir)
+
 
     # Load evidence
     evidence = _discover_results(results_dir)
@@ -1482,6 +1814,7 @@ def main() -> None:
 
     aggregates = _build_aggregates(evidence, metrics=metrics)
     aggregates["results_url_base"] = results_url_base
+    aggregates["evidence_store_state"] = args.evidence_store_state
     print(
         f"  {len(aggregates['prs'])} PR(s), "
         f"{len(aggregates['devices'])} device(s), "

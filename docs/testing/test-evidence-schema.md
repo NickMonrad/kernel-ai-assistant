@@ -249,7 +249,42 @@ For CI runs that do not execute any model, set to:
 | `chip_present` | boolean | yes | Whether the tool chip marker was found in the UI stream. |
 | `skill_result_present` | boolean | yes | Whether the skill result marker appeared. |
 | `message_saved` | boolean | yes | Whether a `message_saved_marker` was emitted. |
-### 4.5 Acoustic wake reliability extension (`schema_version: "1.1"`)
+### 4.5 Golden-journey release evidence (`suite: "golden_journeys"`)
+
+Golden-journey evidence is an additive `schema_version: "1.0"` record for a
+release-candidate build. It is always `source: "on_device"` and keeps the
+generic top-level context (`device`, `model`, `summary`, and `cases`) so the
+publisher and dashboard can discover it without a second file format.
+
+The required `golden_journeys` object records:
+
+| Field | Type | Description |
+|---|---|---|
+| `version` / `build_identifier` | string or null | Candidate version and concrete artifact identity. |
+| `artifact_type` | enum | `local_debug`, `signed_candidate`, `play_delivered_candidate`, or `other`. |
+| `evidence_type` | enum | `automated`, `agent_adb_physical_device`, `human_observation`, or `mixed`. |
+| `devices` | array | Device IDs plus evidence type and whether each device is required. |
+| `blocker_refs` | string array | Issue or gate references; do not invent references for observations. |
+| `manual_checks` | string array | Remaining checks, including checks not run rather than failed tests. |
+| `recommendation` | enum | `ready`, `additional_validation_required`, `blocked`, or `not_ready`. |
+
+`cases` contains exactly ten journey objects, numbered `1` through `10`.
+Each object has a human-readable `name`, `status` (`proven`, `partial`,
+`blocked`, or `manual_remaining`), `passed`, evidence type, device IDs,
+blocker references, and failure strings. `passed` is true only for
+`proven`; `partial` and `manual_remaining` are not generic test failures.
+The generic `summary` is retained for compatibility and must not be used as
+the release recommendation.
+
+The dashboard selects the newest valid golden record for the release-first
+Overview. Historical generic suite failures remain diagnostic and are not
+interpreted as current golden-journey readiness. Device pages show golden
+status separately from historical aggregate and PR/release scope rows.
+
+The full field-level contract is the `golden_journeys` branch in
+[`scripts/testdata/test_evidence.schema.json`](../../scripts/testdata/test_evidence.schema.json).
+
+### 4.6 Acoustic wake reliability extension (`schema_version: "1.1"`)
 
 The paired acoustic wake runner emits normalised evidence directly. Its records use
 `schema_version: "1.1"` and `suite: "wake_word_acoustic_reliability"`; the canonical

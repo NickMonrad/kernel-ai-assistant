@@ -26,6 +26,7 @@ import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
@@ -814,6 +815,29 @@ class NativeIntentHandlerTest {
             readResult,
         )
         coVerify(exactly = 2) { listItemDao.getByList(1L) }
+    }
+    @Test
+    fun `add_to_list broadcasts lists data changed after a successful insertion`() {
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listItemDao.getByList(1L) } returns emptyList()
+        coEvery { listItemDao.insert(any()) } just Runs
+
+        handleIntent("add_to_list", mapOf("item" to "milk", "list_name" to "shopping list"))
+
+        verify(exactly = 1) { context.sendBroadcast(any()) }
+    }
+
+    @Test
+    fun `add_to_list does not broadcast when it fails fast before any write`() {
+        // No list_name -> addToList returns Failure at the guard, before touching the DAOs.
+        handleIntent("add_to_list", mapOf("item" to "milk"))
+
+        verify(exactly = 0) {
+            context.sendBroadcast(any())
+        }
     }
 
     @Test

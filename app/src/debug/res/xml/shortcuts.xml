@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug variant mirrors the release Lists shortcut with its own literal application id. -->
+    <shortcut
+        android:shortcutId="lists"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_lists"
+        android:shortcutShortLabel="@string/shortcut_lists_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.kernel.ai.debug"
+            android:targetClass="com.kernel.ai.MainActivity">
+            <extra
+                android:name="navigation_route"
+                android:value="lists" />
+        </intent>
+    </shortcut>
+</shortcuts>
