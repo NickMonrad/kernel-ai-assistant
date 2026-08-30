@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "golden_journeys",
+  "timestamp": "2026-08-30T00:26:42Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "84d74d18c83a9d756572d92df7eef22baf11d4dd",
+  "pr": null,
+  "release": "v0.1.0",
+  "run_id": "golden-journeys-84d74d18-s23u-20260830",
+  "device": {"id":"s23-ultra","serial":null,"label":"S23 Ultra","manufacturer":"Samsung","model":"SM-S918B","soc":"Snapdragon 8 Gen 2","tier":"reference","android_api":35,"execution":"physical"},
+  "model": {"name":"Gemma 4 E-4B","runtime":"LiteRT","backend":"GPU"},
+  "summary": {"total":10,"passed":0,"failed":0,"pass_rate":0.0},
+  "golden_journeys": {
+    "version":"0.1.0",
+    "build_identifier":"com.kernel.ai.debug versionName 0.1.0 versionCode 1 sha256 c9310d32e42ec50ee3235baa46da00b042ba6f72d11f322e2402bcda9cc4a50f",
+    "artifact_type":"local_debug",
+    "evidence_type":"mixed",
+    "devices":[{"id":"s21-exynos","evidence_type":"mixed","required":true},{"id":"s23-ultra","evidence_type":"mixed","required":true}],
+    "blocker_refs":["#1260","#1261","#1447","#1449"],
+    "manual_checks":[
+      "Signed or Play-delivered candidate validation on the exact release artifact",
+      "Install the next candidate over the populated fixture and verify every preservation category including selected model, favourites, recent tools, conversation, memory, list item, and note",
+      "Enable location, verify local weather, return from Android settings, and retry after permission repair",
+      "Observe the completed short timer alert's audible/vibration/presentation behavior while backgrounded and locked",
+      "Use a representative spoken command and approved TTS voice; judge clipping, transcript, playback, stop, and audio-focus recovery",
+      "Enable Hey Jandal, trigger one useful spoken command, disable/re-enable it, and verify microphone-revocation recovery",
+      "Final permission, crash, network/declaration, and Play Data Safety scan on the signed or Play artifact"
+    ],
+    "recommendation":"additional_validation_required"
+  },
+  "artifact_refs":[],
+  "cases":[
+    {"name":"Fresh install to first useful action","journey":1,"status":"partial","passed":false,"evidence_type":"mixed","devices":["s21-exynos","s23-ultra"],"blocker_refs":[],"failures":[],"notes":"Prior S21 clean-install baseline and prior S23U launch/model-setup evidence remain partial; this continuation did not repeat fresh-install work.","artifact_refs":[]},
+    {"name":"Upgrade over an existing install","journey":2,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"Existing data was preserved without uninstall or data clear. Before the next candidate update, the S23U now has a populated disposable fixture: one list with one incomplete item, one note, six episodic memories, two favourite tool shortcuts, completed conversations/messages, and cached E4B model state. The actual next-candidate update and preservation verification remain unproven.","artifact_refs":[]},
+    {"name":"Local chat and generation lifecycle","journey":3,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"S23U completed local E4B responses with streaming/Thinking UI. A generation was backgrounded with HOME while active; the app remained active in Recents and resumed to a completed response. A subsequent turn completed successfully after the earlier interrupted generation. The full long-form acceptance path remains partial.","artifact_refs":[]},
+    {"name":"Memory","journey":4,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":["EmbeddingGemma retrieval dependency unavailable"],"notes":"Memory manager shows six episodic memories, but the live database reports zero vectorized memories and zero message embeddings; retrieval/use was not demonstrated. EmbeddingGemma-300M plus its SentencePiece model are HF-gated and were not present on this setup. Memory retrieval does not work on this candidate state.","artifact_refs":[]},
+    {"name":"Lists and notes","journey":5,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"S23U created and displayed a disposable list item and note through their management UIs; live database counts remained one list item and one note after app force-stop/relaunch. Natural-language list mutation was attempted but the local model requested clarification instead of mutating; ambiguous-request safety and full natural-language completion remain unproven. The populated records were intentionally left for upgrade validation.","artifact_refs":[]},
+    {"name":"Alarm and timer reliability","journey":6,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"S23U set a 60-second timer through natural language, backgrounded Jandal with HOME, turned the screen off, waited 70 seconds, and woke the device. The timer row recorded fired=1 and completed_at_ms, and the timer notification channel/archive was present. Audible/vibration/visual alert presentation and dismissal were not physically judged; that exact observation remains manual.","artifact_refs":[]},
+    {"name":"Weather and location fallback","journey":7,"status":"partial","passed":false,"evidence_type":"mixed","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"Prior targeted Auckland/Sydney weather routes passed and location revocation returned explicit missing-permission fallback without a crash; permission was restored. A granted local-weather result and retry after returning from Android Settings remain unproven.","artifact_refs":[]},
+    {"name":"Push-to-talk and spoken response","journey":8,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"Prior S23U PTT surface entered Ready and stopped cleanly; no representative spoken command, transcript, TTS, or audio-quality observation was available.","artifact_refs":[]},
+    {"name":"Permission revocation and repair","journey":9,"status":"partial","passed":false,"evidence_type":"agent_adb_physical_device","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"S23U RECORD_AUDIO was revoked externally. PTT presented an explicit Allow voice input explanation with Keep typing/Not now options and no crash. The in-app repair path opened the OS microphone permission dialog; granting While using the app returned Actions to Ready — speak your quick action. Location revoke/fallback evidence is also present from the prior pass. Full Android Settings return/refresh remains manual.","artifact_refs":[]},
+    {"name":"Hey Jandal lifecycle","journey":10,"status":"manual_remaining","passed":false,"evidence_type":"human_observation","devices":["s23-ultra"],"blocker_refs":[],"failures":[],"notes":"No spoken wake-word trigger was performed. Enable/use/disable/re-enable, lock-screen behavior, and wake-word microphone-revocation recovery require human voice interaction and remain manual.","artifact_refs":[]}
+  ]
+}
