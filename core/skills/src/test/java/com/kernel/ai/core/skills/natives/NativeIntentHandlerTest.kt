@@ -754,6 +754,34 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `add to existing named list keeps target list and item`() {
+        val existingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 7L, name = "widget test", createdAt = 0L, updatedAt = 0L,
+        )
+        val insertedItem = slot<ListItemEntity>()
+        coEvery { listNameDao.getByName("widget test") } returns existingList
+        coEvery { listItemDao.getByList(7L) } returns listOf(
+            ListItemEntity(listId = 7L, text = "golden journey item", createdAt = 0L, updatedAt = 0L),
+        )
+        coEvery { listItemDao.insert(capture(insertedItem)) } just Runs
+
+        val result = handleIntent(
+            "add_to_list",
+            mapOf("item" to "golden journey item", "list_name" to "Widget test"),
+        )
+
+        assertEquals(
+            "Added \"golden journey item\" to your widget test.",
+            (result as SkillResult.DirectReply).content,
+        )
+        assertEquals(7L, insertedItem.captured.listId)
+        assertEquals("golden journey item", insertedItem.captured.text)
+        coVerify(exactly = 0) {
+            listNameDao.insert(match { it.name == "golden journey item to the" })
+        }
+    }
+
+    @Test
     fun `shopping list aliases resolve to the same stored list`() {
         val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
             id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,

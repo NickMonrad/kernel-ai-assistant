@@ -3395,6 +3395,13 @@ class QuickIntentRouterTest {
             Arguments.of("add butter to the grocery list", "butter", "grocery"),
             Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
             Arguments.of("add eggs to my shopping list", "eggs", "shopping"),
+            Arguments.of(
+                "Please add golden journey item to the list named Widget test",
+                "golden journey item",
+                "Widget test",
+            ),
+            Arguments.of("add milk to the list called Shopping", "milk", "Shopping"),
+            Arguments.of("Add milk to Nonexistent List", "milk", "Nonexistent"),
         )
 
         @JvmStatic
@@ -3459,6 +3466,7 @@ class QuickIntentRouterTest {
             Arguments.of("make my chores list", "chores"),
             Arguments.of("create a meal plan list", "meal plan"),
             Arguments.of("new packing list", "packing"),
+            Arguments.of("create a list called Camping", "Camping"),
         )
 
         @JvmStatic

@@ -231,6 +231,31 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `explicitly named list add dispatches add_to_list with extracted arguments`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Please add golden journey item to the list named Widget test")
+        advanceUntilIdle()
+
+        assertEquals(
+            mapOf(
+                "intent_name" to "add_to_list",
+                "item" to "golden journey item",
+                "list_name" to "Widget test",
+            ),
+            runIntentSkill.calls.single().arguments,
+        )
+        assertEquals("add_to_list", insertedActions.single().skillName)
+        assertEquals(true, insertedActions.single().isSuccess)
+    }
+
+    @Test
     fun `create list flow preserves leading words in list names`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
