@@ -3806,6 +3806,23 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_to_list"),
         ),
+        // "add milk to the list named shopping" / "add eggs to my list called groceries"
+        // The explicit name marker distinguishes the target list from the item text.
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?list\s+(?:named|called)\s+(.+?)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "list_name" to match.groupValues[2].trim(),
+                )
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
