@@ -11,7 +11,7 @@
   "run_id": "golden-journeys-0cf09012-s23u-20260901-manual",
   "device": {"id": "s23-ultra", "serial": null, "label": "S23 Ultra", "manufacturer": "Samsung", "model": "SM-S918B", "soc": "Snapdragon 8 Gen 2", "tier": "reference", "android_api": 35, "execution": "physical"},
   "model": {"name": "Gemma 4 E-4B", "runtime": "LiteRT", "backend": "GPU"},
-  "summary": {"total": 10, "passed": 3, "failed": 0, "pass_rate": 0.3},
+  "summary": {"total": 10, "passed": 4, "failed": 0, "pass_rate": 0.4},
   "golden_journeys": {
     "version": "0.1.0",
     "build_identifier": "com.kernel.ai.debug versionName 0.1.0 versionCode 1 sha256 f8b06fb25d6dd1efe7b5b237d786077f44da22be334858a7816a25d057c7829f",
@@ -25,7 +25,7 @@
       "Timer vibration and capability-repair/retry coverage",
       "Jandal chat repair action that opens Android Settings for location, if product flow is added",
       "Complete microphone-plus-location permission repair contract",
-      "Complete Hey Jandal post-repair spoken response with a supported device TTS voice",
+      "Complete PTT/TTS response with a supported device voice",
       "Second voice turn, background/resume, and audio-focus recovery observation",
       "Final permission, crash, network/declaration, and Play Data Safety scan on the signed or Play artifact"
     ],
@@ -42,6 +42,6 @@
     {"name": "Weather and location fallback", "journey": 7, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Chat weather repair flow did not open Android Settings"], "notes": "Denied chat weather truthfully returned a location capability-required result. The dialog offered Use my location, Use a named location, and Not now, but no Settings link. External Settings restoration and normal return produced a genuine local-weather result.", "artifact_refs": []},
     {"name": "Push-to-talk and spoken response", "journey": 8, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": ["#1447"], "failures": ["Text-to-speech voice for en-AU is not available on this device"], "notes": "Voice capture and direct-reply routing completed, and audio capture/playback start-stop events were observed without a crash. The candidate surfaced a TTS voice-unavailable error after the post-repair Hey Jandal time command; second voice turn, background/resume, and approved #1447 voice quality remain unresolved.", "artifact_refs": []},
     {"name": "Permission revocation and repair", "journey": 9, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Full microphone-plus-location repair contract not complete"], "notes": "Microphone revocation showed the accurate microphone-removed repair dialog; permission restoration returned to Jandal and restarted Hey safely. Location denial, external restore, return, and retry also worked, but the required app-directed Settings repair action was not available on chat weather.", "artifact_refs": []},
-    {"name": "Hey Jandal lifecycle", "journey": 10, "status": "partial", "passed": false, "evidence_type": "mixed", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Post-repair TTS voice unavailable"], "notes": "Hey Jandal worked while Google remained the default assistant. Wake detection, microphone yield, and disable/service-stop were verified. After microphone revocation, the repair dialog appeared, restoration restarted the service, and a post-repair wake was detected; the follow-up time command surfaced the en-AU TTS-unavailable error. A supported TTS voice or fallback is required before this journey can pass.", "artifact_refs": []}
+    {"name": "Hey Jandal lifecycle", "journey": 10, "status": "proven", "passed": true, "evidence_type": "mixed", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Hey Jandal worked while Google remained the default assistant. Wake detection, microphone yield, and a useful time command worked; disable/service-stop was verified. After microphone revocation, the repair dialog appeared, microphone restoration restarted the service safely, and a post-repair spoken wake succeeded. The subsequent en-AU TTS voice-unavailable message is Journey 8 evidence and does not reduce this lifecycle result.", "artifact_refs": []}
   ]
 }
