@@ -48,4 +48,40 @@ class VoiceOutputPreferencesTest {
             ),
         )
     }
+
+    @Test
+    fun `resolveForBuild preserves Inflect for eligible release device`() {
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            VoiceOutputEngine.resolveForBuild(
+                value = VoiceOutputEngine.InflectMicroExperimental.name,
+                isRelease = true,
+                inflectEligible = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `resolveForBuild demotes persisted Inflect on ineligible release device`() {
+        assertEquals(
+            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.resolveForBuild(
+                value = VoiceOutputEngine.InflectMicroExperimental.name,
+                isRelease = true,
+                inflectEligible = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `resolveForBuild demotes persisted Kokoro in release`() {
+        assertEquals(
+            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.resolveForBuild(
+                value = VoiceOutputEngine.KokoroExperimental.name,
+                isRelease = true,
+                inflectEligible = true,
+            ),
+        )
+    }
 }

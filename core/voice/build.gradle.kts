@@ -39,6 +39,7 @@ android {
 // at runtime; see :app/build.gradle.kts for the conditional implementation block.
 
 dependencies {
+    implementation(project(":core:inference"))
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)

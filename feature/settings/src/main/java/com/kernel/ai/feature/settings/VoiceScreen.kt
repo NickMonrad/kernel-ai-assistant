@@ -1015,27 +1015,27 @@ private fun VoiceScreenContent(
                 val inflectActive =
                     uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
                 Text(
-                    text = "Inflect Micro debug model",
+                    text = "Inflect Micro model",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 VoiceInfoCard(
                     title = if (inflectActive) {
-                        "Inflect Micro (Debug) is active"
+                        "Inflect Micro is active"
                     } else {
-                        "Inflect Micro (Debug) is available"
+                        "Inflect Micro is available"
                     },
                     message = if (inflectActive) {
-                        "This debug-only path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available only while the model bundle and selected Sherpa voice pack are downloaded."
+                        "This higher-quality local path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available while the model bundle and selected Sherpa voice pack are downloaded."
                     } else {
-                        "Download Inflect Micro and the selected Sherpa voice pack to enable this debug-only quality path."
+                        "Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 ModelCardCompact(
-                    title = "Inflect Micro (Debug)",
-                    description = "Debug-only local TTS model; uses the selected Sherpa voice pack for its frontend.",
+                    title = "Inflect Micro",
+                    description = "Higher-quality local TTS model; uses the selected Sherpa voice pack for its frontend.",
                     state = inflectModelState,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1534,7 +1534,7 @@ private fun VoiceOutputSelectionCard(
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
         VoiceOutputEngine.InflectMicroExperimental ->
-            "Inflect Micro (Debug) is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
+            "Inflect Micro is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
     }
 
     VoiceInfoCard(

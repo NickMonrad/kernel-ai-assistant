@@ -275,7 +275,7 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    // ── Inflect Micro v2 ONNX (debug-only voice output) ─────────────────────
+    // ── Inflect Micro v2 ONNX voice output ────────────────────────────────────
     //
     // Official Apache-2.0 export from owensong/Inflect-Micro-v2-ONNX. The
     // frontend and runner require both graphs; Voice settings owns this pair.

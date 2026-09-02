@@ -16,11 +16,12 @@ enum class VoiceOutputEngine(
     KokoroExperimental(
         displayName = "Kokoro (Experimental)",
         description = "Studio-grade Kokoro-82M TTS. Requires a ~130MB download. Falls back to Android TTS if unavailable.",
+        debugOnly = true,
     ),
     InflectMicroExperimental(
-        displayName = "Inflect Micro (Debug)",
-        description = "Debug-only Inflect Micro v2 quality path using the downloaded Sherpa eSpeak frontend.",
-        debugOnly = true,
+        displayName = "Inflect Micro",
+        description = "Higher-quality local Inflect Micro v2 speech for supported high-memory devices; falls back to Android TTS if unavailable.",
+        debugOnly = false,
     ),
     ;
 
@@ -28,7 +29,34 @@ enum class VoiceOutputEngine(
         fun fromStorage(value: String?): VoiceOutputEngine =
             entries.firstOrNull { it.name == value } ?: AndroidTts
 
-        fun entriesForBuild(isRelease: Boolean): List<VoiceOutputEngine> =
-            entries.filter { !isRelease || !it.debugOnly }
+        /**
+         * Returns the engine catalogue allowed for this build and device.
+         *
+         * Inflect is release-visible only when the caller has established that the device is in
+         * the validated high-memory class. The caller supplies that capability so this enum does
+         * not duplicate hardware detection.
+         */
+        fun entriesForBuild(
+            isRelease: Boolean,
+            inflectEligible: Boolean,
+        ): List<VoiceOutputEngine> = entries.filter { engine ->
+            !isRelease ||
+                (!engine.debugOnly &&
+                    (engine != InflectMicroExperimental || inflectEligible))
+        }
+
+        fun resolveForBuild(
+            value: String?,
+            isRelease: Boolean,
+            inflectEligible: Boolean,
+        ): VoiceOutputEngine {
+            val engine = fromStorage(value)
+            return engine.takeIf {
+                it in entriesForBuild(
+                    isRelease = isRelease,
+                    inflectEligible = inflectEligible,
+                )
+            } ?: AndroidTts
+        }
     }
 }

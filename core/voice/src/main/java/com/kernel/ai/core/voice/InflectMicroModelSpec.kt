@@ -3,7 +3,7 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import java.io.File
 
-/** Debug-only Inflect Micro model pair managed from Voice settings. */
+/** Inflect Micro model pair managed from Voice settings on eligible devices. */
 object InflectMicroModelSpec {
     data class RequiredModel(
         val fileName: String,

@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -98,7 +100,7 @@ data class VoiceUiState(
     val isWakeWordModelAvailable: Boolean = false,
     /** Wake word confidence threshold in [0, 1]. Reflects [WakeWordPreferences.confidenceThreshold]. */
     val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
-    // ── Debug-only Inflect Micro model pair ───────────────────────────────────
+    // ── Inflect Micro model pair ─────────────────────────────────────────────
     val inflectMicroStates: Map<KernelModel, DownloadState> = emptyMap(),
     val inflectMicroAvailability: ModelAvailabilityState =
         ModelAvailabilityState.NotDisplayed,
@@ -206,10 +208,13 @@ class VoiceViewModel @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
     private val modelDownloadManager: ModelDownloadManager,
+    private val hardwareProfileDetector: HardwareProfileDetector,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
+    private val inflectReleaseEligible: Boolean =
+        hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP
     private val visibleSherpaVoices: List<SherpaPiperVoice> =
         SherpaPiperVoice.entriesForBuild(isReleaseBuild)
     private val inflectModels: List<KernelModel> =
@@ -221,7 +226,10 @@ class VoiceViewModel @Inject constructor(
     private var inflectModelDownloadStatesLoaded = false
     private val _uiState = MutableStateFlow(
         VoiceUiState(
-            availableOutputEngines = VoiceOutputEngine.entriesForBuild(isReleaseBuild),
+            availableOutputEngines = VoiceOutputEngine.entriesForBuild(
+                isRelease = isReleaseBuild,
+                inflectEligible = inflectReleaseEligible,
+            ),
             sherpaVoices = visibleSherpaVoices.map { voice ->
                 SherpaVoiceRowUiState(voice = voice)
             },
@@ -254,7 +262,10 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.selectedEngine.collect { engine ->
                 val effectiveEngine = engine.takeIf {
-                    it in VoiceOutputEngine.entriesForBuild(isReleaseBuild)
+                    it in VoiceOutputEngine.entriesForBuild(
+                        isRelease = isReleaseBuild,
+                        inflectEligible = inflectReleaseEligible,
+                    )
                 } ?: VoiceOutputEngine.AndroidTts
                 _uiState.update { it.copy(selectedOutputEngine = effectiveEngine) }
                 if (effectiveEngine != engine) {
@@ -580,7 +591,11 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun setVoiceOutputEngine(engine: VoiceOutputEngine) {
-        if (engine !in VoiceOutputEngine.entriesForBuild(isReleaseBuild)) return
+        if (engine !in VoiceOutputEngine.entriesForBuild(
+                isRelease = isReleaseBuild,
+                inflectEligible = inflectReleaseEligible,
+            )
+        ) return
         if (engine == VoiceOutputEngine.InflectMicroExperimental &&
             !_uiState.value.isInflectMicroReady
         ) {

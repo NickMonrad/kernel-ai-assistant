@@ -3,6 +3,8 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -29,18 +31,20 @@ private val Context.voiceOutputPrefsDataStore by preferencesDataStore(name = "vo
 @Singleton
 class VoiceOutputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val hardwareProfileDetector: HardwareProfileDetector,
 ) {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+    private val inflectReleaseEligible: Boolean =
+        hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP
 
     init {
         if (isReleaseBuild) {
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                migrateIfNotReleaseVisible()
+                migrateReleasePreferences()
             }
         }
     }
-
     private val spokenResponsesEnabledKey =
         booleanPreferencesKey("quick_actions_spoken_responses_enabled")
     private val selectedEngineKey = stringPreferencesKey("selected_voice_output_engine")
@@ -75,9 +79,11 @@ class VoiceOutputPreferences @Inject constructor(
             }
         }
         .map { prefs ->
-            VoiceOutputEngine.fromStorage(prefs[selectedEngineKey]).let { engine ->
-                if (isReleaseBuild && engine.debugOnly) VoiceOutputEngine.AndroidTts else engine
-            }
+            VoiceOutputEngine.resolveForBuild(
+                value = prefs[selectedEngineKey],
+                isRelease = isReleaseBuild,
+                inflectEligible = inflectReleaseEligible,
+            )
         }
 
     val selectedSherpaVoice: Flow<SherpaPiperVoice> = context.voiceOutputPrefsDataStore.data
@@ -123,8 +129,13 @@ class VoiceOutputPreferences @Inject constructor(
     }
 
     suspend fun setSelectedEngine(engine: VoiceOutputEngine) {
+        val effectiveEngine = VoiceOutputEngine.resolveForBuild(
+            value = engine.name,
+            isRelease = isReleaseBuild,
+            inflectEligible = inflectReleaseEligible,
+        )
         context.voiceOutputPrefsDataStore.edit { prefs ->
-            prefs[selectedEngineKey] = engine.name
+            prefs[selectedEngineKey] = effectiveEngine.name
         }
     }
 
@@ -250,19 +261,34 @@ class VoiceOutputPreferences @Inject constructor(
     }
 
     /**
-     * Persists the migration of a non-release-visible stored voice (e.g. Semaine)
-     * to [SherpaPiperVoice.CoriHigh] in release builds.
+     * Persists release migrations for hidden engines and non-release-visible stored voices.
      *
      * Called once at construction time in release builds via [init]. The runtime
-     * mapping in [selectedSherpaVoice] also handles this case as a safety net.
+     * mappings also handle this case as a safety net.
      */
-    private suspend fun migrateIfNotReleaseVisible() {
-        val storedName = context.voiceOutputPrefsDataStore.data.first()[selectedSherpaVoiceKey]
-        val stored = SherpaPiperVoice.fromStorage(storedName)
-        if (!stored.releaseVisible) {
-            Log.i(TAG, "Persisting migration: ${stored.name} → ${SherpaPiperVoice.CoriHigh.name}")
-            context.voiceOutputPrefsDataStore.edit { editor ->
-                editor[selectedSherpaVoiceKey] = SherpaPiperVoice.CoriHigh.name
+    private suspend fun migrateReleasePreferences() {
+        val prefs = context.voiceOutputPrefsDataStore.data.first()
+        val storedSherpa = SherpaPiperVoice.fromStorage(prefs[selectedSherpaVoiceKey])
+        val resolvedSherpa = resolveReleaseBuildVoice(storedSherpa, isReleaseBuild)
+        val storedEngineName = prefs[selectedEngineKey]
+        val resolvedEngine = VoiceOutputEngine.resolveForBuild(
+            value = storedEngineName,
+            isRelease = isReleaseBuild,
+            inflectEligible = inflectReleaseEligible,
+        )
+        val sherpaChanged = resolvedSherpa != storedSherpa
+        val engineChanged = storedEngineName != null && resolvedEngine.name != storedEngineName
+        if (!sherpaChanged && !engineChanged) return
+
+        Log.i(TAG, "Persisting release voice migration: " +
+            "${storedSherpa.name} → ${resolvedSherpa.name}; " +
+            "${storedEngineName ?: VoiceOutputEngine.AndroidTts.name} → ${resolvedEngine.name}")
+        context.voiceOutputPrefsDataStore.edit { editor ->
+            if (sherpaChanged) {
+                editor[selectedSherpaVoiceKey] = resolvedSherpa.name
+            }
+            if (engineChanged) {
+                editor[selectedEngineKey] = resolvedEngine.name
             }
         }
     }

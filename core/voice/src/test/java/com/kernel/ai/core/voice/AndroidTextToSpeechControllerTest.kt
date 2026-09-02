@@ -58,6 +58,7 @@ class AndroidTextToSpeechControllerTest {
         private val initStatuses: List<Int> = listOf(TextToSpeech.SUCCESS),
         private val defaultEnginePackage: String? = null,
         private val installedEngines: List<TextToSpeech.EngineInfo> = emptyList(),
+        private val languageStatuses: Map<Locale, Int> = emptyMap(),
     ) : TextToSpeechFactory {
         val created = mutableListOf<TextToSpeech>()
         val packages = mutableListOf<String?>()
@@ -68,6 +69,9 @@ class AndroidTextToSpeechControllerTest {
                 every { engine.defaultEngine } returns defaultEnginePackage
             }
             every { engine.engines } returns installedEngines
+            every { engine.isLanguageAvailable(any()) } answers {
+                languageStatuses[args[0] as Locale] ?: TextToSpeech.LANG_AVAILABLE
+            }
             created += engine
             packages += enginePackage
             // repeat the last configured status for any additional attempts
@@ -271,4 +275,28 @@ class AndroidTextToSpeechControllerTest {
         verify { recovered.speak("streamed reply", TextToSpeech.QUEUE_FLUSH, any(), any()) }
         verify(exactly = 0) { factory.created[0].speak(any(), any(), any(), any()) }
     }
+
+    @Test
+    fun `speak falls back from unavailable regional locale to available language locale`() =
+        runTest(dispatcher) {
+            val (controller, factory) = buildController(
+                factory = FakeTtsFactory(
+                    languageStatuses = mapOf(
+                        Locale.forLanguageTag("en-AU") to TextToSpeech.LANG_NOT_SUPPORTED,
+                        Locale.ENGLISH to TextToSpeech.LANG_AVAILABLE,
+                    ),
+                ),
+            )
+
+            val result = controller.speak(
+                VoiceSpeakRequest(
+                    text = "hello",
+                    locale = Locale.forLanguageTag("en-AU"),
+                ),
+            )
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            verify { factory.created.single().language = Locale.ENGLISH }
+            verify { factory.created.single().speak("hello", TextToSpeech.QUEUE_FLUSH, any(), any()) }
+        }
 }
