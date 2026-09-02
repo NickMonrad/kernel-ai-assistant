@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
-import com.kernel.ai.core.inference.hardware.HardwareTier
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -36,7 +35,7 @@ class VoiceOutputPreferences @Inject constructor(
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
-        hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP
+        InflectMicroModelSpec.isReleaseEligible(hardwareProfileDetector.profile.tier)
 
     init {
         if (isReleaseBuild) {

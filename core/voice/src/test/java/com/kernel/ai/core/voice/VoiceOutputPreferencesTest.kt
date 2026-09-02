@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -51,24 +52,32 @@ class VoiceOutputPreferencesTest {
 
     @Test
     fun `resolveForBuild preserves Inflect for eligible release device`() {
+        val inflectEligible = InflectMicroModelSpec.isReleaseEligible(
+            tier = HardwareTier.FLAGSHIP,
+            supportedAbis = arrayOf("arm64-v8a"),
+        )
         assertEquals(
             VoiceOutputEngine.InflectMicroExperimental,
             VoiceOutputEngine.resolveForBuild(
                 value = VoiceOutputEngine.InflectMicroExperimental.name,
                 isRelease = true,
-                inflectEligible = true,
+                inflectEligible = inflectEligible,
             ),
         )
     }
 
     @Test
-    fun `resolveForBuild demotes persisted Inflect on ineligible release device`() {
+    fun `resolveForBuild demotes persisted Inflect on flagship wrong ABI`() {
+        val inflectEligible = InflectMicroModelSpec.isReleaseEligible(
+            tier = HardwareTier.FLAGSHIP,
+            supportedAbis = arrayOf("x86_64"),
+        )
         assertEquals(
             VoiceOutputEngine.AndroidTts,
             VoiceOutputEngine.resolveForBuild(
                 value = VoiceOutputEngine.InflectMicroExperimental.name,
                 isRelease = true,
-                inflectEligible = false,
+                inflectEligible = inflectEligible,
             ),
         )
     }

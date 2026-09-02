@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
-import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -214,7 +213,7 @@ class VoiceViewModel @Inject constructor(
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
-        hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP
+        InflectMicroModelSpec.isReleaseEligible(hardwareProfileDetector.profile.tier)
     private val visibleSherpaVoices: List<SherpaPiperVoice> =
         SherpaPiperVoice.entriesForBuild(isReleaseBuild)
     private val inflectModels: List<KernelModel> =

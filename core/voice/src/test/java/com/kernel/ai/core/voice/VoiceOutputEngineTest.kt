@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -16,11 +17,15 @@ class VoiceOutputEngineTest {
     }
 
     @Test
-    fun `release ineligible catalogue excludes Inflect`() {
+    fun `flagship wrong ABI catalogue excludes Inflect`() {
+        val inflectEligible = InflectMicroModelSpec.isReleaseEligible(
+            tier = HardwareTier.FLAGSHIP,
+            supportedAbis = arrayOf("x86_64"),
+        )
         assertFalse(
             VoiceOutputEngine.entriesForBuild(
                 isRelease = true,
-                inflectEligible = false,
+                inflectEligible = inflectEligible,
             ).contains(VoiceOutputEngine.InflectMicroExperimental),
         )
     }
@@ -44,5 +49,35 @@ class VoiceOutputEngineTest {
 
         assertTrue(engines.contains(VoiceOutputEngine.KokoroExperimental))
         assertTrue(engines.contains(VoiceOutputEngine.InflectMicroExperimental))
+    }
+
+    @Test
+    fun `flagship arm64 support is release eligible`() {
+        assertTrue(
+            InflectMicroModelSpec.isReleaseEligible(
+                tier = HardwareTier.FLAGSHIP,
+                supportedAbis = arrayOf("arm64-v8a"),
+            ),
+        )
+    }
+
+    @Test
+    fun `flagship non-arm64 support is not release eligible`() {
+        assertFalse(
+            InflectMicroModelSpec.isReleaseEligible(
+                tier = HardwareTier.FLAGSHIP,
+                supportedAbis = arrayOf("x86_64"),
+            ),
+        )
+    }
+
+    @Test
+    fun `mid-range arm64 support is not release eligible`() {
+        assertFalse(
+            InflectMicroModelSpec.isReleaseEligible(
+                tier = HardwareTier.MID_RANGE,
+                supportedAbis = arrayOf("arm64-v8a"),
+            ),
+        )
     }
 }

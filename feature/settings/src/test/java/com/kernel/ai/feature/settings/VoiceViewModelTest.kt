@@ -390,7 +390,7 @@ class VoiceViewModelTest {
         )
     }
     @Test
-    fun `eligible release builds expose Inflect while debug builds expose all engines`() = runTest {
+    fun `release builds mirror shared Inflect eligibility while debug builds expose all engines`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -414,7 +414,8 @@ class VoiceViewModelTest {
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(
+        assertEquals(
+            InflectMicroModelSpec.isReleaseEligible(HardwareTier.FLAGSHIP),
             releaseViewModel.uiState.value.availableOutputEngines.contains(
                 VoiceOutputEngine.InflectMicroExperimental,
             ),
