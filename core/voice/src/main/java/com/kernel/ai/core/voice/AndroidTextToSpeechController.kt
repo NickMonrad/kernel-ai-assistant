@@ -227,14 +227,12 @@ class AndroidTextToSpeechController @Inject constructor(
             "Text-to-speech is unavailable on this device."
         )
 
-        val availability = engine.isLanguageAvailable(locale)
-        if (availability < TextToSpeech.LANG_AVAILABLE) {
-            return VoiceOutputResult.Unavailable(
+        val resolvedLocale = resolveAvailableLocale(engine, locale)
+            ?: return VoiceOutputResult.Unavailable(
                 "Text-to-speech voice for ${locale.toLanguageTag()} is not available on this device."
             )
-        }
 
-        engine.language = locale
+        engine.language = resolvedLocale
         requestAudioFocus()
         val resolvedUtteranceId = utteranceId ?: "kernel-voice-${System.nanoTime()}"
         synchronized(playbackLock) {
@@ -270,6 +268,24 @@ class AndroidTextToSpeechController @Inject constructor(
             VoiceOutputResult.Unavailable("Text-to-speech failed to start.")
         } else {
             VoiceOutputResult.Spoken
+        }
+    }
+
+    private fun resolveAvailableLocale(
+        engine: TextToSpeech,
+        requested: Locale,
+    ): Locale? {
+        val languageFallback = requested.language
+            .takeIf { it.isNotBlank() }
+            ?.let(Locale::forLanguageTag)
+        val candidates = sequenceOf(
+            requested,
+            languageFallback,
+            if (requested.language == Locale.ENGLISH.language) Locale.US else null,
+            Locale.getDefault(),
+        ).filterNotNull().distinct()
+        return candidates.firstOrNull { candidate ->
+            engine.isLanguageAvailable(candidate) >= TextToSpeech.LANG_AVAILABLE
         }
     }
 

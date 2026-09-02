@@ -1,8 +1,8 @@
 # Inflect Micro Sherpa frontend build provenance
 
-This is the debug-only Sherpa-ONNX rebuild used by issue #1475. It is not a
-production dependency. The checked-in patch is
-`scripts/sherpa-onnx-v1.13.0-inflect.patch`.
+This is the pinned Sherpa-ONNX rebuild used by the Inflect Micro release
+voice path (#1510), originally produced and validated by issue #1475. The
+checked-in patch is `scripts/sherpa-onnx-v1.13.0-inflect.patch`.
 
 ## Exact inputs
 
@@ -15,18 +15,24 @@ production dependency. The checked-in patch is
 - ABI: `arm64-v8a`
 - Android platform: `android-21`
 - CMake: 4.4.2
-- Custom debug AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`
-- Custom debug AAR SHA-256:
+- Custom Inflect-enabled AAR used by debug and release:
+  `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`
+- Custom Inflect-enabled AAR SHA-256:
   `cf35bb1999586fb6c2f5746bfc556504a6ee8407e02ed3047f1274fa8d2008dc`
-- Stock release AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar`
-- Stock release AAR SHA-256:
+- Stock no-ORT AAR retained as a byte-level comparison/reference artifact:
+  `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar`
+- Stock reference AAR SHA-256:
   `233b6b19fb5515c047adebde0dbf873a9fd8ac23f1d2ff6a3701f7ffc923b23c`
 - arm64 JNI SHA-256 before AAR packaging:
   `3fa47f550edfe2bebaa8f6d219cfc2c62c38b77284f124b79f43701a535d4eac`
 
-The custom AAR is checked in under the ignored `third_party/sherpa-onnx/`
-directory with an explicit force-add. The stock AAR remains the release
-runtime artifact; the custom AAR is debug-only.
+The app uses the custom AAR for both debug and release so the release-visible
+Inflect controller resolves the existing narrow JNI symbol. The native binary
+is unchanged by #1510; this issue only promotes the already-validated artifact
+to the supported release configuration.
+
+Both AARs remain checked in under the ignored `third_party/sherpa-onnx/`
+directory with explicit force-adds.
 
 ## Rebuild
 

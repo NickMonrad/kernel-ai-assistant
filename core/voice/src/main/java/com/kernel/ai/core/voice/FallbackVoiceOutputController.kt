@@ -17,7 +17,7 @@ private const val TAG = "KernelAI"
  * - [VoiceOutputEngine.AndroidTts] routes directly to [AndroidTextToSpeechController].
  * - [VoiceOutputEngine.SherpaExperimental] tries [SherpaOnnxVoiceOutputController] first, but
  *   still falls back to Android TTS if Sherpa assets/runtime are missing or if synthesis fails.
- * - [VoiceOutputEngine.InflectMicroExperimental] tries the debug Inflect controller first, but
+ * - [VoiceOutputEngine.InflectMicroExperimental] tries the Inflect controller first, but
  *   still falls back to Android TTS if the model/frontend/runtime is unavailable.
  * Events are forwarded from whichever backend is active via [flatMapLatest].
  */

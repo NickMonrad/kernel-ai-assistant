@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** Debug-only Inflect Micro runtime text -> IPA -> ONNX -> AudioTrack controller. */
+/** Inflect Micro runtime text -> IPA -> ONNX -> AudioTrack controller. */
 @Singleton
 class InflectMicroVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,

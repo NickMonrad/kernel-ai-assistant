@@ -299,11 +299,12 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // Keep the stock Sherpa runtime in release and the Inflect-enabled rebuild in debug only.
-    val stockSherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
+    // Release and debug use the same pinned Inflect-enabled Sherpa runtime. The AAR is the
+    // existing v1.13.0 rebuild from scripts/sherpa-onnx-v1.13.0-inflect-build.md; no native
+    // binary is rebuilt or duplicated by this release-exposure change.
     val inflectSherpaAar =
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
-    releaseImplementation(files(stockSherpaAar.absolutePath))
+    releaseImplementation(files(inflectSherpaAar.absolutePath))
     debugImplementation(files(inflectSherpaAar.absolutePath))
 
     implementation(platform(libs.compose.bom))

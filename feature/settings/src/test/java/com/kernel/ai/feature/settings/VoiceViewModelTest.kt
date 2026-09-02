@@ -3,6 +3,8 @@ package com.kernel.ai.feature.settings
 import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
@@ -53,6 +55,7 @@ class VoiceViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
+    private val hardwareProfileDetector: HardwareProfileDetector = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
@@ -129,6 +132,7 @@ class VoiceViewModelTest {
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns modelDownloadStates
+        every { hardwareProfileDetector.profile.tier } returns HardwareTier.FLAGSHIP
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
@@ -148,6 +152,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             context,
         )
     }
@@ -205,6 +210,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -234,6 +240,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -263,6 +270,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -369,6 +377,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             releaseContext,
         )
 
@@ -381,7 +390,7 @@ class VoiceViewModelTest {
         )
     }
     @Test
-    fun `debug builds expose Inflect while release builds hide it`() = runTest {
+    fun `release builds mirror shared Inflect eligibility while debug builds expose all engines`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -400,11 +409,13 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             releaseContext,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertFalse(
+        assertEquals(
+            InflectMicroModelSpec.isReleaseEligible(HardwareTier.FLAGSHIP),
             releaseViewModel.uiState.value.availableOutputEngines.contains(
                 VoiceOutputEngine.InflectMicroExperimental,
             ),
@@ -678,6 +689,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             releaseContext,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -724,6 +736,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            hardwareProfileDetector,
             releaseContext,
         )
         testDispatcher.scheduler.advanceUntilIdle()
