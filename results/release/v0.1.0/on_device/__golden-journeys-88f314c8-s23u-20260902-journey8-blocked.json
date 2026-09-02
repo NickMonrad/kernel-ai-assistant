@@ -17,7 +17,7 @@
     "model": "SM-S918B",
     "soc": "Snapdragon 8 Gen 2",
     "tier": "reference",
-    "android_api": 36,
+    "android_api": 35,
     "execution": "physical"
   },
   "model": {
@@ -188,7 +188,7 @@
       "failures": [
         "Application crashes on launch while starting microphone foreground service"
       ],
-      "notes": "Merged candidate installed with adb install -r without clearing app data. Normal launch showed the Android crash dialog twice; focused logcat recorded two identical FATAL EXCEPTION markers from WakeWordService.onStartCommand at WakeWordService.kt:564. PTT, transcript, Inflect playback, Stop, second turn, and background/resume were not attempted after the release-blocking crash.",
+      "notes": "Merged candidate installed with adb install -r without clearing app data on the S23 Ultra; adb reported Android API 36, while this record retains the s23-ultra registry API 35 metadata for dashboard consistency. Normal launch showed the Android crash dialog twice; focused logcat recorded two identical FATAL EXCEPTION markers from WakeWordService.onStartCommand at WakeWordService.kt:564. PTT, transcript, Inflect playback, Stop, second turn, and background/resume were not attempted after the release-blocking crash.",
       "artifact_refs": []
     },
     {
