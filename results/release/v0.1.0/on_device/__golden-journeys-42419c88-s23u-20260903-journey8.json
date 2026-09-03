@@ -30,25 +30,6 @@
     "recommendation": "additional_validation_required"
   },
   "artifact_refs": [],
-  "validation": {
-    "candidate": "Exact merged main after PR #1518 merge",
-    "apk": "app/build/outputs/apk/debug/app-debug.apk",
-    "apk_sha256": "af329b0acd867ee840ebc1140ddc3b73d4793e65e7ca8d2d3cd71d0058a05966",
-    "package": "com.kernel.ai.debug",
-    "startup": "S23U Android 16 launch completed; WakeWordService started and duplicate start was safely ignored; no app AndroidRuntime/FATAL EXCEPTION/ANR markers.",
-    "settings": "Hey Jandal persisted enabled (checked=true); Active engine: Inflect Micro; Inflect Micro model Ready; Android TTS available as fallback.",
-    "unattended_turns": [
-      {"prompt": "Tell me one interesting fact about New Zealand.", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus and AudioTrack started."},
-      {"prompt": "Why is the sky blue?", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus and AudioTrack started."},
-      {"prompt": "Why do oceans taste salty?", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus, AudioTrack started and stopped."}
-    ],
-    "stop": "A longer spoken reply showed Speaking reply and Stop spoken reply; tapping Stop changed the UI to Speak message and audio focus was abandoned without an app crash.",
-    "subsequent_turn": "A subsequent voice-originated turn after Stop rendered and spoke a Saturn answer through Inflect Micro.",
-    "background_resume": "HOME then MainActivity resume returned the same task to foreground; a post-resume voice-originated Jupiter turn rendered successfully.",
-    "physical_ptt": "User-confirmed normal PTT: exact New Zealand prompt produced a transcript and spoken answer with no on-screen error; focused log captured Vosk input, Voice submit, Inflect output focus, and AudioTrack start/stop.",
-    "crash_scan": {"app_fatal_exceptions": 0, "app_anr_markers": 0},
-    "fallback_observed": false
-  },
   "cases": [
     {"name": "Fresh install to first useful action", "journey": 1, "status": "partial", "passed": false, "evidence_type": "mixed", "devices": ["s21-exynos", "s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Prior clean-install and launch evidence remains partial; this session did not repeat fresh-install work.", "artifact_refs": []},
     {"name": "Upgrade over an existing install", "journey": 2, "status": "proven", "passed": true, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Non-destructive adb install -r preserved the populated fixture, E4B cache, seeded list/item, conversations, messages, memories, notes, and shortcuts. Force-stop/relaunch completed without a model re-download loop.", "artifact_refs": []},
