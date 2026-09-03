@@ -18,7 +18,7 @@
     "artifact_type": "local_debug",
     "evidence_type": "mixed",
     "devices": [{"id": "s23-ultra", "evidence_type": "mixed", "required": true}, {"id": "s21-exynos", "evidence_type": "mixed", "required": true}],
-    "blocker_refs": ["#1260", "#1261", "#1447", "#1449"],
+    "blocker_refs": ["#1260", "#1261"],
     "manual_checks": [
       "Signed or Play-delivered candidate validation on the exact release artifact",
       "Authenticated EmbeddingGemma retrieval and later relevant-memory use",
