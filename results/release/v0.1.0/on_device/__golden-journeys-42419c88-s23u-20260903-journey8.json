@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "golden_journeys",
+  "timestamp": "2026-09-03T13:30:00Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "42419c8831813e68a7c8f72b371dc7eb65e27784",
+  "pr": 1518,
+  "release": "v0.1.0",
+  "run_id": "golden-journeys-42419c88-s23u-20260903-journey8",
+  "device": {"id": "s23-ultra", "serial": null, "label": "S23 Ultra", "manufacturer": "Samsung", "model": "SM-S918B", "soc": "Snapdragon 8 Gen 2", "tier": "reference", "android_api": 36, "execution": "physical"},
+  "model": {"name": "Gemma 4 E-4B", "runtime": "LiteRT", "backend": "GPU"},
+  "summary": {"total": 10, "passed": 5, "failed": 0, "pass_rate": 0.5},
+  "golden_journeys": {
+    "version": "0.1.0",
+    "build_identifier": "com.kernel.ai.debug versionName 0.1.0 versionCode 1 sha256 af329b0acd867ee840ebc1140ddc3b73d4793e65e7ca8d2d3cd71d0058a05966",
+    "artifact_type": "local_debug",
+    "evidence_type": "mixed",
+    "devices": [{"id": "s23-ultra", "evidence_type": "mixed", "required": true}, {"id": "s21-exynos", "evidence_type": "mixed", "required": true}],
+    "blocker_refs": ["#1260", "#1261", "#1447", "#1449"],
+    "manual_checks": [
+      "Signed or Play-delivered candidate validation on the exact release artifact",
+      "Authenticated EmbeddingGemma retrieval and later relevant-memory use",
+      "Timer vibration and capability-repair/retry coverage",
+      "Jandal chat repair action that opens Android Settings for location, if product flow is added",
+      "Complete microphone-plus-location permission repair contract",
+      "Final permission, crash, network/declaration, and Play Data Safety scan on the signed or Play artifact"
+    ],
+    "recommendation": "additional_validation_required"
+  },
+  "artifact_refs": [],
+  "validation": {
+    "candidate": "Exact merged main after PR #1518 merge",
+    "apk": "app/build/outputs/apk/debug/app-debug.apk",
+    "apk_sha256": "af329b0acd867ee840ebc1140ddc3b73d4793e65e7ca8d2d3cd71d0058a05966",
+    "package": "com.kernel.ai.debug",
+    "startup": "S23U Android 16 launch completed; WakeWordService started and duplicate start was safely ignored; no app AndroidRuntime/FATAL EXCEPTION/ANR markers.",
+    "settings": "Hey Jandal persisted enabled (checked=true); Active engine: Inflect Micro; Inflect Micro model Ready; Android TTS available as fallback.",
+    "unattended_turns": [
+      {"prompt": "Tell me one interesting fact about New Zealand.", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus and AudioTrack started."},
+      {"prompt": "Why is the sky blue?", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus and AudioTrack started."},
+      {"prompt": "Why do oceans taste salty?", "result": "Assistant reply rendered; InflectMicroVoiceOutputController requested speech focus, AudioTrack started and stopped."}
+    ],
+    "stop": "A longer spoken reply showed Speaking reply and Stop spoken reply; tapping Stop changed the UI to Speak message and audio focus was abandoned without an app crash.",
+    "subsequent_turn": "A subsequent voice-originated turn after Stop rendered and spoke a Saturn answer through Inflect Micro.",
+    "background_resume": "HOME then MainActivity resume returned the same task to foreground; a post-resume voice-originated Jupiter turn rendered successfully.",
+    "physical_ptt": "User-confirmed normal PTT: exact New Zealand prompt produced a transcript and spoken answer with no on-screen error; focused log captured Vosk input, Voice submit, Inflect output focus, and AudioTrack start/stop.",
+    "crash_scan": {"app_fatal_exceptions": 0, "app_anr_markers": 0},
+    "fallback_observed": false
+  },
+  "cases": [
+    {"name": "Fresh install to first useful action", "journey": 1, "status": "partial", "passed": false, "evidence_type": "mixed", "devices": ["s21-exynos", "s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Prior clean-install and launch evidence remains partial; this session did not repeat fresh-install work.", "artifact_refs": []},
+    {"name": "Upgrade over an existing install", "journey": 2, "status": "proven", "passed": true, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Non-destructive adb install -r preserved the populated fixture, E4B cache, seeded list/item, conversations, messages, memories, notes, and shortcuts. Force-stop/relaunch completed without a model re-download loop.", "artifact_refs": []},
+    {"name": "Local chat and generation lifecycle", "journey": 3, "status": "proven", "passed": true, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Cumulative evidence proves local E4B generation, Thinking/streaming UI, cancellation recovery, subsequent turn, background/resume, relaunch persistence, and focused crash/ANR absence.", "artifact_refs": []},
+    {"name": "Memory", "journey": 4, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["EmbeddingGemma retrieval dependency unavailable"], "notes": "The candidate model and voice assets are present, but no EmbeddingGemma/SentencePiece assets were available. Retrieval was not attempted or substituted.", "artifact_refs": []},
+    {"name": "Lists and notes", "journey": 5, "status": "proven", "passed": true, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "The exact named-list add_to_list route, existing-list mutation, complete/edit/remove flow, seeded fixture preservation, note CRUD/restart persistence, and genuine ambiguous-request clarification are proven.", "artifact_refs": []},
+    {"name": "Alarm and timer reliability", "journey": 6, "status": "partial", "passed": false, "evidence_type": "mixed", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Vibration not observed"], "notes": "A locked timer produced an audible alert, notification-only visual fallback, and normal dismissal. Full capability-repair/retry and remaining timer acceptance assertions are not proven.", "artifact_refs": []},
+    {"name": "Weather and location fallback", "journey": 7, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Chat weather repair flow did not open Android Settings"], "notes": "Denied chat weather truthfully returned a location capability-required result. The dialog offered Use my location, Use a named location, and Not now, but no Settings link. External Settings restoration and normal return produced a genuine local-weather result.", "artifact_refs": []},
+    {"name": "Push-to-talk and spoken response", "journey": 8, "status": "proven", "passed": true, "evidence_type": "mixed", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Exact merged-main debug APK on S23U: Hey Jandal remained enabled, Inflect Micro remained selected and Ready, three bounded unattended voice turns rendered and spoke through Inflect Micro, Stop interrupted a longer reply cleanly, a subsequent turn spoke, HOME/resume preserved the route, and user-confirmed normal PTT produced transcript plus spoken answer. No app crash or ANR observed. Android TTS remained available as fallback but was not needed.", "artifact_refs": []},
+    {"name": "Permission revocation and repair", "journey": 9, "status": "partial", "passed": false, "evidence_type": "agent_adb_physical_device", "devices": ["s23-ultra"], "blocker_refs": [], "failures": ["Full microphone-plus-location repair contract not complete"], "notes": "Microphone revocation showed the accurate microphone-removed repair dialog; permission restoration returned to Jandal and restarted Hey safely. Location denial, external restore, return, and retry also worked, but the required app-directed Settings repair action was not available on chat weather.", "artifact_refs": []},
+    {"name": "Hey Jandal lifecycle", "journey": 10, "status": "proven", "passed": true, "evidence_type": "mixed", "devices": ["s23-ultra"], "blocker_refs": [], "failures": [], "notes": "Hey Jandal remained enabled and WakeWordService started safely on the exact merged candidate. This session did not rerun wake-word acoustic quality tuning.", "artifact_refs": []}
+  ]
+}
