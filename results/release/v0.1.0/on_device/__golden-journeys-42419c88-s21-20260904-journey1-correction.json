@@ -1,0 +1,218 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "golden_journeys",
+  "timestamp": "2026-09-04T06:02:49Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "42419c8831813e68a7c8f72b371dc7eb65e27784",
+  "pr": 1518,
+  "release": "v0.1.0",
+  "run_id": "golden-journeys-42419c88-s21-20260904-journey1-correction",
+  "device": {
+    "id": "s21-exynos",
+    "serial": null,
+    "label": "S21",
+    "manufacturer": "Samsung",
+    "model": "SM-G991B",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma 4 E-2B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 10,
+    "passed": 5,
+    "failed": 0,
+    "pass_rate": 0.5
+  },
+  "golden_journeys": {
+    "version": "0.1.0",
+    "build_identifier": "com.kernel.ai.debug versionName 0.1.0 versionCode 1 sha256 85560ac625365376770b052aac1cf4e8b1208df3539c4ac54bc8881786dd3942",
+    "artifact_type": "local_debug",
+    "evidence_type": "mixed",
+    "devices": [
+      {
+        "id": "s23-ultra",
+        "evidence_type": "mixed",
+        "required": true
+      },
+      {
+        "id": "s21-exynos",
+        "evidence_type": "agent_adb_physical_device",
+        "required": true
+      }
+    ],
+    "blocker_refs": [
+      "#1260",
+      "#1261"
+    ],
+    "manual_checks": [
+      "Signed or Play-delivered candidate validation on the exact release artifact",
+      "Authenticated EmbeddingGemma retrieval and later relevant-memory use",
+      "Timer vibration and capability-repair/retry coverage",
+      "Jandal chat repair action that opens Android Settings for location, if product flow is added",
+      "Complete microphone-plus-location permission repair contract",
+      "Final permission, crash, network/declaration, and Play Data Safety scan on the signed or Play artifact"
+    ],
+    "recommendation": "additional_validation_required"
+  },
+  "artifact_refs": [],
+  "cases": [
+    {
+      "name": "Fresh install to first useful action",
+      "journey": 1,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s21-exynos"
+      ],
+      "blocker_refs": [],
+      "failures": [
+        "Visible LiteRT thinking protocol marker in normal assistant reply; parser-boundary regression requires focused follow-up (#1418)"
+      ],
+      "notes": "Fresh clean-install Journey 1 on physical S21 (SM-G991B, Android 15/API 35) using the exact merged-main debug APK. The first launch showed and accepted the Android notification permission prompt; home rendered normally. Deterministic pre-model get_time returned the current time. Model availability auto-queued Gemma 4 E-2B; one force-stop interruption resumed from persisted byte 521892826 and continued, then completed gemma-4-E2B-it.litertlm. The model card showed Ready. Normal local GPU chat did generate complete responses (Kia ora! Hello there. What's on your mind today? and No worries.; TTFT 29037ms/37113ms), but the first assistant bubble visibly included the raw protocol marker </|/think|> after the greeting. The visible marker means the clean first-response acceptance is not proven and Journey 1 remains partial. No app-process crash or ANR observed; background FGS notification warnings were non-blocking platform diagnostics. Existing S21 Journey 2 baseline evidence was not overwritten.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Upgrade over an existing install",
+      "journey": 2,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Non-destructive adb install -r preserved the populated fixture, E4B cache, seeded list/item, conversations, messages, memories, notes, and shortcuts. Force-stop/relaunch completed without a model re-download loop.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Local chat and generation lifecycle",
+      "journey": 3,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Cumulative evidence proves local E4B generation, Thinking/streaming UI, cancellation recovery, subsequent turn, background/resume, relaunch persistence, and focused crash/ANR absence.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Memory",
+      "journey": 4,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [
+        "EmbeddingGemma retrieval dependency unavailable"
+      ],
+      "notes": "The candidate model and voice assets are present, but no EmbeddingGemma/SentencePiece assets were available. Retrieval was not attempted or substituted.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Lists and notes",
+      "journey": 5,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "The exact named-list add_to_list route, existing-list mutation, complete/edit/remove flow, seeded fixture preservation, note CRUD/restart persistence, and genuine ambiguous-request clarification are proven.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Alarm and timer reliability",
+      "journey": 6,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "mixed",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [
+        "Vibration not observed"
+      ],
+      "notes": "A locked timer produced an audible alert, notification-only visual fallback, and normal dismissal. Full capability-repair/retry and remaining timer acceptance assertions are not proven.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Weather and location fallback",
+      "journey": 7,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [
+        "Chat weather repair flow did not open Android Settings"
+      ],
+      "notes": "Denied chat weather truthfully returned a location capability-required result. The dialog offered Use my location, Use a named location, and Not now, but no Settings link. External Settings restoration and normal return produced a genuine local-weather result.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Push-to-talk and spoken response",
+      "journey": 8,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "mixed",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Exact merged-main debug APK on S23U (device runtime observed as Android 16/API 36; dashboard device registry retains canonical S23 Ultra API 35 identity): Hey Jandal remained enabled, Inflect Micro remained selected and Ready, three bounded unattended voice turns rendered and spoke through Inflect Micro, Stop interrupted a longer reply cleanly, a subsequent turn spoke, HOME/resume preserved the route, and user-confirmed normal PTT produced transcript plus spoken answer. No app crash or ANR observed. Android TTS remained available as fallback but was not needed.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Permission revocation and repair",
+      "journey": 9,
+      "status": "partial",
+      "passed": false,
+      "evidence_type": "agent_adb_physical_device",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [
+        "Full microphone-plus-location repair contract not complete"
+      ],
+      "notes": "Microphone revocation showed the accurate microphone-removed repair dialog; permission restoration returned to Jandal and restarted Hey safely. Location denial, external restore, return, and retry also worked, but the required app-directed Settings repair action was not available on chat weather.",
+      "artifact_refs": []
+    },
+    {
+      "name": "Hey Jandal lifecycle",
+      "journey": 10,
+      "status": "proven",
+      "passed": true,
+      "evidence_type": "mixed",
+      "devices": [
+        "s23-ultra"
+      ],
+      "blocker_refs": [],
+      "failures": [],
+      "notes": "Hey Jandal remained enabled and WakeWordService started safely on the exact merged candidate. This session did not rerun wake-word acoustic quality tuning.",
+      "artifact_refs": []
+    }
+  ]
+}
