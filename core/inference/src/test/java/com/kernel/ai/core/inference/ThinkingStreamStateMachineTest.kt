@@ -159,9 +159,54 @@ class ThinkingStreamStateMachineTest {
         )
 
         assertEquals("redacted first thought\nredacted second thought", result.thinking)
+        assertEquals(listOf("redacted first thought", "\nredacted second thought"), result.thinkingDeltas)
         assertEquals("\nFinal answer", result.response)
+        assertEquals(listOf("\n", "Final answer"), result.responseDeltas)
         assertFalse(result.thinking.contains("<|"))
         assertFalse(result.thinking.contains("</"))
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `literal html thought close remains visible with following text`() {
+        val callbacks = listOf("Visible ", "</", "think", ">", " after")
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            callbacks.map { null to it },
+        )
+
+        assertEquals("Visible </think> after", result.response)
+        assertEquals(listOf("Visible ", "</think", ">", " after"), result.responseDeltas)
+        assertEquals("", result.thinking)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `literal malformed reopen remains visible when split across callbacks`() {
+        val callbacks = listOf("Visible ", "<|/", "think", ">", " after")
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            callbacks.map { null to it },
+        )
+
+        assertEquals("Visible <|/think> after", result.response)
+        assertEquals(listOf("Visible ", "<|/think>", " after"), result.responseDeltas)
+        assertEquals("", result.thinking)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `malformed reopen without matching close preserves following visible text`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                null to "<|channel>thought\nReasoning<channel|>",
+                null to "<|/think>Literal response",
+            ),
+        )
+
+        assertEquals("Reasoning", result.thinking)
+        assertEquals("<|/think>Literal response", result.response)
         assertVisibleDeltasAreSafe(result.responseDeltas)
     }
 
