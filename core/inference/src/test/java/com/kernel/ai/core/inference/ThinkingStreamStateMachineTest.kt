@@ -134,6 +134,38 @@ class ThinkingStreamStateMachineTest {
 
 
     @Test
+    fun `captured S21 callback boundary keeps malformed second thought out of response`() {
+        // Redacted replay of the physical callback order. The protocol fragments
+        // and callback boundaries are preserved; model prose is intentionally not.
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                "<|channel>",
+                "thought",
+                "\n",
+                "redacted first thought",
+                "<channel|>",
+                "<|/",
+                "think",
+                ">",
+                "\n",
+                "redacted second thought",
+                "</",
+                "think",
+                ">",
+                "\n",
+                "Final answer",
+            ).map { null to it },
+        )
+
+        assertEquals("redacted first thought\nredacted second thought", result.thinking)
+        assertEquals("\nFinal answer", result.response)
+        assertFalse(result.thinking.contains("<|"))
+        assertFalse(result.thinking.contains("</"))
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
     fun `raw think wrapper emits clean thought and visible suffix`() {
         val result = collect(
             ThinkingStreamStateMachine(),

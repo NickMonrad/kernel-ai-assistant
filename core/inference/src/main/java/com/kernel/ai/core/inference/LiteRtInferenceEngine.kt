@@ -105,6 +105,10 @@ internal const val THINKING_CLOSE_MARKER = "<channel|>"
 internal const val MALFORMED_THINK_CLOSE_MARKER = "</|/think|>"
 /** Truncated close-marker tail emitted by the same callback protocol. */
 internal const val TRUNCATED_THINK_CLOSE_MARKER = "|/think>"
+/** Exact malformed thought opener observed after a channel close on S21. */
+internal const val MALFORMED_THINK_REOPEN_MARKER = "<|/think>"
+/** Exact malformed thought close observed after that S21 callback sequence. */
+internal const val MALFORMED_HTML_THINK_CLOSE_MARKER = "</think>"
 
 @OptIn(ExperimentalApi::class)
 internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
@@ -380,6 +384,11 @@ internal class ThinkingStreamStateMachine(
         response: MutableList<String>,
     ) {
         val text = rawPending.toString()
+        if (text.startsWith(MALFORMED_THINK_REOPEN_MARKER)) {
+            deletePrefix(rawPending, MALFORMED_THINK_REOPEN_MARKER.length)
+            rawMode = RawMode.THOUGHT
+            return
+        }
         val marker = findRawMarker(text)
         if (marker == null) {
             val stableEnd = trailingProtocolPrefixStart(text)
@@ -723,6 +732,8 @@ internal class ThinkingStreamStateMachine(
             .replace(THINK_OPEN_MARKER, "")
             .replace(THINK_CLOSE_MARKER, "")
             .replace(MALFORMED_THINK_CLOSE_MARKER, "")
+            .replace(MALFORMED_THINK_REOPEN_MARKER, "")
+            .replace(MALFORMED_HTML_THINK_CLOSE_MARKER, "")
             .replace(TRUNCATED_THINK_CLOSE_MARKER, "")
             .replace(closeMarker, "")
 
@@ -747,6 +758,7 @@ internal class ThinkingStreamStateMachine(
         val THINK_CLOSE_MARKERS = listOf(
             THINK_CLOSE_MARKER,
             MALFORMED_THINK_CLOSE_MARKER,
+            MALFORMED_HTML_THINK_CLOSE_MARKER,
         )
         val PROTOCOL_MARKERS = listOf(
             THINKING_CHANNEL_HEADER,
@@ -755,6 +767,8 @@ internal class ThinkingStreamStateMachine(
             THINK_OPEN_MARKER,
             THINK_CLOSE_MARKER,
             MALFORMED_THINK_CLOSE_MARKER,
+            MALFORMED_THINK_REOPEN_MARKER,
+            MALFORMED_HTML_THINK_CLOSE_MARKER,
         )
     }
 }
@@ -778,8 +792,11 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<|think|>",
     "<|/think|>",
     MALFORMED_THINK_CLOSE_MARKER,
+    MALFORMED_THINK_REOPEN_MARKER,
+    MALFORMED_HTML_THINK_CLOSE_MARKER,
     TRUNCATED_THINK_CLOSE_MARKER,
     "<|/think",
+    "</think",
     "<|think",
 )
 
