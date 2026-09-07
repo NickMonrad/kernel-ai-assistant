@@ -101,6 +101,8 @@ internal fun checkGpuRestartNeeded(
 private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
+/** Exact malformed close marker observed in the S21 Journey 1 regression. */
+internal const val MALFORMED_THINK_CLOSE_MARKER = "</|/think|>"
 
 @OptIn(ExperimentalApi::class)
 internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
@@ -544,28 +546,44 @@ internal class ThinkingStreamStateMachine(
         )
 
     private fun findExpectedClose(text: String, channel: Boolean): MarkerMatch? =
-        if (channel) findChannelClose(text) else {
+        if (channel) {
+            findChannelClose(text)
+        } else {
             for (index in text.indices) {
-                if (text.startsWith(THINK_CLOSE_MARKER, index)) {
-                    return MarkerMatch(
-                        type = MarkerType.THINK_CLOSE,
-                        start = index,
-                        endExclusive = index + THINK_CLOSE_MARKER.length,
-                        complete = true,
-                    )
-                }
-                val suffix = text.substring(index)
-                if (suffix.length >= 1 && THINK_CLOSE_MARKER.startsWith(suffix)) {
-                    return MarkerMatch(
-                        type = MarkerType.THINK_CLOSE,
-                        start = index,
-                        endExclusive = text.length,
-                        complete = false,
-                    )
-                }
+                val close = findThinkClose(text, index) ?: continue
+                return close.copy(
+                    start = close.start + index,
+                    endExclusive = close.endExclusive + index,
+                )
             }
             null
         }
+
+    private fun findThinkClose(text: String, offset: Int = 0): MarkerMatch? {
+        val completeMarker = THINK_CLOSE_MARKERS.firstOrNull { text.startsWith(it, offset) }
+        if (completeMarker != null) {
+            return MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = completeMarker.length,
+                complete = true,
+            )
+        }
+        val remainingLength = text.length - offset
+        val partialMarker = THINK_CLOSE_MARKERS.firstOrNull {
+            remainingLength >= 1 &&
+                remainingLength < it.length &&
+                it.regionMatches(0, text, offset, remainingLength)
+        }
+        return partialMarker?.let {
+            MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = remainingLength,
+                complete = false,
+            )
+        }
+    }
 
     private fun findChannelClose(text: String): MarkerMatch? {
         for (index in text.indices) {
@@ -603,8 +621,13 @@ internal class ThinkingStreamStateMachine(
             if (includeThinkOpen && text.startsWith(THINK_OPEN_MARKER, index)) {
                 return MarkerMatch(MarkerType.THINK_OPEN, index, index + THINK_OPEN_MARKER.length, true)
             }
-            if (includeThinkClose && text.startsWith(THINK_CLOSE_MARKER, index)) {
-                return MarkerMatch(MarkerType.THINK_CLOSE, index, index + THINK_CLOSE_MARKER.length, true)
+            if (includeThinkClose) {
+                findThinkClose(text, index)?.let { close ->
+                    return close.copy(
+                        start = close.start + index,
+                        endExclusive = close.endExclusive + index,
+                    )
+                }
             }
             if (includeChannelOpen && text.startsWith(CHANNEL_OPEN_PREFIX, index)) {
                 return MarkerMatch(MarkerType.CHANNEL_OPEN, index, index + CHANNEL_OPEN_PREFIX.length, true)
@@ -621,7 +644,6 @@ internal class ThinkingStreamStateMachine(
             val suffix = text.substring(index)
             val partialType = when {
                 includeThinkOpen && suffix.length >= 1 && THINK_OPEN_MARKER.startsWith(suffix) -> MarkerType.THINK_OPEN
-                includeThinkClose && suffix.length >= 1 && THINK_CLOSE_MARKER.startsWith(suffix) -> MarkerType.THINK_CLOSE
                 includeChannelOpen && suffix.length >= 1 && CHANNEL_OPEN_PREFIX.startsWith(suffix) -> MarkerType.CHANNEL_OPEN
                 else -> null
             }
@@ -667,6 +689,7 @@ internal class ThinkingStreamStateMachine(
             .replace(thinkingHeader, "")
             .replace(THINK_OPEN_MARKER, "")
             .replace(THINK_CLOSE_MARKER, "")
+            .replace(MALFORMED_THINK_CLOSE_MARKER, "")
             .replace(closeMarker, "")
 
     private fun deletePrefix(target: StringBuilder, count: Int) {
@@ -687,12 +710,17 @@ internal class ThinkingStreamStateMachine(
         const val THINK_OPEN_MARKER = "<|think|>"
         const val THINK_CLOSE_MARKER = "<|/think|>"
         const val MAX_AMBIGUOUS_LENGTH = 256
+        val THINK_CLOSE_MARKERS = listOf(
+            THINK_CLOSE_MARKER,
+            MALFORMED_THINK_CLOSE_MARKER,
+        )
         val PROTOCOL_MARKERS = listOf(
             THINKING_CHANNEL_HEADER,
             CHANNEL_OPEN_PREFIX,
             CHANNEL_CLOSE_PREFIX + ">",
             THINK_OPEN_MARKER,
             THINK_CLOSE_MARKER,
+            MALFORMED_THINK_CLOSE_MARKER,
         )
     }
 }
@@ -715,6 +743,7 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<channel|>",
     "<|think|>",
     "<|/think|>",
+    MALFORMED_THINK_CLOSE_MARKER,
     "<|/think",
     "<|think",
 )

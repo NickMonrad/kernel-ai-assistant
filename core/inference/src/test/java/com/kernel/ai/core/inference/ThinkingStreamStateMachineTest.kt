@@ -133,6 +133,34 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
+    fun `observed malformed think close marker never reaches visible response`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                null to "Kia ora. Hello there. $MALFORMED_THINK_CLOSE_MARKER",
+                null to "How can I help?",
+            ),
+        )
+
+        assertEquals("", result.thinking)
+        assertEquals("Kia ora. Hello there. How can I help?", result.response)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `observed malformed think close marker split across callbacks is withheld`() {
+        val raw = "Kia ora. Hello! $MALFORMED_THINK_CLOSE_MARKER"
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            raw.map { null to it.toString() },
+        )
+
+        assertEquals("", result.thinking)
+        assertEquals("Kia ora. Hello! ", result.response)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
     fun `opening and closing markers split at every character boundary`() {
         listOf(
             "<|channel>thought\nReasoning<channel|>Final answer",
