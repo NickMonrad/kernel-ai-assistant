@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "skills-targeted",
+  "timestamp": "2026-09-07T13:46:56Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "7a9d7a31cbcd654cc00ef4b2d674fa91630c5501",
+  "pr": 1522,
+  "release": null,
+  "run_id": "on_device-2026-09-07T13-46-56Z-s23-ultra",
+  "device": {
+    "id": "s23-ultra",
+    "serial": "192.168.31.248:42819",
+    "label": "S23 Ultra",
+    "manufacturer": "Samsung",
+    "model": "SM-S918B",
+    "soc": "Snapdragon 8 Gen 2",
+    "tier": "reference",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma 4 E-4B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "pass_rate": 1.0
+  },
+  "cases": [
+    {
+      "name": "set_a_timer_for_2_hours",
+      "phase": "alarm_timer",
+      "passed": true,
+      "expected_tool": "set_timer",
+      "actual_tool": "set_timer",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ],
+  "artifact_refs": []
+}
