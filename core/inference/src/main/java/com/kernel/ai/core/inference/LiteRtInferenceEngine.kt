@@ -103,6 +103,8 @@ internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 /** Exact malformed close marker observed in the S21 Journey 1 regression. */
 internal const val MALFORMED_THINK_CLOSE_MARKER = "</|/think|>"
+/** Truncated close-marker tail emitted by the same callback protocol. */
+internal const val TRUNCATED_THINK_CLOSE_MARKER = "|/think>"
 
 @OptIn(ExperimentalApi::class)
 internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
@@ -585,6 +587,31 @@ internal class ThinkingStreamStateMachine(
         }
     }
 
+    private fun findTruncatedThinkClose(text: String, offset: Int = 0): MarkerMatch? {
+        if (text.startsWith(TRUNCATED_THINK_CLOSE_MARKER, offset)) {
+            return MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = TRUNCATED_THINK_CLOSE_MARKER.length,
+                complete = true,
+            )
+        }
+        val remainingLength = text.length - offset
+        return if (remainingLength >= 1 &&
+            remainingLength < TRUNCATED_THINK_CLOSE_MARKER.length &&
+            TRUNCATED_THINK_CLOSE_MARKER.regionMatches(0, text, offset, remainingLength)
+        ) {
+            MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = remainingLength,
+                complete = false,
+            )
+        } else {
+            null
+        }
+    }
+
     private fun findChannelClose(text: String): MarkerMatch? {
         for (index in text.indices) {
             if (!text.startsWith(CHANNEL_CLOSE_PREFIX, index)) continue
@@ -623,6 +650,12 @@ internal class ThinkingStreamStateMachine(
             }
             if (includeThinkClose) {
                 findThinkClose(text, index)?.let { close ->
+                    return close.copy(
+                        start = close.start + index,
+                        endExclusive = close.endExclusive + index,
+                    )
+                }
+                findTruncatedThinkClose(text, index)?.let { close ->
                     return close.copy(
                         start = close.start + index,
                         endExclusive = close.endExclusive + index,
@@ -690,6 +723,7 @@ internal class ThinkingStreamStateMachine(
             .replace(THINK_OPEN_MARKER, "")
             .replace(THINK_CLOSE_MARKER, "")
             .replace(MALFORMED_THINK_CLOSE_MARKER, "")
+            .replace(TRUNCATED_THINK_CLOSE_MARKER, "")
             .replace(closeMarker, "")
 
     private fun deletePrefix(target: StringBuilder, count: Int) {
@@ -744,6 +778,7 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<|think|>",
     "<|/think|>",
     MALFORMED_THINK_CLOSE_MARKER,
+    TRUNCATED_THINK_CLOSE_MARKER,
     "<|/think",
     "<|think",
 )
