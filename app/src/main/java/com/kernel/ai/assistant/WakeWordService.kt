@@ -475,6 +475,27 @@ private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
 
 /**
+ * Promote the service to the microphone foreground state without allowing Android's
+ * while-in-use eligibility failure to escape the service start callback.
+ *
+ * The callback is deliberately limited to the [startForeground] call site so unrelated
+ * service defects are not suppressed. The caller decides how to stop and diagnose a
+ * rejected start.
+ */
+internal fun tryPromoteToMicrophoneForeground(
+    promote: () -> Unit,
+    onRejected: (SecurityException) -> Unit,
+): Boolean {
+    return try {
+        promote()
+        true
+    } catch (error: SecurityException) {
+        onRejected(error)
+        false
+    }
+}
+
+/**
  * Foreground service that keeps [WakeWordDetector] running continuously.
  *
  * Started when "Listen for Hey Jandal" is enabled in Settings → Voice.
@@ -561,7 +582,24 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        val foregroundStarted = tryPromoteToMicrophoneForeground(
+            promote = { startForeground(NOTIFICATION_ID, buildNotification()) },
+            onRejected = { error ->
+                Log.w(
+                    TAG,
+                    "WakeWordService: microphone FGS promotion not allowed; " +
+                        "will retry when the app is foreground (${error.message})",
+                )
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.SERVICE_ERROR,
+                    metadata = { mapOf("category" to "microphone_fgs_start_not_allowed") },
+                )
+            },
+        )
+        if (!foregroundStarted) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
