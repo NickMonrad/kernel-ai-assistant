@@ -305,8 +305,9 @@ internal class ThinkingStreamStateMachine(
         val response = mutableListOf<String>()
 
         if (rawMode == RawMode.MALFORMED_THOUGHT_CANDIDATE) {
-            rawPending.insert(0, malformedThoughtCandidate.toString())
-            rawPending.insert(0, MALFORMED_THINK_REOPEN_MARKER)
+            // The confirmed malformed-thought candidate is private reasoning. If its
+            // closing marker never arrives, fail closed and let the blank-response
+            // fallback handle the generation instead of exposing it as visible text.
             malformedThoughtCandidate.clear()
             malformedReopenEligible = false
             rawMode = RawMode.VISIBLE

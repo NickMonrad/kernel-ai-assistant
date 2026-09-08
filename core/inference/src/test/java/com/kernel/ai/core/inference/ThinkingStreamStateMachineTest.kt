@@ -196,18 +196,26 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-    fun `malformed reopen without matching close preserves following visible text`() {
+    fun `unterminated malformed thought is withheld and does not poison next generation`() {
         val result = collect(
             ThinkingStreamStateMachine(),
             listOf(
+                null to "Visible ",
                 null to "<|channel>thought\nReasoning<channel|>",
-                null to "<|/think>Literal response",
+                null to "<|/think>private reasoning",
             ),
         )
+        assertEquals("Visible ", result.response)
+        assertTrue(result.responseDeltas.none { it.contains("Reasoning") })
+        assertTrue(result.responseDeltas.none { it.contains("private reasoning") })
+        assertTrue(result.responseDeltas.none { containsProtocolSyntaxOrPrefix(it) })
 
-        assertEquals("Reasoning", result.thinking)
-        assertEquals("<|/think>Literal response", result.response)
-        assertVisibleDeltasAreSafe(result.responseDeltas)
+        val nextGeneration = collect(
+            ThinkingStreamStateMachine(),
+            listOf(null to "Next answer"),
+        )
+        assertEquals("Next answer", nextGeneration.response)
+        assertVisibleDeltasAreSafe(nextGeneration.responseDeltas)
     }
 
     @Test
