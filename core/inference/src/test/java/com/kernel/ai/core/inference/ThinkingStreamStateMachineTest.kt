@@ -134,6 +134,91 @@ class ThinkingStreamStateMachineTest {
 
 
     @Test
+    fun `captured S21 callback boundary keeps malformed second thought out of response`() {
+        // Redacted replay of the physical callback order. The protocol fragments
+        // and callback boundaries are preserved; model prose is intentionally not.
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                "<|channel>",
+                "thought",
+                "\n",
+                "redacted first thought",
+                "<channel|>",
+                "<|/",
+                "think",
+                ">",
+                "\n",
+                "redacted second thought",
+                "</",
+                "think",
+                ">",
+                "\n",
+                "Final answer",
+            ).map { null to it },
+        )
+
+        assertEquals("redacted first thought\nredacted second thought", result.thinking)
+        assertEquals(listOf("redacted first thought", "\nredacted second thought"), result.thinkingDeltas)
+        assertEquals("\nFinal answer", result.response)
+        assertEquals(listOf("\n", "Final answer"), result.responseDeltas)
+        assertFalse(result.thinking.contains("<|"))
+        assertFalse(result.thinking.contains("</"))
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `literal html thought close remains visible with following text`() {
+        val callbacks = listOf("Visible ", "</", "think", ">", " after")
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            callbacks.map { null to it },
+        )
+
+        assertEquals("Visible </think> after", result.response)
+        assertEquals(listOf("Visible ", "</think", ">", " after"), result.responseDeltas)
+        assertEquals("", result.thinking)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `literal malformed reopen remains visible when split across callbacks`() {
+        val callbacks = listOf("Visible ", "<|/", "think", ">", " after")
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            callbacks.map { null to it },
+        )
+
+        assertEquals("Visible <|/think> after", result.response)
+        assertEquals(listOf("Visible ", "<|/think>", " after"), result.responseDeltas)
+        assertEquals("", result.thinking)
+        assertVisibleDeltasAreSafe(result.responseDeltas)
+    }
+
+    @Test
+    fun `unterminated malformed thought is withheld and does not poison next generation`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(
+                null to "Visible ",
+                null to "<|channel>thought\nReasoning<channel|>",
+                null to "<|/think>private reasoning",
+            ),
+        )
+        assertEquals("Visible ", result.response)
+        assertTrue(result.responseDeltas.none { it.contains("Reasoning") })
+        assertTrue(result.responseDeltas.none { it.contains("private reasoning") })
+        assertTrue(result.responseDeltas.none { containsProtocolSyntaxOrPrefix(it) })
+
+        val nextGeneration = collect(
+            ThinkingStreamStateMachine(),
+            listOf(null to "Next answer"),
+        )
+        assertEquals("Next answer", nextGeneration.response)
+        assertVisibleDeltasAreSafe(nextGeneration.responseDeltas)
+    }
+
+    @Test
     fun `raw think wrapper emits clean thought and visible suffix`() {
         val result = collect(
             ThinkingStreamStateMachine(),
