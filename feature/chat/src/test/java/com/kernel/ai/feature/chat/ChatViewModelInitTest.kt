@@ -1,6 +1,9 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
@@ -184,6 +187,59 @@ class ChatViewModelInitTest {
         assertFalse(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 
+
+    @Test
+    fun `eager initialization waits until app lifecycle reaches started`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.INITIALIZED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val awaiting = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(awaiting.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(awaiting.isCompleted)
+    }
+
+    @Test
+    fun `foreground gate can be retried after background transition`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.STARTED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val firstAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertTrue(firstAttempt.isCompleted)
+
+        state = Lifecycle.State.CREATED
+        val retryAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(retryAttempt.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(retryAttempt.isCompleted)
+    }
     @Test
     fun `eviction reinit waits for foreground when app is backgrounded`() {
         assertTrue(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.CREATED))
