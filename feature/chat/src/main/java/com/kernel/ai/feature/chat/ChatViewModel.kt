@@ -132,6 +132,37 @@ private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats 
 internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
     currentState < Lifecycle.State.STARTED
 
+/**
+ * Suspends until the process is eligible to start foreground services.
+ *
+ * Lifecycle callbacks are delivered on the main thread. Re-check after registering the observer
+ * so a STARTED transition racing with registration cannot leave eager model initialization parked.
+ */
+internal suspend fun awaitAppForeground(lifecycle: Lifecycle = ProcessLifecycleOwner.get().lifecycle) {
+    if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) return
+
+    withContext(Dispatchers.Main.immediate) {
+        suspendCancellableCoroutine { continuation ->
+            val observer = object : LifecycleEventObserver {
+                override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                    if (event == Lifecycle.Event.ON_START ||
+                        !shouldWaitForAppForegroundAfterEviction(source.lifecycle.currentState)
+                    ) {
+                        source.lifecycle.removeObserver(this)
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+                }
+            }
+            lifecycle.addObserver(observer)
+            continuation.invokeOnCancellation { lifecycle.removeObserver(observer) }
+            if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) {
+                lifecycle.removeObserver(observer)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+    }
+}
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
@@ -1011,8 +1042,26 @@ class ChatViewModel @Inject constructor(
                     }
                     return
                 }
+                Log.i(TAG, "Eager inference initialization waiting for app foreground")
+                awaitAppForeground()
+                Log.i(
+                    TAG,
+                    "Eager inference initialization permitted at lifecycle state=" +
+                        ProcessLifecycleOwner.get().lifecycle.currentState,
+                )
+
+                // Re-check after the lifecycle gate. A concurrent manual path may have warmed
+                // the process-scoped singleton while this coroutine was waiting.
+                if (inferenceEngine.isReady.value) {
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
 
                 val preferred = downloadManager.preferredConversationModel()
+
                 val modelPath = downloadManager.getModelPath(preferred) ?: return
                 val settings = hydrateActiveModelState(preferred)
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
