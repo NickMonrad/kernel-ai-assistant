@@ -883,8 +883,10 @@ class WakeWordService : Service() {
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
         // #1502: a camera-driven suspension is a latch — no re-arm path may take the microphone
-        // back while the Honor Camera needs it.
-        if (isWakeCaptureSuspended) {
+        // back while the Honor Camera needs it. The latch is set on the monitor's next poll, so a
+        // session ending inside that gap is covered by an immediate, bounded foreground check;
+        // otherwise that session end would hand the microphone straight back to Jandal.
+        if (isWakeCaptureSuspended || HonorCameraCoexistence.shouldWithholdWakeCapture(this)) {
             Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
             return
         }

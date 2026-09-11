@@ -26,6 +26,34 @@ fun interface ForegroundEventSource {
 }
 
 /**
+ * Resolves which package is in front of the user from a stream of [ForegroundEvent]s: the last
+ * package to enter the foreground wins, and an exit clears it only if that package was the one
+ * held. Holds nothing but the current foreground package name (#1502).
+ */
+class ForegroundPackageTracker(private val targetPackage: String) {
+
+    private var foregroundPackage: String? = null
+
+    /** Applies [events] in order. Returns true when the tracked target's foreground state changed. */
+    fun apply(events: List<ForegroundEvent>): Boolean {
+        val before = isTargetForeground
+        for (event in events) {
+            when (event.transition) {
+                ForegroundTransition.ENTER ->
+                    if (foregroundPackage != event.packageName) foregroundPackage = event.packageName
+
+                ForegroundTransition.EXIT ->
+                    if (foregroundPackage == event.packageName) foregroundPackage = null
+            }
+        }
+        return before != isTargetForeground
+    }
+
+    /** True when [targetPackage] currently owns the foreground. */
+    val isTargetForeground: Boolean get() = foregroundPackage == targetPackage
+}
+
+/**
  * #1502: watches for [targetPackage] becoming/leaving the foreground app and reports the
  * transitions to [onCameraEntered] / [onCameraExited].
  *
@@ -55,7 +83,7 @@ class CameraForegroundMonitor(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    private var foregroundPackage: String? = null
+    private val tracker = ForegroundPackageTracker(targetPackage)
     private var appliedTargetForeground = false
 
     /**
@@ -80,15 +108,7 @@ class CameraForegroundMonitor(
 
     /** Returns true when the window was consumed, so the next poll can start after it. */
     private fun poll(windowStart: Long, now: Long): Boolean = try {
-        for (event in source.eventsBetween(windowStart, now)) {
-            when (event.transition) {
-                ForegroundTransition.ENTER ->
-                    if (foregroundPackage != event.packageName) foregroundPackage = event.packageName
-
-                ForegroundTransition.EXIT ->
-                    if (foregroundPackage == event.packageName) foregroundPackage = null
-            }
-        }
+        tracker.apply(source.eventsBetween(windowStart, now))
         true
     } catch (e: CancellationException) {
         throw e
@@ -104,7 +124,7 @@ class CameraForegroundMonitor(
      * cadence instead of leaving the monitor believing it suspended when it did not.
      */
     private suspend fun reconcile() {
-        val desired = foregroundPackage == targetPackage
+        val desired = tracker.isTargetForeground
         if (desired == appliedTargetForeground) return
         try {
             if (desired) onCameraEntered() else onCameraExited()

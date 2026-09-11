@@ -12,6 +12,12 @@ import android.util.Log
 private const val TAG = "HonorCamera"
 
 /**
+ * How far back the immediate re-arm guard looks. One poll interval (plus slack) is enough: a
+ * camera launch older than that has already been seen by the monitor and latched.
+ */
+internal const val CAMERA_JUST_ENTERED_LOOKBACK_MS = 3_000L
+
+/**
  * #1502: on the Honor Magic 8 Pro (BKQ-N49), MagicOS refuses to start stock camera video
  * recording while a background app holds a `VOICE_RECOGNITION` capture. Jandal's wake detector
  * holds exactly such a capture, and the camera app receives no platform callback that could warn
@@ -80,6 +86,30 @@ object HonorCameraCoexistence {
         !isAffectedDevice(context) || hasUsageAccess(context)
 
     /**
+     * True when the camera is (or has just become) the foreground app on an affected device, so
+     * wake capture must be withheld (#1502).
+     *
+     * The monitor's suspension latch normally covers this, but a voice session can end in the gap
+     * between the camera taking the foreground and the monitor's next poll — and that session end
+     * is itself a re-arm trigger. This bounded, immediate check closes that gap; the window only
+     * needs to span one poll interval, and an older camera launch is already covered by the latch.
+     */
+    fun shouldWithholdWakeCapture(
+        context: Context,
+        lookbackMillis: Long = CAMERA_JUST_ENTERED_LOOKBACK_MS,
+    ): Boolean {
+        if (!isAffectedDevice(context)) return false
+        val now = System.currentTimeMillis()
+        val source = UsageStatsForegroundEventSource(context)
+        return cameraForegroundWithin(
+            source = source,
+            nowMillis = now,
+            lookbackMillis = lookbackMillis,
+            targetPackage = CAMERA_PACKAGE,
+        )
+    }
+
+    /**
      * Usage Access settings surface, package-scoped where the OEM supports it so the user lands
      * on Jandal's own row rather than the full app list.
      */
@@ -116,3 +146,20 @@ fun mayRearmAfterCamera(
     voiceSessionActive: Boolean,
     captureAllowed: Boolean,
 ): Boolean = heyJandalEnabled && recordAudioGranted && !captureSuspended && !voiceSessionActive && captureAllowed
+
+/**
+ * Whether [targetPackage] became the foreground app within the last [lookbackMillis].
+ *
+ * Only the window's events are read, resolved in memory and discarded; nothing is retained beyond
+ * the current foreground package name.
+ */
+internal fun cameraForegroundWithin(
+    source: ForegroundEventSource,
+    nowMillis: Long,
+    lookbackMillis: Long,
+    targetPackage: String,
+): Boolean {
+    val tracker = ForegroundPackageTracker(targetPackage)
+    tracker.apply(source.eventsBetween(nowMillis - lookbackMillis, nowMillis))
+    return tracker.isTargetForeground
+}

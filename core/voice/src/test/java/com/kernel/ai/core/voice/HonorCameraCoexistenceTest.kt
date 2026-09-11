@@ -74,4 +74,49 @@ class HonorCameraCoexistenceTest {
 
         assertFalse(HonorCameraCoexistence.hasUsageAccess(context))
     }
+
+    // ── Re-arm guard: the camera must also withhold capture immediately after it appears ──────
+
+    private fun windowedSource(vararg stamped: Pair<Long, ForegroundEvent>) =
+        ForegroundEventSource { start, end ->
+            stamped.filter { (at, _) -> at in start..end }.map { it.second }
+        }
+
+    @Test
+    fun `camera entering the foreground within the window withholds wake capture`() {
+        val now = 1_700_000_000_000L
+        val source = windowedSource(
+            (now - 500) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+
+        assertTrue(
+            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+    }
+
+    @Test
+    fun `another app in the foreground does not withhold wake capture`() {
+        val now = 1_700_000_000_000L
+        val source = windowedSource(
+            (now - 200) to ForegroundEvent(ForegroundTransition.ENTER, "com.example.other"),
+            (now - 800) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
+            (now - 400) to ForegroundEvent(ForegroundTransition.EXIT, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+
+        assertFalse(
+            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+    }
+
+    @Test
+    fun `a camera launch older than the window is left to the suspension latch`() {
+        val now = 1_700_000_000_000L
+        val source = windowedSource(
+            (now - 60_000) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+
+        assertFalse(
+            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+        )
+    }
 }

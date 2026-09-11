@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -261,5 +262,23 @@ class CameraForegroundMonitorTest {
 
     private companion object {
         const val NOW = 1_700_000_000_000L
+    }
+
+    // ── Foreground tracking semantics (shared by the monitor and the re-arm guard) ─────────────
+
+    @Test
+    fun `the tracker follows the last package that entered the foreground`() {
+        val tracker = ForegroundPackageTracker(camera)
+
+        assertFalse(tracker.isTargetForeground)
+        assertTrue(tracker.apply(listOf(enter(otherApp), enter(camera))), "entering the target flips state")
+        assertTrue(tracker.isTargetForeground)
+        assertFalse(tracker.apply(listOf(exit(otherApp))), "a non-target exit does not disturb the target")
+        assertTrue(tracker.isTargetForeground)
+        assertTrue(tracker.apply(listOf(enter(otherApp))), "another app taking over clears the target")
+        assertFalse(tracker.isTargetForeground)
+        assertTrue(tracker.apply(listOf(enter(camera))), "re-entering the target flips state back")
+        assertFalse(tracker.apply(listOf(enter(camera))), "repeated events are idempotent")
+        assertTrue(tracker.isTargetForeground)
     }
 }
