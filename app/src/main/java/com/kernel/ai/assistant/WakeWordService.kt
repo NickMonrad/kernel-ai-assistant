@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
@@ -17,7 +18,12 @@ import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.AcousticJournalBridge
+import com.kernel.ai.core.voice.CameraForegroundMonitor
+import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.UsageStatsForegroundEventSource
+import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.containsWakePhrase
+import com.kernel.ai.core.voice.mayRearmAfterCamera
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.StartListeningCueResult
 import com.kernel.ai.core.voice.StartListeningCueContext
@@ -46,6 +52,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
@@ -393,7 +400,8 @@ internal data class WakeCommandHandoffResult(
  *    keeps the session open across the cue-to-command handoff so the runner's
  *    command is captured in attempt 1 and no retry is needed on the normal path.
  *
- * The bounded retry still runs for genuine post-readiness recognition failures.
+ * The bounded retry still runs for genuine post-readiness recognition failures, but never when
+ * [capturePermitted] reports that the microphone was taken away in the meantime (#1502).
  * On cancellation the active recognizer is stopped so no microphone owner or
  * recognizer is left behind.  [rearmDetector] is invoked exactly once, after the
  * session is terminal (including on cancellation, matching the previous service
@@ -409,6 +417,7 @@ internal suspend fun runWakeCommandHandoff(
     routeTranscript: (String) -> Boolean,
     onSessionTerminal: () -> Unit,
     journal: WakeSessionJournal? = null,
+    capturePermitted: () -> Boolean = { true },
 ): WakeCommandHandoffResult {
     // #1433: a confirmed wake activation must not request live STT capture until the
     // wake detector has completed microphone-resource release.
@@ -421,6 +430,15 @@ internal suspend fun runWakeCommandHandoff(
 
     try {
         val sessionResult = runWakeCaptureSession { attempt ->
+            // #1502: the microphone can be yielded mid-session (Honor Camera taking the
+            // foreground). Starting another attempt would take it straight back and block
+            // camera recording again, so the retry loop is closed instead.
+            if (!capturePermitted()) {
+                throw WakeAttemptCollectionException(
+                    category = "wake_capture_suspended",
+                    cause = IllegalStateException("wake capture suspended before attempt $attempt"),
+                )
+            }
             runWakeAttempt(
                 voiceInputController = voiceInputController,
                 journal = sessionJournal,
@@ -473,6 +491,37 @@ internal suspend fun runWakeCommandHandoff(
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
+private const val NOTIFICATION_TEXT_LISTENING = "Listening for wake word…"
+private const val NOTIFICATION_TEXT_CAMERA_PAUSED = "Paused while Camera is in use"
+
+/** #1502: monitor cadence validated on the Honor BKQ-N49 (well below the measured detection need). */
+internal const val HONOR_CAMERA_POLL_INTERVAL_MS = 2_000L
+
+/**
+ * #1502: bounded lookback used only for the monitor's *initial* foreground state, so a service
+ * that starts while the camera is already foreground still releases the microphone. Every later
+ * poll reads only the window since the previous poll.
+ */
+internal const val HONOR_CAMERA_INITIAL_LOOKBACK_MS = 60_000L
+
+/**
+ * #1502: release every Jandal-owned microphone capture so the Honor Camera can record.
+ *
+ * The suspension latch is set *before* any capture is released: every re-arm path (voice-session
+ * event, wake-command handoff terminal, debug resume hook) checks that latch, so none of them can
+ * take the microphone back while the release is still in flight. On BKQ-N49 the wake detector is
+ * not the only Jandal-owned capture that can block the camera — a session left over from a
+ * wake→STT flow holds one too, hence [releaseVoiceCapture].
+ */
+internal fun releaseWakeCaptureForCamera(
+    suspendLatch: () -> Unit,
+    releaseWakeDetector: () -> Unit,
+    releaseVoiceCapture: () -> Unit,
+) {
+    suspendLatch()
+    releaseWakeDetector()
+    releaseVoiceCapture()
+}
 
 /**
  * Promote the service to the microphone foreground state without allowing Android's
@@ -532,8 +581,25 @@ class WakeWordService : Service() {
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var cuePlayer: StartListeningCuePlayer
     @Inject lateinit var modelDownloadManager: ModelDownloadManager
+    @Inject lateinit var wakeWordPreferences: WakeWordPreferences
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var eventCollectorJob: Job? = null
+
+    /** #1502: exactly one Honor-camera foreground monitor per service lifetime. */
+    private var cameraMonitorJob: Job? = null
+
+    /**
+     * #1502: latch set while Jandal must not hold the microphone (Honor Camera foreground, or the
+     * camera-coexistence capability was lost). Re-arm paths refuse to take the microphone while it
+     * is set, so a camera-suspension cannot be undone by a concurrent voice-session event.
+     */
+    @Volatile private var isWakeCaptureSuspended = false
+
+    /** True while a Jandal voice session (push-to-talk, assistant, widget) owns the microphone. */
+    @Volatile private var isVoiceSessionActive = false
+
+    /** Last text pushed to the ongoing notification; avoids redundant updates on every re-arm. */
+    @Volatile private var notificationText = NOTIFICATION_TEXT_LISTENING
 
     /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
     @Volatile private var isHandlingDetection = false
@@ -582,8 +648,26 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
+        // #1502: on the Honor device where the camera contends for the microphone, wake capture may
+        // only run with Usage Access — without it Jandal cannot learn that the camera needs the
+        // microphone and would silently block video recording. Refuse before promoting to the
+        // microphone foreground state so no misleading "listening" notification is ever posted.
+        if (!HonorCameraCoexistence.isWakeCaptureAllowed(this)) {
+            Log.w(
+                TAG,
+                "WakeWordService: Usage Access missing on ${Build.MANUFACTURER} ${Build.MODEL} " +
+                    "— refusing to start wake capture",
+            )
+            stopSelf(startId)
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "usage_access_missing") },
+            )
+            return START_NOT_STICKY
+        }
+
         val foregroundStarted = tryPromoteToMicrophoneForeground(
-            promote = { startForeground(NOTIFICATION_ID, buildNotification()) },
+            promote = { startForeground(NOTIFICATION_ID, buildNotification(NOTIFICATION_TEXT_LISTENING)) },
             onRejected = { error ->
                 Log.w(
                     TAG,
@@ -626,11 +710,13 @@ class WakeWordService : Service() {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
+                        isVoiceSessionActive = true
                         Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
                         wakeWordDetector.stop()
                     }
 
                     is VoiceInputEvent.ListeningStopped -> {
+                        isVoiceSessionActive = false
                         if (isHandlingDetection) return@collect
                         Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
                         rearmDetector()
@@ -645,17 +731,116 @@ class WakeWordService : Service() {
             }
         }
 
+        startHonorCameraMonitor()
+
         return START_STICKY
     }
 
     override fun onDestroy() {
         instance = null
+        cameraMonitorJob = null
         wakeWordDetector.stop()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // ── Honor camera coexistence (#1502) ───────────────────────────────────────
+
+    /**
+     * #1502: start the single Honor-camera foreground monitor.
+     *
+     * Only runs on the proven affected device (Usage Access is already verified by the refusal
+     * above), inside [serviceScope] so it never blocks the main thread and is cancelled with the
+     * service. Guarded so repeated `onStartCommand` deliveries cannot create a second monitor.
+     */
+    private fun startHonorCameraMonitor() {
+        if (!HonorCameraCoexistence.isAffectedDevice(this)) return
+        if (cameraMonitorJob?.isActive == true) return
+        cameraMonitorJob = serviceScope.launch {
+            CameraForegroundMonitor(
+                source = UsageStatsForegroundEventSource(applicationContext),
+                targetPackage = HonorCameraCoexistence.CAMERA_PACKAGE,
+                pollIntervalMs = HONOR_CAMERA_POLL_INTERVAL_MS,
+                initialLookbackMillis = HONOR_CAMERA_INITIAL_LOOKBACK_MS,
+                isReady = { HonorCameraCoexistence.hasUsageAccess(this@WakeWordService) },
+                onCameraEntered = { suspendForHonorCamera() },
+                onCameraExited = { resumeAfterHonorCamera() },
+                onUnavailable = { onHonorCameraCoexistenceUnavailable() },
+            ).run()
+        }
+    }
+
+    /**
+     * #1502: the Honor Camera took the foreground — hand the microphone over before it records.
+     *
+     * The service and its foreground notification stay alive; only Jandal-owned captures are
+     * released.
+     */
+    private fun suspendForHonorCamera() {
+        Log.i(TAG, "WakeWordService: ${HonorCameraCoexistence.CAMERA_PACKAGE} foreground — releasing microphone")
+        releaseWakeCaptureForCamera(
+            suspendLatch = { isWakeCaptureSuspended = true },
+            releaseWakeDetector = { wakeWordDetector.stop() },
+            releaseVoiceCapture = { voiceInputController.stopListening() },
+        )
+        AcousticJournalBridge.record(
+            type = AcousticEventType.SERVICE_ERROR,
+            metadata = { mapOf("category" to "camera_foreground_yield") },
+        )
+        updateNotification(NOTIFICATION_TEXT_CAMERA_PAUSED)
+    }
+
+    /**
+     * #1502: the Honor Camera left the foreground — re-arm, but only when every condition that
+     * permits wake listening still holds.
+     */
+    private suspend fun resumeAfterHonorCamera() {
+        isWakeCaptureSuspended = false
+        val heyJandalEnabled = try {
+            wakeWordPreferences.heyJandalEnabled.first()
+        } catch (e: Exception) {
+            Log.w(TAG, "WakeWordService: could not read Hey Jandal preference", e)
+            true
+        }
+        val mayArm = mayRearmAfterCamera(
+            heyJandalEnabled = heyJandalEnabled,
+            recordAudioGranted = ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+            captureSuspended = isWakeCaptureSuspended,
+            voiceSessionActive = isVoiceSessionActive || isHandlingDetection,
+            captureAllowed = HonorCameraCoexistence.isWakeCaptureAllowed(this),
+        )
+        if (!mayArm) {
+            Log.i(TAG, "WakeWordService: camera left foreground but wake capture may not re-arm yet")
+            return
+        }
+        Log.i(TAG, "WakeWordService: camera left foreground — re-arming wake capture")
+        rearmDetector()
+    }
+
+    /**
+     * #1502: Usage Access was revoked while the monitor was running, so Jandal can no longer yield
+     * the microphone to the camera. Release every Jandal-owned capture and stop: listening must
+     * not continue indefinitely without the capability that protects the camera. Voice settings
+     * turns Hey Jandal off and explains what is needed the next time it is opened.
+     */
+    private fun onHonorCameraCoexistenceUnavailable() {
+        Log.w(TAG, "WakeWordService: Usage Access lost — releasing microphone and stopping")
+        AcousticJournalBridge.record(
+            type = AcousticEventType.SERVICE_ERROR,
+            metadata = { mapOf("category" to "usage_access_revoked") },
+        )
+        releaseWakeCaptureForCamera(
+            suspendLatch = { isWakeCaptureSuspended = true },
+            releaseWakeDetector = { wakeWordDetector.stop() },
+            releaseVoiceCapture = { voiceInputController.stopListening() },
+        )
+        stopSelf()
+    }
 
     // ── Detection handoff ──────────────────────────────────────────────────────
 
@@ -675,6 +860,8 @@ class WakeWordService : Service() {
                         isHandlingDetection = false
                         rearmDetector()
                     },
+                    // #1502: a camera-driven yield must not be undone by the session's retry.
+                    capturePermitted = { !isWakeCaptureSuspended },
                 )
             } catch (e: CancellationException) {
                 isHandlingDetection = false
@@ -691,6 +878,12 @@ class WakeWordService : Service() {
 
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
+        // #1502: a camera-driven suspension is a latch — no re-arm path may take the microphone
+        // back while the Honor Camera needs it.
+        if (isWakeCaptureSuspended) {
+            Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
+            return
+        }
         ensureWakeVerifierModels()
         if (!wakeWordDetector.isAvailable) {
             AcousticJournalBridge.record(
@@ -735,6 +928,7 @@ class WakeWordService : Service() {
             type = AcousticEventType.DETECTOR_REARMED,
             generationId = generationId,
         )
+        updateNotification(NOTIFICATION_TEXT_LISTENING)
     }
 
     private fun routeTranscript(transcript: String): Boolean {
@@ -774,7 +968,7 @@ class WakeWordService : Service() {
         nm.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(text: String): Notification {
         val tapIntent = PendingIntent.getActivity(
             this,
             0,
@@ -784,10 +978,23 @@ class WakeWordService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Hey Jandal")
-            .setContentText("Listening for wake word…")
+            .setContentText(text)
             .setContentIntent(tapIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
+    }
+
+    /**
+     * #1502: keep the ongoing notification truthful about whether Jandal is actually listening —
+     * it must not claim to listen while wake capture is suspended for the Honor Camera. No-op when
+     * the text is unchanged, so repeated re-arms do not churn the notification.
+     */
+    private fun updateNotification(text: String) {
+        if (notificationText == text) return
+        notificationText = text
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        nm.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     companion object {
