@@ -99,10 +99,10 @@ class HonorCameraCoexistenceTest {
     }
 
     @Test
-    fun `an unreadable foreground state withholds wake capture`() {
-        assertTrue(
+    fun `no foreground activity in the window does not withhold wake capture`() {
+        assertFalse(
             mustWithholdWakeCapture(currentPackage(null), HonorCameraCoexistence.CAMERA_PACKAGE),
-            "an unknown state must not risk blocking the camera",
+            "an empty window means the camera produced no event, so it is not in front",
         )
     }
 
@@ -118,17 +118,21 @@ class HonorCameraCoexistenceTest {
 
     // ── Current-foreground resolution: a long camera session must still be resolvable ─────────
 
+    private fun enter(packageName: String) =
+        ForegroundEvent(ForegroundTransition.ENTER, packageName)
+
+    private fun exit(packageName: String) =
+        ForegroundEvent(ForegroundTransition.EXIT, packageName)
+
     @Test
-    fun `the most recently visible package is the one in front`() {
+    fun `a camera in front since before the lookback is still resolved as the current app`() {
         assertEquals(
             HonorCameraCoexistence.CAMERA_PACKAGE,
-            mostRecentlyVisiblePackage(
-                listOf(
-                    "com.hihonor.android.launcher" to 1_700_000_000_000L,
-                    HonorCameraCoexistence.CAMERA_PACKAGE to 1_700_000_600_000L,
-                ),
+            applyForegroundTransitions(
+                from = null,
+                events = listOf(enter("com.hihonor.android.launcher"), enter(HonorCameraCoexistence.CAMERA_PACKAGE)),
             ),
-            "a camera in front since long before any window must still resolve as the current app",
+            "a camera that resumed earlier and never left must still resolve as the current app",
         )
     }
 
@@ -136,17 +140,15 @@ class HonorCameraCoexistenceTest {
     fun `a package that took over after the camera is the one in front`() {
         assertEquals(
             "com.hihonor.android.launcher",
-            mostRecentlyVisiblePackage(
-                listOf(
-                    HonorCameraCoexistence.CAMERA_PACKAGE to 1_700_000_600_000L,
-                    "com.hihonor.android.launcher" to 1_700_000_900_000L,
-                ),
+            applyForegroundTransitions(
+                from = null,
+                events = listOf(enter(HonorCameraCoexistence.CAMERA_PACKAGE), exit(HonorCameraCoexistence.CAMERA_PACKAGE), enter("com.hihonor.android.launcher")),
             ),
         )
     }
 
     @Test
-    fun `no visible timestamp means the state cannot be resolved`() {
-        assertNull(mostRecentlyVisiblePackage(listOf("com.example.other" to 0L)))
+    fun `no foreground activity resolves to no package`() {
+        assertNull(applyForegroundTransitions(from = null, events = emptyList()))
     }
 }

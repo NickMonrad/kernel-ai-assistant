@@ -30,10 +30,15 @@ fun interface ForegroundEventSource {
  *
  * Transitions cannot answer this after a service or process restart: a camera that has been in
  * front since before the service started produced no recent transition at all, so the current
- * state has to come from usage aggregation instead (see [UsageStatsCurrentForegroundSource]).
+ * state (or, at least, null when nothing has been in front at all) has to be reconstructed from a
+ * window wide enough to contain that session — see [UsageStatsCurrentForegroundSource].
  */
 fun interface ForegroundPackageSource {
-    /** The package in front of the user, or null when the platform cannot say. */
+    /**
+     * The package in front of the user, or null when the source's window contains no foreground
+     * activity at all. Implementations must throw rather than return null when they cannot read
+     * the state, so a fail-safe caller never mistakes "unreadable" for "nothing in front".
+     */
     fun currentForegroundPackage(): String?
 }
 
@@ -49,15 +54,7 @@ class ForegroundPackageTracker(private val targetPackage: String) {
     /** Applies [events] in order. Returns true when the tracked target's foreground state changed. */
     fun apply(events: List<ForegroundEvent>): Boolean {
         val before = isTargetForeground
-        for (event in events) {
-            when (event.transition) {
-                ForegroundTransition.ENTER ->
-                    if (foregroundPackage != event.packageName) foregroundPackage = event.packageName
-
-                ForegroundTransition.EXIT ->
-                    if (foregroundPackage == event.packageName) foregroundPackage = null
-            }
-        }
+        foregroundPackage = applyForegroundTransitions(foregroundPackage, events)
         return before != isTargetForeground
     }
 
@@ -74,6 +71,26 @@ class ForegroundPackageTracker(private val targetPackage: String) {
 }
 
 /**
+ * Applies foreground transitions in order to [from] and returns the package left in front, or null
+ * when none is (#1502). The last package to enter wins; an exit clears the state only when the
+ * package leaving is the one currently held. Shared by the incremental tracker and by callers that
+ * reconstruct the current state from a window of events.
+ */
+internal fun applyForegroundTransitions(from: String?, events: List<ForegroundEvent>): String? {
+    var foregroundPackage = from
+    for (event in events) {
+        when (event.transition) {
+            ForegroundTransition.ENTER ->
+                if (foregroundPackage != event.packageName) foregroundPackage = event.packageName
+
+            ForegroundTransition.EXIT ->
+                if (foregroundPackage == event.packageName) foregroundPackage = null
+        }
+    }
+    return foregroundPackage
+}
+
+/**
  * #1502: watches for [targetPackage] becoming/leaving the foreground app and reports the
  * transitions to [onCameraEntered] / [onCameraExited].
  *
@@ -81,9 +98,10 @@ class ForegroundPackageTracker(private val targetPackage: String) {
  * - **State before capture.** [run] first establishes the current foreground package from
  *   [currentForegroundPackage] and reports it, so a caller that arms wake capture only in response
  *   to [onCameraExited] can never take the microphone while the target is already in front —
- *   including a service/process restart after the target has been foreground for arbitrarily long,
- *   which no transition window can see. While that state cannot be read, nothing is reported and
- *   the monitor retries on the next cadence.
+ *   including a service/process restart during a target session that is already running, which the
+ *   monitor's own poll window alone cannot see. How far back that reconstruction reaches is the
+ *   source's lookback (see [SEED_LOOKBACK_MS]); while the state cannot be read, nothing is
+ *   reported and the monitor retries on the next cadence.
  * - **Transitions only.** Callbacks fire on a change of the target's foreground state, never once
  *   per poll, so repeated events cannot duplicate a pause/resume operation.
  * - **Failure isolated.** A failing query or a failing callback is logged and retried on the next
@@ -136,9 +154,10 @@ class CameraForegroundMonitor(
     }
 
     /**
-     * Establishes the current foreground state, in place of replaying a transition window, and
-     * starts the event window at the moment it was resolved. Returns false — to be retried on the
-     * next cadence — while the platform cannot say which package is in front.
+     * Establishes the current foreground state by replaying the events that are still readable,
+     * and starts the event window at the moment it was resolved. An empty replay is a valid
+     * answer — nothing was in front within the source's lookback — but a source that cannot be
+     * read returns false so the state is retried on the next cadence rather than assumed.
      */
     private fun seed(): Boolean {
         val current = try {
@@ -147,10 +166,6 @@ class CameraForegroundMonitor(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "current foreground package could not be read; retrying next tick", e)
-            return false
-        }
-        if (current == null) {
-            Log.w(TAG, "no current foreground package reported; retrying next tick")
             return false
         }
         tracker.seed(current)
@@ -205,9 +220,13 @@ class CameraForegroundMonitor(
 /** Reads foreground-activity transitions from [UsageStatsManager] (requires Usage Access). */
 class UsageStatsForegroundEventSource(private val context: Context) : ForegroundEventSource {
     override fun eventsBetween(startMillis: Long, endMillis: Long): List<ForegroundEvent> {
+        // Unreadable has to look different from "no events": callers treat an empty window as
+        // "the target is not in front", so a query that cannot run at all must throw and let them
+        // fall back to their fail-safe.
         val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-            ?: return emptyList()
-        val usageEvents = manager.queryEvents(startMillis, endMillis) ?: return emptyList()
+            ?: error("usage stats service is unavailable")
+        val usageEvents = manager.queryEvents(startMillis, endMillis)
+            ?: error("usage events could not be read")
         // Events are converted immediately and the platform event object is reused; nothing is
         // retained or copied beyond the transition and package name.
         val transitions = ArrayList<ForegroundEvent>()
@@ -233,50 +252,38 @@ class UsageStatsForegroundEventSource(private val context: Context) : Foreground
 }
 
 /**
- * How far back [UsageStatsCurrentForegroundSource] reads usage aggregation. The range only has to
- * reach the moment the package now in front became visible; a day covers every foreground session
- * a device that sleeps can produce, and the query returns one aggregated row per package per day
- * bucket rather than raw events.
+ * How far back [UsageStatsCurrentForegroundSource] replays foreground events when a monitor
+ * starts. It only has to reach the moment the package now in front became visible, so it has to
+ * outlast the foreground session that is already running — hours, not seconds. It is deliberately
+ * bounded: a package that entered the foreground earlier than this and produced no event since
+ * cannot be reconstructed from any public API.
  */
-private const val CURRENT_FOREGROUND_RANGE_MS = 24L * 60 * 60 * 1000
+internal const val SEED_LOOKBACK_MS = 6L * 60 * 60 * 1000
 
 /**
- * Resolves the package in front of the user from usage aggregation (requires Usage Access).
+ * Resolves the package in front of the user by replaying recent foreground events (requires Usage
+ * Access).
  *
- * A transition query cannot answer this when the current package has been foreground for longer
- * than the queried window — the window then contains no event for it at all — so the state comes
- * from the aggregated `lastTimeVisible` timestamps instead: the package that became visible most
- * recently is the one in front. Verified on the affected BKQ-N49: a camera in front for over
- * 100 s is the most recently visible package, and the package that takes over from it replaces it
- * within the monitor's cadence. Nothing is retained beyond the resolved package name.
+ * Usage *aggregation* (`queryUsageStats`) is not usable for this: measured on the affected BKQ-N49,
+ * the platform's aggregated view lags the device — with the camera in the foreground it reported a
+ * package that had not been visible for minutes, and after the camera left it kept reporting the
+ * camera. Activity *events* (`queryEvents`) are delivered live on the same device (sub-second), so
+ * the current state is reconstructed from them with the monitor's own transition rule.
+ *
+ * A missing or unreadable usage-stats service throws, so callers fall back to their fail-safe
+ * instead of mistaking an unanswerable query for "nothing in front". Nothing is retained beyond
+ * the resolved package name.
  */
-class UsageStatsCurrentForegroundSource(private val context: Context) : ForegroundPackageSource {
+class UsageStatsCurrentForegroundSource(
+    private val context: Context,
+    private val lookbackMillis: Long = SEED_LOOKBACK_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val eventSource: (Context) -> ForegroundEventSource = ::UsageStatsForegroundEventSource,
+) : ForegroundPackageSource {
 
     override fun currentForegroundPackage(): String? {
-        val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-            ?: return null
-        val now = System.currentTimeMillis()
-        val stats = manager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            now - CURRENT_FOREGROUND_RANGE_MS,
-            now,
-        ) ?: return null
-        return mostRecentlyVisiblePackage(stats.map { it.packageName to it.lastTimeVisible })
+        val now = clock()
+        val events = eventSource(context).eventsBetween(now - lookbackMillis, now)
+        return applyForegroundTransitions(from = null, events = events)
     }
-}
-
-/**
- * The package that became visible most recently, or null when no package reports a visible
- * timestamp — an unanswerable state, which callers must treat as "cannot confirm the foreground".
- */
-internal fun mostRecentlyVisiblePackage(visibleSince: List<Pair<String, Long>>): String? {
-    var candidate: String? = null
-    var newest = 0L
-    for ((packageName, visibleAt) in visibleSince) {
-        if (visibleAt > newest) {
-            newest = visibleAt
-            candidate = packageName
-        }
-    }
-    return candidate
 }

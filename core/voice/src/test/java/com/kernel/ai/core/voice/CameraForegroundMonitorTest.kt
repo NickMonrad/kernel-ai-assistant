@@ -1,5 +1,7 @@
 package com.kernel.ai.core.voice
 
+import android.content.Context
+import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -47,21 +49,32 @@ class CameraForegroundMonitorTest {
     }
 
     /**
-     * Current foreground state as usage aggregation reports it. A null response stands for a state
-     * that cannot be read — the same thing a failing aggregation query produces.
+     * Current foreground state as the monitor's [ForegroundPackageSource] reports it. A null
+     * response stands for a lookback that contains no foreground activity at all; an unreadable
+     * source throws instead, which is what a revoked or failing query looks like.
      */
-    private class FakeCurrent(private val responses: List<String?>) : ForegroundPackageSource {
+    private class FakeCurrent(
+        private val responses: List<String?>,
+        private val unreadable: Boolean = false,
+    ) : ForegroundPackageSource {
         var queries = 0
             private set
 
         override fun currentForegroundPackage(): String? {
             val response = responses[queries.coerceAtMost(responses.size - 1)]
             queries += 1
-            return response ?: throw IllegalStateException("usage aggregation unavailable")
+            if (unreadable && response == null) {
+                throw IllegalStateException("foreground events unavailable")
+            }
+            return response
         }
 
         companion object {
             fun of(vararg responses: String?): FakeCurrent = FakeCurrent(responses.toList())
+
+            /** Every null response throws, standing for a state that cannot be read at all. */
+            fun unreadable(vararg responses: String?): FakeCurrent =
+                FakeCurrent(responses.toList(), unreadable = true)
         }
     }
 
@@ -210,10 +223,54 @@ class CameraForegroundMonitorTest {
     }
 
     @Test
+    fun `a startup whose lookback holds no foreground activity arms`() = runTest {
+        val source = FakeSource.of(emptyList())
+        val recorder = Recorder()
+        val current = FakeCurrent.of(null)
+        val job = launch { monitor(source, recorder, current = current).run() }
+
+        runCurrent()
+
+        assertEquals(
+            1,
+            recorder.exited,
+            "an empty lookback means the camera produced no event and is not in front",
+        )
+        assertEquals(0, recorder.entered)
+        job.cancel()
+    }
+
+    @Test
+    fun `the current package is replayed from the events that are still readable`() {
+        var windowStart = -1L
+        var windowEnd = -1L
+        val source = UsageStatsCurrentForegroundSource(
+            context = mockk(relaxed = true),
+            lookbackMillis = SEED_LOOKBACK_MS,
+            clock = { NOW },
+            eventSource = {
+                ForegroundEventSource { start, end ->
+                    windowStart = start
+                    windowEnd = end
+                    listOf(enter(otherApp), enter(camera))
+                }
+            },
+        )
+
+        assertEquals(
+            camera,
+            source.currentForegroundPackage(),
+            "a camera that resumed earlier and never left is still the package in front",
+        )
+        assertEquals(NOW - SEED_LOOKBACK_MS, windowStart, "the window has to outlast a camera session")
+        assertEquals(NOW, windowEnd)
+    }
+
+    @Test
     fun `an unreadable startup state is retried and arms nothing until it can be read`() = runTest {
         val source = FakeSource.of(emptyList())
         val recorder = Recorder()
-        val current = FakeCurrent.of(null, null, otherApp)
+        val current = FakeCurrent.unreadable(null, null, otherApp)
         val job = launch { monitor(source, recorder, current = current).run() }
 
         runCurrent()

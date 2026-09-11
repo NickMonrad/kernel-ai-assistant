@@ -83,17 +83,21 @@ object HonorCameraCoexistence {
      * True when wake capture must be withheld because the Honor Camera is (or may be) the app in
      * front of the user (#1502).
      *
-     * This asks for the *current* foreground package instead of a recent-transition window: after
-     * a service or process restart the in-memory suspension latch is gone, and a camera that has
-     * been in front for longer than any window produces no transition at all. Usage aggregation
-     * still reports it (verified on BKQ-N49 with the camera foreground for over 100 s), and the
-     * package that takes over from the camera is reported within the same sub-cadence delay, so
-     * this also covers a voice session ending between the camera appearing and the monitor's next
-     * poll.
+     * This answers "is the camera in front *now*" from foreground events rather than from a
+     * transition that happened to land in a window. It is the guard for re-arm paths that the
+     * monitor does not drive itself (a voice session ending, the wake handoff finishing): the
+     * camera may have resumed since the monitor's last poll, and the window covers that gap.
+     *
+     * Usage *aggregation* was tried here first and removed: measured on the affected BKQ-N49 it
+     * lags the device, reporting a package that had not been visible for minutes while the camera
+     * was in front, and still reporting the camera after it had left. Events are live on the same
+     * device. A camera held in front for longer than the poll cadence is covered by the suspension
+     * latch instead, which the monitor sets and clears.
      */
     fun shouldWithholdWakeCapture(context: Context): Boolean {
         if (!isAffectedDevice(context)) return false
-        return mustWithholdWakeCapture(UsageStatsCurrentForegroundSource(context), CAMERA_PACKAGE)
+        val source = UsageStatsCurrentForegroundSource(context, REARM_GUARD_LOOKBACK_MS)
+        return mustWithholdWakeCapture(source, CAMERA_PACKAGE)
     }
 
     /**
@@ -135,19 +139,26 @@ fun mayRearmAfterCamera(
 ): Boolean = heyJandalEnabled && recordAudioGranted && !captureSuspended && !voiceSessionActive && captureAllowed
 
 /**
- * Whether wake capture must be withheld because [targetPackage] may own the foreground.
+ * How much recent foreground activity the re-arm guard replays. It only has to span the interval
+ * between the camera resuming and the monitor applying that event — one poll cadence plus platform
+ * event-delivery latency — because a camera that has been in front for longer than that is already
+ * covered by the suspension latch, and an exit inside the window clears the guard again.
+ */
+internal const val REARM_GUARD_LOOKBACK_MS = 5_000L
+
+/**
+ * Whether wake capture must be withheld because [targetPackage] owns the foreground.
  *
- * A state that cannot be read — no package reported, or the query threw — withholds capture. The
- * two costs are not symmetric: withholding leaves the wake word quiet until the next foreground
- * transition, while taking the microphone blocks the camera, which is the defect #1502 exists to
- * prevent.
+ * "No foreground activity in the window" clears the guard — the camera would have produced an
+ * event — while a state that cannot be read at all withholds capture. The two costs are not
+ * symmetric: withholding leaves the wake word quiet until the next foreground transition, while
+ * taking the microphone blocks the camera, which is the defect #1502 exists to prevent.
  */
 internal fun mustWithholdWakeCapture(
     source: ForegroundPackageSource,
     targetPackage: String,
 ): Boolean = try {
-    val current = source.currentForegroundPackage()
-    current == null || current == targetPackage
+    source.currentForegroundPackage() == targetPackage
 } catch (e: Exception) {
     Log.w(TAG, "current foreground package could not be read — withholding wake capture", e)
     true
