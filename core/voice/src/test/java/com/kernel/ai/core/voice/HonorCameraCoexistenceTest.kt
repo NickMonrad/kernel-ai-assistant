@@ -4,7 +4,9 @@ import android.app.AppOpsManager
 import android.content.Context
 import io.mockk.every
 import io.mockk.mockk
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -75,48 +77,76 @@ class HonorCameraCoexistenceTest {
         assertFalse(HonorCameraCoexistence.hasUsageAccess(context))
     }
 
-    // ── Re-arm guard: the camera must also withhold capture immediately after it appears ──────
+    // ── Re-arm guard: capture is withheld while the camera may own the foreground ─────────────
 
-    private fun windowedSource(vararg stamped: Pair<Long, ForegroundEvent>) =
-        ForegroundEventSource { start, end ->
-            stamped.filter { (at, _) -> at in start..end }.map { it.second }
-        }
+    private fun currentPackage(packageName: String?) = ForegroundPackageSource { packageName }
 
     @Test
-    fun `camera entering the foreground within the window withholds wake capture`() {
-        val now = 1_700_000_000_000L
-        val source = windowedSource(
-            (now - 500) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
-        )
-
+    fun `a camera already in the foreground withholds wake capture`() {
         assertTrue(
-            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+            mustWithholdWakeCapture(
+                currentPackage(HonorCameraCoexistence.CAMERA_PACKAGE),
+                HonorCameraCoexistence.CAMERA_PACKAGE,
+            ),
         )
     }
 
     @Test
     fun `another app in the foreground does not withhold wake capture`() {
-        val now = 1_700_000_000_000L
-        val source = windowedSource(
-            (now - 200) to ForegroundEvent(ForegroundTransition.ENTER, "com.example.other"),
-            (now - 800) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
-            (now - 400) to ForegroundEvent(ForegroundTransition.EXIT, HonorCameraCoexistence.CAMERA_PACKAGE),
-        )
-
         assertFalse(
-            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+            mustWithholdWakeCapture(currentPackage("com.example.other"), HonorCameraCoexistence.CAMERA_PACKAGE),
         )
     }
 
     @Test
-    fun `a camera launch older than the window is left to the suspension latch`() {
-        val now = 1_700_000_000_000L
-        val source = windowedSource(
-            (now - 60_000) to ForegroundEvent(ForegroundTransition.ENTER, HonorCameraCoexistence.CAMERA_PACKAGE),
+    fun `an unreadable foreground state withholds wake capture`() {
+        assertTrue(
+            mustWithholdWakeCapture(currentPackage(null), HonorCameraCoexistence.CAMERA_PACKAGE),
+            "an unknown state must not risk blocking the camera",
         )
+    }
 
-        assertFalse(
-            cameraForegroundWithin(source, now, 3_000, HonorCameraCoexistence.CAMERA_PACKAGE),
+    @Test
+    fun `a failing foreground query withholds wake capture`() {
+        val throwing = ForegroundPackageSource { throw SecurityException("usage access lost") }
+
+        assertTrue(
+            mustWithholdWakeCapture(throwing, HonorCameraCoexistence.CAMERA_PACKAGE),
+            "a query that cannot answer must not risk blocking the camera",
         )
+    }
+
+    // ── Current-foreground resolution: a long camera session must still be resolvable ─────────
+
+    @Test
+    fun `the most recently visible package is the one in front`() {
+        assertEquals(
+            HonorCameraCoexistence.CAMERA_PACKAGE,
+            mostRecentlyVisiblePackage(
+                listOf(
+                    "com.hihonor.android.launcher" to 1_700_000_000_000L,
+                    HonorCameraCoexistence.CAMERA_PACKAGE to 1_700_000_600_000L,
+                ),
+            ),
+            "a camera in front since long before any window must still resolve as the current app",
+        )
+    }
+
+    @Test
+    fun `a package that took over after the camera is the one in front`() {
+        assertEquals(
+            "com.hihonor.android.launcher",
+            mostRecentlyVisiblePackage(
+                listOf(
+                    HonorCameraCoexistence.CAMERA_PACKAGE to 1_700_000_600_000L,
+                    "com.hihonor.android.launcher" to 1_700_000_900_000L,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `no visible timestamp means the state cannot be resolved`() {
+        assertNull(mostRecentlyVisiblePackage(listOf("com.example.other" to 0L)))
     }
 }

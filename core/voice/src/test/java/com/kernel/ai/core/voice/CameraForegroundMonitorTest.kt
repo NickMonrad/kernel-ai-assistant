@@ -19,7 +19,6 @@ class CameraForegroundMonitorTest {
     private val camera = HonorCameraCoexistence.CAMERA_PACKAGE
     private val otherApp = "com.example.other"
     private val pollIntervalMs = 2_000L
-    private val lookbackMs = 60_000L
 
     /** Foreground source whose responses are scripted per query. */
     private class FakeSource(private val responses: List<() -> List<ForegroundEvent>>) :
@@ -47,6 +46,25 @@ class CameraForegroundMonitorTest {
         }
     }
 
+    /**
+     * Current foreground state as usage aggregation reports it. A null response stands for a state
+     * that cannot be read — the same thing a failing aggregation query produces.
+     */
+    private class FakeCurrent(private val responses: List<String?>) : ForegroundPackageSource {
+        var queries = 0
+            private set
+
+        override fun currentForegroundPackage(): String? {
+            val response = responses[queries.coerceAtMost(responses.size - 1)]
+            queries += 1
+            return response ?: throw IllegalStateException("usage aggregation unavailable")
+        }
+
+        companion object {
+            fun of(vararg responses: String?): FakeCurrent = FakeCurrent(responses.toList())
+        }
+    }
+
     private class Recorder {
         var entered = 0
         var exited = 0
@@ -56,19 +74,22 @@ class CameraForegroundMonitorTest {
     private fun monitor(
         source: ForegroundEventSource,
         recorder: Recorder,
+        current: ForegroundPackageSource = FakeCurrent.of(otherApp),
         isReady: () -> Boolean = { true },
         onCameraEntered: suspend () -> Unit = { recorder.entered += 1 },
         onCameraExited: suspend () -> Unit = { recorder.exited += 1 },
+        onUnavailable: suspend () -> Unit = { recorder.unavailable += 1 },
+        clock: () -> Long = { NOW },
     ) = CameraForegroundMonitor(
         source = source,
         targetPackage = camera,
         pollIntervalMs = pollIntervalMs,
-        initialLookbackMillis = lookbackMs,
+        currentForegroundPackage = current,
         isReady = isReady,
         onCameraEntered = onCameraEntered,
         onCameraExited = onCameraExited,
-        onUnavailable = { recorder.unavailable += 1 },
-        clock = { NOW },
+        onUnavailable = onUnavailable,
+        clock = clock,
     )
 
     private fun enter(packageName: String) = ForegroundEvent(ForegroundTransition.ENTER, packageName)
@@ -85,7 +106,7 @@ class CameraForegroundMonitorTest {
         runCurrent()
 
         assertEquals(1, recorder.entered)
-        assertEquals(0, recorder.exited)
+        assertEquals(1, recorder.exited, "the startup state alone is already a clean, armable state")
         job.cancel()
     }
 
@@ -115,7 +136,7 @@ class CameraForegroundMonitorTest {
         runCurrent()
 
         assertEquals(1, recorder.entered)
-        assertEquals(1, recorder.exited)
+        assertEquals(2, recorder.exited, "the startup report, then the camera leaving")
         job.cancel()
     }
 
@@ -130,36 +151,102 @@ class CameraForegroundMonitorTest {
         runCurrent()
 
         assertEquals(1, recorder.entered)
-        assertEquals(1, recorder.exited)
+        assertEquals(2, recorder.exited, "the startup report, then the camera leaving")
         job.cancel()
     }
 
+    // ── Startup state: a service or process restart must not take the microphone first ─────────
+
     @Test
-    fun `a monitor started while the camera is already foreground suspends immediately`() = runTest {
-        // The initial lookback window is the only poll that can see an earlier camera launch.
-        val source = FakeSource.of(listOf(enter(otherApp), enter(camera)))
+    fun `a camera in front before the monitor started keeps wake capture suspended until it leaves`() =
+        runTest {
+            // The camera has been foreground since well before this monitor existed, so its launch
+            // is in none of the polls' windows — the state can only come from usage aggregation.
+            val source = FakeSource.of(
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                listOf(exit(camera)),
+            )
+            val recorder = Recorder()
+            var armed = false
+            val job = launch {
+                monitor(
+                    source = source,
+                    recorder = recorder,
+                    current = FakeCurrent.of(camera),
+                    onCameraExited = { armed = true },
+                ).run()
+            }
+
+            runCurrent()
+            assertEquals(1, recorder.entered, "the startup state suspends capture before anything arms")
+            assertEquals(0, source.queries, "no event window is consulted before the state is known")
+
+            advanceTimeBy(pollIntervalMs * 3)
+            runCurrent()
+            assertFalse(armed, "no poll may arm capture while the camera is still in front")
+
+            advanceTimeBy(pollIntervalMs * 6)
+            runCurrent()
+            assertTrue(armed, "the camera leaving is what releases capture to arm")
+            job.cancel()
+        }
+
+    @Test
+    fun `a clean startup reports the state so the caller may arm`() = runTest {
+        val source = FakeSource.of(emptyList())
         val recorder = Recorder()
         val job = launch { monitor(source, recorder).run() }
 
         runCurrent()
 
-        assertEquals(1, recorder.entered, "no poll interval may pass before the microphone is released")
-        assertEquals(NOW - lookbackMs, source.windows.first().first)
+        assertEquals(1, recorder.exited, "the caller arms from the startup report, not from a window")
+        assertEquals(0, recorder.entered)
         job.cancel()
     }
 
     @Test
-    fun `later polls read only the window since the previous poll`() = runTest {
-        val source = FakeSource.of(listOf(enter(camera)))
+    fun `an unreadable startup state is retried and arms nothing until it can be read`() = runTest {
+        val source = FakeSource.of(emptyList())
+        val recorder = Recorder()
+        val current = FakeCurrent.of(null, null, otherApp)
+        val job = launch { monitor(source, recorder, current = current).run() }
+
+        runCurrent()
+        assertEquals(0, recorder.exited, "an unanswerable state must not arm wake capture")
+        assertEquals(0, source.queries, "and must not be patched up from a stale window")
+
+        advanceTimeBy(pollIntervalMs * 4)
+        runCurrent()
+
+        assertTrue(current.queries >= 3, "the state is re-read on every cadence until it is known")
+        assertEquals(1, recorder.exited, "the first answerable state is what arms, exactly once")
+        assertTrue(source.queries <= 2, "event polling starts only once the state is known")
+        job.cancel()
+    }
+
+    // ── Failure handling ──────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `later polls read only the window since the state was resolved`() = runTest {
+        val source = FakeSource.of(emptyList())
         val recorder = Recorder()
         val job = launch { monitor(source, recorder).run() }
 
         runCurrent()
-        advanceTimeBy(pollIntervalMs * 2)
+        advanceTimeBy(pollIntervalMs * 3)
         runCurrent()
 
-        assertEquals(NOW - lookbackMs to NOW, source.windows.first())
-        assertEquals(listOf(NOW to NOW, NOW to NOW), source.windows.drop(1))
+        assertTrue(source.windows.isNotEmpty())
+        assertEquals(
+            List(source.windows.size) { NOW to NOW },
+            source.windows,
+            "no poll reaches back before the moment the state was resolved",
+        )
         job.cancel()
     }
 
@@ -224,6 +311,40 @@ class CameraForegroundMonitorTest {
     }
 
     @Test
+    fun `a failed unavailable cleanup is retried instead of dropping the fail-safe`() = runTest {
+        val source = FakeSource.of(emptyList())
+        val recorder = Recorder()
+        var ready = true
+        var attempts = 0
+        val job = launch {
+            monitor(
+                source = source,
+                recorder = recorder,
+                isReady = { ready },
+                onUnavailable = {
+                    attempts += 1
+                    if (attempts < 3) throw IllegalStateException("release failed")
+                    recorder.unavailable += 1
+                },
+            ).run()
+        }
+
+        runCurrent()
+        ready = false
+        advanceTimeBy(pollIntervalMs * 2)
+        runCurrent()
+        assertTrue(attempts >= 1, "the cleanup is attempted as soon as the capability is gone")
+        assertFalse(job.isCompleted, "a failed cleanup must not end monitoring")
+
+        advanceTimeBy(pollIntervalMs * 4)
+        runCurrent()
+
+        assertTrue(attempts >= 3, "the cleanup is retried on the next cadence until it succeeds")
+        assertEquals(1, recorder.unavailable, "cleanup is reported once, when it succeeds")
+        assertTrue(job.isCompleted, "monitoring ends once the cleanup has succeeded")
+    }
+
+    @Test
     fun `cancelling the monitor stops polling`() = runTest {
         val source = FakeSource.of(listOf(enter(camera)))
         val recorder = Recorder()
@@ -242,7 +363,7 @@ class CameraForegroundMonitorTest {
     }
 
     @Test
-    fun `cancellation is not swallowed by the transition guard`() = runTest {
+    fun `cancellation is not swallowed by the transition callback`() = runTest {
         val source = FakeSource.of(listOf(enter(camera)))
         val recorder = Recorder()
         val job = launch {
@@ -258,6 +379,28 @@ class CameraForegroundMonitorTest {
         runCurrent()
 
         assertTrue(job.isCancelled, "CancellationException must propagate out of the monitor")
+    }
+
+    @Test
+    fun `cancellation is not swallowed while cleaning up after lost usage access`() = runTest {
+        val source = FakeSource.of(emptyList())
+        val recorder = Recorder()
+        var ready = true
+        val job = launch {
+            monitor(
+                source = source,
+                recorder = recorder,
+                isReady = { ready },
+                onUnavailable = { throw CancellationException("cancelled") },
+            ).run()
+        }
+
+        runCurrent()
+        ready = false
+        advanceTimeBy(pollIntervalMs)
+        runCurrent()
+
+        assertTrue(job.isCancelled, "CancellationException must propagate out of the cleanup")
     }
 
     private companion object {

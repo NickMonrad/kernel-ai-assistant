@@ -20,6 +20,7 @@ import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.CameraForegroundMonitor
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.UsageStatsCurrentForegroundSource
 import com.kernel.ai.core.voice.UsageStatsForegroundEventSource
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.containsWakePhrase
@@ -498,13 +499,6 @@ private const val NOTIFICATION_TEXT_CAMERA_PAUSED = "Paused while Camera is in u
 internal const val HONOR_CAMERA_POLL_INTERVAL_MS = 2_000L
 
 /**
- * #1502: bounded lookback used only for the monitor's *initial* foreground state, so a service
- * that starts while the camera is already foreground still releases the microphone. Every later
- * poll reads only the window since the previous poll.
- */
-internal const val HONOR_CAMERA_INITIAL_LOOKBACK_MS = 60_000L
-
-/**
  * #1502: release every Jandal-owned microphone capture so the Honor Camera can record.
  *
  * The suspension latch is set *before* any capture is released: every re-arm path (voice-session
@@ -512,6 +506,10 @@ internal const val HONOR_CAMERA_INITIAL_LOOKBACK_MS = 60_000L
  * take the microphone back while the release is still in flight. On BKQ-N49 the wake detector is
  * not the only Jandal-owned capture that can block the camera — a session left over from a
  * wake→STT flow holds one too, hence [releaseVoiceCapture].
+ *
+ * Both releases are attempted even when one of them throws: a single failing release must not
+ * leave the other capture holding the microphone. The first failure is re-thrown so the caller can
+ * retry the whole release on its next attempt.
  */
 internal fun releaseWakeCaptureForCamera(
     suspendLatch: () -> Unit,
@@ -519,8 +517,42 @@ internal fun releaseWakeCaptureForCamera(
     releaseVoiceCapture: () -> Unit,
 ) {
     suspendLatch()
-    releaseWakeDetector()
-    releaseVoiceCapture()
+    var failure: Exception? = null
+    fun attempt(release: () -> Unit) {
+        try {
+            release()
+        } catch (e: Exception) {
+            Log.w(TAG, "WakeWordService: releasing a microphone capture failed", e)
+            val first = failure
+            if (first == null) failure = e else first.addSuppressed(e)
+        }
+    }
+    attempt(releaseWakeDetector)
+    attempt(releaseVoiceCapture)
+    failure?.let { throw it }
+}
+
+/**
+ * #1502: release Jandal's captures and stop the wake service, even when a release throws.
+ *
+ * Losing the camera-coexistence capability means Jandal can no longer yield the microphone, so
+ * listening must not continue — and a service that keeps running after that loss is a worse
+ * outcome than a release that has to be retried. The release failure is re-thrown after the stop
+ * so callers that retry cleanup (the camera monitor) still see it.
+ */
+internal fun releaseWakeCaptureAndStop(
+    releaseCaptures: () -> Unit,
+    stopService: () -> Unit,
+) {
+    var failure: Exception? = null
+    try {
+        releaseCaptures()
+    } catch (e: Exception) {
+        Log.w(TAG, "WakeWordService: releasing microphone captures failed", e)
+        failure = e
+    }
+    stopService()
+    failure?.let { throw it }
 }
 
 /**
@@ -707,7 +739,7 @@ class WakeWordService : Service() {
         }
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
-        rearmDetector()
+        startWakeCapture()
 
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
@@ -753,6 +785,23 @@ class WakeWordService : Service() {
     // ── Honor camera coexistence (#1502) ───────────────────────────────────────
 
     /**
+     * #1502: take the microphone, but only once wake capture may legitimately run.
+     *
+     * Unaffected devices arm straight away. On the affected Honor device the camera monitor owns
+     * the first arm: it establishes the current foreground package from usage aggregation and
+     * reports it, so a service or process restart while the Honor Camera has already been in front
+     * cannot take the microphone first and fix it on a later poll — a camera foreground for longer
+     * than any event window appears in no window at all.
+     */
+    private fun startWakeCapture() {
+        if (HonorCameraCoexistence.isAffectedDevice(this)) {
+            startHonorCameraMonitor()
+        } else {
+            rearmDetector()
+        }
+    }
+
+    /**
      * #1502: start the single Honor-camera foreground monitor.
      *
      * Only runs on the proven affected device (Usage Access is already verified by the refusal
@@ -767,7 +816,7 @@ class WakeWordService : Service() {
                 source = UsageStatsForegroundEventSource(applicationContext),
                 targetPackage = HonorCameraCoexistence.CAMERA_PACKAGE,
                 pollIntervalMs = HONOR_CAMERA_POLL_INTERVAL_MS,
-                initialLookbackMillis = HONOR_CAMERA_INITIAL_LOOKBACK_MS,
+                currentForegroundPackage = UsageStatsCurrentForegroundSource(applicationContext),
                 isReady = { HonorCameraCoexistence.hasUsageAccess(this@WakeWordService) },
                 onCameraEntered = { suspendForHonorCamera() },
                 onCameraExited = { resumeAfterHonorCamera() },
@@ -822,7 +871,7 @@ class WakeWordService : Service() {
             Log.i(TAG, "WakeWordService: camera left foreground but wake capture may not re-arm yet")
             return
         }
-        Log.i(TAG, "WakeWordService: camera left foreground — re-arming wake capture")
+        Log.i(TAG, "WakeWordService: camera not foreground — arming wake capture")
         rearmDetector()
     }
 
@@ -838,12 +887,16 @@ class WakeWordService : Service() {
             type = AcousticEventType.SERVICE_ERROR,
             metadata = { mapOf("category" to "usage_access_revoked") },
         )
-        releaseWakeCaptureForCamera(
-            suspendLatch = { isWakeCaptureSuspended = true },
-            releaseWakeDetector = { wakeWordDetector.stop() },
-            releaseVoiceCapture = { voiceInputController.stopListening() },
+        releaseWakeCaptureAndStop(
+            releaseCaptures = {
+                releaseWakeCaptureForCamera(
+                    suspendLatch = { isWakeCaptureSuspended = true },
+                    releaseWakeDetector = { wakeWordDetector.stop() },
+                    releaseVoiceCapture = { voiceInputController.stopListening() },
+                )
+            },
+            stopService = { stopSelf() },
         )
-        stopSelf()
     }
 
     // ── Detection handoff ──────────────────────────────────────────────────────
@@ -883,9 +936,10 @@ class WakeWordService : Service() {
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
         // #1502: a camera-driven suspension is a latch — no re-arm path may take the microphone
-        // back while the Honor Camera needs it. The latch is set on the monitor's next poll, so a
-        // session ending inside that gap is covered by an immediate, bounded foreground check;
-        // otherwise that session end would hand the microphone straight back to Jandal.
+        // back while the Honor Camera needs it. On top of the latch, ask whether the camera owns
+        // the foreground right now: that covers a session ending between the camera appearing and
+        // the monitor's next poll, and a restart that lost the latch while the camera was already
+        // in front (see HonorCameraCoexistence.shouldWithholdWakeCapture).
         if (isWakeCaptureSuspended || HonorCameraCoexistence.shouldWithholdWakeCapture(this)) {
             Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
             return

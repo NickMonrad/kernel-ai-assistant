@@ -12,12 +12,6 @@ import android.util.Log
 private const val TAG = "HonorCamera"
 
 /**
- * How far back the immediate re-arm guard looks. One poll interval (plus slack) is enough: a
- * camera launch older than that has already been seen by the monitor and latched.
- */
-internal const val CAMERA_JUST_ENTERED_LOOKBACK_MS = 3_000L
-
-/**
  * #1502: on the Honor Magic 8 Pro (BKQ-N49), MagicOS refuses to start stock camera video
  * recording while a background app holds a `VOICE_RECOGNITION` capture. Jandal's wake detector
  * holds exactly such a capture, and the camera app receives no platform callback that could warn
@@ -86,27 +80,20 @@ object HonorCameraCoexistence {
         !isAffectedDevice(context) || hasUsageAccess(context)
 
     /**
-     * True when the camera is (or has just become) the foreground app on an affected device, so
-     * wake capture must be withheld (#1502).
+     * True when wake capture must be withheld because the Honor Camera is (or may be) the app in
+     * front of the user (#1502).
      *
-     * The monitor's suspension latch normally covers this, but a voice session can end in the gap
-     * between the camera taking the foreground and the monitor's next poll — and that session end
-     * is itself a re-arm trigger. This bounded, immediate check closes that gap; the window only
-     * needs to span one poll interval, and an older camera launch is already covered by the latch.
+     * This asks for the *current* foreground package instead of a recent-transition window: after
+     * a service or process restart the in-memory suspension latch is gone, and a camera that has
+     * been in front for longer than any window produces no transition at all. Usage aggregation
+     * still reports it (verified on BKQ-N49 with the camera foreground for over 100 s), and the
+     * package that takes over from the camera is reported within the same sub-cadence delay, so
+     * this also covers a voice session ending between the camera appearing and the monitor's next
+     * poll.
      */
-    fun shouldWithholdWakeCapture(
-        context: Context,
-        lookbackMillis: Long = CAMERA_JUST_ENTERED_LOOKBACK_MS,
-    ): Boolean {
+    fun shouldWithholdWakeCapture(context: Context): Boolean {
         if (!isAffectedDevice(context)) return false
-        val now = System.currentTimeMillis()
-        val source = UsageStatsForegroundEventSource(context)
-        return cameraForegroundWithin(
-            source = source,
-            nowMillis = now,
-            lookbackMillis = lookbackMillis,
-            targetPackage = CAMERA_PACKAGE,
-        )
+        return mustWithholdWakeCapture(UsageStatsCurrentForegroundSource(context), CAMERA_PACKAGE)
     }
 
     /**
@@ -148,18 +135,20 @@ fun mayRearmAfterCamera(
 ): Boolean = heyJandalEnabled && recordAudioGranted && !captureSuspended && !voiceSessionActive && captureAllowed
 
 /**
- * Whether [targetPackage] became the foreground app within the last [lookbackMillis].
+ * Whether wake capture must be withheld because [targetPackage] may own the foreground.
  *
- * Only the window's events are read, resolved in memory and discarded; nothing is retained beyond
- * the current foreground package name.
+ * A state that cannot be read — no package reported, or the query threw — withholds capture. The
+ * two costs are not symmetric: withholding leaves the wake word quiet until the next foreground
+ * transition, while taking the microphone blocks the camera, which is the defect #1502 exists to
+ * prevent.
  */
-internal fun cameraForegroundWithin(
-    source: ForegroundEventSource,
-    nowMillis: Long,
-    lookbackMillis: Long,
+internal fun mustWithholdWakeCapture(
+    source: ForegroundPackageSource,
     targetPackage: String,
-): Boolean {
-    val tracker = ForegroundPackageTracker(targetPackage)
-    tracker.apply(source.eventsBetween(nowMillis - lookbackMillis, nowMillis))
-    return tracker.isTargetForeground
+): Boolean = try {
+    val current = source.currentForegroundPackage()
+    current == null || current == targetPackage
+} catch (e: Exception) {
+    Log.w(TAG, "current foreground package could not be read — withholding wake capture", e)
+    true
 }
