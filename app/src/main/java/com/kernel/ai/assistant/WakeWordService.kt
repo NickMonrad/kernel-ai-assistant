@@ -648,24 +648,6 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
-        // #1502: on the Honor device where the camera contends for the microphone, wake capture may
-        // only run with Usage Access — without it Jandal cannot learn that the camera needs the
-        // microphone and would silently block video recording. Refuse before promoting to the
-        // microphone foreground state so no misleading "listening" notification is ever posted.
-        if (!HonorCameraCoexistence.isWakeCaptureAllowed(this)) {
-            Log.w(
-                TAG,
-                "WakeWordService: Usage Access missing on ${Build.MANUFACTURER} ${Build.MODEL} " +
-                    "— refusing to start wake capture",
-            )
-            stopSelf(startId)
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "usage_access_missing") },
-            )
-            return START_NOT_STICKY
-        }
-
         val foregroundStarted = tryPromoteToMicrophoneForeground(
             promote = { startForeground(NOTIFICATION_ID, buildNotification(NOTIFICATION_TEXT_LISTENING)) },
             onRejected = { error ->
@@ -682,6 +664,28 @@ class WakeWordService : Service() {
         )
         if (!foregroundStarted) {
             stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
+        // #1502: on the Honor device where the camera contends for the microphone, wake capture may
+        // only run with Usage Access — without it Jandal cannot learn that the camera needs the
+        // microphone and would silently block video recording.
+        //
+        // This refusal deliberately runs *after* the foreground promotion: a service started with
+        // startForegroundService() must reach startForeground() or Android kills the process with
+        // ForegroundServiceDidNotStartInTimeException. The service is stopped immediately after, so
+        // the ongoing notification never outlives the refusal.
+        if (!HonorCameraCoexistence.isWakeCaptureAllowed(this)) {
+            Log.w(
+                TAG,
+                "WakeWordService: Usage Access missing on ${Build.MANUFACTURER} ${Build.MODEL} " +
+                    "— refusing to start wake capture",
+            )
+            stopSelf(startId)
+            AcousticJournalBridge.record(
+                type = AcousticEventType.SERVICE_ERROR,
+                metadata = { mapOf("category" to "usage_access_missing") },
+            )
             return START_NOT_STICKY
         }
 
