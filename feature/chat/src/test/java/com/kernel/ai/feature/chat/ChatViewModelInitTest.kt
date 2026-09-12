@@ -1,6 +1,10 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
@@ -57,8 +61,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.runs
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.clearMocks
 import kotlinx.coroutines.CompletableDeferred
@@ -127,6 +133,17 @@ class ChatViewModelInitTest {
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
 
+        // Chat is open, so the process reports a foregrounded lifecycle (#1524 gate). The real
+        // ProcessLifecycleOwner stays INITIALIZED in JVM tests, and LifecycleRegistry also throws
+        // from addObserver there because Looper.getMainLooper() is unmocked — either would abort
+        // the eager cold path instead of letting it load.
+        val foregroundLifecycle = mockk<Lifecycle>()
+        every { foregroundLifecycle.currentState } returns Lifecycle.State.STARTED
+        mockkObject(ProcessLifecycleOwner.Companion)
+        every { ProcessLifecycleOwner.Companion.get() } returns object : LifecycleOwner {
+            override val lifecycle: Lifecycle get() = foregroundLifecycle
+        }
+
         every { inferenceEngine.isReady } returns MutableStateFlow(false)
         every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
@@ -176,6 +193,7 @@ class ChatViewModelInitTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+        unmockkObject(ProcessLifecycleOwner.Companion)
     }
 
     @Test
@@ -184,6 +202,59 @@ class ChatViewModelInitTest {
         assertFalse(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 
+
+    @Test
+    fun `eager initialization waits until app lifecycle reaches started`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.INITIALIZED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val awaiting = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(awaiting.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(awaiting.isCompleted)
+    }
+
+    @Test
+    fun `foreground gate can be retried after background transition`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.STARTED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val firstAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertTrue(firstAttempt.isCompleted)
+
+        state = Lifecycle.State.CREATED
+        val retryAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(retryAttempt.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(retryAttempt.isCompleted)
+    }
     @Test
     fun `eviction reinit waits for foreground when app is backgrounded`() {
         assertTrue(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.CREATED))
@@ -1320,7 +1391,10 @@ class ChatViewModelInitTest {
         val currentModels = mutableListOf<KernelModel?>()
         val collector = launch { viewModel.currentModel.collect { currentModels += it } }
         runCurrent()
-        // initEngineWhenReady is now parked inside getSettings, holding the init mutex.
+        // initEngineWhenReady is now parked inside getSettings, holding the init mutex. Assert
+        // that explicitly: if the foreground gate aborted the eager cold path, initGemma4's own
+        // cold path would hydrate later and this test would silently stop covering the race.
+        coVerify(exactly = 1) { modelSettingsRepository.getSettings(any()) }
 
         viewModel.onInputChanged("hello")
         viewModel.sendMessage()

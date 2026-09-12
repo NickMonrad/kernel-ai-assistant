@@ -1,0 +1,289 @@
+package com.kernel.ai.core.voice
+
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+private const val TAG = "CameraMonitor"
+
+/** Whether a usage event put a package in front of the user or took it away. */
+enum class ForegroundTransition { ENTER, EXIT }
+
+/**
+ * One foreground-activity transition, decoupled from [UsageEvents] so tracking logic stays
+ * testable without the platform.
+ */
+data class ForegroundEvent(val transition: ForegroundTransition, val packageName: String?)
+
+/** Platform seam for reading recent foreground-activity transitions (#1502). */
+fun interface ForegroundEventSource {
+    fun eventsBetween(startMillis: Long, endMillis: Long): List<ForegroundEvent>
+}
+
+/**
+ * Platform seam for resolving the package that currently owns the foreground (#1502).
+ *
+ * Transitions cannot answer this after a service or process restart: a camera that has been in
+ * front since before the service started produced no recent transition at all, so the current
+ * state (or, at least, null when nothing has been in front at all) has to be reconstructed from a
+ * window wide enough to contain that session — see [UsageStatsCurrentForegroundSource].
+ */
+fun interface ForegroundPackageSource {
+    /**
+     * The package in front of the user, or null when the source's window contains no foreground
+     * activity at all. Implementations must throw rather than return null when they cannot read
+     * the state, so a fail-safe caller never mistakes "unreadable" for "nothing in front".
+     */
+    fun currentForegroundPackage(): String?
+}
+
+/**
+ * Resolves which package is in front of the user from a stream of [ForegroundEvent]s: the last
+ * package to enter the foreground wins, and an exit clears it only if that package was the one
+ * held. Holds nothing but the current foreground package name (#1502).
+ */
+class ForegroundPackageTracker(private val targetPackage: String) {
+
+    private var foregroundPackage: String? = null
+
+    /** Applies [events] in order. Returns true when the tracked target's foreground state changed. */
+    fun apply(events: List<ForegroundEvent>): Boolean {
+        val before = isTargetForeground
+        foregroundPackage = applyForegroundTransitions(foregroundPackage, events)
+        return before != isTargetForeground
+    }
+
+    /** True when [targetPackage] currently owns the foreground. */
+    val isTargetForeground: Boolean get() = foregroundPackage == targetPackage
+
+    /**
+     * Starts from a package known to be in front right now, without replaying history (#1502).
+     * Used when a monitor starts while the target has already been foreground for a long time.
+     */
+    fun seed(packageName: String?) {
+        foregroundPackage = packageName
+    }
+}
+
+/**
+ * Applies foreground transitions in order to [from] and returns the package left in front, or null
+ * when none is (#1502). The last package to enter wins; an exit clears the state only when the
+ * package leaving is the one currently held. Shared by the incremental tracker and by callers that
+ * reconstruct the current state from a window of events.
+ */
+internal fun applyForegroundTransitions(from: String?, events: List<ForegroundEvent>): String? {
+    var foregroundPackage = from
+    for (event in events) {
+        when (event.transition) {
+            ForegroundTransition.ENTER ->
+                if (foregroundPackage != event.packageName) foregroundPackage = event.packageName
+
+            ForegroundTransition.EXIT ->
+                if (foregroundPackage == event.packageName) foregroundPackage = null
+        }
+    }
+    return foregroundPackage
+}
+
+/**
+ * #1502: watches for [targetPackage] becoming/leaving the foreground app and reports the
+ * transitions to [onCameraEntered] / [onCameraExited].
+ *
+ * Invariants:
+ * - **State before capture.** [run] first establishes the current foreground package from
+ *   [currentForegroundPackage] and reports it, so a caller that arms wake capture only in response
+ *   to [onCameraExited] can never take the microphone while the target is already in front —
+ *   including a service/process restart during a target session that is already running, which the
+ *   monitor's own poll window alone cannot see. How far back that reconstruction reaches is the
+ *   source's lookback (see [SEED_LOOKBACK_MS]); while the state cannot be read, nothing is
+ *   reported and the monitor retries on the next cadence.
+ * - **Transitions only.** Callbacks fire on a change of the target's foreground state, never once
+ *   per poll, so repeated events cannot duplicate a pause/resume operation.
+ * - **Failure isolated.** A failing query or a failing callback is logged and retried on the next
+ *   cadence; neither can terminate monitoring. Cancellation always propagates.
+ * - **Fail-safe termination.** Monitoring ends only after [onUnavailable] completes; a cleanup
+ *   that threw is retried on the next cadence rather than dropping the fail-safe silently.
+ * - **Privacy minimal.** Only the current foreground package name is held in memory, for the
+ *   lifetime of the poll window. Nothing is persisted, exported, transmitted, or logged — the
+ *   only package name that may appear in a log is [targetPackage].
+ * - **Off the main thread.** [run] suspends; callers must launch it on a background dispatcher.
+ */
+class CameraForegroundMonitor(
+    private val source: ForegroundEventSource,
+    private val targetPackage: String,
+    private val pollIntervalMs: Long,
+    private val currentForegroundPackage: ForegroundPackageSource,
+    private val isReady: () -> Boolean = { true },
+    private val onCameraEntered: suspend () -> Unit,
+    private val onCameraExited: suspend () -> Unit,
+    private val onUnavailable: suspend () -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+
+    private val tracker = ForegroundPackageTracker(targetPackage)
+    private var appliedTargetForeground = false
+    private var windowStart = 0L
+    private var seeded = false
+
+    /**
+     * Polls until cancelled. Returns early — after [onUnavailable] succeeds — when [isReady]
+     * reports that the capability the workaround depends on is gone.
+     */
+    suspend fun run() {
+        while (currentCoroutineContext().isActive) {
+            if (!isReady()) {
+                // Without Usage Access Jandal can no longer protect the camera: clean up and stop
+                // polling rather than spinning against a revoked capability. The cleanup has to
+                // complete before monitoring ends — it is the only thing that releases the
+                // microphone and stops the service — so a failed attempt is retried, not dropped.
+                if (releaseAndStop()) return
+            } else if (seeded) {
+                val now = clock()
+                if (poll(windowStart, now)) windowStart = now
+                reconcile()
+            } else if (seed()) {
+                reconcile(force = true)
+            }
+            delay(pollIntervalMs)
+        }
+    }
+
+    /**
+     * Establishes the current foreground state by replaying the events that are still readable,
+     * and starts the event window at the moment it was resolved. An empty replay is a valid
+     * answer — nothing was in front within the source's lookback — but a source that cannot be
+     * read returns false so the state is retried on the next cadence rather than assumed.
+     */
+    private fun seed(): Boolean {
+        val current = try {
+            currentForegroundPackage.currentForegroundPackage()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "current foreground package could not be read; retrying next tick", e)
+            return false
+        }
+        tracker.seed(current)
+        windowStart = clock()
+        seeded = true
+        return true
+    }
+
+    /** Returns true when the unavailable cleanup completed, so monitoring may end. */
+    private suspend fun releaseAndStop(): Boolean = try {
+        onUnavailable()
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "camera-coexistence cleanup failed; retrying next tick", e)
+        false
+    }
+
+    /** Returns true when the window was consumed, so the next poll can start after it. */
+    private fun poll(windowStart: Long, now: Long): Boolean = try {
+        tracker.apply(source.eventsBetween(windowStart, now))
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Recoverable: keep the unconsumed window so the events are re-read on the next cadence.
+        Log.w(TAG, "foreground query failed; retrying next tick", e)
+        false
+    }
+
+    /**
+     * Pushes the current target state if it differs from what was last applied, or unconditionally
+     * when [force] is set so the caller learns the state the monitor started from. The applied
+     * state is recorded only after the callback succeeds, so a failed transition is retried on the
+     * next cadence instead of leaving the monitor believing it suspended when it did not.
+     */
+    private suspend fun reconcile(force: Boolean = false) {
+        val desired = tracker.isTargetForeground
+        if (!force && desired == appliedTargetForeground) return
+        try {
+            if (desired) onCameraEntered() else onCameraExited()
+            appliedTargetForeground = desired
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "foreground transition callback failed; retrying next tick", e)
+        }
+    }
+}
+
+/** Reads foreground-activity transitions from [UsageStatsManager] (requires Usage Access). */
+class UsageStatsForegroundEventSource(private val context: Context) : ForegroundEventSource {
+    override fun eventsBetween(startMillis: Long, endMillis: Long): List<ForegroundEvent> {
+        // Unreadable has to look different from "no events": callers treat an empty window as
+        // "the target is not in front", so a query that cannot run at all must throw and let them
+        // fall back to their fail-safe.
+        val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: error("usage stats service is unavailable")
+        val usageEvents = manager.queryEvents(startMillis, endMillis)
+            ?: error("usage events could not be read")
+        // Events are converted immediately and the platform event object is reused; nothing is
+        // retained or copied beyond the transition and package name.
+        val transitions = ArrayList<ForegroundEvent>()
+        val event = UsageEvents.Event()
+        while (usageEvents.hasNextEvent()) {
+            usageEvents.getNextEvent(event)
+            val transition = when (event.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED,
+                UsageEvents.Event.MOVE_TO_FOREGROUND,
+                -> ForegroundTransition.ENTER
+
+                UsageEvents.Event.ACTIVITY_PAUSED,
+                UsageEvents.Event.ACTIVITY_STOPPED,
+                UsageEvents.Event.MOVE_TO_BACKGROUND,
+                -> ForegroundTransition.EXIT
+
+                else -> null
+            } ?: continue
+            transitions += ForegroundEvent(transition, event.packageName)
+        }
+        return transitions
+    }
+}
+
+/**
+ * How far back [UsageStatsCurrentForegroundSource] replays foreground events when a monitor
+ * starts. It only has to reach the moment the package now in front became visible, so it has to
+ * outlast the foreground session that is already running — hours, not seconds. It is deliberately
+ * bounded: a package that entered the foreground earlier than this and produced no event since
+ * cannot be reconstructed from any public API.
+ */
+internal const val SEED_LOOKBACK_MS = 6L * 60 * 60 * 1000
+
+/**
+ * Resolves the package in front of the user by replaying recent foreground events (requires Usage
+ * Access).
+ *
+ * Usage *aggregation* (`queryUsageStats`) is not usable for this: measured on the affected BKQ-N49,
+ * the platform's aggregated view lags the device — with the camera in the foreground it reported a
+ * package that had not been visible for minutes, and after the camera left it kept reporting the
+ * camera. Activity *events* (`queryEvents`) are delivered live on the same device (sub-second), so
+ * the current state is reconstructed from them with the monitor's own transition rule.
+ *
+ * A missing or unreadable usage-stats service throws, so callers fall back to their fail-safe
+ * instead of mistaking an unanswerable query for "nothing in front". Nothing is retained beyond
+ * the resolved package name.
+ */
+class UsageStatsCurrentForegroundSource(
+    private val context: Context,
+    private val lookbackMillis: Long = SEED_LOOKBACK_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val eventSource: (Context) -> ForegroundEventSource = ::UsageStatsForegroundEventSource,
+) : ForegroundPackageSource {
+
+    override fun currentForegroundPackage(): String? {
+        val now = clock()
+        val events = eventSource(context).eventsBetween(now - lookbackMillis, now)
+        return applyForegroundTransitions(from = null, events = events)
+    }
+}

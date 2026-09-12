@@ -34,6 +34,16 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <!-- Wake word foreground service requires microphone access type (API 35+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!--
+        #1502: special (AppOps) access, not a runtime permission. Requested only to let Hey Jandal
+        detect the Honor stock Camera entering the foreground on the affected device (HONOR
+        BKQ-N49) so wake capture can release the microphone before the camera records. The user
+        grants it from system settings and can revoke it at any time. Only the Camera's own
+        foreground state is evaluated; no usage history is stored or transmitted.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
         Android 11+ package visibility: declare which implicit intents we resolve

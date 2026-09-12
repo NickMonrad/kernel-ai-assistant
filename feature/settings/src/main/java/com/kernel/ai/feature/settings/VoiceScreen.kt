@@ -69,6 +69,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -85,6 +86,7 @@ import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.provider.Settings
 import android.Manifest
 import android.app.role.RoleManager
@@ -115,7 +117,24 @@ fun VoiceScreen(
     var showMicRepairDialog by remember { mutableStateOf(false) }
     var showMicDurableRequiredDialog by remember { mutableStateOf(false) }
     var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
-    
+    var showUsageAccessDialog by remember { mutableStateOf(false) }
+    var awaitingUsageAccessReturn by remember { mutableStateOf(false) }
+
+    /**
+     * #1502: on the Honor device whose camera contends for the microphone, Hey Jandal can only
+     * listen with Usage Access. Cached per resume (the check costs an AppOps query) and refreshed
+     * on ON_RESUME and on every enable attempt.
+     */
+    var needsUsageAccess by remember { mutableStateOf(false) }
+    val requiresUsageAccess = {
+        HonorCameraCoexistence.isAffectedDevice(context) &&
+            !HonorCameraCoexistence.hasUsageAccess(context)
+    }
+    val enableHeyJandal = {
+        needsUsageAccess = requiresUsageAccess()
+        if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
+    }
+
     val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -123,6 +142,21 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                needsUsageAccess = requiresUsageAccess()
+
+                // 0. Settings-return handling: Usage Access round-trip (#1502). Continue the
+                // enable flow only when access was actually granted.
+                if (awaitingUsageAccessReturn) {
+                    awaitingUsageAccessReturn = false
+                    if (needsUsageAccess) {
+                        Log.i(
+                            "VoiceScreen",
+                            "Usage Access still not granted — Hey Jandal left inactive",
+                        )
+                    } else {
+                        viewModel.setHeyJandalEnabled(true)
+                    }
+                }
 
                 // 1. Settings-return handling: explicit mic repair round-trip.
                 if (awaitingMicSettingsReturn) {
@@ -136,7 +170,7 @@ fun VoiceScreen(
                         if (micReadiness == MicrophoneReadiness.Granted) {
                             showMicRepairDialog = false
                             micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
-                            viewModel.setHeyJandalEnabled(true)
+                            enableHeyJandal()
                         } else {
                             showMicDurableRequiredDialog = true
                         }
@@ -153,6 +187,14 @@ fun VoiceScreen(
                     viewModel.enforceHeyJandalMicReadiness(micReadiness)
                     showMicDurableRequiredDialog = true
                 }
+
+                // 2b. #1502 enforcement: Hey Jandal cannot listen without Usage Access on the
+                // affected device (revoked externally, or enabled before this build) — turn it off
+                // rather than let the UI claim it is listening.
+                if (wasHeyJandalEnabled && needsUsageAccess) {
+                    viewModel.setHeyJandalEnabled(false)
+                    showUsageAccessDialog = true
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -166,11 +208,14 @@ fun VoiceScreen(
     // the ON_RESUME lifecycle observer runs, so the durability check at (2)
     // saw wasHeyJandalEnabled = false and did not trigger.
     LaunchedEffect(uiState.heyJandalEnabled) {
-        if (uiState.heyJandalEnabled && !awaitingMicSettingsReturn) {
+        if (uiState.heyJandalEnabled && !awaitingMicSettingsReturn && !awaitingUsageAccessReturn) {
             val micReadiness = MicrophonePermissionReadiness.evaluate(context)
             if (micReadiness != MicrophoneReadiness.Granted) {
                 viewModel.enforceHeyJandalMicReadiness(micReadiness)
                 showMicDurableRequiredDialog = true
+            } else if (needsUsageAccess) {
+                viewModel.setHeyJandalEnabled(false)
+                showUsageAccessDialog = true
             }
         }
     }
@@ -206,7 +251,7 @@ fun VoiceScreen(
         } else {
             val micReadiness = MicrophonePermissionReadiness.evaluate(context)
             if (micReadiness == MicrophoneReadiness.Granted) {
-                viewModel.setHeyJandalEnabled(true)
+                enableHeyJandal()
             } else {
                 showMicDurableRequiredDialog = true
             }
@@ -226,7 +271,7 @@ fun VoiceScreen(
                     == PackageManager.PERMISSION_GRANTED) {
                 val micReadiness = MicrophonePermissionReadiness.evaluate(context)
                 if (micReadiness == MicrophoneReadiness.Granted) {
-                    viewModel.setHeyJandalEnabled(true)
+                    enableHeyJandal()
                 } else {
                     showMicDurableRequiredDialog = true
                 }
@@ -334,6 +379,46 @@ fun VoiceScreen(
         )
     }
 
+
+    // #1502 Usage Access prompt: only reachable on the affected Honor device, and only when the
+    // user chose to enable Hey Jandal (or when Jandal was already enabled without the access).
+    if (showUsageAccessDialog) {
+        PermissionOverlayDialog(
+            title = "Allow Usage Access for Hey Jandal?",
+            body = "On this Honor device, Jandal needs Usage Access so it can pause wake-word " +
+                "listening while the Camera is in use. App usage information is processed only " +
+                "on this device and is not stored or sent anywhere.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open Usage Access",
+                    testTag = "hey_jandal_usage_access_open_settings",
+                    onClick = {
+                        showUsageAccessDialog = false
+                        awaitingUsageAccessReturn = true
+                        runCatching {
+                            context.startActivity(HonorCameraCoexistence.usageAccessSettingsIntent(context))
+                        }.onFailure {
+                            Log.w("VoiceScreen", "Could not open Usage Access settings", it)
+                        }
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "hey_jandal_usage_access_not_now",
+                    onClick = {
+                        showUsageAccessDialog = false
+                        awaitingUsageAccessReturn = false
+                    },
+                ),
+            ),
+            dialogTestTag = "hey_jandal_usage_access_dialog",
+            onDismissRequest = {
+                showUsageAccessDialog = false
+                awaitingUsageAccessReturn = false
+            },
+        )
+    }
 
     // Default-assistant role setup prompt (separate from microphone permission).
     if (showDefaultAssistantPrompt) {

@@ -162,7 +162,38 @@ class FallbackVoiceOutputController @Inject constructor(
         val warmUpResult = inflect.warmUp()
         if (warmUpResult !is VoiceOutputResult.Unavailable) {
             activate(inflect)
-            return inflect.openStreamingSession(request)
+            val inflectSession = inflect.openStreamingSession(request)
+            return object : VoiceOutputStreamingSession {
+                private val bufferedText = StringBuilder()
+                private var isClosed = false
+
+                override suspend fun append(
+                    text: String,
+                    isFinal: Boolean,
+                ): VoiceOutputResult {
+                    if (isClosed) return VoiceOutputResult.Spoken
+                    if (text.isNotBlank()) bufferedText.append(text)
+                    if (!isFinal) return inflectSession.append(text, isFinal = false)
+
+                    isClosed = true
+                    val inflectResult = inflectSession.append(text, isFinal = true)
+                    if (inflectResult !is VoiceOutputResult.Unavailable) return inflectResult
+
+                    val finalText = bufferedText.toString().trim()
+                    if (finalText.isBlank()) return inflectResult
+                    Log.w(
+                        TAG,
+                        "Inflect Micro TTS streaming synthesis failed (${inflectResult.message}); " +
+                            "routing to Android TTS fallback.",
+                    )
+                    activate(androidTts)
+                    val androidWarmUpResult = androidTts.warmUp()
+                    if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
+                        return androidWarmUpResult
+                    }
+                    return androidTts.speak(request.copy(text = finalText))
+                }
+            }
         }
         Log.i(
             TAG,
