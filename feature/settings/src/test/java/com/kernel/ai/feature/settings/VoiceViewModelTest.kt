@@ -23,6 +23,7 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.UnavailableReason
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -427,7 +428,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.NotDisplayed,
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
             viewModel.uiState.value.inflectMicroAvailability,
         )
     }
@@ -463,7 +464,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `both Inflect graphs downloaded map to available but readiness still requires Sherpa`() =
+    fun `both Inflect graphs downloaded still require shared frontend for readiness`() =
         runTest {
             modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
                 put(
@@ -478,11 +479,62 @@ class VoiceViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                ModelAvailabilityState.Ready,
+                ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                 viewModel.uiState.value.inflectMicroAvailability,
             )
             assertFalse(viewModel.uiState.value.isInflectMicroReady)
         }
+    @Test
+    fun `downloaded graphs and downloading frontend map to Preparing`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Downloading(progress = 0.5f),
+            )
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.inflectMicroAvailability
+                is ModelAvailabilityState.Preparing,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    }
+
+    @Test
+    fun `frontend failure maps to retryable logical model`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Error("frontend extraction failed"),
+            )
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.ActionRequired(
+                ActionReason.DownloadFailed("frontend extraction failed"),
+            ),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    }
 
     @Test
     fun `partial Inflect graph availability never maps to ready`() = runTest {
@@ -496,7 +548,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.NotDisplayed,
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
             viewModel.uiState.value.inflectMicroAvailability,
         )
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
@@ -575,7 +627,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `selected Inflect exposes missing Sherpa frontend pack without engine switching`() = runTest {
+    fun `Inflect logical download retries missing frontend when graphs are ready`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
                 put(
@@ -586,7 +638,10 @@ class VoiceViewModelTest {
         }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(ModelAvailabilityState.Ready, viewModel.uiState.value.inflectMicroAvailability)
+        assertEquals(
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -595,18 +650,16 @@ class VoiceViewModelTest {
             VoiceOutputEngine.InflectMicroExperimental,
             viewModel.uiState.value.selectedOutputEngine,
         )
-        assertEquals(
-            VoicePackDownloadState.NotDownloaded,
-            viewModel.uiState.value.sherpaVoices
-                .first { it.voice == SherpaPiperVoice.JennyDioco }
-                .downloadState,
-        )
         io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
             sherpaVoicePackDownloadManager.startDownload(any())
         }
 
-        viewModel.downloadSherpaVoice(SherpaPiperVoice.JennyDioco)
+        viewModel.downloadInflectMicro()
 
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
+        }
         io.mockk.verify(exactly = 1) {
             sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco)
         }
@@ -628,6 +681,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.isInflectMicroReady)
+        assertEquals(ModelAvailabilityState.Ready, viewModel.uiState.value.inflectMicroAvailability)
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -847,29 +901,54 @@ class VoiceViewModelTest {
     }
 
 
+
     @Test
-    fun `downloadInflectMicro delegates both graph downloads`() = runTest {
+    fun `downloadInflectMicro starts each missing graph and frontend exactly once`() = runTest {
         viewModel.downloadInflectMicro()
 
         io.mockk.verify(exactly = 1) {
             modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION)
-        }
-        io.mockk.verify(exactly = 1) {
             modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE)
+            sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco)
         }
     }
 
     @Test
-    fun `cancelInflectMicroDownload cancels only active graph downloads`() = runTest {
+    fun `downloadInflectMicro skips downloaded frontend and starts missing graphs`() = runTest {
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.downloadInflectMicro()
+
+        io.mockk.verify(exactly = 1) {
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION)
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE)
+        }
+        io.mockk.verify(exactly = 0) {
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+    }
+
+    @Test
+    fun `cancelInflectMicroDownload cancels active graphs and selected frontend`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
             put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Downloading(progress = 0.2f),
+            )
         }
 
         viewModel.cancelInflectMicroDownload()
 
         io.mockk.verify(exactly = 1) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DURATION)
+            sherpaVoicePackDownloadManager.cancelDownload(SherpaPiperVoice.JennyDioco)
         }
         io.mockk.verify(exactly = 0) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DECODE)

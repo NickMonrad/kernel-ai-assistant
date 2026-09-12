@@ -301,11 +301,17 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.SUCCEEDED -> {
-                        val dir = withContext(Dispatchers.IO) { voice.voiceDir(context) }
-                        Log.i(TAG, "Voice pack download succeeded: ${dir.absolutePath}")
-                        // Notify the TTS controller so it can re-init without a voice change
-                        sherpaController.markVoiceAvailable(voice)
-                        VoicePackDownloadState.Downloaded(dir.absolutePath)
+                        val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
+                        if (isPresent) {
+                            val dir = withContext(Dispatchers.IO) { voice.voiceDir(context) }
+                            Log.i(TAG, "Voice pack download succeeded: ${dir.absolutePath}")
+                            // Notify the TTS controller so it can re-init without a voice change
+                            sherpaController.markVoiceAvailable(voice)
+                            VoicePackDownloadState.Downloaded(dir.absolutePath)
+                        } else {
+                            Log.w(TAG, "Voice worker succeeded but pack is missing for ${voice.displayName}")
+                            VoicePackDownloadState.NotDownloaded
+                        }
                     }
 
                     WorkInfo.State.FAILED -> {
