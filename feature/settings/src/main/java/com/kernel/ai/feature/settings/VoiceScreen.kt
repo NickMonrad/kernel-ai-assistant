@@ -859,12 +859,15 @@ private fun VoiceScreenContent(
 
             VoiceOutputSelectionCard(
                 selectedEngine = uiState.selectedOutputEngine,
+                inflectMicroReady = uiState.isInflectMicroReady,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             uiState.availableOutputEngines.forEach { engine ->
-                val engineSelectable = engine != VoiceOutputEngine.InflectMicroExperimental ||
-                    uiState.isInflectMicroReady
+                val engineSelected = uiState.selectedOutputEngine == engine
+                val engineActive = engineSelected &&
+                    (engine != VoiceOutputEngine.InflectMicroExperimental ||
+                        uiState.isInflectMicroReady)
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -873,27 +876,23 @@ private fun VoiceScreenContent(
                             Text(engine.description)
                             Text(
                                 text = when {
-                                    !engineSelectable ->
-                                        "Download Inflect Micro and the selected Sherpa voice pack first."
-                                    uiState.selectedOutputEngine == engine ->
-                                        "Currently active"
-                                    else ->
-                                        "Inactive"
+                                    engineActive -> "Currently active"
+                                    engineSelected -> "Selected — setup required"
+                                    else -> "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = when {
-                                    !engineSelectable -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    uiState.selectedOutputEngine == engine ->
-                                        MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (engineActive) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
                         }
                     },
                     trailingContent = {
                         RadioButton(
-                            selected = uiState.selectedOutputEngine == engine,
-                            enabled = engineSelectable,
+                            selected = engineSelected,
+                            enabled = true,
                             onClick = { onVoiceOutputEngineSelected(engine) },
                         )
                     },
@@ -908,7 +907,12 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
 
-            if (uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental) {
+            val inflectSelected =
+                uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+            val sherpaSelected =
+                uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental
+            val showSherpaVoiceControls = sherpaSelected
+            if (showSherpaVoiceControls) {
                 Text(
                     text = "Sherpa Piper voice",
                     style = MaterialTheme.typography.labelMedium,
@@ -1097,8 +1101,7 @@ private fun VoiceScreenContent(
                         uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
                     )
             ) {
-                val inflectActive =
-                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+                val inflectReady = inflectSelected && uiState.isInflectMicroReady
                 Text(
                     text = "Inflect Micro model",
                     style = MaterialTheme.typography.labelMedium,
@@ -1106,21 +1109,24 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 VoiceInfoCard(
-                    title = if (inflectActive) {
-                        "Inflect Micro is active"
-                    } else {
-                        "Inflect Micro is available"
+                    title = when {
+                        inflectReady -> "Inflect Micro is active"
+                        inflectSelected -> "Inflect Micro selected — setup required"
+                        else -> "Inflect Micro is available"
                     },
-                    message = if (inflectActive) {
-                        "This higher-quality local path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available while the model bundle and selected Sherpa voice pack are downloaded."
-                    } else {
-                        "Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
+                    message = when {
+                        inflectReady ->
+                            "Inflect Micro is ready to speak. Android TTS remains the fallback if synthesis is unavailable."
+                        inflectSelected ->
+                            "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
+                        else ->
+                            "Download Inflect Micro to enable this higher-quality local speech path."
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 ModelCardCompact(
                     title = "Inflect Micro",
-                    description = "Higher-quality local TTS model; uses the selected Sherpa voice pack for its frontend.",
+                    description = "Higher-quality local TTS with all required setup assets.",
                     state = inflectModelState,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1609,8 +1615,11 @@ private fun VoiceInfoCard(
 @Composable
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
+    inflectMicroReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val inflectSelected = selectedEngine == VoiceOutputEngine.InflectMicroExperimental
+    val selectedEngineReady = !inflectSelected || inflectMicroReady
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
             "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
@@ -1619,11 +1628,19 @@ private fun VoiceOutputSelectionCard(
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
         VoiceOutputEngine.InflectMicroExperimental ->
-            "Inflect Micro is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
+            if (selectedEngineReady) {
+                "Inflect Micro is selected and ready to speak. Android TTS remains the fallback if synthesis is unavailable."
+            } else {
+                "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
+            }
     }
 
     VoiceInfoCard(
-        title = "Active engine: ${selectedEngine.displayName}",
+        title = if (selectedEngineReady) {
+            "Active engine: ${selectedEngine.displayName}"
+        } else {
+            "Selected engine: ${selectedEngine.displayName}"
+        },
         message = message,
         modifier = modifier,
     )
