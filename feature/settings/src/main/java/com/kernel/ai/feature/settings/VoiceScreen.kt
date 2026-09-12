@@ -774,10 +774,15 @@ private fun VoiceScreenContent(
 
             VoiceOutputSelectionCard(
                 selectedEngine = uiState.selectedOutputEngine,
+                inflectMicroReady = uiState.isInflectMicroReady,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             uiState.availableOutputEngines.forEach { engine ->
+                val engineSelected = uiState.selectedOutputEngine == engine
+                val engineActive = engineSelected &&
+                    (engine != VoiceOutputEngine.InflectMicroExperimental ||
+                        uiState.isInflectMicroReady)
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -785,13 +790,13 @@ private fun VoiceScreenContent(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(engine.description)
                             Text(
-                                text = if (uiState.selectedOutputEngine == engine) {
-                                    "Currently active"
-                                } else {
-                                    "Inactive"
+                                text = when {
+                                    engineActive -> "Currently active"
+                                    engineSelected -> "Selected — setup required"
+                                    else -> "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (uiState.selectedOutputEngine == engine) {
+                                color = if (engineActive) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -801,7 +806,7 @@ private fun VoiceScreenContent(
                     },
                     trailingContent = {
                         RadioButton(
-                            selected = uiState.selectedOutputEngine == engine,
+                            selected = engineSelected,
                             enabled = true,
                             onClick = { onVoiceOutputEngineSelected(engine) },
                         )
@@ -819,12 +824,12 @@ private fun VoiceScreenContent(
 
             val inflectSelected =
                 uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
-            val showSherpaVoiceControls =
-                uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental ||
-                    inflectSelected
+            val sherpaSelected =
+                uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental
+            val showSherpaVoiceControls = sherpaSelected || inflectSelected
             if (showSherpaVoiceControls) {
                 Text(
-                    text = "Sherpa Piper voice",
+                    text = if (inflectSelected) "Inflect Micro frontend voice" else "Sherpa Piper voice",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -838,8 +843,13 @@ private fun VoiceScreenContent(
                             "Download a Sherpa voice pack below before Sherpa Piper can speak."
                         }
                     }
-                    !uiState.isSelectedSherpaVoiceDownloaded ->
-                        "Your saved Sherpa voice is not downloaded on this device. Download it again or choose another installed voice below."
+                    !uiState.isSelectedSherpaVoiceDownloaded -> {
+                        if (inflectSelected) {
+                            "Your selected Sherpa frontend pack is not downloaded. Download it below to enable Inflect Micro."
+                        } else {
+                            "Your saved Sherpa voice is not downloaded on this device. Download it again or choose another installed voice below."
+                        }
+                    }
                     inflectSelected ->
                         "Inflect Micro uses the selected Sherpa voice pack for its frontend."
                     else ->
@@ -851,6 +861,7 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
+                if (sherpaSelected) {
                 // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     SliderRow(
@@ -1008,6 +1019,55 @@ private fun VoiceScreenContent(
                         }
                     }
                 }
+                } else {
+                    val selectedVoiceRow = uiState.sherpaVoices.firstOrNull {
+                        it.voice == uiState.selectedSherpaVoice
+                    }
+                    if (selectedVoiceRow != null) {
+                        ModelCardCompact(
+                            title = selectedVoiceRow.voice.displayName,
+                            description = selectedVoiceRow.voice.description,
+                            state = uiState.sherpaVoiceAvailability[selectedVoiceRow.voice]
+                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        when (val voiceRowState = selectedVoiceRow.downloadState) {
+                            is VoicePackDownloadState.NotDownloaded -> {
+                                Button(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = { onDownloadSherpaVoice(selectedVoiceRow.voice) },
+                                ) {
+                                    Text("Download")
+                                }
+                            }
+                            is VoicePackDownloadState.Downloading -> {
+                                OutlinedButton(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = { onCancelSherpaVoice(selectedVoiceRow.voice) },
+                                ) {
+                                    Text("Cancel")
+                                }
+                            }
+                            is VoicePackDownloadState.Downloaded -> {
+                                OutlinedButton(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = { onDeleteSherpaVoice(selectedVoiceRow.voice) },
+                                ) {
+                                    Text("Delete")
+                                }
+                            }
+                            is VoicePackDownloadState.Error -> {
+                                OutlinedButton(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = { onDownloadSherpaVoice(selectedVoiceRow.voice) },
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
             }
 
             val inflectModelState = uiState.inflectMicroAvailability
@@ -1018,8 +1078,7 @@ private fun VoiceScreenContent(
                         uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
                     )
             ) {
-                val inflectActive =
-                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+                val inflectReady = inflectSelected && uiState.isInflectMicroReady
                 Text(
                     text = "Inflect Micro model",
                     style = MaterialTheme.typography.labelMedium,
@@ -1027,15 +1086,20 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 VoiceInfoCard(
-                    title = if (inflectActive) {
-                        "Inflect Micro is active"
-                    } else {
-                        "Inflect Micro is available"
+                    title = when {
+                        inflectReady -> "Inflect Micro is active"
+                        inflectSelected -> "Inflect Micro selected — setup required"
+                        else -> "Inflect Micro is available"
                     },
-                    message = if (inflectActive) {
-                        "This higher-quality local path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available while the model bundle and selected Sherpa voice pack are downloaded."
-                    } else {
-                        "Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
+                    message = when {
+                        inflectReady ->
+                            "This higher-quality local path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle and is ready to speak."
+                        inflectSelected && inflectModelState is ModelAvailabilityState.Ready ->
+                            "Inflect Micro is selected. Download the selected Sherpa voice pack to enable this higher-quality local speech path."
+                        inflectSelected ->
+                            "Inflect Micro is selected. Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
+                        else ->
+                            "Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1530,8 +1594,11 @@ private fun VoiceInfoCard(
 @Composable
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
+    inflectMicroReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val inflectSelected = selectedEngine == VoiceOutputEngine.InflectMicroExperimental
+    val selectedEngineReady = !inflectSelected || inflectMicroReady
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
             "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
@@ -1540,11 +1607,19 @@ private fun VoiceOutputSelectionCard(
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
         VoiceOutputEngine.InflectMicroExperimental ->
-            "Inflect Micro is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
+            if (selectedEngineReady) {
+                "Inflect Micro is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
+            } else {
+                "Inflect Micro is selected — setup required. Download the Inflect graphs and selected Sherpa frontend pack before it can speak."
+            }
     }
 
     VoiceInfoCard(
-        title = "Active engine: ${selectedEngine.displayName}",
+        title = if (selectedEngineReady) {
+            "Active engine: ${selectedEngine.displayName}"
+        } else {
+            "Selected engine: ${selectedEngine.displayName}"
+        },
         message = message,
         modifier = modifier,
     )
