@@ -533,26 +533,23 @@ internal fun releaseWakeCaptureForCamera(
 }
 
 /**
- * #1502: release Jandal's captures and stop the wake service, even when a release throws.
+ * #1502: release Jandal's captures, then stop the wake service — but only once they were released.
  *
- * Losing the camera-coexistence capability means Jandal can no longer yield the microphone, so
- * listening must not continue — and a service that keeps running after that loss is a worse
- * outcome than a release that has to be retried. The release failure is re-thrown after the stop
- * so callers that retry cleanup (the camera monitor) still see it.
+ * Stopping the service cancels the scope the camera monitor runs in, and that monitor owns the
+ * only retry cadence for this cleanup. Stopping after a *failed* release therefore destroys the one
+ * mechanism that can hand a capture back: on BKQ-N49 a recognizer-held capture would keep blocking
+ * the camera while nothing was left to release it. The failure propagates instead, so the monitor
+ * stays alive and repeats the whole release — latch, wake detector, voice capture — on its next
+ * tick. Only a completed release stops the service.
  */
-internal fun releaseWakeCaptureAndStop(
-    releaseCaptures: () -> Unit,
+internal fun releaseWakeCaptureThenStop(
+    suspendLatch: () -> Unit,
+    releaseWakeDetector: () -> Unit,
+    releaseVoiceCapture: () -> Unit,
     stopService: () -> Unit,
 ) {
-    var failure: Exception? = null
-    try {
-        releaseCaptures()
-    } catch (e: Exception) {
-        Log.w(TAG, "WakeWordService: releasing microphone captures failed", e)
-        failure = e
-    }
+    releaseWakeCaptureForCamera(suspendLatch, releaseWakeDetector, releaseVoiceCapture)
     stopService()
-    failure?.let { throw it }
 }
 
 /**
@@ -877,9 +874,14 @@ class WakeWordService : Service() {
 
     /**
      * #1502: Usage Access was revoked while the monitor was running, so Jandal can no longer yield
-     * the microphone to the camera. Release every Jandal-owned capture and stop: listening must
-     * not continue indefinitely without the capability that protects the camera. Voice settings
-     * turns Hey Jandal off and explains what is needed the next time it is opened.
+     * the microphone to the camera. Release every Jandal-owned capture and then stop: listening
+     * must not continue indefinitely without the capability that protects the camera.
+     *
+     * The stop is conditional on the release completing. A failed release is reported to the
+     * monitor, which keeps this service alive and retries the whole release on its next cadence;
+     * stopping here instead would cancel that retry along with the monitor and could leave a
+     * capture holding the microphone with no one left to release it. Voice settings turns Hey
+     * Jandal off and explains what is needed the next time it is opened.
      */
     private fun onHonorCameraCoexistenceUnavailable() {
         Log.w(TAG, "WakeWordService: Usage Access lost — releasing microphone and stopping")
@@ -887,14 +889,10 @@ class WakeWordService : Service() {
             type = AcousticEventType.SERVICE_ERROR,
             metadata = { mapOf("category" to "usage_access_revoked") },
         )
-        releaseWakeCaptureAndStop(
-            releaseCaptures = {
-                releaseWakeCaptureForCamera(
-                    suspendLatch = { isWakeCaptureSuspended = true },
-                    releaseWakeDetector = { wakeWordDetector.stop() },
-                    releaseVoiceCapture = { voiceInputController.stopListening() },
-                )
-            },
+        releaseWakeCaptureThenStop(
+            suspendLatch = { isWakeCaptureSuspended = true },
+            releaseWakeDetector = { wakeWordDetector.stop() },
+            releaseVoiceCapture = { voiceInputController.stopListening() },
             stopService = { stopSelf() },
         )
     }
