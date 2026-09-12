@@ -221,8 +221,6 @@ class VoiceViewModel @Inject constructor(
             KernelModel.entries.first { it.fileName == required.fileName }
         }
 
-    private var sherpaVoiceDownloadStatesLoaded = false
-    private var inflectModelDownloadStatesLoaded = false
     private val _uiState = MutableStateFlow(
         VoiceUiState(
             availableOutputEngines = VoiceOutputEngine.entriesForBuild(
@@ -270,7 +268,6 @@ class VoiceViewModel @Inject constructor(
                 if (effectiveEngine != engine) {
                     voiceOutputPreferences.setSelectedEngine(effectiveEngine)
                 }
-                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -284,7 +281,6 @@ class VoiceViewModel @Inject constructor(
                         isInflectMicroReady = state.hasAllInflectModelsDownloaded() && selectedVoiceDownloaded,
                     )
                 }
-                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -314,7 +310,6 @@ class VoiceViewModel @Inject constructor(
         }
         viewModelScope.launch {
             sherpaVoicePackDownloadManager.downloadStates.collect { states ->
-                sherpaVoiceDownloadStatesLoaded = true
                 _uiState.update {
                     val sherpaRows = visibleSherpaVoices.map { voice ->
                         SherpaVoiceRowUiState(
@@ -338,7 +333,6 @@ class VoiceViewModel @Inject constructor(
                         },
                     )
                 }
-                persistInflectDemotionIfNeeded()
             }
         }
         viewModelScope.launch {
@@ -411,7 +405,6 @@ class VoiceViewModel @Inject constructor(
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
-                inflectModelDownloadStatesLoaded = true
                 _uiState.update {
                     val inflectReady = inflectStates.allModelsDownloaded() &&
                         it.isSelectedSherpaVoiceDownloaded
@@ -428,29 +421,10 @@ class VoiceViewModel @Inject constructor(
                         },
                     )
                 }
-                persistInflectDemotionIfNeeded()
             }
         }
     }
 
-    private suspend fun persistInflectDemotionIfNeeded() {
-        if (!sherpaVoiceDownloadStatesLoaded || !inflectModelDownloadStatesLoaded) return
-        var demoted = false
-        _uiState.update { state ->
-            if (
-                state.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental &&
-                !state.isInflectMicroReady
-            ) {
-                demoted = true
-                state.copy(selectedOutputEngine = VoiceOutputEngine.AndroidTts)
-            } else {
-                state
-            }
-        }
-        if (demoted) {
-            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
-        }
-    }
     private fun Map<KernelModel, DownloadState>.allModelsDownloaded(): Boolean =
         inflectModels.all { model -> this[model] is DownloadState.Downloaded }
 
@@ -595,11 +569,6 @@ class VoiceViewModel @Inject constructor(
                 inflectEligible = inflectReleaseEligible,
             )
         ) return
-        if (engine == VoiceOutputEngine.InflectMicroExperimental &&
-            !_uiState.value.isInflectMicroReady
-        ) {
-            return
-        }
         _uiState.update { it.copy(selectedOutputEngine = engine) }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedEngine(engine)

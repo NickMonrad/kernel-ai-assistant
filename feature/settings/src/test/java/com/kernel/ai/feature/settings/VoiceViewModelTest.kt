@@ -517,18 +517,98 @@ class VoiceViewModelTest {
 
 
     @Test
-    fun `setVoiceOutputEngine ignores Inflect until graphs and selected voice are downloaded`() = runTest {
+    fun `setVoiceOutputEngine accepts Inflect before prerequisites and starts no downloads`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.InflectMicroExperimental,
             viewModel.uiState.value.selectedOutputEngine,
         )
-        coVerify(exactly = 0) {
-            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental) }
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+    }
+
+    @Test
+    fun `selecting Inflect while its bundle downloads keeps Inflect selected`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Error("stale partial file"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        assertTrue(viewModel.uiState.value.inflectMicroAvailability is ModelAvailabilityState.Preparing)
+    }
+
+    @Test
+    fun `selecting Inflect after a failed bundle keeps retryable state reachable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Error("network timeout"))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        assertEquals(
+            ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed("network timeout")),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+    }
+
+    @Test
+    fun `selected Inflect exposes missing Sherpa frontend pack without engine switching`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(ModelAvailabilityState.Ready, viewModel.uiState.value.inflectMicroAvailability)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        assertEquals(
+            VoicePackDownloadState.NotDownloaded,
+            viewModel.uiState.value.sherpaVoices
+                .first { it.voice == SherpaPiperVoice.JennyDioco }
+                .downloadState,
+        )
+        io.mockk.verify(exactly = 0) {
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+
+        viewModel.downloadSherpaVoice(SherpaPiperVoice.JennyDioco)
+
+        io.mockk.verify(exactly = 1) {
+            sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco)
         }
     }
 
@@ -586,7 +666,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `persistently demotes Inflect when a required graph becomes unavailable`() = runTest {
+    fun `keeps Inflect selected when a required graph becomes unavailable`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
                 put(
@@ -611,14 +691,15 @@ class VoiceViewModelTest {
         }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
-        coVerify(exactly = 1) {
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify(exactly = 0) {
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
     }
 
     @Test
-    fun `persistently demotes Inflect when the selected Sherpa voice becomes unavailable`() = runTest {
+    fun `keeps Inflect selected when the selected Sherpa voice becomes unavailable`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
                 put(
@@ -640,8 +721,9 @@ class VoiceViewModelTest {
         }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
-        coVerify(exactly = 1) {
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify(exactly = 0) {
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
     }
