@@ -174,7 +174,8 @@ class CameraForegroundMonitorTest {
     fun `a camera in front before the monitor started keeps wake capture suspended until it leaves`() =
         runTest {
             // The camera has been foreground since well before this monitor existed, so its launch
-            // is in none of the polls' windows — the state can only come from usage aggregation.
+            // is in none of the polls' windows — the state can only come from the lookback the
+            // current-foreground source replays.
             val source = FakeSource.of(
                 emptyList(),
                 emptyList(),
@@ -262,8 +263,12 @@ class CameraForegroundMonitorTest {
             source.currentForegroundPackage(),
             "a camera that resumed earlier and never left is still the package in front",
         )
-        assertEquals(NOW - SEED_LOOKBACK_MS, windowStart, "the window has to outlast a camera session")
-        assertEquals(NOW, windowEnd)
+        assertEquals(NOW, windowEnd, "the window always ends at the moment of the query")
+        assertTrue(
+            windowStart <= NOW - 60L * 60 * 1000,
+            "the window has to outlast a camera session that started hours earlier, not a poll; " +
+                "it was only ${NOW - windowStart}ms",
+        )
     }
 
     @Test
