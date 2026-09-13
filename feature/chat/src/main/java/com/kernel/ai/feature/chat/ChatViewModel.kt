@@ -1484,21 +1484,31 @@ class ChatViewModel @Inject constructor(
 
     /** Switches the pending local-weather request to the named-place fallback. */
     fun onWeatherLocationTypePlace() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
         awaitingWeatherLocationSettingsReturn = false
         pendingWeatherLocationAction = null
         _weatherLocationState.value = null
         denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
-        pendingVoiceReply = false
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
         _error.value = "Type a place name in the chat input, like \"weather in Tokyo\"."
     }
 
     /** Dismisses the weather permission surface without executing the pending request. */
     fun dismissWeatherLocationDialog() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
         awaitingWeatherLocationSettingsReturn = false
         pendingWeatherLocationAction = null
         _weatherLocationState.value = null
         denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
-        pendingVoiceReply = false
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
         _error.value = null
     }
 

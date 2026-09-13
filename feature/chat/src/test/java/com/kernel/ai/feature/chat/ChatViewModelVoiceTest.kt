@@ -28,6 +28,7 @@ import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
@@ -71,6 +72,7 @@ import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -807,6 +809,105 @@ class ChatViewModelVoiceTest {
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         verify(exactly = 1) { voiceInputController.stopListening() }
     }
+
+    @Test
+    fun `voice weather not now terminates back-and-forth turn without assistant response`() = runTest(dispatcher) {
+        val input = "What's the weather"
+        val weatherSkill = object : Skill {
+            override val name = "get_weather"
+            override val description = "Get weather"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                    skillName = name,
+                )
+        }
+        every { quickIntentRouter.route(input) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        assertEquals(
+            ChatViewModel.VoiceCaptureState.Processing(input),
+            viewModel.voiceCaptureState.value,
+        )
+        assertEquals(ChatViewModel.VoiceMode.BackAndForth, viewModel.voiceMode.value)
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+
+        viewModel.dismissWeatherLocationDialog()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.voiceMode.value)
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals("You: $input", viewModel.getConversationAsText())
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `voice weather named-place fallback terminates turn and keeps typing guidance`() = runTest(dispatcher) {
+        val input = "What's the weather"
+        val weatherSkill = object : Skill {
+            override val name = "get_weather"
+            override val description = "Get weather"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                    skillName = name,
+                )
+        }
+        every { quickIntentRouter.route(input) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error != null
+            } as ChatUiState.Ready
+        }
+        viewModel.onWeatherLocationTypePlace()
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.voiceMode.value)
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            "Type a place name in the chat input, like \"weather in Tokyo\".",
+            errorState.await().error,
+        )
+        assertEquals("You: $input", viewModel.getConversationAsText())
+        verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
 
     @Test
     fun `stop phrase in back-and-forth loop ends the session without submitting a message`() = runTest(dispatcher) {
