@@ -239,6 +239,7 @@ fun ChatScreen(
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
+    val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -306,6 +307,34 @@ fun ChatScreen(
             val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
+            val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                if (granted) {
+                    viewModel.onWeatherLocationPermissionGranted()
+                } else {
+                    viewModel.onWeatherLocationPermissionDenied(
+                        shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                            context as android.app.Activity,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                        ),
+                    )
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.events.collect { event ->
+                    when (event) {
+                        ChatViewModel.UiEvent.RequestWeatherLocationPermission ->
+                            weatherLocationPermissionLauncher.launch(
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                            )
+                        ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
+                            openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                }
+            }
+
             val micPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
@@ -357,6 +386,11 @@ fun ChatScreen(
                             Manifest.permission.RECORD_AUDIO,
                         ) == PackageManager.PERMISSION_GRANTED
                         viewModel.onChatMicRepairResumeCheck(micGranted)
+                        val locationGranted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        viewModel.onChatWeatherLocationRepairResumeCheck(locationGranted)
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
@@ -487,6 +521,66 @@ fun ChatScreen(
                     )
                 }
             }
+            weatherLocationState?.let { weatherState ->
+                PermissionOverlayDialog(
+                    title = if (weatherState.isPermanentlyDenied) {
+                        "Location permission is blocked"
+                    } else {
+                        "Use your location for local weather?"
+                    },
+                    body = if (weatherState.isPermanentlyDenied) {
+                        "Android will not show the Location permission prompt. Open system settings to allow local weather, " +
+                            "or ask for weather in a named place instead."
+                    } else {
+                        "Jandal can use approximate location to answer weather questions for where you are now. " +
+                            "You can also type a place instead."
+                    },
+                    actions = if (weatherState.isPermanentlyDenied) {
+                        listOf(
+                            PermissionDialogAction(
+                                label = "Open Location permission settings",
+                                testTag = "permission_dialog_open_app_permissions",
+                                onClick = {
+                                    viewModel.onWeatherLocationOpenAppPermissions()
+                                },
+                                isPrimary = true,
+                            ),
+                            PermissionDialogAction(
+                                label = "Use a named location",
+                                testTag = "permission_dialog_location_type_place",
+                                onClick = { viewModel.onWeatherLocationTypePlace() },
+                            ),
+                            PermissionDialogAction(
+                                label = "Not now",
+                                testTag = "permission_dialog_location_not_now",
+                                onClick = { viewModel.dismissWeatherLocationDialog() },
+                            ),
+                        )
+                    } else {
+                        listOf(
+                            PermissionDialogAction(
+                                label = "Use my location",
+                                testTag = "permission_dialog_location_use_my_location",
+                                onClick = { viewModel.onWeatherLocationRequestPermission() },
+                                isPrimary = true,
+                            ),
+                            PermissionDialogAction(
+                                label = "Use a named location",
+                                testTag = "permission_dialog_location_type_place",
+                                onClick = { viewModel.onWeatherLocationTypePlace() },
+                            ),
+                            PermissionDialogAction(
+                                label = "Not now",
+                                testTag = "permission_dialog_location_not_now",
+                                onClick = { viewModel.dismissWeatherLocationDialog() },
+                            ),
+                        )
+                    },
+                    dialogTestTag = "permission_dialog_location",
+                    onDismissRequest = { viewModel.dismissWeatherLocationDialog() },
+                )
+            }
+
             // Model settings overlay — always shown on icon tap, not guarded by
             // modelCapabilities/currentModel null-check (#961).
             if (showModelSettings) {

@@ -16,6 +16,8 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
@@ -57,10 +59,14 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -69,6 +75,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -265,7 +273,7 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
-    fun `weather capability required surfaces repair message and skips LLM`() = runTest(dispatcher) {
+    fun `weather capability required opens contextual dialog without assistant failure`() = runTest(dispatcher) {
         val input = "what's the weather"
         weatherSkillResult = SkillResult.CapabilityRequired(
             capabilityKey = CapabilityKey.WeatherCurrentLocation,
@@ -274,17 +282,155 @@ class ChatViewModelQuickIntentRouterTest {
 
         val viewModel = createViewModel()
         advanceUntilIdle()
-
         viewModel.onInputChanged(input)
         viewModel.sendMessage()
         advanceUntilIdle()
 
         verify(exactly = 0) { inferenceEngine.generate(any()) }
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+        val conversation = viewModel.getConversationAsText()
+        assertEquals(1, conversation.lines().count { it.startsWith("You:") })
+        assertEquals(0, conversation.lines().count { it.startsWith("Jandal:") })
+        assertFalse(conversation.contains("Location access"))
+    }
 
-        val chatText = viewModel.getConversationAsText()
-        assertTrue(chatText.contains("Location access"), "Expected location-repair guidance, got: $chatText")
-        assertTrue(chatText.contains("named city"), "Expected named-city fallback guidance, got: $chatText")
-        assertTrue(!chatText.contains("get_weather"), "Did not expect raw tool JSON or tool name in: $chatText")
+    @Test
+    fun `grant retries weather skill and appends only one assistant message`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        weatherSkillResult = SkillResult.Success("Currently 18°C and partly cloudy in your area.")
+        viewModel.onWeatherLocationPermissionGranted()
+        advanceUntilIdle()
+
+        val conversation = viewModel.getConversationAsText()
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(1, conversation.lines().count { it.startsWith("You:") })
+        assertEquals(1, conversation.lines().count { it.startsWith("Jandal:") })
+        assertTrue(viewModel.getConversationAsText().contains("partly cloudy"))
+    }
+
+    @Test
+    fun `first weather denial remains retryable`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
+
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `second weather denial becomes blocked repair state`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = true)
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
+
+        assertEquals(
+            ChatViewModel.WeatherLocationState(isPermanentlyDenied = true),
+            viewModel.weatherLocationState.value,
+        )
+    }
+
+    @Test
+    fun `location settings grant retries pending weather request`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        weatherSkillResult = SkillResult.Success("Weather restored.")
+        viewModel.onChatWeatherLocationRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertTrue(viewModel.getConversationAsText().contains("Weather restored."))
+    }
+
+    @Test
+    fun `location settings return without grant restores blocked repair state`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        viewModel.onChatWeatherLocationRepairResumeCheck(hasPermission = false)
+
+        assertEquals(
+            ChatViewModel.WeatherLocationState(isPermanentlyDenied = true),
+            viewModel.weatherLocationState.value,
+        )
+    }
+
+    @Test
+    fun `named place fallback clears pending weather permission and guides chat input`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        val errorState = async {
+            viewModel.uiState
+                .filterIsInstance<ChatUiState.Ready>()
+                .first()
+        }
+        viewModel.onWeatherLocationTypePlace()
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            "Type a place name in the chat input, like \"weather in Tokyo\".",
+            errorState.await().error,
+        )
+    }
+
+    @Test
+    fun `not now dismisses pending weather permission without assistant output`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.dismissWeatherLocationDialog()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            1,
+            viewModel.getConversationAsText().lines().count { it.startsWith("You:") },
+        )
+    }
+
+    @Test
+    fun `unrelated capability required keeps generic assistant guidance`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ContactLookup,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertTrue(viewModel.getConversationAsText().contains("Permission required for get_weather."))
+    }
+
+    @Test
+    fun `weather permission request emits runtime launcher event`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+        val event = async { viewModel.events.first() }
+
+        viewModel.onWeatherLocationRequestPermission()
+
+        assertEquals(ChatViewModel.UiEvent.RequestWeatherLocationPermission, event.await())
     }
 
     @Test
@@ -326,6 +472,19 @@ class ChatViewModelQuickIntentRouterTest {
         viewModel.onInputChanged(input)
         viewModel.sendMessage()
         advanceUntilIdle()
+    }
+
+    private suspend fun TestScope.submitWeatherCapabilityRequest(): ChatViewModel {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        return viewModel
     }
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
