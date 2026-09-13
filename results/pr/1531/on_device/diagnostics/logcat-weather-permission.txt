@@ -1,0 +1,46 @@
+# Sanitized excerpt from the retained local logcat
+# Source: retained local logcat captured during the run (not committed directly)
+# Dynamic process IDs, command IDs, message UUIDs, and unrelated lines removed.
+
+09-13 20:47:56-20:47:57 E/AndroidRuntime: microphone foreground-service SecurityException while starting WakeWordService; target SDK 36 eligibility/permission requirements reported.
+09-13 21:05:04 I/KernelAI: WakeWordService: yielding mic to voice session (Command)
+09-13 21:05:04 D/KernelAI: WakeWordDetector: stopped
+09-13 21:05:14 D/KernelAI: ChatViewModel: voice error — silent retry 1/1
+09-13 21:05:14 I/KernelAI: WakeWordService: re-arming after voice session (Command)
+09-13 21:05:14 D/KernelAI: WakeWordDetector: recording started
+09-13 21:05:14 I/KernelAI: WakeWordService: yielding mic to voice session (Command)
+09-13 21:05:14 D/KernelAI: WakeWordDetector: stopped
+09-13 21:05:24 I/KernelAI: WakeWordService: re-arming after voice session (Command)
+09-13 21:05:24 D/KernelAI: WakeWordDetector: recording started
+
+09-13 21:10:09 D/KernelAI: ADB_INTENT_TRACE input=weather submitMode=Text
+09-13 21:10:09 D/KernelAI: ADB_ROUTE_DECISION result=classified intent=get_weather
+09-13 21:10:09 D/KernelAI: NativeIntentHandler.handle intent=get_weather params={}
+09-13 21:10:09 I/KernelAI: Current-location weather blocked: ACCESS_COARSE_LOCATION denied
+09-13 21:10:09 I/KernelAI: GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)
+09-13 21:10:09 D/KernelAI: ADB_TOOL_COMPLETE intent=get_weather result=capability_required_weather_permission
+09-13 21:10:32 D/KernelAI: GetWeatherSkill: fetched weather for Brisbane, AU
+
+09-13 21:21:13 D/KernelAI: ADB_INTENT_TRACE input=weather submitMode=Text
+09-13 21:21:13 D/KernelAI: NativeIntentHandler.handle intent=get_weather params={}
+09-13 21:21:13 I/KernelAI: Current-location weather blocked: ACCESS_COARSE_LOCATION denied
+09-13 21:21:13 I/KernelAI: GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)
+09-13 21:24:15 D/KernelAI: GetWeatherSkill: fetched weather for Brisbane, AU
+
+09-13 21:27:42 D/KernelAI: ADB_INTENT_TRACE input=weather in tokyo submitMode=Text
+09-13 21:27:42 D/KernelAI: NativeIntentHandler.handle intent=get_weather params={location=tokyo}
+09-13 21:27:47 D/KernelAI: GetWeatherSkill: fetched weather for tokyo
+09-13 21:27:47 D/KernelAI: Named-location weather lookup succeeded for 'tokyo'
+09-13 21:27:47 D/KernelAI: ADB_TOOL_COMPLETE intent=get_weather result=direct_reply
+
+09-13 21:31:24 D/KernelAI: ADB_INTENT_TRACE input=what's the weather in london submitMode=Text
+09-13 21:31:24 D/KernelAI: NativeIntentHandler.handle intent=get_weather params={location=london}
+09-13 21:31:29 D/KernelAI: GetWeatherSkill: fetched weather for london
+09-13 21:31:29 D/KernelAI: Named-location weather lookup succeeded for 'london'
+09-13 21:31:29 D/KernelAI: ADB_TOOL_COMPLETE intent=get_weather result=direct_reply
+
+09-13 21:32:35 D/KernelAI: ADB_INTENT_TRACE input=weather submitMode=Text
+09-13 21:32:35 D/KernelAI: NativeIntentHandler.handle intent=get_weather params={}
+09-13 21:32:35 I/KernelAI: Current-location weather blocked: ACCESS_COARSE_LOCATION denied
+09-13 21:32:35 I/KernelAI: GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)
+09-13 21:32:35 D/KernelAI: ADB_TOOL_COMPLETE intent=get_weather result=capability_required_weather_permission
