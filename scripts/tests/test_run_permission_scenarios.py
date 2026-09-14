@@ -16,6 +16,7 @@ SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import run_permission_scenarios as permission_runner
+import acoustic_wake_reliability_runner
 
 
 class PermissionScenarioRunnerTest(unittest.TestCase):
@@ -1053,6 +1054,104 @@ class ChatScenarioTest(unittest.TestCase):
                 "expected_transcript_contains": ["weather"],
             })
 
+    def test_delayed_voice_transcript_evidence_succeeds_within_timeout(self) -> None:
+        class DelayedVoiceAdb(_FakeAdb):
+            serial = "target"
+            def __init__(self) -> None:
+                super().__init__()
+                self.logcat_responses = [
+                    "",
+                    "09-14 00:00:00.000 123 456 D KernelAI: "
+                    "ADB_INTENT_TRACE input=how's the weather submitMode=Voice",
+                ]
+
+            def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+                if command.startswith("logcat -d -t 300"):
+                    return self.logcat_responses.pop(0)
+                return super().shell(command, timeout=timeout, check=check)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        runner = permission_runner.ScenarioRunner(
+            adb=DelayedVoiceAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+            voice_source_serial="source",
+        )
+        with patch.object(
+            acoustic_wake_reliability_runner,
+            "run_functional_voice_stimulus",
+            return_value={"wake_path": "not_used", "stt_events": [], "wake_events": []},
+        ), patch.object(
+            permission_runner.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.1],
+        ), patch.object(permission_runner.time, "sleep"):
+            actual, delta = runner._execute_step({
+                "action": "run_functional_voice_stimulus",
+                "fixture_id": "weather_command",
+                "expected_transcript_contains": ["weather"],
+                "transcript_timeout_seconds": 1,
+            })
+
+        self.assertEqual("Functional voice stimulus delivered", actual)
+        self.assertEqual("how's the weather", delta["debug"]["observed_transcript"])
+
+    def test_voice_transcript_timeout_fails_closed(self) -> None:
+        class EmptyVoiceLogcatAdb(_FakeAdb):
+            serial = "target"
+
+            def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+                if command.startswith("logcat -d -t 300"):
+                    return ""
+                return super().shell(command, timeout=timeout, check=check)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        runner = permission_runner.ScenarioRunner(
+            adb=EmptyVoiceLogcatAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+            voice_source_serial="source",
+        )
+        with patch.object(
+            acoustic_wake_reliability_runner,
+            "run_functional_voice_stimulus",
+            return_value={"wake_path": "not_used", "stt_events": [], "wake_events": []},
+        ), patch.object(
+            permission_runner.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.1, 1.0],
+        ), patch.object(permission_runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                permission_runner.StepFailure,
+                "No matching voice transcript evidence within 0.5s",
+            ):
+                runner._execute_step({
+                    "action": "run_functional_voice_stimulus",
+                    "fixture_id": "weather_command",
+                    "expected_transcript_contains": ["weather"],
+                    "transcript_timeout_seconds": 0.5,
+                })
+
+    def test_not_now_scenario_requires_idle_dismissal_and_no_rearm(self) -> None:
+        scenario = permission_runner.get_scenario_by_id(
+            "chat_voice_weather_not_now_ends_cleanly"
+        )
+        dismiss = next(step for step in scenario["steps"] if step["id"] == "dismiss_voice_weather")
+
+        self.assertEqual(["PTT"], dismiss["expected_visible"])
+        self.assertEqual(3, dismiss["absence_observation_seconds"])
+        self.assertIn("get_weather", dismiss["expected_not_visible"])
+        self.assertIn("Listening", dismiss["expected_not_visible"])
 
 CLOCK_SCENARIO_IDS = frozenset({
     "clock_timer_notifications_allowed",

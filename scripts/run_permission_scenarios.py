@@ -607,33 +607,10 @@ class ScenarioRunner:
             expected_transcript_markers = [
                 str(value) for value in step.get("expected_transcript_contains", [])
             ]
-            voice_logcat = self.adb.shell(
-                "logcat -d -t 300 -v threadtime -s KernelAI:D",
-                timeout=30,
-                check=False,
+            observed_transcript, voice_input_lines = self._wait_for_voice_submission(
+                expected_markers=expected_transcript_markers,
+                timeout_seconds=float(step.get("transcript_timeout_seconds", 20)),
             )
-            voice_input_lines = [
-                line for line in voice_logcat.splitlines()
-                if "ADB_INTENT_TRACE" in line and "submitMode=Voice" in line
-            ]
-            transcript_matches = [
-                match.group(1).strip()
-                for line in voice_input_lines
-                if (match := re.search(r"\binput=(.*?)\s+submitMode=Voice\b", line))
-            ]
-            observed_transcript = transcript_matches[-1] if transcript_matches else None
-            if not observed_transcript:
-                raise StepFailure(
-                    "Functional voice stimulus produced no observed voice transcript evidence"
-                )
-            if any(
-                marker.casefold() not in observed_transcript.casefold()
-                for marker in expected_transcript_markers
-            ):
-                raise StepFailure(
-                    "Observed voice transcript did not contain expected markers: "
-                    f"{expected_transcript_markers!r}; observed={observed_transcript!r}"
-                )
             return "Functional voice stimulus delivered", {
                 "debug": {
                     "functional_voice": evidence,
@@ -709,6 +686,43 @@ class ScenarioRunner:
             time.sleep(0.5)
             return f"Swiped ({start_x},{start_y})→({end_x},{end_y})", {}
         raise StepFailure(f"Unsupported action: {action}")
+    def _wait_for_voice_submission(
+        self,
+        *,
+        expected_markers: list[str],
+        timeout_seconds: float,
+    ) -> tuple[str, list[str]]:
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        last_voice_input_lines: list[str] = []
+        while True:
+            voice_logcat = self.adb.shell(
+                "logcat -d -t 300 -v threadtime -s KernelAI:D",
+                timeout=30,
+                check=False,
+            )
+            last_voice_input_lines = [
+                line for line in voice_logcat.splitlines()
+                if "ADB_INTENT_TRACE" in line and "submitMode=Voice" in line
+            ]
+            transcript_matches = [
+                match.group(1).strip()
+                for line in last_voice_input_lines
+                if (match := re.search(r"\binput=(.*?)\s+submitMode=Voice\b", line))
+            ]
+            for observed_transcript in reversed(transcript_matches):
+                if observed_transcript and all(
+                    marker.casefold() in observed_transcript.casefold()
+                    for marker in expected_markers
+                ):
+                    return observed_transcript, last_voice_input_lines
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+        raise StepFailure(
+            "No matching voice transcript evidence within "
+            f"{timeout_seconds:g}s; expected markers={expected_markers!r}; "
+            f"observed={last_voice_input_lines!r}"
+        )
     def _type_chat_query(self, query: str) -> None:
         for character in query:
             if character == " ":
@@ -893,9 +907,30 @@ class ScenarioRunner:
                 raise StepFailure(
                     f"Expected toggle for {toggle_expectation['anchor_text']!r} to be {toggle_expectation['checked']}; saw {switch.checked}"
                 )
-        for text in step.get("expected_not_visible", []):
-            if self._is_text_visible(text, timeout_seconds=1.0):
-                raise StepFailure(f"Unexpected text visible: {text}")
+        absence_seconds = float(step.get("absence_observation_seconds", 1.0))
+        self._assert_texts_not_visible_for(
+            [str(text) for text in step.get("expected_not_visible", [])],
+            timeout_seconds=absence_seconds,
+        )
+    def _assert_texts_not_visible_for(
+        self,
+        texts: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> None:
+        if not texts:
+            return
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while True:
+            nodes = self.ui.dump_nodes()
+            for text in texts:
+                for node in nodes:
+                    haystacks = [node.text, node.content_desc]
+                    if text in haystacks:
+                        raise StepFailure(f"Unexpected text visible: {text}")
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
     def _set_permission_state(self, permission: str, state: str) -> None:
         if state == "granted":

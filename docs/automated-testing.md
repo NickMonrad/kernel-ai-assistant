@@ -57,6 +57,16 @@ echo a generic media file through an unrelated pathway. Missing source serial,
 fixture, or paired ADB connectivity blocks the scenario; there is no fake
 fallback.
 
+The `voice_timeout_ms` setting bounds only acoustic target `STT_FINAL`
+completion; `transcript_timeout_seconds` separately bounds polling for the
+subsequent Chat voice-submission trace.
+
+Functional paired-device speech validates STT, routing, Chat UI, and
+voice-session lifecycle only. It must not be treated as wake-word acoustic
+reliability evidence or qualification. Wake-word reliability remains governed
+by the dedicated controlled acoustic reliability harness and its stricter
+methodology.
+
 The default device policy remains S21-first. Issue-specific paired acoustic
 validation may use S23U when the local report records the source/target
 topology. Existing Quick Actions scenario IDs and behavior remain unchanged.

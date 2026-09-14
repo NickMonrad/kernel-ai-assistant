@@ -287,6 +287,17 @@ captured from the target's `KernelAI` `ADB_INTENT_TRACE` voice submission log;
 the permission UX remains asserted through the visible Chat UI. Journal
 artifacts do not contain transcript content.
 
+The acoustic `voice_timeout_ms` bound applies only to target `STT_FINAL`.
+After that helper returns, `transcript_timeout_seconds` independently bounds
+polling for the subsequent `ADB_INTENT_TRACE ... submitMode=Voice` Chat
+submission evidence.
+
+Functional paired-device speech validates STT, routing, Chat UI, and
+voice-session lifecycle only. It must not be treated as wake-word acoustic
+reliability evidence or qualification. Wake-word reliability remains governed
+by the dedicated controlled acoustic reliability harness and its stricter
+methodology.
+
 The action fails closed when no paired source serial is supplied. Configure a
 source and an installed app-private fixture explicitly:
 
