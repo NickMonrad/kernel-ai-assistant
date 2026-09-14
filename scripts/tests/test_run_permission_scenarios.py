@@ -60,7 +60,17 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             branch="feature/test",
             commit="a" * 40,
             pr=1330,
-            device={"id": "s21-exynos", "execution": "physical"},
+            device={
+                "id": "s21-exynos",
+                "serial": "R5CR605B71K",
+                "label": "S21",
+                "manufacturer": "Samsung",
+                "model": "SM-G991B",
+                "soc": "Exynos 2100",
+                "tier": "tracked",
+                "android_api": 35,
+                "execution": "physical",
+            },
             functional_result="pass",
             ux_result="warning",
             step_count=3,
@@ -94,11 +104,27 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             commit="a" * 40,
             pr=1330,
             run_id="on_device-2026-06-29T00-00-00Z-s21-exynos",
-            device={"id": "s21-exynos", "execution": "physical"},
+            device={
+                "id": "s21-exynos",
+                "serial": "R5CR605B71K",
+                "label": "S21",
+                "manufacturer": "Samsung",
+                "model": "SM-G991B",
+                "soc": "Exynos 2100",
+                "tier": "tracked",
+                "android_api": 35,
+                "execution": "physical",
+            },
             thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
             summary={"total": 1},
             scenarios=[scenario],
-            artifacts={"raw_json": "result.json", "evidence": "evidence.json", "logcat": "logcat.txt", "screenshots_dir": "screenshots"},
+            artifacts={
+                "raw_json": "result.json",
+                "summary": "summary.md",
+                "evidence": "evidence.json",
+                "logcat": "logcat.txt",
+                "screenshots_dir": "screenshots",
+            },
         )
 
         evidence = permission_runner.to_evidence(run_result)
@@ -111,6 +137,48 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         self.assertEqual("not_applicable", evidence["model"]["name"])
         self.assertEqual("permission_scenario_runner", evidence["model"]["runtime"])
         self.assertEqual("adb", evidence["model"]["backend"])
+        self.assertEqual(
+            ["result.json", "summary.md", "logcat.txt"],
+            evidence["artifact_refs"],
+        )
+        self.assertTrue(all(isinstance(ref, str) for ref in evidence["artifact_refs"]))
+        self.assertEqual([], permission_runner.schema_validation_errors(evidence))
+
+    def test_schema_rejects_historical_object_artifact_refs(self) -> None:
+        evidence = permission_runner.to_evidence(
+            permission_runner.RunResult(
+                schema_version="1.0",
+                source="on_device",
+                suite="permission_scenarios",
+                timestamp="2026-06-29T00:00:00Z",
+                repo="NickMonrad/kernel-ai-assistant",
+                branch="feature/test",
+                commit="a" * 40,
+                pr=1330,
+                run_id="on_device-2026-06-29T00-00-00Z-s21-exynos",
+                device={
+                    "id": "s21-exynos",
+                    "serial": "R5CR605B71K",
+                    "label": "S21",
+                    "manufacturer": "Samsung",
+                    "model": "SM-G991B",
+                    "soc": "Exynos 2100",
+                    "tier": "tracked",
+                    "android_api": 35,
+                    "execution": "physical",
+                },
+                thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+                summary={"total": 0},
+                scenarios=[],
+                artifacts={"raw_json": "result.json"},
+            )
+        )
+        self.assertEqual([], permission_runner.schema_validation_errors(evidence))
+
+        evidence["artifact_refs"] = [{"path": "result.json", "type": "other"}]
+        errors = permission_runner.schema_validation_errors(evidence)
+
+        self.assertTrue(any(error.startswith("schema:artifact_refs") for error in errors))
 
     def test_write_summary_includes_artifacts_and_table(self) -> None:
         scenario = permission_runner.ScenarioResult(

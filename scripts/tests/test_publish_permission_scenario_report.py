@@ -16,6 +16,7 @@ SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import publish_permission_scenario_report as publisher
+import run_permission_scenarios as permission_runner
 
 
 def sample_result(commit: str = "a" * 40, pr: int | None = None) -> dict:
@@ -192,6 +193,75 @@ def sample_evidence(commit: str = "a" * 40, pr: int | None = None) -> dict:
     }
 
 
+def runner_evidence(commit: str = "a" * 40, pr: int | None = None) -> dict:
+    device = {
+        "id": "s21-exynos",
+        "serial": "R5CR605B71K",
+        "label": "S21",
+        "manufacturer": "Samsung",
+        "model": "SM-G991B",
+        "soc": "Exynos 2100",
+        "tier": "tracked",
+        "android_api": 35,
+        "execution": "physical",
+    }
+    scenario = permission_runner.ScenarioResult(
+        schema_version="1.0",
+        source="on_device",
+        suite="permission_scenarios",
+        scenario_id="weather_location_denied",
+        scenario_title="Weather request with location denied uses fallback UX",
+        timestamp="2026-06-30T08:48:39Z",
+        repo="NickMonrad/kernel-ai-assistant",
+        branch="feature/1344-permission-report-publisher",
+        commit=commit,
+        pr=pr,
+        device=device,
+        functional_result="pass",
+        ux_result="pass",
+        step_count=1,
+        tap_count=0,
+        settings_hops=0,
+        back_presses=0,
+        duration_seconds=1.0,
+        manual_intervention_required=False,
+        steps=[
+            permission_runner.StepTrace(
+                index=1,
+                id="launch",
+                action="launch_main",
+                expected="app visible",
+                actual="app visible",
+                result="pass",
+                duration_ms=100,
+            )
+        ],
+        artifacts={},
+    )
+    return permission_runner.to_evidence(
+        permission_runner.RunResult(
+            schema_version="1.0",
+            source="on_device",
+            suite="permission_scenarios",
+            timestamp="2026-06-30T08:48:39Z",
+            repo="NickMonrad/kernel-ai-assistant",
+            branch="feature/1344-permission-report-publisher",
+            commit=commit,
+            pr=pr,
+            run_id="on_device-2026-06-30T08-48-39Z-s21-exynos",
+            device=device,
+            thresholds={},
+            summary={"total": 1},
+            scenarios=[scenario],
+            artifacts={
+                "raw_json": "result.json",
+                "summary": "summary.md",
+                "logcat": "logcat.txt",
+            },
+        )
+    )
+
+
 class PublishPermissionScenarioReportTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory(prefix="publish_permission_")
@@ -223,6 +293,23 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
+
+
+    def test_runner_evidence_passes_publisher_validation(self) -> None:
+        evidence = runner_evidence()
+        self.assertEqual(
+            ["result.json", "summary.md", "logcat.txt"],
+            evidence["artifact_refs"],
+        )
+        (self.report_dir / "evidence.json").write_text(
+            json.dumps(evidence) + "\n",
+            encoding="utf-8",
+        )
+
+        bundle = publisher.validate_report_dir(self.report_dir)
+        publisher.ensure_schema_compatible_evidence(bundle)
+        publisher.ensure_evidence_matches_result(bundle)
+        publisher.validate_report_metadata(bundle, self.args, pr_head_sha=self.args.commit)
 
     def test_validate_report_dir_loads_optional_artifacts(self) -> None:
         bundle = publisher.validate_report_dir(self.report_dir)

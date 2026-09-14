@@ -1170,7 +1170,7 @@ def to_evidence(run_result: RunResult) -> dict[str, Any]:
         },
         "cases": cases,
         "artifact_refs": [
-            {"path": path, "type": "other"}
+            path
             for key in ("raw_json", "summary", "logcat")
             if (path := run_result.artifacts.get(key))
         ],
