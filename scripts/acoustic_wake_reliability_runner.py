@@ -76,6 +76,7 @@ PREFLIGHT_SCHEMA_VERSION = 5
 SOURCE_HELPER_CONTRACT_VERSION = "1.0.0"
 
 
+SOURCE_ACTIVITY = "com.kernel.ai.MainActivity"
 SOURCE_RECEIVER_CLS = "com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
 SOURCE_ACTION = "com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS"
 SOURCE_CANCEL_ACTION = "com.kernel.ai.debug.action.CANCEL_ACOUSTIC_STIMULUS"
@@ -4673,6 +4674,129 @@ class AcousticWakeReliabilityRunner:
         except HarnessError as exc:
             self.cleanup_failures.append(str(exc))
         self.cleanup_failures.extend(self._cancel_active_source_playback())
+
+def run_functional_voice_stimulus(
+    *,
+    source_serial: str | None,
+    target_serial: str | None,
+    fixture_id: str,
+    volume_index: int,
+    timeout_ms: int,
+    fixture_dir: str | None = None,
+    private_root: Path = DEFAULT_PRIVATE_ROOT,
+) -> dict[str, Any]:
+    """Play one real source fixture while a target voice session is listening.
+
+    This is intentionally separate from the wake-word matrix: Chat push-to-talk
+    owns the listening session, while the paired source still supplies physical
+    microphone audio and the target journal remains the authoritative STT
+    evidence channel.
+    """
+    if not source_serial or not target_serial:
+        raise HarnessError(
+            "functional voice stimulus requires distinct source and target ADB serials"
+        )
+    if source_serial == target_serial:
+        raise HarnessError("functional voice stimulus source and target serials must differ")
+    if not fixture_id:
+        raise HarnessError("functional voice stimulus requires a fixture ID")
+
+    runner = AcousticWakeReliabilityRunner(
+        run_kind=RunKind.FEASIBILITY,
+        source_alias="functional_source",
+        target_alias="functional_target",
+        source_client=AdbClient(source_serial),
+        target_client=AdbClient(target_serial),
+        fixture_dir=Path(fixture_dir) if fixture_dir else None,
+        private_root=private_root,
+    )
+    fixture_hashes = runner._read_fixture_manifest()
+    fixture_sha256 = fixture_hashes.get(fixture_id)
+    if fixture_sha256 is None:
+        raise HarnessError(
+            f"fixture {fixture_id!r} is not present in the installed source manifest"
+        )
+    if not runner.source.reachable() or not runner.target.reachable():
+        raise HarnessError("functional voice stimulus source or target ADB is unreachable")
+    runner.source.run(
+        "shell",
+        "input",
+        "keyevent",
+        "KEYCODE_WAKEUP",
+        timeout=10,
+    )
+    time.sleep(0.5)
+    runner.source.run(
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-n",
+        f"{DEFAULT_PACKAGE}/{SOURCE_ACTIVITY}",
+        timeout=30,
+    )
+    time.sleep(1.0)
+
+    sequence_code, sequence_data = runner._call_target_provider(TARGET_METHOD_GET_SEQUENCE)
+    if sequence_code != TARGET_RESULT_OK:
+        raise HarnessError(f"target sequence read failed: {sequence_data}")
+    since_sequence = parse_journal_sequence(sequence_data)
+    trial_id = f"functional-voice-{uuid.uuid4().hex[:12]}"
+    source_result: dict[str, Any] | None = None
+
+    def play_fixture() -> None:
+        nonlocal source_result
+        source_result = runner._invoke_source(trial_id, fixture_id, volume_index)
+
+    events, _ = runner._wait_for_target_events(
+        since_sequence=since_sequence,
+        event_type="STT_FINAL",
+        timeout_ms=timeout_ms,
+        on_armed=play_fixture,
+    )
+    if source_result is None:
+        raise HarnessError("functional voice stimulus completed without source evidence")
+
+    projected_events = format_target_snapshot_events({"events": events})
+    stt_events = [
+        event for event in projected_events
+        if event["t"] in {
+            "STT_SPEECH_DETECTED",
+            "STT_PARTIAL",
+            "STT_FINAL",
+            "STT_ERROR",
+            "COMMAND_ROUTING_RESULT",
+            "SESSION_COMPLETED",
+            "SESSION_CANCELLED",
+        }
+    ]
+    wake_events = [
+        event for event in projected_events
+        if event["t"] in {
+            "ACTIVATION_CANDIDATE",
+            "VERIFIED_ACTIVATION",
+            "WAKE_CALLBACK_INVOKED",
+            "VOICE_SESSION_STARTED",
+            "DETECTOR_REARMED",
+        }
+    ]
+    evidence = {
+        "trial_id": trial_id,
+        "fixture_id": fixture_id,
+        "fixture_sha256": fixture_sha256,
+        "source_result": source_result,
+        "target_events": projected_events,
+        "stt_events": stt_events,
+        "wake_events": wake_events,
+        "wake_path": "not_used",
+    }
+    runner.private_write(
+        "functional-voice",
+        f"{trial_id}.json",
+        json.dumps(evidence, indent=2),
+    )
+    return evidence
+
 
 # ── CLI and modes ─────────────────────────────────────────────────────
 

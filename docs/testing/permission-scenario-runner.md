@@ -1,7 +1,7 @@
 # Permission scenario runner
 
-Status: **First slice / local-only**  
-Issue: **#1330**
+Status: **Local physical-device runner**
+Issue: **#1535**
 
 ## Purpose
 
@@ -97,14 +97,17 @@ Each scenario in `scripts/permission_scenario_defs.py` follows a validated schem
 | Field               | Required for          | Description |
 |--------------------|-----------------------|-------------|
 | `id`               | All steps             | Unique step ID within the scenario |
-| `action`           | All steps             | One of: `set_permission_state`, `set_appops`, `launch_main`, `launch_quick_action`, `tap_visible`, `swipe`, `wait_for_package`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back` |
+| `action`           | All steps             | One of: `set_permission_state`, `set_appops`, `launch_main`, `launch_chat`, `launch_quick_action`, `submit_chat_query`, `assert_chat_state`, `start_chat_voice`, `run_functional_voice_stimulus`, `tap_visible`, `swipe`, `wait_for_package`, `tap_toggle_for_text`, `set_toggle_state`, `check_default_assistant_ready`, `press_home`, `press_back` |
 | `expected`         | All steps             | Human-readable description of what should happen |
 | `permission`       | `set_permission_state`, `set_appops` | Android permission name (e.g. `android.permission.RECORD_AUDIO`) |
 | `state`            | `set_permission_state`| Permission state: `granted`, `revoked`, `prompt`, `blocked` |
 | `mode`             | `set_appops`          | Appops mode: `allow`, `deny`, `default` |
 | `target`           | `tap_visible`         | Target descriptor with `text`, `content_desc`, `resource_id`, or `any_text` |
-| `query`            | `launch_quick_action` | Quick action query string |
-| `start_x`, `start_y`, `end_x`, `end_y` | `swipe` | Pixel coordinates (required) |
+| `query`            | `launch_quick_action`, `submit_chat_query`, `assert_chat_state` | Query string submitted through the selected route |
+| `assistant_response_contains` | `submit_chat_query`, `assert_chat_state` | List of visible response markers; each is checked as a substring |
+| `expected_transcript_contains` | `run_functional_voice_stimulus` | List of visible transcript substrings required after the paired source reaches target STT |
+| `fixture_id` | `run_functional_voice_stimulus` | Installed app-private acoustic fixture ID |
+| `transcript_timeout_seconds` | `run_functional_voice_stimulus` | Maximum wait for the transcript to appear in Chat |
 | `duration_ms`      | `swipe`               | Swipe duration in ms (default 300) |
 | `package`          | `wait_for_package`    | Android package name (e.g. `com.android.settings`) |
 | `anchor_text`      | `tap_toggle_for_text`, `set_toggle_state` | Text label associated with the toggle |
@@ -149,11 +152,12 @@ Fixtures are deterministic values shared across scenarios, defined at file level
 ```python
 FIXTURES: dict[str, object] = {
     "weather_named_location": "Tokyo",
+    "chat_weather_query": "what's the weather",
+    "voice_weather_fixture": "weather_command",
     "short_timer_seconds": 10,
     "short_alarm_minutes": 1,
 }
 ```
-
 Scenarios reference fixtures via their `fixtures` field, which merges global fixtures with per-scenario overrides. The runner makes fixture values available to step logic. Use `--dry-run` to preview which fixtures a scenario uses.
 
 ## Running locally
@@ -253,6 +257,66 @@ ANDROID_SERIAL=R5CR605B71K python3 scripts/run_permission_scenarios.py \
   weather skill rather than the named-city JS skill, the permission dialog may still
   appear. This is a product behavior finding to document, not a harness issue.
 
+
+## Chat weather and functional voice scenario group
+
+The Chat group exercises the actual Chat route rather than the Quick Actions
+intent shortcut. Existing `weather_*` Quick Actions scenarios remain unchanged.
+The Chat actions report these observable fields in the step trace:
+
+- `chat_route_reached`
+- `chat_user_message_visible`
+- `chat_user_message_count`
+- `chat_assistant_response_visible`
+- `observed_transcript`
+
+The scenarios cover:
+
+- local Chat weather, runtime grant, and exactly one retry of the original request
+- denial followed by Android Settings repair and pending-request retry
+- named-city Chat weather without location permission
+- voice-originated local weather followed by `Not now`
+- voice-originated local weather followed by `Use a named location`, with typing guidance
+
+`run_functional_voice_stimulus` is a real paired-device path. It arms the target
+event journal, invokes the existing `AcousticStimulusReceiver` on the source
+device, waits for the target `STT_FINAL` event, and records source cleanup,
+STT, wake, and target-event evidence. It does **not** type a prompt, mutate the
+Chat transcript, or use a generic media-player echo. The observed transcript is
+captured from the target's `KernelAI` `ADB_INTENT_TRACE` voice submission log;
+the permission UX remains asserted through the visible Chat UI. Journal
+artifacts do not contain transcript content.
+
+The acoustic `voice_timeout_ms` bound applies only to target `STT_FINAL`.
+After that helper returns, `transcript_timeout_seconds` independently bounds
+polling for the subsequent `ADB_INTENT_TRACE ... submitMode=Voice` Chat
+submission evidence.
+
+Functional paired-device speech validates STT, routing, Chat UI, and
+voice-session lifecycle only. It must not be treated as wake-word acoustic
+reliability evidence or qualification. Wake-word reliability remains governed
+by the dedicated controlled acoustic reliability harness and its stricter
+methodology.
+
+The action fails closed when no paired source serial is supplied. Configure a
+source and an installed app-private fixture explicitly:
+
+```bash
+ANDROID_SERIAL=<CHAT_DEVICE_SERIAL> \
+python3 scripts/run_permission_scenarios.py \
+  --device-id s23-ultra \
+  --serial "$ANDROID_SERIAL" \
+  --voice-source-serial <ACOUSTIC_SOURCE_SERIAL> \
+  --voice-fixture-id weather_command \
+  --scenarios chat_weather_permission_grant_retries_without_duplicate,chat_weather_denial_settings_repair_retries,chat_weather_named_city_without_location,chat_voice_weather_not_now_ends_cleanly,chat_voice_weather_named_location_ends_cleanly \
+  --out-dir scripts/test-reports/permissions
+```
+
+The default device policy remains S21-first. This issue's paired acoustic
+validation is a targeted S23U exception; use the exact device topology and
+fixture IDs recorded in the local run report. If the source fixture or paired
+ADB pathway is unavailable, the voice scenarios are blocked rather than
+reported as passed.
 
 ## Notifications/exact alarms/clock scenario group
 
