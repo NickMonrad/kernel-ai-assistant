@@ -5,6 +5,7 @@
 | Typed missing → grant → retry    | pass           | supported                        | medium            |
 | Voice → Not now                  | inconclusive   | supported                        | low               |
 | Voice → named location           | partial/inconclusive | supported                        | medium            |
+| Denial → settings repair → retry | partial | supported | medium |
 
 This record preserves an already-completed local physical run. It was not rerun for submission. `pass` means the requested behavior was observed; `partial` means only part of the requested modality or invariant was exercised; `inconclusive` means the requested path could not be driven deterministically.
 
