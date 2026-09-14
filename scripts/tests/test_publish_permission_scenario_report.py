@@ -311,6 +311,22 @@ class PublishPermissionScenarioReportTest(unittest.TestCase):
         publisher.ensure_evidence_matches_result(bundle)
         publisher.validate_report_metadata(bundle, self.args, pr_head_sha=self.args.commit)
 
+        public_evidence = publisher.build_public_evidence(bundle, 1344)
+        self.assertNotIn("artifact_refs", public_evidence)
+
+        published = publisher.build_published_paths(bundle, 1344, "s21-exynos")
+        with tempfile.TemporaryDirectory(prefix="publish_map_") as scratch:
+            mapping = publisher.prepare_publish_mapping(bundle, published, Path(scratch), 1344)
+            public_evidence_path = next(
+                path for path, destination in mapping.items() if destination == published.evidence
+            )
+            persisted_evidence = json.loads(public_evidence_path.read_text(encoding="utf-8"))
+
+        self.assertNotIn("artifact_refs", persisted_evidence)
+        self.assertIn(published.result, mapping.values())
+        self.assertIn(published.summary, mapping.values())
+        self.assertIn(published.logcat, mapping.values())
+
     def test_validate_report_dir_loads_optional_artifacts(self) -> None:
         bundle = publisher.validate_report_dir(self.report_dir)
         self.assertEqual(bundle.result["suite"], "permission_scenarios")
