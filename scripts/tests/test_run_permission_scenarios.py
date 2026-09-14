@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from dataclasses import asdict
 from pathlib import Path
 
@@ -946,6 +947,111 @@ class WeatherDryRunTest(unittest.TestCase):
         self.assertEqual(1, len(plan))
         self.assertGreater(plan[0]["screenshot_count"], 0)
 
+
+
+CHAT_SCENARIO_IDS = frozenset({
+    "chat_weather_permission_grant_retries_without_duplicate",
+    "chat_weather_denial_settings_repair_retries",
+    "chat_weather_named_city_without_location",
+    "chat_voice_weather_not_now_ends_cleanly",
+    "chat_voice_weather_named_location_ends_cleanly",
+})
+
+
+class ChatScenarioTest(unittest.TestCase):
+    """Tests for functional Chat and voice scenario definitions."""
+
+    def _runner(self) -> permission_runner.ScenarioRunner:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return permission_runner.ScenarioRunner(
+            adb=_FakeAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+        )
+
+    def test_chat_scenarios_validate(self) -> None:
+        scenarios = [
+            scenario for scenario in permission_runner.SCENARIOS
+            if scenario["id"] in CHAT_SCENARIO_IDS
+        ]
+        self.assertEqual(CHAT_SCENARIO_IDS, {scenario["id"] for scenario in scenarios})
+        for scenario in scenarios:
+            errors = permission_runner.validate_scenario_definitions([scenario])
+            self.assertEqual([], errors, f"{scenario['id']} should validate:\n" + "\n".join(errors))
+
+    def test_chat_actions_report_observable_contract_fields(self) -> None:
+        self.assertTrue({"launch_chat", "submit_chat_query", "assert_chat_state"} <=
+                        permission_runner.SUPPORTED_ACTIONS)
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] not in CHAT_SCENARIO_IDS:
+                continue
+            actions = {step["action"] for step in scenario["steps"]}
+            self.assertIn("launch_chat", actions, scenario["id"])
+            if scenario["id"].startswith("chat_voice_"):
+                voice_steps = [
+                    step for step in scenario["steps"]
+                    if step["action"] == "run_functional_voice_stimulus"
+                ]
+                self.assertEqual(1, len(voice_steps), scenario["id"])
+                self.assertTrue(voice_steps[0].get("expected_transcript_contains"), scenario["id"])
+            else:
+                self.assertIn("submit_chat_query", actions, scenario["id"])
+
+    def test_quick_action_weather_scenarios_remain_unchanged(self) -> None:
+        self.assertEqual({
+            "weather_location_denied",
+            "weather_location_granted",
+            "weather_location_prompt_denied",
+            "weather_location_blocked_or_permanently_denied",
+            "weather_typed_city_without_location",
+        }, {
+            scenario["id"] for scenario in permission_runner.SCENARIOS
+            if scenario["id"].startswith("weather_")
+        })
+
+    def test_submit_chat_query_reports_visible_user_and_assistant_state(self) -> None:
+        runner = self._runner()
+        input_node = permission_runner.UiNode(
+            text="Message Jandal…", content_desc="", resource_id="",
+            class_name="android.widget.EditText", bounds=(0, 0, 100, 100),
+            clickable=True, enabled=True, checked=None, package=permission_runner.APP_PACKAGE,
+        )
+        send_node = permission_runner.UiNode(
+            text="", content_desc="Send", resource_id="",
+            class_name="android.widget.Button", bounds=(100, 0, 200, 100),
+            clickable=True, enabled=True, checked=None, package=permission_runner.APP_PACKAGE,
+        )
+        with patch.object(runner, "_find_target", side_effect=[input_node, send_node]), \
+             patch.object(runner, "_type_chat_query"), \
+             patch.object(runner, "_wait_for_text", return_value=True), \
+             patch.object(runner, "_wait_for_chat_query", return_value=True), \
+             patch.object(runner, "_wait_for_any_text", return_value=True), \
+             patch.object(runner, "_visible_chat_query_count", return_value=1), \
+             patch.object(runner, "_chat_route_reached", return_value=True):
+            _, debug = runner._submit_chat_query({
+                "query": "what's the weather",
+                "assistant_response_contains": ["Use your location"],
+            })
+
+        self.assertEqual(1, debug["tap_count"])
+        self.assertTrue(debug["debug"]["chat_route_reached"])
+        self.assertTrue(debug["debug"]["chat_user_message_visible"])
+        self.assertTrue(debug["debug"]["chat_assistant_response_visible"])
+        self.assertEqual("what's the weather", debug["debug"]["observed_transcript"])
+
+    def test_functional_voice_action_blocks_without_source_device(self) -> None:
+        runner = self._runner()
+        with self.assertRaisesRegex(permission_runner.ScenarioBlocked, "voice-source-serial"):
+            runner._execute_step({
+                "action": "run_functional_voice_stimulus",
+                "fixture_id": "qwen_command",
+                "expected_transcript_contains": ["weather"],
+            })
 
 
 CLOCK_SCENARIO_IDS = frozenset({
