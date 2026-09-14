@@ -2,12 +2,20 @@
 
 | Scenario                         | Result         | Location disabled at start       | Evidence strength |
 | -------------------------------- | -------------- | -------------------------------- | ----------------- |
-| Typed missing → grant → retry    | pass            | supported                         | medium            |
-| Voice → Not now                  | inconclusive    | supported                         | low               |
-| Voice → named location           | partial         | supported                         | medium            |
-| Denial → settings repair → retry | partial         | supported                         | medium            |
+| Typed missing → grant → retry    | pass           | supported                        | medium            |
+| Voice → Not now                  | inconclusive   | supported                        | low               |
+| Voice → named location           | partial        | supported                        | medium            |
+| Denial → settings repair → retry | partial         | supported                        | medium            |
 
 This record preserves an already-completed local physical run. It was not rerun for submission. `pass` means the requested behavior was observed; `partial` means only part of the requested modality or invariant was exercised; `inconclusive` means the requested path could not be driven deterministically.
+
+## Normalized evidence scope
+
+`evidence.json` follows the repository permission-runner convention: `suite` is `permission_scenarios`, and model metadata is `name=not_applicable`, `runtime=permission_scenario_runner`, `backend=adb`.
+
+The normalized record contains only the two behaviours proven by retained artefacts: typed local weather permission grant/retry and typed named-location bypass while Location was denied. Its summary is therefore `total=2`, `passed=2`, `failed=0`, `pass_rate=1.0`. This 2/2 result is not the full requested S23 Ultra validation matrix passing.
+
+Voice `Not now`, voice named-location fallback, and the complete settings-repair persistence/no-duplicate invariant remain narrative-only partial or inconclusive observations. The voice automation gap is tracked by #1535; the permission evidence schema/publisher defect is tracked by #1534.
 
 ## Test context
 
@@ -29,6 +37,8 @@ The Location-disabled starting state is supported by the contemporaneous permiss
 ### 2. Voice local weather → Not now — inconclusive
 
 The requested spoken transcript could not be injected into the S23 Ultra microphone through ADB. Back-and-Forth was physically started and the UI reached `Listening`; with no speech, it returned to idle with `PTT` and `Loop`. A typed cancellation proxy displayed and dismissed the contextual flow with `Not now`; no weather card appeared and the composer remained usable.
+
+The previously packaged Scenario 2 dismissal artefacts were identified as London content from the later named-location flow and removed. They are not claimed as evidence for this scenario.
 
 This does not prove the actual voice-weather → dialog → `Not now` path, nor does it prove the requested no-re-arm behavior after that exact dismissal. It is retained as inconclusive rather than failed.
 
@@ -68,7 +78,7 @@ After resetting Location to denied, typed `weather in tokyo` produced a direct T
 
 **Observation:** Direct spoken weather transcripts were not executed; typed proxies were used for cancellation and named-location fallback.
 
-**Evidence:** `screenshots/sc2_loop.png`, `screenshots/sc2_not_now.png`, `screenshots/sc3_guidance.png`, `screenshots/sc3_london_result.png`; the limitation itself is a non-file observation from the run.
+**Evidence:** `screenshots/sc2_loop.png`, `screenshots/sc2_idle.png`, `screenshots/sc3_guidance.png`, `screenshots/sc3_london_result.png`; the limitation itself is a non-file observation from the run.
 
 **Interpretation:** The typed permission and named-location behavior is useful evidence, but it cannot establish the voice-specific acceptance criteria.
 
@@ -110,5 +120,7 @@ After resetting Location to denied, typed `weather in tokyo` produced a direct T
 - Voice-specific named-location fallback was not directly exercised.
 - The complete no-duplicate message-persistence invariant after settings repair is not independently proven by retained artefacts.
 - The earlier microphone FGS exceptions are real captured observations but are not currently attributed to PR #1531.
+
+The normalized record intentionally contains only the two proven typed cases above. Its `2/2` summary must not be read as the full requested S23 Ultra matrix passing.
 
 No application code was changed. No device validation was rerun for this submission.

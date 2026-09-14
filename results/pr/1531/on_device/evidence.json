@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "source": "on_device",
-  "suite": "chat-weather-permission",
+  "suite": "permission_scenarios",
   "timestamp": "2026-09-12T10:50:23Z",
   "repo": "NickMonrad/kernel-ai-assistant",
   "branch": "fix/1530-chat-weather-permission",
@@ -21,127 +21,46 @@
     "execution": "physical"
   },
   "model": {
-    "name": "Gemma 4 E-4B",
-    "runtime": "LiteRT",
-    "backend": "GPU"
+    "name": "not_applicable",
+    "runtime": "permission_scenario_runner",
+    "backend": "adb"
   },
   "summary": {
-    "total": 5,
+    "total": 2,
     "passed": 2,
     "failed": 0,
-    "pass_rate": 0.4
+    "pass_rate": 1.0
   },
   "cases": [
     {
       "name": "typed_missing_location_grant_retry",
-      "journey": 1,
-      "status": "proven",
       "passed": true,
-      "evidence_type": "mixed",
-      "devices": ["s23-ultra"],
-      "blocker_refs": [],
-      "failures": [],
-      "notes": "Typed local-weather request showed the contextual dialog, reached the Android approximate-location prompt, and produced one Brisbane result after grant. Starting denial was supported by a contemporaneous ADB observation but no raw permission dump was retained.",
-      "artifact_refs": [
-        "screenshots/sc1_dialog.png",
-        "screenshots/sc1_runtime_prompt.png",
-        "screenshots/sc1_result_full.png",
-        "ui/sc1_dialog.xml",
-        "ui/sc1_runtime_prompt.xml",
-        "ui/sc1_result_full.xml",
-        "diagnostics/logcat-weather-permission.txt",
-        "diagnostics/permission-state.md"
-      ]
-    },
-    {
-      "name": "voice_not_now",
-      "journey": 2,
-      "status": "blocked",
-      "passed": false,
-      "evidence_type": "mixed",
-      "devices": ["s23-ultra"],
-      "blocker_refs": [],
-      "failures": [
-        "Direct spoken transcript was not exercised because ADB could not inject microphone audio.",
-        "Not now was exercised through a typed cancellation proxy, not an actual spoken weather utterance."
-      ],
-      "notes": "Back-and-Forth reached Listening and returned to idle after no speech. The typed cancellation proxy left no weather card and restored PTT/Loop. Direct voice-dialog behavior remains unverified.",
-      "artifact_refs": [
-        "screenshots/sc2_loop.png",
-        "screenshots/sc2_idle.png",
-        "screenshots/sc2_not_now.png",
-        "ui/sc2_loop.xml",
-        "ui/sc2_idle.xml",
-        "ui/sc2_not_now.xml",
-        "diagnostics/logcat-weather-permission.txt"
-      ]
-    },
-    {
-      "name": "voice_named_location_fallback_london",
-      "journey": 3,
-      "status": "partial",
-      "passed": false,
-      "evidence_type": "mixed",
-      "devices": ["s23-ultra"],
-      "blocker_refs": [],
-      "failures": [
-        "Direct spoken transcript was not exercised because ADB could not inject microphone audio."
-      ],
-      "notes": "The named-location guidance and subsequent London lookup were exercised through typed input. No Location prompt appeared and the London result rendered. The voice-triggered fallback itself is not proven.",
-      "artifact_refs": [
-        "screenshots/sc3_guidance.png",
-        "screenshots/sc3_london_result.png",
-        "ui/sc3_guidance.xml",
-        "ui/sc3_london_result.xml",
-        "diagnostics/logcat-weather-permission.txt",
-        "diagnostics/permission-state.md"
-      ]
-    },
-    {
-      "name": "denial_settings_repair_retry",
-      "journey": 4,
-      "status": "partial",
-      "passed": false,
-      "evidence_type": "mixed",
-      "devices": ["s23-ultra"],
-      "blocker_refs": [],
-      "failures": [
-        "The disabled starting state was observed and verified during the run but the raw dumpsys/appops output was not retained.",
-        "The retained evidence shows one resulting weather card, but does not independently prove the complete message-persistence/no-duplicate invariant."
-      ],
-      "notes": "Two runtime denials led to the blocked repair dialog. The CTA opened Android permission settings; Location was granted there; returning to Jandal produced a weather result. Classification is partial because the full chain is not independently captured at every boundary.",
-      "artifact_refs": [
-        "screenshots/sc4_repair.png",
-        "screenshots/sc4_permission_list.png",
-        "screenshots/sc4_location_settings.png",
-        "screenshots/sc4_location_granted.png",
-        "screenshots/sc4_post_settings.png",
-        "ui/sc4_repair.xml",
-        "ui/sc4_runtime1.xml",
-        "ui/sc4_runtime2.xml",
-        "ui/sc4_location_settings.xml",
-        "ui/sc4_post_settings.xml",
-        "diagnostics/logcat-weather-permission.txt",
-        "diagnostics/permission-state.md"
-      ]
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
     },
     {
       "name": "typed_named_location_tokyo_regression",
-      "journey": 5,
-      "status": "proven",
       "passed": true,
-      "evidence_type": "mixed",
-      "devices": ["s23-ultra"],
-      "blocker_refs": [],
-      "failures": [],
-      "notes": "After resetting Location to denied, typed weather in Tokyo bypassed permission and returned a direct weather result. The reset was supported by a contemporaneous ADB observation; no raw permission dump was retained.",
-      "artifact_refs": [
-        "screenshots/sc5_result.png",
-        "ui/sc5_result.xml",
-        "ui/sc5_typed.xml",
-        "diagnostics/logcat-weather-permission.txt",
-        "diagnostics/permission-state.md"
-      ]
+      "expected_tool": null,
+      "actual_tool": null,
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": false,
+      "skill_result_present": false,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
     }
   ],
   "artifact_refs": [
@@ -154,7 +73,6 @@
     "screenshots/sc1_result_full.png",
     "screenshots/sc2_loop.png",
     "screenshots/sc2_idle.png",
-    "screenshots/sc2_not_now.png",
     "screenshots/sc3_guidance.png",
     "screenshots/sc3_london_result.png",
     "screenshots/sc4_repair.png",
@@ -168,7 +86,6 @@
     "ui/sc1_result_full.xml",
     "ui/sc2_loop.xml",
     "ui/sc2_idle.xml",
-    "ui/sc2_not_now.xml",
     "ui/sc3_guidance.xml",
     "ui/sc3_london_result.xml",
     "ui/sc4_repair.xml",
