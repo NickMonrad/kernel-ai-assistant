@@ -36,6 +36,32 @@ class ListSyncModelsTest {
     }
 
     @Test
+    fun `between creates exact keys for sibling insertion`() {
+        assertEquals("5.5", OrderKey.between("5", "6"))
+        assertEquals("5.25", OrderKey.between("5", "5.5"))
+        assertEquals("7", OrderKey.between("6", null))
+    }
+
+    @Test
+    fun `projection keeps multiple effective children ordered beneath parent`() {
+        val items = listOf(
+            HierarchyItem("parent", null, "0", VersionStamp(1, "actor")),
+            HierarchyItem("second", "parent", "2", VersionStamp(2, "actor")),
+            HierarchyItem("first", "parent", "1", VersionStamp(1, "actor")),
+        )
+        val groups = EffectiveHierarchyProjection.derive(
+            items,
+            itemId = { it.itemId },
+            parentItemId = { it.parentItemId },
+            orderKey = { it.orderKey },
+            placementStamp = { it.placementStamp },
+        )
+
+        assertEquals(listOf("parent"), groups.map { it.parent.itemId })
+        assertEquals(listOf("first", "second"), groups.single().children.map { it.itemId })
+    }
+
+    @Test
     fun `hierarchy suppresses lower priority cycles and preserves top level items`() {
         val result = EffectiveHierarchyNormalizer.derive(
             listOf(

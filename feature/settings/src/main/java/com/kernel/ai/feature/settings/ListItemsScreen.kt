@@ -47,12 +47,18 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
@@ -60,11 +66,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
@@ -170,20 +173,15 @@ fun ListItemsScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
-    val displayedItems by viewModel.observeDisplayedItems(listId).collectAsStateWithLifecycle()
+    val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
-
-    // Apply text search on top of sorted/filtered results from the ViewModel
-    val (sortedActive, sortedCompleted) = displayedItems
-    val filteredActive = if (searchQuery.isBlank()) sortedActive
-    else sortedActive.filter { it.text.contains(searchQuery, ignoreCase = true) }
-    val filteredCompleted = if (searchQuery.isBlank()) sortedCompleted
-    else sortedCompleted.filter { it.text.contains(searchQuery, ignoreCase = true) }
-
-    val allItems = sortedActive + sortedCompleted  // for empty-state check
+    val (activeGroups, completedGroups) = displayedGroups
+    val sortedActive = activeGroups.flatMap { listOf(it.parent) + it.children }
+    val sortedCompleted = completedGroups.flatMap { listOf(it.parent) + it.children }
+    val allItems = sortedActive + sortedCompleted
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -195,6 +193,12 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+    val hierarchyDragEnabled =
+        viewModel.itemSort == ItemSort.MANUAL &&
+            viewModel.itemFilter == ItemFilter.ALL &&
+            searchQuery.isBlank() &&
+            !isItemMultiSelectMode
+
     var showSelectAllMenu by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
@@ -202,19 +206,24 @@ fun ListItemsScreen(
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // ── Drag-to-reorder state (#917) ─────────────────────────────────────────────────────────────
-    var localActiveItems by remember { mutableStateOf(filteredActive) }
+    // ── Drag-to-reorder state (#928) ─────────────────────────────────────────────────────────────
+    var localActiveItems by remember { mutableStateOf(sortedActive) }
     var itemDragInProgress by remember { mutableStateOf(false) }
-    LaunchedEffect(filteredActive) { if (!itemDragInProgress) localActiveItems = filteredActive }
+    var dragSourceId by remember { mutableStateOf<Long?>(null) }
+    var dragTargetId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(activeGroups) {
+        if (!itemDragInProgress) localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
+    }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        // Only reorder Long-keyed items (active items); String keys are completed/header keys
+        if (!hierarchyDragEnabled) return@rememberReorderableLazyListState
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
         val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
         val fi = localActiveItems.indexOfFirst { it.id == fromKey }
         val ti = localActiveItems.indexOfFirst { it.id == toKey }
         if (fi < 0 || ti < 0) return@rememberReorderableLazyListState
+        dragTargetId = toKey
         localActiveItems = localActiveItems.toMutableList().apply { add(ti, removeAt(fi)) }
     }
 
@@ -302,10 +311,7 @@ fun ListItemsScreen(
                                     text = { Text("Select all") },
                                     onClick = {
                                         showSelectAllMenu = false
-                                        viewModel.selectAllItems(
-                                            (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
-                                                .map { it.id }
-                                        )
+                                        viewModel.selectAllItems(allItems.map { it.id })
                                     },
                                 )
                             }
@@ -489,38 +495,84 @@ fun ListItemsScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), state = lazyListState) {
-                    // Active items — wrapped in ReorderableItem for drag-to-reorder (#917)
                     items(localActiveItems, key = { it.id }) { item ->
                         ReorderableItem(reorderState, key = item.id) { isDragging ->
                             val elevation by animateDpAsState(
                                 if (isDragging) 6.dp else 0.dp,
                                 label = "item_drag_elevation",
                             )
-                            Surface(shadowElevation = elevation) {
-                                val isSelected = item.id in selectedItemIds
-                                ListItemRow(
-                                    item = item,
-                                    isMultiSelectMode = isItemMultiSelectMode,
-                                    isSelected = isSelected,
-                                    showDragHandle = !isItemMultiSelectMode,
-                                    dragHandleModifier = if (!isItemMultiSelectMode) {
-                                        Modifier.longPressDraggableHandle(
-                                            onDragStarted = { itemDragInProgress = true },
-                                            onDragStopped = {
-                                                itemDragInProgress = false
-                                                viewModel.reorderItems(localActiveItems.map { it.id })
-                                            },
-                                        )
-                                    } else Modifier,
-                                    onToggle = { viewModel.toggleChecked(item) },
-                                    onDelete = { viewModel.deleteItem(item) },
-                                    onEdit = { editingItem = item },
-                                    onToggleFavourite = { viewModel.toggleFavourite(item) },
-                                    onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                                    onSelectToggle = { viewModel.toggleItemSelection(item.id) },
-                                )
+                            val isChild = activeGroups.any { group -> group.children.any { it.id == item.id } }
+                            val sourceItem = dragSourceId?.let { sourceId ->
+                                localActiveItems.firstOrNull { it.id == sourceId }
                             }
-                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            val sourceHasChildren = dragSourceId?.let { sourceId ->
+                                activeGroups.any { group -> group.parent.id == sourceId && group.children.isNotEmpty() }
+                            } == true
+                            val targetHasChildren = activeGroups.any {
+                                group -> group.parent.id == item.id && group.children.isNotEmpty()
+                            }
+                            val targetIsChild = isChild
+                            val sourceIsChild = sourceItem?.let { source ->
+                                activeGroups.any { group -> group.children.any { it.id == source.id } }
+                            } == true
+                            val isDropTarget = item.id == dragTargetId && item.id != dragSourceId
+                            val isNestTarget = isDropTarget &&
+                                !sourceHasChildren &&
+                                !targetIsChild &&
+                                (targetHasChildren || sourceIsChild)
+                            Surface(
+                                color = when {
+                                    isNestTarget -> MaterialTheme.colorScheme.tertiaryContainer
+                                    isDropTarget -> MaterialTheme.colorScheme.secondaryContainer
+                                    else -> MaterialTheme.colorScheme.surface
+                                },
+                                shadowElevation = elevation,
+                            ) {
+                                val row: @Composable () -> Unit = {
+                                    ListItemRow(
+                                        item = item,
+                                        isChild = isChild,
+                                        isMultiSelectMode = isItemMultiSelectMode,
+                                        isSelected = item.id in selectedItemIds,
+                                        showDragHandle = hierarchyDragEnabled,
+                                        modifier = if (hierarchyDragEnabled) {
+                                            Modifier.longPressDraggableHandle(
+                                                onDragStarted = {
+                                                    itemDragInProgress = true
+                                                    dragSourceId = item.id
+                                                },
+                                                onDragStopped = {
+                                                    itemDragInProgress = false
+                                                    val source = dragSourceId
+                                                    val target = dragTargetId
+                                                    if (source != null && target != null && source != target) {
+                                                        viewModel.moveItemFromDrag(localActiveItems.map { it.id }, source, target)
+                                                    }
+                                                    dragSourceId = null
+                                                    dragTargetId = null
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onToggle = { viewModel.toggleChecked(item) },
+                                        onDelete = { viewModel.deleteItem(item) },
+                                        onEdit = { editingItem = item },
+                                        onToggleFavourite = { viewModel.toggleFavourite(item) },
+                                        onPromote = { viewModel.splitItem(item) },
+                                        onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                                        onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                    )
+                                }
+                                if (isChild) {
+                                    SwipeToUnparentRow(
+                                        item = item,
+                                        onUnparent = { viewModel.splitItem(item) },
+                                        content = row,
+                                    )
+                                } else {
+                                    row()
+                                }
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 80.dp else 56.dp))
                         }
                     }
 
@@ -542,8 +594,7 @@ fun ListItemsScreen(
                                     Icon(
                                         if (completedExpanded) Icons.Default.ExpandLess
                                         else Icons.Default.ExpandMore,
-                                        contentDescription = if (completedExpanded) "Collapse"
-                                        else "Expand",
+                                        contentDescription = if (completedExpanded) "Collapse" else "Expand",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
@@ -552,22 +603,42 @@ fun ListItemsScreen(
                         }
                     }
 
-                    // Completed items (collapsible) — no drag handle for completed items
+                    // Completed groups (collapsible); child rows retain their parent context.
                     if (completedExpanded) {
-                        items(filteredCompleted, key = { "done_${it.id}" }) { item ->
-                            val isSelected = item.id in selectedItemIds
+                        items(completedGroups, key = { "done_group_${it.parent.id}" }) { group ->
                             ListItemRow(
-                                item = item,
+                                item = group.parent,
                                 isMultiSelectMode = isItemMultiSelectMode,
-                                isSelected = isSelected,
+                                isSelected = group.parent.id in selectedItemIds,
                                 showDragHandle = false,
-                                onToggle = { viewModel.toggleChecked(item) },
-                                onDelete = { viewModel.deleteItem(item) },
-                                onEdit = { editingItem = item },
-                                onToggleFavourite = { viewModel.toggleFavourite(item) },
-                                onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                                onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                onToggle = { viewModel.toggleChecked(group.parent) },
+                                onDelete = { viewModel.deleteItem(group.parent) },
+                                onEdit = { editingItem = group.parent },
+                                onToggleFavourite = { viewModel.toggleFavourite(group.parent) },
+                                onLongClick = { viewModel.enterItemMultiSelect(group.parent.id) },
+                                onSelectToggle = { viewModel.toggleItemSelection(group.parent.id) },
                             )
+                            group.children.forEach { child ->
+                                SwipeToUnparentRow(
+                                    item = child,
+                                    onUnparent = { viewModel.splitItem(child) },
+                                ) {
+                                    ListItemRow(
+                                    item = child,
+                                    isChild = true,
+                                    isMultiSelectMode = isItemMultiSelectMode,
+                                    isSelected = child.id in selectedItemIds,
+                                    showDragHandle = false,
+                                    onToggle = { viewModel.toggleChecked(child) },
+                                    onDelete = { viewModel.deleteItem(child) },
+                                    onEdit = { editingItem = child },
+                                    onToggleFavourite = { viewModel.toggleFavourite(child) },
+                                    onPromote = { viewModel.splitItem(child) },
+                                    onLongClick = { viewModel.enterItemMultiSelect(child.id) },
+                                    onSelectToggle = { viewModel.toggleItemSelection(child.id) },
+                                )
+                                }
+                            }
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                         }
                     }
@@ -614,7 +685,6 @@ fun ListItemsScreen(
             onDismiss = { showAddDialog = false },
         )
     }
-
     // ── Bulk delete dialog ───────────────────────────────────────────────────────────────────────
     if (showItemBulkDeleteDialog) {
         val count = selectedItemIds.size
@@ -635,6 +705,41 @@ fun ListItemsScreen(
             },
         )
     }
+
+}
+@Composable
+private fun SwipeToUnparentRow(
+    item: ListItemEntity,
+    onUnparent: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onUnparent()
+            }
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Unparent",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        },
+        content = { content() },
+    )
 }
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
@@ -643,20 +748,23 @@ fun ListItemsScreen(
 @Composable
 private fun ListItemRow(
     item: ListItemEntity,
+    modifier: Modifier = Modifier,
+    isChild: Boolean = false,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
-    dragHandleModifier: Modifier = Modifier,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
+    onPromote: () -> Unit = {},
     onLongClick: () -> Unit = {},
     onSelectToggle: () -> Unit = {},
 ) {
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (isChild) Modifier.padding(start = 24.dp) else Modifier)
             .combinedClickable(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
@@ -747,11 +855,19 @@ private fun ListItemRow(
         } else {
             {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isChild) {
+                        IconButton(onClick = onPromote) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Promote to top level",
+                            )
+                        }
+                    }
                     if (showDragHandle) {
                         Icon(
                             Icons.Default.DragHandle,
                             contentDescription = "Drag to reorder",
-                            modifier = dragHandleModifier.padding(8.dp),
+                            modifier = modifier.padding(8.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

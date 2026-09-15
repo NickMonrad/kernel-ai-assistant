@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListChangePayload
@@ -12,6 +13,7 @@ import com.kernel.ai.core.memory.lists.VersionStamp
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -295,6 +297,139 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(itemId, true)
         assertTrue(database.listNameDao().getById(listId)!!.updatedAt > beforeLocal)
     }
+    @Test
+    fun `hierarchy completion cascades and parent deletion promotes surviving children`() = runBlocking {
+        val listId = repository.createCollection("Hierarchy")
+        val parentId = repository.addItem(listId, "Parent")
+        val firstId = repository.addItem(listId, "First")
+        val secondId = repository.addItem(listId, "Second")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(firstId, parent.itemId, "1")
+        repository.setItemPlacement(secondId, parent.itemId, "2")
+
+        repository.setItemChecked(firstId, true)
+        repository.setItemChecked(secondId, true)
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+
+        repository.setItemChecked(firstId, false)
+        assertTrue(!database.listItemDao().getById(parentId)!!.checked)
+
+        repository.setItemChecked(parentId, true)
+        assertTrue(database.listItemDao().getById(firstId)!!.checked)
+        assertTrue(database.listItemDao().getById(secondId)!!.checked)
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+
+        repository.deleteItem(parentId)
+        val surviving = database.listItemDao().getAllByList(listId)
+        assertEquals(listOf("First", "Second"), surviving.map { it.text })
+        assertTrue(surviving.all { it.parentItemId == null })
+    }
+
+    @Test
+    fun `splitting a middle child promotes it and reparents following siblings`() = runBlocking {
+        val listId = repository.createCollection("Split")
+        val parentId = repository.addItem(listId, "Parent")
+        val firstId = repository.addItem(listId, "First")
+        val middleId = repository.addItem(listId, "Middle")
+        val lastId = repository.addItem(listId, "Last")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(firstId, parent.itemId, "1")
+        repository.setItemPlacement(middleId, parent.itemId, "2")
+        repository.setItemPlacement(lastId, parent.itemId, "3")
+
+        val changesBeforeSplit = repository.pendingChanges().size
+        repository.splitItem(middleId)
+
+        val middle = database.listItemDao().getById(middleId)!!
+        val last = database.listItemDao().getById(lastId)!!
+        assertEquals(null, middle.parentItemId)
+        assertEquals(middle.itemId, last.parentItemId)
+        val first = database.listItemDao().getById(firstId)!!
+        assertEquals(parent.itemId, first.parentItemId)
+        assertTrue(OrderKey.compare(middle.orderKey, parent.orderKey) > 0)
+        assertTrue(
+            repository.pendingChanges().drop(changesBeforeSplit)
+                .count { it.operation == ListChangeOperation.SET_ITEM_PLACEMENT } >= 2,
+        )
+    }
+
+    @Test
+    fun `bulk deletion promotes only untargeted children`() = runBlocking {
+        val listId = repository.createCollection("Bulk hierarchy")
+        val parentId = repository.addItem(listId, "Parent")
+        val firstId = repository.addItem(listId, "Keep first")
+        val middleId = repository.addItem(listId, "Delete middle")
+        val lastId = repository.addItem(listId, "Keep last")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(firstId, parent.itemId, "1")
+        repository.setItemPlacement(middleId, parent.itemId, "2")
+        repository.setItemPlacement(lastId, parent.itemId, "3")
+
+        repository.deleteItems(listOf(parentId, middleId))
+
+        val first = database.listItemDao().getById(firstId)!!
+        val middle = database.listItemDao().getById(middleId)!!
+        val last = database.listItemDao().getById(lastId)!!
+        assertEquals(ListLifecycle.ACTIVE.name, first.lifecycle)
+        assertEquals(ListLifecycle.DELETED.name, middle.lifecycle)
+        assertEquals(ListLifecycle.ACTIVE.name, last.lifecycle)
+        assertEquals(null, first.parentItemId)
+        assertEquals(null, last.parentItemId)
+        assertTrue(OrderKey.compare(first.orderKey, last.orderKey) < 0)
+    }
+
+    @Test
+    fun `moving an item under an existing child is rejected atomically`() = runBlocking {
+        val listId = repository.createCollection("Validation")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val grandchildId = repository.addItem(listId, "Grandchild")
+        val parent = database.listItemDao().getById(parentId)!!
+        val child = database.listItemDao().getById(childId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+
+        val changesBeforeInvalidMove = repository.pendingChanges().size
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repository.setItemPlacement(grandchildId, child.itemId, "1") }
+        }
+        assertEquals(null, database.listItemDao().getById(grandchildId)!!.parentItemId)
+        assertEquals(changesBeforeInvalidMove, repository.pendingChanges().size)
+
+    }
+    @Test
+    fun `reparenting a checked child recomputes both parent completion states`() = runBlocking {
+        val listId = repository.createCollection("Reparent")
+        val oldParentId = repository.addItem(listId, "Old parent")
+        val newParentId = repository.addItem(listId, "New parent")
+        val childId = repository.addItem(listId, "Child")
+        val oldParent = database.listItemDao().getById(oldParentId)!!
+        val newParent = database.listItemDao().getById(newParentId)!!
+        val child = database.listItemDao().getById(childId)!!
+
+        repository.setItemPlacement(childId, oldParent.itemId, "1")
+        repository.setItemChecked(childId, true)
+        repository.setItemPlacement(childId, newParent.itemId, "1")
+
+        assertTrue(database.listItemDao().getById(oldParentId)!!.checked)
+        assertTrue(database.listItemDao().getById(newParentId)!!.checked)
+        assertEquals(newParent.itemId, database.listItemDao().getById(childId)!!.parentItemId)
+    }
+
+    @Test
+    fun `splitting the final child promotes it without losing its placement`() = runBlocking {
+        val listId = repository.createCollection("Final split")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Only child")
+        val parent = database.listItemDao().getById(parentId)!!
+
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        repository.splitItem(childId)
+
+        val child = database.listItemDao().getById(childId)!!
+        assertEquals(null, child.parentItemId)
+        assertEquals(listOf("Parent", "Only child"), database.listItemDao().getByList(listId).map { it.text })
+    }
+
     private fun change(
         collectionId: String,
         targetId: String,

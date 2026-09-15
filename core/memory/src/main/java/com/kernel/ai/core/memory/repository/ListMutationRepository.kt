@@ -16,6 +16,8 @@ import com.kernel.ai.core.memory.entity.ListCheckpointEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ListSourceSequenceEntity
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyNormalizer
+import com.kernel.ai.core.memory.lists.HierarchyItem
 import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListChangePayload
@@ -97,13 +99,59 @@ class ListMutationRepository @Inject constructor(
         texts.map { addItemInternal(listId, it, null, false, null) }
     }
 
-    suspend fun setItemChecked(itemId: Long, checked: Boolean) = database.withTransaction {
-        val item = requireItem(itemId)
-        if (item.checked == checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+    suspend fun setItemChecked(itemId: Long, checked: Boolean) =
+        setItemsChecked(listOf(itemId), checked)
+
+    suspend fun setItemsChecked(itemIds: List<Long>, checked: Boolean) = database.withTransaction {
+        if (itemIds.isEmpty()) return@withTransaction
+        val requested = itemIds.distinct().map { requireItem(it) }
+        val activeByList = requested.groupBy { it.listId }.mapValues { (listId, _) ->
+            listItemDao.getAllByListUnordered(listId)
+                .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        }
+        requested.groupBy { it.listId }.forEach { (listId, listRequested) ->
+            val items = activeByList.getValue(listId)
+            val hierarchy = deriveHierarchy(items)
+            val byStableId = items.associateBy { it.itemId }
+            val updates = linkedSetOf<Long>()
+            listRequested.forEach { item ->
+                if (item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                updates += item.id
+                hierarchy.parentByChild.entries
+                    .filter { it.value == item.itemId }
+                    .mapNotNull { byStableId[it.key]?.id }
+                    .forEach { updates += it }
+            }
+            updates.forEach { id ->
+                setItemCheckedInternal(requireItem(id), checked)
+            }
+            val parents = items.filter { item ->
+                hierarchy.parentByChild.containsKey(item.itemId) ||
+                    hierarchy.parentByChild.values.contains(item.itemId)
+            }.map { it.itemId }.toSet()
+            parents.forEach { stableId ->
+                recomputeParentCompletionInternal(requireItem(byStableId.getValue(stableId).id))
+            }
+        }
+    }
+
+    private suspend fun setItemCheckedInternal(item: ListItemEntity, checked: Boolean) {
+        if (item.lifecycle != ListLifecycle.ACTIVE.name || item.checked == checked) return
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(checked = checked, updatedAt = System.currentTimeMillis(), checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId))
         touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_CHECKED, ListChangePayload(checked = checked))
+    }
+
+    private suspend fun recomputeParentCompletionInternal(item: ListItemEntity) {
+        val current = requireItem(item.id)
+        val children = deriveHierarchy(listItemDao.getAllByListUnordered(current.listId)).parentByChild
+            .filterValues { it == current.itemId }
+            .keys
+            .mapNotNull { listItemDao.getByItemId(it) }
+        if (children.isNotEmpty()) {
+            setItemCheckedInternal(current, children.all { it.checked })
+        }
     }
 
     suspend fun setItemText(itemId: Long, text: String) = database.withTransaction {
@@ -150,30 +198,86 @@ class ListMutationRepository @Inject constructor(
         if (parentChanged) touchList(item.listId)
     }
 
-    suspend fun setItemPlacement(itemId: Long, parentItemId: String?, orderKey: String) = database.withTransaction {
-        val item = requireItem(itemId)
-        val canonicalOrderKey = OrderKey.canonical(orderKey)
-        if (item.parentItemId == parentItemId && OrderKey.canonical(item.orderKey) == canonicalOrderKey) return@withTransaction
-        val stamp = nextStamp(item.collectionId)
-        listItemDao.upsert(item.copy(parentItemId = parentItemId, orderKey = canonicalOrderKey, displayOrder = canonicalOrderKey.toLongOrNull() ?: item.displayOrder, updatedAt = System.currentTimeMillis(), placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
-        refreshLegacyDisplayOrders(item.listId)
-        touchList(item.listId)
-        recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_PLACEMENT, ListChangePayload(parentItemId = parentItemId, orderKey = canonicalOrderKey))
-    }
+    suspend fun setItemPlacement(itemId: Long, parentItemId: String?, orderKey: String) = moveItem(itemId, parentItemId, orderKey)
 
-    suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {
-        itemIds.forEachIndexed { index, id ->
-            val item = requireItem(id)
-            if (item.listId != listId) error("Item does not belong to list")
-            setItemPlacementInternal(item, null, OrderKey.forIndex(index))
+    suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String) = database.withTransaction {
+        val item = requireItem(itemId)
+        require(item.lifecycle == ListLifecycle.ACTIVE.name) { "Item is not active" }
+        val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = deriveHierarchy(items)
+        require(parentItemId == null || parentItemId != item.itemId) { "Item cannot parent itself" }
+        if (parentItemId != null) {
+            val parent = items.firstOrNull { it.itemId == parentItemId }
+            require(parent != null) { "Parent does not belong to list" }
+            require(parentItemId in hierarchy.topLevelItemIds) { "Parent must be an effective top-level item" }
+            require(hierarchy.parentByChild.entries.none { it.value == item.itemId }) { "An item with children cannot become a child" }
+        }
+        setItemPlacementInternal(item, parentItemId, OrderKey.canonical(orderKey))
+        hierarchy.parentByChild[item.itemId]?.let { oldParent ->
+            listItemDao.getByItemId(oldParent)?.let { recomputeParentCompletionInternal(it) }
+        }
+        parentItemId?.let { newParent ->
+            listItemDao.getByItemId(newParent)?.let { recomputeParentCompletionInternal(it) }
         }
     }
 
-    suspend fun deleteItem(itemId: Long) = database.withTransaction {
-        deleteItemInternal(itemId)
+    suspend fun splitItem(itemId: Long) = database.withTransaction {
+        val item = requireItem(itemId)
+        val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = deriveHierarchy(items)
+        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction
+        val oldParent = items.first { it.itemId == oldParentId }
+        val siblings = items.filter { hierarchy.parentByChild[it.itemId] == oldParentId }
+            .sortedWith(orderComparator())
+        val index = siblings.indexOfFirst { it.itemId == item.itemId }
+        val topLevel = hierarchy.topLevelItemIds.mapNotNull { id -> items.firstOrNull { it.itemId == id } }
+        val nextTop = topLevel.firstOrNull { OrderKey.compare(it.orderKey, oldParent.orderKey) > 0 }
+        setItemPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTop?.orderKey))
+        siblings.drop(index + 1).forEach { child ->
+            setItemPlacementInternal(child, item.itemId, child.orderKey)
+        }
+        recomputeParentCompletionInternal(oldParent)
+        recomputeParentCompletionInternal(item)
     }
 
-    suspend fun deleteItems(itemIds: List<Long>) = database.withTransaction { itemIds.forEach { deleteItemInternal(it) } }
+    suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {
+        val items = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = deriveHierarchy(items)
+        val topLevel = hierarchy.topLevelItemIds.mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
+        require(itemIds.toSet() == topLevel.map { it.id }.toSet()) { "Reorder requires every top-level item exactly once" }
+        itemIds.forEachIndexed { index, id ->
+            setItemPlacementInternal(requireItem(id), null, OrderKey.forIndex(index))
+        }
+    }
+
+    suspend fun deleteItem(itemId: Long) = deleteItems(listOf(itemId))
+
+    suspend fun deleteItems(itemIds: List<Long>) = database.withTransaction {
+        if (itemIds.isEmpty()) return@withTransaction
+        val items = itemIds.distinct().map { requireItem(it) }
+        val active = listItemDao.getAllByListUnordered(items.first().listId)
+            .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        require(items.all { it.listId == items.first().listId }) { "Items do not belong to one list" }
+        val hierarchy = deriveHierarchy(active)
+        val targets = items.filter { it.lifecycle == ListLifecycle.ACTIVE.name }.map { it.itemId }.toSet()
+        val byId = active.associateBy { it.itemId }
+        hierarchy.topLevelItemIds.mapNotNull { byId[it] }.filter { it.itemId in targets }.forEach { parent ->
+            val survivors = active
+                .filter { hierarchy.parentByChild[it.itemId] == parent.itemId && it.itemId !in targets }
+                .sortedWith(orderComparator())
+            val nextTop = hierarchy.topLevelItemIds.mapNotNull(byId::get)
+                .firstOrNull { OrderKey.compare(it.orderKey, parent.orderKey) > 0 && it.itemId !in targets }
+            var lower = parent.orderKey
+            survivors.forEach { child ->
+                val key = OrderKey.between(lower, nextTop?.orderKey)
+                setItemPlacementInternal(child, null, key)
+                lower = key
+            }
+        }
+        items.filter { it.itemId in targets }.forEach { deleteItemInternal(it.id) }
+        active.filter { it.itemId !in targets && (hierarchy.parentByChild.containsKey(it.itemId) || hierarchy.parentByChild.values.contains(it.itemId)) }
+            .forEach { recomputeParentCompletionInternal(it) }
+    }
 
     suspend fun deleteCollection(listId: Long) = database.withTransaction {
         deleteCollectionInternal(requireList(listId))
@@ -447,6 +551,9 @@ class ListMutationRepository @Inject constructor(
         val item = ensureRemoteItem(change)
         require(item.collectionId == change.collectionId) { "Item belongs to another collection" }
         if (item.lifecycle == ListLifecycle.DELETED.name) return
+        val oldParentId = deriveHierarchy(
+            listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name },
+        ).parentByChild[item.itemId]
         val updated = when (change.operation) {
             ListChangeOperation.SET_ITEM_TEXT ->
                 if (change.stamp > VersionStamp(item.textLogicalClock, item.textStampActorId)) {
@@ -469,6 +576,15 @@ class ListMutationRepository @Inject constructor(
         if (updated != null) {
             listItemDao.upsert(updated)
             if (change.operation == ListChangeOperation.SET_ITEM_PLACEMENT) refreshLegacyDisplayOrders(item.listId)
+            oldParentId?.let { parentId ->
+                listItemDao.getByItemId(parentId)?.let { recomputeParentCompletionInternal(it) }
+            }
+            val newParentId = deriveHierarchy(
+                listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name },
+            ).parentByChild[item.itemId]
+            newParentId?.takeUnless { it == oldParentId }?.let { parentId ->
+                listItemDao.getByItemId(parentId)?.let { recomputeParentCompletionInternal(it) }
+            }
             touchList(item.listId)
         }
     }
@@ -512,6 +628,22 @@ class ListMutationRepository @Inject constructor(
             candidate = "$title ($label $suffix)"
             suffix += 1
         }
+    }
+    private fun deriveHierarchy(items: Collection<ListItemEntity>) = EffectiveHierarchyNormalizer.derive(
+        items.map {
+            HierarchyItem(
+                itemId = it.itemId,
+                parentItemId = it.parentItemId,
+                orderKey = it.orderKey,
+                placementStamp = VersionStamp(it.placementLogicalClock, it.placementStampActorId),
+                active = it.lifecycle == ListLifecycle.ACTIVE.name,
+            )
+        },
+    )
+
+    private fun orderComparator(): Comparator<ListItemEntity> = Comparator { left, right ->
+        OrderKey.compare(left.orderKey, right.orderKey).takeIf { it != 0 }
+            ?: left.itemId.compareTo(right.itemId)
     }
 }
 

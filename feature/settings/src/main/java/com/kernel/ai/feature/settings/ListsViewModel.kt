@@ -13,8 +13,12 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyProjection
+import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.lists.OrderKey
+import com.kernel.ai.core.memory.lists.VersionStamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -199,6 +203,83 @@ class ListsViewModel @Inject constructor(
             )
         }
 
+    private val hierarchyFlowCache =
+        mutableMapOf<Long, StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>>>()
+
+    fun observeDisplayedHierarchy(
+        listId: Long,
+    ): StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>> =
+        hierarchyFlowCache.getOrPut(listId) {
+            combine(
+                dao.observeByList(listId),
+                snapshotFlow { itemSort },
+                snapshotFlow { itemFilter },
+                itemSearchQuery,
+            ) { items, sort, filter, query ->
+                val comparator = itemComparator(sort)
+                val groups = EffectiveHierarchyProjection.derive(
+                    items,
+                    itemId = { it.itemId },
+                    parentItemId = { it.parentItemId },
+                    orderKey = { it.orderKey },
+                    placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+                )
+                val matching = groups.mapNotNull { group ->
+                    val parentMatches = query.isBlank() || group.parent.text.contains(query, true)
+                    val childMatches = group.children.filter { query.isBlank() || it.text.contains(query, true) }
+                    val favouriteParent = group.parent.isFavourite
+                    val favouriteChildren = group.children.filter { it.isFavourite }
+                    val children = when {
+                        query.isNotBlank() && !parentMatches -> childMatches
+                        filter == ItemFilter.FAVOURITES_ONLY && !favouriteParent -> favouriteChildren
+                        else -> group.children
+                    }
+                    val filterMatches = when (filter) {
+                        ItemFilter.ALL -> true
+                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || favouriteChildren.isNotEmpty()
+                        ItemFilter.ACTIVE_ONLY -> !group.parent.checked
+                        ItemFilter.COMPLETED_ONLY -> group.parent.checked
+                    }
+                    if (filterMatches && (parentMatches || children.isNotEmpty())) {
+                        EffectiveHierarchyGroup(group.parent, children)
+                    } else null
+                }
+                val active = groupsForStatus(matching, checked = false, comparator)
+                val completed = groupsForStatus(matching, checked = true, comparator)
+                Pair(active, completed)
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Pair(emptyList(), emptyList()))
+        }
+
+    private fun itemComparator(sort: ItemSort): Comparator<ListItemEntity> = when (sort) {
+        ItemSort.MANUAL -> Comparator { left, right ->
+            OrderKey.compare(left.orderKey, right.orderKey).takeIf { it != 0 }
+                ?: left.itemId.compareTo(right.itemId).takeIf { it != 0 }
+                ?: left.id.compareTo(right.id)
+        }
+        ItemSort.CREATED_NEWEST -> compareByDescending { it.createdAt }
+        ItemSort.CREATED_OLDEST -> compareBy { it.createdAt }
+        ItemSort.UPDATED_NEWEST -> compareByDescending { it.updatedAt }
+        ItemSort.NAME_ASC -> Comparator { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.text, b.text) }
+        ItemSort.NAME_DESC -> Comparator { a, b -> String.CASE_INSENSITIVE_ORDER.compare(b.text, a.text) }
+        ItemSort.DUE_SOONEST -> compareBy<ListItemEntity> { it.dueAt == null }.thenBy { it.dueAt ?: Long.MAX_VALUE }
+        ItemSort.FAVOURITES_FIRST -> compareByDescending<ListItemEntity> { it.isFavourite }.thenByDescending { it.createdAt }
+    }
+
+    private fun groupsForStatus(
+        groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        checked: Boolean,
+        comparator: Comparator<ListItemEntity>,
+    ): List<EffectiveHierarchyGroup<ListItemEntity>> {
+        val matching = groups.filter { it.parent.checked == checked }
+        val parentComparator = comparator
+        val childComparator = Comparator { left: ListItemEntity, right: ListItemEntity ->
+            OrderKey.compare(left.orderKey, right.orderKey).takeIf { it != 0 }
+                ?: left.itemId.compareTo(right.itemId)
+        }
+        return matching.sortedWith(Comparator { a, b -> parentComparator.compare(a.parent, b.parent) })
+            .map { it.copy(children = it.children.sortedWith(childComparator)) }
+    }
+
     // ── Derived helpers ──────────────────────────────────────────────────────────────────────────
 
     /** List names derived from listEntities — kept for search filtering. */
@@ -245,12 +326,8 @@ class ListsViewModel @Inject constructor(
     private var reorderJob: Job? = null
 
     /**
-     * Called when the user finishes dragging a list row.  Cancels any in-flight reorder job and
-     * persists the new display order atomically for both groups, automatically switching the sort
-     * mode to [ListSort.MANUAL].
-     *
-     * @param pinnedIds  Ordered list of pinned entity IDs after the drag.
-     * @param unpinnedIds  Ordered list of unpinned entity IDs after the drag.
+     * Called when the user finishes dragging a list row. Cancels any in-flight reorder job and
+     * persists the new display order atomically for both groups.
      */
     fun onListsReordered(pinnedIds: List<Long>, unpinnedIds: List<Long>) {
         listSort = ListSort.MANUAL
@@ -258,7 +335,7 @@ class ListsViewModel @Inject constructor(
         reorderJob?.cancel()
         reorderJob = viewModelScope.launch(Dispatchers.IO) {
             val updates = pinnedIds.mapIndexed { i, id -> id to i } +
-                          unpinnedIds.mapIndexed { i, id -> id to i }
+                unpinnedIds.mapIndexed { i, id -> id to i }
             listNameDao.updateDisplayOrders(updates, now)
         }
     }
@@ -328,7 +405,7 @@ class ListsViewModel @Inject constructor(
         selectedItemIds = emptySet()
         ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { listMutations.setItemChecked(it, true) }
+            listMutations.setItemsChecked(ids, true)
         }
     }
 
@@ -343,7 +420,7 @@ class ListsViewModel @Inject constructor(
         val allItems = groupedItems.value.values.flatten()
         val listNames = listEntities.value.associateBy { it.id }
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { id -> listMutations.setItemChecked(id, false) }
+            listMutations.setItemsChecked(ids, false)
             ids.forEach { id ->
                 val item = allItems.firstOrNull { it.id == id } ?: return@forEach
                 val nt = item.notificationTime ?: return@forEach
@@ -368,6 +445,10 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    fun splitItem(item: ListItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) { listMutations.splitItem(item.id) }
+    }
+
     /**
      * Removes favourite from all currently selected list items.
      */
@@ -380,24 +461,98 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
-
+    // ── Item drag-to-reparent/reorder (#928) ─────────────────────────────────────────────────────
+    fun moveItemFromDrag(visibleIds: List<Long>, draggedId: Long, targetId: Long) {
+        if (draggedId == targetId) return
+        itemSort = ItemSort.MANUAL
+        viewModelScope.launch(Dispatchers.IO) {
+            val dragged = dao.getById(draggedId) ?: return@launch
+            val target = dao.getById(targetId) ?: return@launch
+            if (dragged.listId != target.listId) return@launch
+            val all = dao.getAllByListUnordered(dragged.listId)
+                .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            val groups = EffectiveHierarchyProjection.derive(
+                all,
+                itemId = { it.itemId },
+                parentItemId = { it.parentItemId },
+                orderKey = { it.orderKey },
+                placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+            )
+            val groupByParent = groups.associateBy { it.parent.itemId }
+            val parentByChild = groups.flatMap { group ->
+                group.children.map { child -> child.itemId to group.parent.itemId }
+            }.toMap()
+            val draggedHasChildren = groupByParent.containsKey(dragged.itemId)
+            val draggedParent = parentByChild[dragged.itemId]
+            val targetParent = parentByChild[target.itemId]
+            val targetHasChildren = groupByParent.containsKey(target.itemId)
+            val destinationParentId = when {
+                draggedHasChildren -> null
+                targetParent != null -> targetParent
+                draggedParent != null -> target.itemId
+                targetHasChildren -> target.itemId
+                else -> null
+            }
+            val siblings = if (destinationParentId == null) {
+                groups.map { it.parent }
+            } else {
+                groupByParent[destinationParentId]?.children.orEmpty()
+            }.filter { it.id != dragged.id }
+            val nestingTarget = destinationParentId == target.itemId && targetParent == null
+            val siblingTargetId = if (draggedHasChildren && targetParent != null) {
+                targetParent
+            } else {
+                target.itemId
+            }
+            val targetIndex = if (nestingTarget) {
+                siblings.size
+            } else {
+                siblings.indexOfFirst { it.itemId == siblingTargetId }
+            }
+            if (targetIndex < 0) return@launch
+            val sourcePosition = visibleIds.indexOf(dragged.id)
+            val targetPosition = visibleIds.indexOf(target.id)
+            val insertAfterTarget = sourcePosition > targetPosition
+            val lower = if (nestingTarget) {
+                siblings.lastOrNull()?.orderKey
+            } else if (insertAfterTarget) {
+                siblings[targetIndex].orderKey
+            } else {
+                siblings.getOrNull(targetIndex - 1)?.orderKey
+            }
+            val upper = if (nestingTarget) {
+                null
+            } else if (insertAfterTarget) {
+                siblings.getOrNull(targetIndex + 1)?.orderKey
+            } else {
+                siblings[targetIndex].orderKey
+            }
+            listMutations.moveItem(dragged.id, destinationParentId, OrderKey.between(lower, upper))
+        }
+    }
     private var itemReorderJob: Job? = null
 
-    /**
-     * Persists a new manual display order for active list items after a drag-to-reorder gesture.
-     * Cancels any in-flight reorder job and switches [itemSort] to [ItemSort.MANUAL].
-     *
-     * @param orderedIds  Ordered list of active item IDs after the drag (active section only).
-     */
     fun reorderItems(orderedIds: List<Long>) {
         itemSort = ItemSort.MANUAL
         itemReorderJob?.cancel()
         itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
             val listId = orderedIds.firstOrNull()?.let { dao.getById(it)?.listId } ?: return@launch
-            listMutations.reorderItems(listId, orderedIds)
+            val all = dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            val groups = EffectiveHierarchyProjection.derive(
+                all,
+                itemId = { it.itemId },
+                parentItemId = { it.parentItemId },
+                orderKey = { it.orderKey },
+                placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+            )
+            val completedTop = groups.filter { it.parent.checked }.map { it.parent.id }
+            val desired = orderedIds + completedTop.filterNot { it in orderedIds }
+            listMutations.reorderItems(listId, desired)
         }
     }
+
+
+    // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
 
     // ── List mutations ───────────────────────────────────────────────────────────────────────────
 
