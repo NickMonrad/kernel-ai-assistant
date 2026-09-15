@@ -152,6 +152,7 @@ class NotesMigrationTest {
     private fun openMigratedDatabase(): KernelDatabase {
         return Room.databaseBuilder(context, KernelDatabase::class.java, testDbName)
             .allowMainThreadQueries()
+            .addMigrations(KernelDatabase.MIGRATION_51_52)
             .build()
     }
 

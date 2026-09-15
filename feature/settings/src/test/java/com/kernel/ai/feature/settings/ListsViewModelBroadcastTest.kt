@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import android.content.Context
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -26,6 +27,7 @@ class ListsViewModelBroadcastTest {
     private val dao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
     private val scheduler = mockk<ListNotificationScheduler>(relaxed = true)
+    private val listMutations = mockk<ListMutationRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val itemFlow = MutableSharedFlow<List<ListItemEntity>>(extraBufferCapacity = 1)
     private val nameFlow = MutableSharedFlow<List<ListNameEntity>>(extraBufferCapacity = 1)
@@ -44,7 +46,7 @@ class ListsViewModelBroadcastTest {
 
     @Test
     fun `broadcasts on item and name mutations, never on initial replay`() {
-        ListsViewModel(dao, listNameDao, scheduler, context)
+        ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
 
         itemFlow.tryEmit(emptyList())
         nameFlow.tryEmit(emptyList())

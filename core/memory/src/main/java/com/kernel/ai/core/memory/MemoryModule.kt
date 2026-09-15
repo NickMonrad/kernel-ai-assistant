@@ -17,6 +17,11 @@ import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.ListActorStateDao
+import com.kernel.ai.core.memory.dao.ListAppliedChangeDao
+import com.kernel.ai.core.memory.dao.ListCheckpointDao
+import com.kernel.ai.core.memory.dao.ListChangeDao
+import com.kernel.ai.core.memory.dao.ListSourceSequenceDao
 import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
@@ -121,10 +126,11 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_48_49,
                     KernelDatabase.MIGRATION_49_50,
                     KernelDatabase.MIGRATION_50_51,
+                    KernelDatabase.MIGRATION_51_52,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
-                    // SQLite disables FK enforcement by default — enable it per-connection
-                    // so ON DELETE CASCADE on list_items.listId fires correctly.
+                    // SQLite disables FK enforcement by default; enable it per connection.
+                    // Tombstoned list rows use NO ACTION so history remains available.
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
                         db.execSQL("PRAGMA foreign_keys = ON")
@@ -176,6 +182,20 @@ abstract class MemoryModule {
 
         @Provides
         fun provideListNameDao(db: KernelDatabase): ListNameDao = db.listNameDao()
+        @Provides
+        fun provideListActorStateDao(db: KernelDatabase): ListActorStateDao = db.listActorStateDao()
+
+        @Provides
+        fun provideListAppliedChangeDao(db: KernelDatabase): ListAppliedChangeDao = db.listAppliedChangeDao()
+
+        @Provides
+        fun provideListCheckpointDao(db: KernelDatabase): ListCheckpointDao = db.listCheckpointDao()
+
+        @Provides
+        fun provideListChangeDao(db: KernelDatabase): ListChangeDao = db.listChangeDao()
+
+        @Provides
+        fun provideListSourceSequenceDao(db: KernelDatabase): ListSourceSequenceDao = db.listSourceSequenceDao()
 
         @Provides
         @Singleton

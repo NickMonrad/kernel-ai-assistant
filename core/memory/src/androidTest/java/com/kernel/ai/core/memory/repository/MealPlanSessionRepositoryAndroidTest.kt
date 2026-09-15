@@ -75,6 +75,16 @@ class MealPlanSessionRepositoryAndroidTest {
             projectionWriteDao = database.mealPlanProjectionWriteDao(),
             listItemDao = database.listItemDao(),
             listNameDao = database.listNameDao(),
+            listMutations = ListMutationRepository(
+                database = database,
+                listItemDao = database.listItemDao(),
+                listNameDao = database.listNameDao(),
+                actorDao = database.listActorStateDao(),
+                appliedDao = database.listAppliedChangeDao(),
+                changeDao = database.listChangeDao(),
+                sourceDao = database.listSourceSequenceDao(),
+                checkpointDao = database.listCheckpointDao(),
+            ),
         )
         projectionWriteDao = database.mealPlanProjectionWriteDao()
         listItemDao = database.listItemDao()
@@ -396,8 +406,8 @@ class MealPlanSessionRepositoryAndroidTest {
         val existingLists = listNameDao.getAll()
         val shoppingListName = existingLists.single { it.name.endsWith("Shopping List") }.name
         val firstRecipeListName = existingLists.single { it.name.contains("Day 1 — Chicken Stir Fry") }.name
-        listNameDao.deleteById(existingLists.single { it.name == shoppingListName }.id)
-        listNameDao.deleteById(existingLists.single { it.name == firstRecipeListName }.id)
+        forceDeleteList(existingLists.single { it.name == shoppingListName }.id)
+        forceDeleteList(existingLists.single { it.name == firstRecipeListName }.id)
 
         val completed = repository.completeSession(session.sessionId)
 
@@ -833,11 +843,16 @@ class MealPlanSessionRepositoryAndroidTest {
         }
     }
 
+    private fun forceDeleteList(listId: Long) {
+        database.openHelper.writableDatabase.execSQL("DELETE FROM list_items WHERE listId = ?", arrayOf(listId))
+        database.openHelper.writableDatabase.execSQL("DELETE FROM lists WHERE id = ?", arrayOf(listId))
+    }
+
     private fun listItemsForNames(names: List<String>): Int {
         if (names.isEmpty()) return 0
         val placeholders = names.joinToString(",") { "?" }
         val query = SimpleSQLiteQuery(
-            "SELECT COUNT(*) FROM list_items li JOIN lists l ON l.id = li.listId WHERE l.name IN ($placeholders)",
+            "SELECT COUNT(*) FROM list_items li JOIN lists l ON l.id = li.listId WHERE l.name IN ($placeholders) AND l.lifecycle = 'ACTIVE' AND li.lifecycle = 'ACTIVE'",
             names.toTypedArray(),
         )
         return database.openHelper.writableDatabase.query(query).use { cursor ->

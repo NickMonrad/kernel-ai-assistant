@@ -12,25 +12,41 @@ import androidx.room.PrimaryKey
             entity = ListNameEntity::class,
             parentColumns = ["id"],
             childColumns = ["listId"],
-            onDelete = ForeignKey.CASCADE,
+            onDelete = ForeignKey.NO_ACTION,
         ),
     ],
-    indices = [Index(value = ["listId"])],
+    indices = [
+        Index(value = ["listId"]),
+        Index(value = ["itemId"], unique = true),
+        Index(value = ["collectionId"]),
+    ],
 )
 data class ListItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    /** FK referencing lists.id — replaces the old listName string. */
+    /** Local FK; never leaves the device as identity. */
     val listId: Long,
-    /** The item text (was: item). */
     val text: String,
-    /** Creation timestamp (was: addedAt). */
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val checked: Boolean = false,
     val dueAt: Long? = null,
     val isFavourite: Boolean = false,
-    /** Epoch-ms when a notification should fire, or null for no notification. */
     val notificationTime: Long? = null,
-    /** Position index for MANUAL sort order; initialised to id on migration 38→39. */
+    /** Local compatibility/display order; [orderKey] is sync authority. */
     val displayOrder: Long = 0L,
+    val itemId: String = java.util.UUID.randomUUID().toString(),
+    val collectionId: String = "",
+    val parentItemId: String? = null,
+    val orderKey: String = "0",
+    val textLogicalClock: Long = 0L,
+    val textStampActorId: String = "",
+    val checkedLogicalClock: Long = 0L,
+    val checkedStampActorId: String = "",
+    val dueAtLogicalClock: Long = 0L,
+    val dueAtStampActorId: String = "",
+    val placementLogicalClock: Long = 0L,
+    val placementStampActorId: String = "",
+    val lifecycle: String = "ACTIVE",
+    val lifecycleLogicalClock: Long = 0L,
+    val lifecycleStampActorId: String = "",
 )
