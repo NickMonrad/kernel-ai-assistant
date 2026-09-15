@@ -3,6 +3,7 @@ package com.kernel.ai.core.inference
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -66,9 +67,18 @@ class InferenceLoadingService : Service() {
         private const val NOTIFICATION_ID = 9001
 
         fun start(context: Context) {
-            context.startForegroundService(
-                Intent(context, InferenceLoadingService::class.java),
-            )
+            try {
+                context.startForegroundService(
+                    Intent(context, InferenceLoadingService::class.java),
+                )
+            } catch (e: ForegroundServiceStartNotAllowedException) {
+                Log.w(
+                    TAG,
+                    "Foreground service start not allowed on this device state — " +
+                        "model initialization will continue without the OOM-priority service",
+                    e,
+                )
+            }
         }
 
         fun stop(context: Context) {

@@ -11,7 +11,7 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Unit tests | Gradle + JUnit 5 + MockK | Core Kotlin logic, routing, parsing, repositories, presenters | `./gradlew testDebugUnitTest` |
 | Instrumented UI tests | Gradle + Compose/AndroidX test | Compose UI and connected-device Android tests, including S21 `permission_flows` | `./gradlew connectedDebugAndroidTest` |
 | Device regression harness | `adb` + Python | End-to-end intent routing, profile extraction, and on-device chat/action flows | `python3 scripts/adb_skill_test.py` |
-| Permission scenario runner | `adb` + Python | Physical-device permission journeys with step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
+| Permission scenario runner | `adb` + Python | Physical-device permission journeys, functional Chat submission/response checks, paired acoustic voice stimulus, step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
 | Permission report publisher | Python + `gh` | Explicitly publish an existing permission report bundle to `test-results` and one sticky PR comment | `python3 scripts/publish_permission_scenario_report.py --report-dir … --pr … --commit … --device-id s21-exynos` |
 | Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
 | Acoustic wake reliability runner | `adb` + Python `unittest` | Paired source-to-target journal waits, strict source/snapshot contracts, independent matrix positions, environment invalidation, normalised evidence, and sanitised artifact export | `python3 scripts/acoustic_wake_reliability_runner.py fixture` / `python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner` |
@@ -40,6 +40,37 @@ Policy:
 
 See [`docs/testing/permission-scenario-runner.md`](./testing/permission-scenario-runner.md) for
 the local run command, explicit publish flow, stale-report protections, and artifact layout.
+### Functional Chat and voice coverage
+
+The permission runner now distinguishes the existing Quick Actions weather
+scenarios from functional Chat scenarios. `launch_chat` opens the real Chat
+route, `submit_chat_query` injects text through the visible composer and waits
+for both the visible user message and assistant response, and `assert_chat_state`
+checks route reachability, duplicate user-message count, and response markers.
+
+Voice scenarios use `run_functional_voice_stimulus` with the existing paired
+acoustic source contract. The runner arms the target event journal, invokes the
+debug `AcousticStimulusReceiver` on the source device, waits for target
+`STT_FINAL`, and records the target's observed `KernelAI` voice submission
+transcript plus STT/wake evidence and visible Chat permission UX. It does not
+echo a generic media file through an unrelated pathway. Missing source serial,
+fixture, or paired ADB connectivity blocks the scenario; there is no fake
+fallback.
+
+The `voice_timeout_ms` setting bounds only acoustic target `STT_FINAL`
+completion; `transcript_timeout_seconds` separately bounds polling for the
+subsequent Chat voice-submission trace.
+
+Functional paired-device speech validates STT, routing, Chat UI, and
+voice-session lifecycle only. It must not be treated as wake-word acoustic
+reliability evidence or qualification. Wake-word reliability remains governed
+by the dedicated controlled acoustic reliability harness and its stricter
+methodology.
+
+The default device policy remains S21-first. Issue-specific paired acoustic
+validation may use S23U when the local report records the source/target
+topology. Existing Quick Actions scenario IDs and behavior remain unchanged.
+
 ## ADB regression harness
 
 The main device automation entry point is [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py).

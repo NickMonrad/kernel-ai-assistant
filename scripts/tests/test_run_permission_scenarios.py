@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from dataclasses import asdict
 from pathlib import Path
 
@@ -15,6 +16,7 @@ SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import run_permission_scenarios as permission_runner
+import acoustic_wake_reliability_runner
 
 
 class PermissionScenarioRunnerTest(unittest.TestCase):
@@ -60,7 +62,17 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             branch="feature/test",
             commit="a" * 40,
             pr=1330,
-            device={"id": "s21-exynos", "execution": "physical"},
+            device={
+                "id": "s21-exynos",
+                "serial": "R5CR605B71K",
+                "label": "S21",
+                "manufacturer": "Samsung",
+                "model": "SM-G991B",
+                "soc": "Exynos 2100",
+                "tier": "tracked",
+                "android_api": 35,
+                "execution": "physical",
+            },
             functional_result="pass",
             ux_result="warning",
             step_count=3,
@@ -94,11 +106,27 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             commit="a" * 40,
             pr=1330,
             run_id="on_device-2026-06-29T00-00-00Z-s21-exynos",
-            device={"id": "s21-exynos", "execution": "physical"},
+            device={
+                "id": "s21-exynos",
+                "serial": "R5CR605B71K",
+                "label": "S21",
+                "manufacturer": "Samsung",
+                "model": "SM-G991B",
+                "soc": "Exynos 2100",
+                "tier": "tracked",
+                "android_api": 35,
+                "execution": "physical",
+            },
             thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
             summary={"total": 1},
             scenarios=[scenario],
-            artifacts={"raw_json": "result.json", "evidence": "evidence.json", "logcat": "logcat.txt", "screenshots_dir": "screenshots"},
+            artifacts={
+                "raw_json": "result.json",
+                "summary": "summary.md",
+                "evidence": "evidence.json",
+                "logcat": "logcat.txt",
+                "screenshots_dir": "screenshots",
+            },
         )
 
         evidence = permission_runner.to_evidence(run_result)
@@ -111,6 +139,48 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
         self.assertEqual("not_applicable", evidence["model"]["name"])
         self.assertEqual("permission_scenario_runner", evidence["model"]["runtime"])
         self.assertEqual("adb", evidence["model"]["backend"])
+        self.assertEqual(
+            ["result.json", "summary.md", "logcat.txt"],
+            evidence["artifact_refs"],
+        )
+        self.assertTrue(all(isinstance(ref, str) for ref in evidence["artifact_refs"]))
+        self.assertEqual([], permission_runner.schema_validation_errors(evidence))
+
+    def test_schema_rejects_historical_object_artifact_refs(self) -> None:
+        evidence = permission_runner.to_evidence(
+            permission_runner.RunResult(
+                schema_version="1.0",
+                source="on_device",
+                suite="permission_scenarios",
+                timestamp="2026-06-29T00:00:00Z",
+                repo="NickMonrad/kernel-ai-assistant",
+                branch="feature/test",
+                commit="a" * 40,
+                pr=1330,
+                run_id="on_device-2026-06-29T00-00-00Z-s21-exynos",
+                device={
+                    "id": "s21-exynos",
+                    "serial": "R5CR605B71K",
+                    "label": "S21",
+                    "manufacturer": "Samsung",
+                    "model": "SM-G991B",
+                    "soc": "Exynos 2100",
+                    "tier": "tracked",
+                    "android_api": 35,
+                    "execution": "physical",
+                },
+                thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+                summary={"total": 0},
+                scenarios=[],
+                artifacts={"raw_json": "result.json"},
+            )
+        )
+        self.assertEqual([], permission_runner.schema_validation_errors(evidence))
+
+        evidence["artifact_refs"] = [{"path": "result.json", "type": "other"}]
+        errors = permission_runner.schema_validation_errors(evidence)
+
+        self.assertTrue(any(error.startswith("schema:artifact_refs") for error in errors))
 
     def test_write_summary_includes_artifacts_and_table(self) -> None:
         scenario = permission_runner.ScenarioResult(
@@ -879,6 +949,209 @@ class WeatherDryRunTest(unittest.TestCase):
         self.assertGreater(plan[0]["screenshot_count"], 0)
 
 
+
+CHAT_SCENARIO_IDS = frozenset({
+    "chat_weather_permission_grant_retries_without_duplicate",
+    "chat_weather_denial_settings_repair_retries",
+    "chat_weather_named_city_without_location",
+    "chat_voice_weather_not_now_ends_cleanly",
+    "chat_voice_weather_named_location_ends_cleanly",
+})
+
+
+class ChatScenarioTest(unittest.TestCase):
+    """Tests for functional Chat and voice scenario definitions."""
+
+    def _runner(self) -> permission_runner.ScenarioRunner:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return permission_runner.ScenarioRunner(
+            adb=_FakeAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+        )
+
+    def test_chat_scenarios_validate(self) -> None:
+        scenarios = [
+            scenario for scenario in permission_runner.SCENARIOS
+            if scenario["id"] in CHAT_SCENARIO_IDS
+        ]
+        self.assertEqual(CHAT_SCENARIO_IDS, {scenario["id"] for scenario in scenarios})
+        for scenario in scenarios:
+            errors = permission_runner.validate_scenario_definitions([scenario])
+            self.assertEqual([], errors, f"{scenario['id']} should validate:\n" + "\n".join(errors))
+
+    def test_chat_actions_report_observable_contract_fields(self) -> None:
+        self.assertTrue({"launch_chat", "submit_chat_query", "assert_chat_state"} <=
+                        permission_runner.SUPPORTED_ACTIONS)
+        for scenario in permission_runner.SCENARIOS:
+            if scenario["id"] not in CHAT_SCENARIO_IDS:
+                continue
+            actions = {step["action"] for step in scenario["steps"]}
+            self.assertIn("launch_chat", actions, scenario["id"])
+            if scenario["id"].startswith("chat_voice_"):
+                voice_steps = [
+                    step for step in scenario["steps"]
+                    if step["action"] == "run_functional_voice_stimulus"
+                ]
+                self.assertEqual(1, len(voice_steps), scenario["id"])
+                self.assertTrue(voice_steps[0].get("expected_transcript_contains"), scenario["id"])
+            else:
+                self.assertIn("submit_chat_query", actions, scenario["id"])
+
+    def test_quick_action_weather_scenarios_remain_unchanged(self) -> None:
+        self.assertEqual({
+            "weather_location_denied",
+            "weather_location_granted",
+            "weather_location_prompt_denied",
+            "weather_location_blocked_or_permanently_denied",
+            "weather_typed_city_without_location",
+        }, {
+            scenario["id"] for scenario in permission_runner.SCENARIOS
+            if scenario["id"].startswith("weather_")
+        })
+
+    def test_submit_chat_query_reports_visible_user_and_assistant_state(self) -> None:
+        runner = self._runner()
+        input_node = permission_runner.UiNode(
+            text="Message Jandal…", content_desc="", resource_id="",
+            class_name="android.widget.EditText", bounds=(0, 0, 100, 100),
+            clickable=True, enabled=True, checked=None, package=permission_runner.APP_PACKAGE,
+        )
+        send_node = permission_runner.UiNode(
+            text="", content_desc="Send", resource_id="",
+            class_name="android.widget.Button", bounds=(100, 0, 200, 100),
+            clickable=True, enabled=True, checked=None, package=permission_runner.APP_PACKAGE,
+        )
+        with patch.object(runner, "_find_target", side_effect=[input_node, send_node]), \
+             patch.object(runner, "_type_chat_query"), \
+             patch.object(runner, "_wait_for_text", return_value=True), \
+             patch.object(runner, "_wait_for_chat_query", return_value=True), \
+             patch.object(runner, "_wait_for_any_text", return_value=True), \
+             patch.object(runner, "_visible_chat_query_count", return_value=1), \
+             patch.object(runner, "_chat_route_reached", return_value=True):
+            _, debug = runner._submit_chat_query({
+                "query": "what's the weather",
+                "assistant_response_contains": ["Use your location"],
+            })
+
+        self.assertEqual(1, debug["tap_count"])
+        self.assertTrue(debug["debug"]["chat_route_reached"])
+        self.assertTrue(debug["debug"]["chat_user_message_visible"])
+        self.assertTrue(debug["debug"]["chat_assistant_response_visible"])
+        self.assertEqual("what's the weather", debug["debug"]["observed_transcript"])
+
+    def test_functional_voice_action_blocks_without_source_device(self) -> None:
+        runner = self._runner()
+        with self.assertRaisesRegex(permission_runner.ScenarioBlocked, "voice-source-serial"):
+            runner._execute_step({
+                "action": "run_functional_voice_stimulus",
+                "fixture_id": "qwen_command",
+                "expected_transcript_contains": ["weather"],
+            })
+
+    def test_delayed_voice_transcript_evidence_succeeds_within_timeout(self) -> None:
+        class DelayedVoiceAdb(_FakeAdb):
+            serial = "target"
+            def __init__(self) -> None:
+                super().__init__()
+                self.logcat_responses = [
+                    "",
+                    "09-14 00:00:00.000 123 456 D KernelAI: "
+                    "ADB_INTENT_TRACE input=how's the weather submitMode=Voice",
+                ]
+
+            def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+                if command.startswith("logcat -d -t 300"):
+                    return self.logcat_responses.pop(0)
+                return super().shell(command, timeout=timeout, check=check)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        runner = permission_runner.ScenarioRunner(
+            adb=DelayedVoiceAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+            voice_source_serial="source",
+        )
+        with patch.object(
+            acoustic_wake_reliability_runner,
+            "run_functional_voice_stimulus",
+            return_value={"wake_path": "not_used", "stt_events": [], "wake_events": []},
+        ), patch.object(
+            permission_runner.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.1],
+        ), patch.object(permission_runner.time, "sleep"):
+            actual, delta = runner._execute_step({
+                "action": "run_functional_voice_stimulus",
+                "fixture_id": "weather_command",
+                "expected_transcript_contains": ["weather"],
+                "transcript_timeout_seconds": 1,
+            })
+
+        self.assertEqual("Functional voice stimulus delivered", actual)
+        self.assertEqual("how's the weather", delta["debug"]["observed_transcript"])
+
+    def test_voice_transcript_timeout_fails_closed(self) -> None:
+        class EmptyVoiceLogcatAdb(_FakeAdb):
+            serial = "target"
+
+            def shell(self, command: str, timeout: float = 30.0, check: bool = True) -> str:
+                if command.startswith("logcat -d -t 300"):
+                    return ""
+                return super().shell(command, timeout=timeout, check=check)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        runner = permission_runner.ScenarioRunner(
+            adb=EmptyVoiceLogcatAdb(),
+            device={"id": "s23u", "execution": "physical"},
+            branch="test/1535-chat-permission-voice",
+            commit="d" * 40,
+            pr=None,
+            run_dir=Path(tmp.name),
+            thresholds=dict(permission_runner.DEFAULT_UX_THRESHOLDS),
+            voice_source_serial="source",
+        )
+        with patch.object(
+            acoustic_wake_reliability_runner,
+            "run_functional_voice_stimulus",
+            return_value={"wake_path": "not_used", "stt_events": [], "wake_events": []},
+        ), patch.object(
+            permission_runner.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.1, 1.0],
+        ), patch.object(permission_runner.time, "sleep"):
+            with self.assertRaisesRegex(
+                permission_runner.StepFailure,
+                "No matching voice transcript evidence within 0.5s",
+            ):
+                runner._execute_step({
+                    "action": "run_functional_voice_stimulus",
+                    "fixture_id": "weather_command",
+                    "expected_transcript_contains": ["weather"],
+                    "transcript_timeout_seconds": 0.5,
+                })
+
+    def test_not_now_scenario_requires_idle_dismissal_and_no_rearm(self) -> None:
+        scenario = permission_runner.get_scenario_by_id(
+            "chat_voice_weather_not_now_ends_cleanly"
+        )
+        dismiss = next(step for step in scenario["steps"] if step["id"] == "dismiss_voice_weather")
+
+        self.assertEqual(["PTT"], dismiss["expected_visible"])
+        self.assertEqual(3, dismiss["absence_observation_seconds"])
+        self.assertIn("get_weather", dismiss["expected_not_visible"])
+        self.assertIn("Listening", dismiss["expected_not_visible"])
 
 CLOCK_SCENARIO_IDS = frozenset({
     "clock_timer_notifications_allowed",

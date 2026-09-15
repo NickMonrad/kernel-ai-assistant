@@ -184,6 +184,13 @@ class ChatViewModelSettingsApplyTest {
 
     /** Set up mocks so engine init can complete. */
     private fun setupInitPrerequisites() {
+        // Settings-application tests model a warm engine. Eager initialisation is intentionally
+        // foreground-gated in production, so these tests should hydrate from the already-loaded
+        // model rather than depend on a JVM process lifecycle transition.
+        isReadyFlow.value = true
+        every { inferenceEngine.loadedModelPath } returns
+            "/path/to/${KernelModel.GEMMA_4_E4B.fileName}"
+
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         downloadStatesFlow.value = mapOf(
             KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model"),

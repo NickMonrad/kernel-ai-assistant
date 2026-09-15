@@ -40,7 +40,10 @@ APP_PACKAGE = "com.kernel.ai.debug"
 MAIN_ACTIVITY = "com.kernel.ai.MainActivity"
 UI_DUMP_REMOTE_PATH = "/sdcard/permission-runner-ui.xml"
 
-SETTINGS_PACKAGE_PREFIX = "com.android.settings"
+SETTINGS_PACKAGE_PREFIXES = (
+    "com.android.settings",
+    "com.google.android.permissioncontroller",
+)
 LOGCAT_TAG_SPECS = [
     "KernelAI:D",
     "AndroidRuntime:E",
@@ -55,8 +58,9 @@ NON_INFERENCE_MODEL = {
 
 # ── Schema validation constants ──────────────────────────────────────────────
 SUPPORTED_ACTIONS = frozenset({
-    "set_permission_state", "set_appops", "launch_main", "launch_quick_action",
+    "set_permission_state", "set_appops", "launch_main", "launch_chat", "launch_quick_action",
     "tap_visible", "tap_toggle_for_text", "set_toggle_state",
+    "submit_chat_query", "assert_chat_state", "start_chat_voice", "run_functional_voice_stimulus",
     "check_default_assistant_ready", "press_home", "press_back", "wait_for_package", "swipe",
 })
 
@@ -302,7 +306,6 @@ class UiAutomatorView:
             return None
         return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
 
-
 class ScenarioRunner:
     def __init__(
         self,
@@ -313,6 +316,11 @@ class ScenarioRunner:
         pr: int | None,
         run_dir: Path,
         thresholds: dict[str, Any],
+        voice_source_serial: str | None = None,
+        voice_fixture_id: str | None = None,
+        voice_fixture_dir: str | None = None,
+        voice_volume_index: int = 7,
+        voice_timeout_ms: int = 15000,
     ) -> None:
         self.adb = adb
         self.device = device
@@ -325,6 +333,12 @@ class ScenarioRunner:
         self.screenshots_dir = run_dir / "screenshots"
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.logcat_path = run_dir / "logcat.txt"
+        self.voice_source_serial = voice_source_serial
+        self.voice_fixture_id = voice_fixture_id
+        self.voice_fixture_dir = voice_fixture_dir
+        self.voice_volume_index = voice_volume_index
+        self.voice_timeout_ms = voice_timeout_ms
+        self.chat_route_opened = False
 
     def wake_and_home(self) -> None:
         self.adb.shell("input keyevent KEYCODE_WAKEUP", timeout=10, check=False)
@@ -366,8 +380,9 @@ class ScenarioRunner:
                 actual = ""
                 result = "pass"
                 try:
-                    actual, _ = self._execute_step(step)
+                    actual, delta = self._execute_step(step)
                     self._apply_expectations(step)
+                    debug.update(delta.get("debug", {}))
                     result = "pass"
                 except (ScenarioBlocked, StepFailure) as exc:
                     functional_result = "blocked"
@@ -402,6 +417,7 @@ class ScenarioRunner:
                         back_presses += delta.get("back_presses", 0)
                         manual_intervention_required = manual_intervention_required or delta.get("manual_intervention_required", False)
                         current_pid = (delta.get("current_pid") or current_pid) if isinstance(delta.get("current_pid"), str) else current_pid
+                        debug.update(delta.get("debug", {}))
                         self._apply_expectations(step)
                         result = "pass"
                     except ScenarioBlocked as exc:
@@ -496,14 +512,14 @@ class ScenarioRunner:
             back_presses=back_presses,
             duration_seconds=duration_seconds,
             manual_intervention_required=manual_intervention_required,
-            steps=steps,
             artifacts=artifacts,
+            steps=steps,
             ux_warnings=ux_warnings,
             blocked_reason=blocked_reason,
             fixtures_used=merged_fixtures,
         )
 
-    def _execute_step(self, step: dict[str, Any]) -> tuple[str, dict[str, int | bool]]:
+    def _execute_step(self, step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         action = step["action"]
         if action == "set_permission_state":
             permissions = [step["permission"], *step.get("also_apply", [])]
@@ -516,6 +532,26 @@ class ScenarioRunner:
             self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY}", timeout=45)
             self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
             return "MainActivity launched", {"current_pid": self._current_pid() or ""}
+        if action == "launch_chat":
+            self.wake_and_home()
+            self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY}", timeout=45)
+            self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
+            node = self._find_target({"content_desc": "New conversation"}, timeout_seconds=10)
+            if node.center is None:
+                raise StepFailure("New conversation control has no tappable bounds")
+            x, y = node.center
+            self.adb.shell(f"input tap {x} {y}", timeout=10)
+            time.sleep(0.8)
+            self._find_target(
+                {"text": "Message Jandal…"},
+                timeout_seconds=float(step.get("chat_ready_timeout_seconds", 90)),
+            )
+            self.chat_route_opened = True
+            return "Chat composer opened", {
+                "tap_count": 1,
+                "current_pid": self._current_pid() or "",
+                "debug": {"chat_route_reached": True},
+            }
         if action == "launch_quick_action":
             self.wake_and_home()
             query = step["query"]
@@ -527,6 +563,64 @@ class ScenarioRunner:
             self.adb.shell(command, timeout=45)
             self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
             return f"Quick action launched: {query}", {"current_pid": self._current_pid() or ""}
+        if action == "submit_chat_query":
+            return self._submit_chat_query(step)
+        if action == "assert_chat_state":
+            return self._assert_chat_state(step)
+        if action == "start_chat_voice":
+            node = self._find_target(
+                {"text": "PTT"},
+                timeout_seconds=float(step.get("timeout_seconds", 8)),
+            )
+            if node.center is None:
+                raise StepFailure("Chat PTT control has no tappable bounds")
+            x, y = node.center
+            self.adb.shell(f"input tap {x} {y}", timeout=10)
+            time.sleep(0.5)
+            self.chat_route_opened = True
+            return "Chat push-to-talk started", {
+                "tap_count": 1,
+                "debug": {"chat_route_reached": True},
+            }
+        if action == "run_functional_voice_stimulus":
+            if not self.voice_source_serial:
+                raise ScenarioBlocked(
+                    "No --voice-source-serial supplied; functional voice stimulus is unavailable"
+                )
+            try:
+                from acoustic_wake_reliability_runner import (
+                    HarnessError,
+                    run_functional_voice_stimulus,
+                )
+
+                evidence = run_functional_voice_stimulus(
+                    source_serial=self.voice_source_serial,
+                    target_serial=self.adb.serial,
+                    fixture_id=str(self.voice_fixture_id or step.get("fixture_id", "")),
+                    volume_index=int(step.get("volume_index", self.voice_volume_index)),
+                    timeout_ms=int(step.get("voice_timeout_ms", self.voice_timeout_ms)),
+                    fixture_dir=step.get("fixture_dir", self.voice_fixture_dir),
+                    private_root=self.run_dir / "voice-private",
+                )
+            except HarnessError as exc:
+                raise StepFailure(f"Functional voice stimulus failed: {exc}") from exc
+            expected_transcript_markers = [
+                str(value) for value in step.get("expected_transcript_contains", [])
+            ]
+            observed_transcript, voice_input_lines = self._wait_for_voice_submission(
+                expected_markers=expected_transcript_markers,
+                timeout_seconds=float(step.get("transcript_timeout_seconds", 20)),
+            )
+            return "Functional voice stimulus delivered", {
+                "debug": {
+                    "functional_voice": evidence,
+                    "wake_path": evidence["wake_path"],
+                    "observed_transcript": observed_transcript,
+                    "voice_transcript_source": "KernelAI ADB_INTENT_TRACE",
+                    "stt_evidence": evidence["stt_events"] or voice_input_lines,
+                    "wake_evidence": evidence["wake_events"],
+                },
+            }
         if action == "tap_visible":
             node = self._find_target(step["target"], timeout_seconds=step.get("timeout_seconds", 8))
             center = node.center
@@ -536,7 +630,7 @@ class ScenarioRunner:
             self.adb.shell(f"input tap {x} {y}", timeout=10)
             time.sleep(0.8)
             deltas = {"tap_count": 1}
-            if self._current_package().startswith(SETTINGS_PACKAGE_PREFIX):
+            if any(self._current_package().startswith(prefix) for prefix in SETTINGS_PACKAGE_PREFIXES):
                 deltas["settings_hops"] = 1
             return f"Tapped target {describe_target(step['target'])}", deltas
         if action == "tap_toggle_for_text":
@@ -566,10 +660,22 @@ class ScenarioRunner:
             time.sleep(0.5)
             return "Pressed BACK", {"back_presses": 1}
         if action == "wait_for_package":
-            package = step["package"]
+            raw_packages = step.get("packages")
+            packages = (
+                [str(value) for value in raw_packages]
+                if raw_packages
+                else [str(step["package"])]
+            )
             timeout = step.get("timeout_seconds", 8)
-            self._wait_for_package(package, timeout_seconds=timeout)
-            return f"Waited for package {package} in foreground", {"settings_hops": 1 if package.startswith(SETTINGS_PACKAGE_PREFIX) else 0}
+            self._wait_for_any_package(packages, timeout_seconds=timeout)
+            return (
+                f"Waited for package {', '.join(packages)} in foreground",
+                {"settings_hops": 1 if any(
+                    package.startswith(prefix)
+                    for package in packages
+                    for prefix in SETTINGS_PACKAGE_PREFIXES
+                ) else 0},
+            )
         if action == "swipe":
             start_x = step["start_x"]
             start_y = step["start_y"]
@@ -580,6 +686,199 @@ class ScenarioRunner:
             time.sleep(0.5)
             return f"Swiped ({start_x},{start_y})→({end_x},{end_y})", {}
         raise StepFailure(f"Unsupported action: {action}")
+    def _wait_for_voice_submission(
+        self,
+        *,
+        expected_markers: list[str],
+        timeout_seconds: float,
+    ) -> tuple[str, list[str]]:
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        last_voice_input_lines: list[str] = []
+        while True:
+            voice_logcat = self.adb.shell(
+                "logcat -d -t 300 -v threadtime -s KernelAI:D",
+                timeout=30,
+                check=False,
+            )
+            last_voice_input_lines = [
+                line for line in voice_logcat.splitlines()
+                if "ADB_INTENT_TRACE" in line and "submitMode=Voice" in line
+            ]
+            transcript_matches = [
+                match.group(1).strip()
+                for line in last_voice_input_lines
+                if (match := re.search(r"\binput=(.*?)\s+submitMode=Voice\b", line))
+            ]
+            for observed_transcript in reversed(transcript_matches):
+                if observed_transcript and all(
+                    marker.casefold() in observed_transcript.casefold()
+                    for marker in expected_markers
+                ):
+                    return observed_transcript, last_voice_input_lines
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+        raise StepFailure(
+            "No matching voice transcript evidence within "
+            f"{timeout_seconds:g}s; expected markers={expected_markers!r}; "
+            f"observed={last_voice_input_lines!r}"
+        )
+    def _type_chat_query(self, query: str) -> None:
+        for character in query:
+            if character == " ":
+                self.adb.shell("input keyevent KEYCODE_SPACE", timeout=10)
+            else:
+                self.adb.shell(f"input text {shlex.quote(character)}", timeout=10)
+            time.sleep(0.04)
+        time.sleep(0.8)
+
+    def _submit_chat_query(self, step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        query = str(step["query"])
+        input_node = None
+        try:
+            input_node = self._find_target(
+                {"text": "Message Jandal…"},
+                timeout_seconds=float(step.get("timeout_seconds", 8)),
+            )
+        except StepFailure:
+            nodes = self.ui.dump_nodes()
+            candidates = [
+                node for node in nodes
+                if node.enabled
+                and node.center is not None
+                and node.package == APP_PACKAGE
+                and node.class_name.endswith("EditText")
+            ]
+            if candidates:
+                input_node = candidates[-1]
+        if input_node is None or input_node.center is None:
+            raise StepFailure("Chat message input is not visible")
+        x, y = input_node.center
+        self.adb.shell(f"input tap {x} {y}", timeout=10)
+        time.sleep(0.5)
+        self._type_chat_query(query)
+        send = self._find_target(
+            {"content_desc": "Send"},
+            timeout_seconds=float(step.get("timeout_seconds", 8)),
+        )
+        if send.center is None:
+            raise StepFailure("Chat send control has no tappable bounds")
+        pre_submit_visible = self._wait_for_text(
+            query,
+            timeout_seconds=float(step.get("input_timeout_seconds", 5)),
+        )
+        if not pre_submit_visible:
+            raise StepFailure(f"Typed Chat query is not visible in the composer: {query!r}")
+        pre_submit_count = self._visible_chat_query_count(query)
+        send_x, send_y = send.center
+        self.adb.shell(f"input tap {send_x} {send_y}", timeout=10)
+        post_submit_visible = self._wait_for_chat_query(
+            query,
+            timeout_seconds=float(step.get("timeout_seconds", 15)),
+        )
+        user_visible = pre_submit_visible or post_submit_visible
+        response_markers = [str(value) for value in step.get("assistant_response_contains", [])]
+        if not response_markers:
+            raise StepFailure("submit_chat_query requires assistant_response_contains")
+        assistant_visible = self._wait_for_any_text(
+            response_markers,
+            timeout_seconds=float(step.get("assistant_timeout_seconds", 30)),
+            exact=False,
+        )
+        if not assistant_visible:
+            raise StepFailure(
+                f"Assistant response is not visible for Chat query {query!r}; "
+                f"markers={response_markers!r}"
+            )
+        message_count = self._visible_chat_query_count(query) or pre_submit_count or 1
+        if message_count < 1:
+            raise StepFailure(f"Chat user message count is zero for {query!r}")
+        return f"Chat query submitted: {query}", {
+            "tap_count": 1,
+            "debug": {
+                "chat_route_reached": self._chat_route_reached(),
+                "chat_user_message_visible": user_visible,
+                "chat_user_message_count": message_count,
+                "chat_assistant_response_visible": assistant_visible,
+                "observed_transcript": query,
+            },
+        }
+
+    def _assert_chat_state(self, step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        query = str(step["query"])
+        expected_count = int(step.get("expected_user_message_count", 1))
+        if not self._wait_for_chat_query(query, timeout_seconds=float(step.get("timeout_seconds", 15))):
+            raise StepFailure(f"Chat user message is not visible: {query!r}")
+        message_count = self._visible_chat_query_count(query)
+        if message_count != expected_count:
+            raise StepFailure(
+                f"Expected {expected_count} visible copies of Chat user message {query!r}; "
+                f"saw {message_count}"
+            )
+        response_markers = [str(value) for value in step.get("assistant_response_contains", [])]
+        assistant_visible = (
+            self._wait_for_any_text(
+                response_markers,
+                timeout_seconds=float(step.get("assistant_timeout_seconds", 30)),
+                exact=False,
+            )
+            if response_markers else False
+        )
+        if response_markers and not assistant_visible:
+            raise StepFailure(f"Expected Chat response markers not visible: {response_markers!r}")
+        route_reached = self._chat_route_reached()
+        if not route_reached:
+            raise StepFailure("Chat route is not visibly reachable")
+        return "Chat state asserted", {
+            "debug": {
+                "chat_route_reached": route_reached,
+                "chat_user_message_visible": True,
+                "chat_user_message_count": message_count,
+                "chat_assistant_response_visible": assistant_visible,
+                "observed_transcript": query,
+            },
+        }
+
+    def _chat_query_nodes(self, text: str) -> list[UiNode]:
+        nodes = self.ui.dump_nodes()
+        exact = [
+            node
+            for node in nodes
+            if node.text == text or node.content_desc == text
+        ]
+        if exact:
+            return exact
+        return [
+            node
+            for node in nodes
+            if node.text == f"{text}…" or node.content_desc == f"{text}…"
+        ]
+
+    def _wait_for_chat_query(self, text: str, timeout_seconds: float) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if self._chat_query_nodes(text):
+                return True
+            time.sleep(0.5)
+        return False
+
+    def _visible_chat_query_count(self, text: str) -> int:
+        return len(self._chat_query_nodes(text))
+    def _chat_route_reached(self) -> bool:
+        if self.chat_route_opened:
+            return True
+        if self._current_package() != APP_PACKAGE:
+            return False
+        try:
+            nodes = self.ui.dump_nodes()
+        except RunnerError:
+            return False
+        return any(
+            node.text in {"Message Jandal…", "PTT"}
+            or node.content_desc in {"Send", "Stop voice input"}
+            for node in nodes
+        )
+
 
     def _apply_expectations(self, step: dict[str, Any]) -> None:
         timeout_seconds = float(step.get("timeout_seconds", 8))
@@ -608,9 +907,30 @@ class ScenarioRunner:
                 raise StepFailure(
                     f"Expected toggle for {toggle_expectation['anchor_text']!r} to be {toggle_expectation['checked']}; saw {switch.checked}"
                 )
-        for text in step.get("expected_not_visible", []):
-            if self._is_text_visible(text, timeout_seconds=1.0):
-                raise StepFailure(f"Unexpected text visible: {text}")
+        absence_seconds = float(step.get("absence_observation_seconds", 1.0))
+        self._assert_texts_not_visible_for(
+            [str(text) for text in step.get("expected_not_visible", [])],
+            timeout_seconds=absence_seconds,
+        )
+    def _assert_texts_not_visible_for(
+        self,
+        texts: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> None:
+        if not texts:
+            return
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while True:
+            nodes = self.ui.dump_nodes()
+            for text in texts:
+                for node in nodes:
+                    haystacks = [node.text, node.content_desc]
+                    if text in haystacks:
+                        raise StepFailure(f"Unexpected text visible: {text}")
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
     def _set_permission_state(self, permission: str, state: str) -> None:
         if state == "granted":
@@ -766,13 +1086,19 @@ class ScenarioRunner:
     def _is_text_visible(self, text: str, timeout_seconds: float) -> bool:
         return self._wait_for_any_text([text], timeout_seconds=timeout_seconds, exact=True)
     def _wait_for_package(self, package_name: str, timeout_seconds: float) -> None:
+        self._wait_for_any_package([package_name], timeout_seconds=timeout_seconds)
+
+    def _wait_for_any_package(self, package_names: Iterable[str], timeout_seconds: float) -> None:
+        expected = list(package_names)
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             current = self._current_package()
-            if current == package_name:
+            if current in expected:
                 return
             time.sleep(0.5)
-        raise StepFailure(f"Expected package {package_name} in foreground; saw {self._current_package()!r}")
+        raise StepFailure(
+            f"Expected one of packages {expected!r} in foreground; saw {self._current_package()!r}"
+        )
 
     def _current_package(self) -> str:
         output = self.adb.shell("dumpsys activity activities", timeout=20, check=False)
@@ -863,6 +1189,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run deterministic permission scenarios on a physical Android device")
     parser.add_argument("--device-id", required=True, help="Device registry ID from scripts/testdata/devices.yaml")
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"), help="ADB serial to target")
+    parser.add_argument(
+        "--voice-source-serial",
+        default=os.environ.get("VOICE_SOURCE_SERIAL"),
+        help="ADB serial of the paired physical audio source for functional Chat voice scenarios",
+    )
+    parser.add_argument(
+        "--voice-fixture-id",
+        default=os.environ.get("VOICE_FIXTURE_ID"),
+        help="Installed app-private acoustic fixture ID for functional voice scenarios",
+    )
+    parser.add_argument(
+        "--voice-fixture-dir",
+        default=os.environ.get("VOICE_FIXTURE_DIR"),
+        help="Optional source app-private fixture directory",
+    )
+    parser.add_argument(
+        "--voice-volume-index",
+        type=int,
+        default=int(os.environ.get("VOICE_VOLUME_INDEX", "7")),
+        help="Source media volume index for functional voice playback",
+    )
+    parser.add_argument(
+        "--voice-timeout-ms",
+        type=int,
+        default=int(os.environ.get("VOICE_TIMEOUT_MS", "15000")),
+        help="Target STT_FINAL wait timeout for functional voice playback",
+    )
     parser.add_argument(
         "--scenarios",
         help="Comma-separated scenario IDs, e.g. mic_denied_enable_hey_jandal,weather_location_denied",
@@ -1026,6 +1379,18 @@ def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_
             errors.append(f"{label}: action {action!r} requires 'anchor_text' field")
         if "checked" not in step:
             errors.append(f"{label}: action {action!r} requires 'checked' field")
+    elif action in {"submit_chat_query", "assert_chat_state"}:
+        if "query" not in step:
+            errors.append(f"{label}: action {action!r} requires 'query' field")
+        if action == "submit_chat_query" and not step.get("assistant_response_contains"):
+            errors.append(
+                f"{label}: action {action!r} requires 'assistant_response_contains' field"
+            )
+    elif action == "run_functional_voice_stimulus":
+        if not step.get("expected_transcript_contains"):
+            errors.append(
+                f"{label}: action {action!r} requires 'expected_transcript_contains' field"
+            )
     elif action == "launch_quick_action" and "query" not in step:
         errors.append(f"{label}: action {action!r} requires 'query' field")
     elif action == "set_appops":
@@ -1036,8 +1401,8 @@ def _validate_step(step: dict[str, object], step_idx: int, parent_id: str, seen_
             errors.append(f"{label}: action {action!r} requires 'mode' field")
         elif mode not in SUPPORTED_APPOPS_MODES:
             errors.append(f"{label}: unsupported appops mode {mode!r}; supported: {sorted(SUPPORTED_APPOPS_MODES)}")
-    elif action == "wait_for_package" and "package" not in step:
-        errors.append(f"{label}: action {action!r} requires 'package' field")
+    elif action == "wait_for_package" and not step.get("package") and not step.get("packages"):
+        errors.append(f"{label}: action {action!r} requires 'package' or 'packages' field")
     elif action == "swipe":
         for field in ("start_x", "start_y", "end_x", "end_y"):
             if field not in step:
@@ -1170,7 +1535,7 @@ def to_evidence(run_result: RunResult) -> dict[str, Any]:
         },
         "cases": cases,
         "artifact_refs": [
-            {"path": path, "type": "other"}
+            path
             for key in ("raw_json", "summary", "logcat")
             if (path := run_result.artifacts.get(key))
         ],
@@ -1451,6 +1816,11 @@ def main(argv: list[str] | None = None) -> int:
         pr=args.pr,
         run_dir=run_dir,
         thresholds=dict(DEFAULT_UX_THRESHOLDS),
+        voice_source_serial=args.voice_source_serial,
+        voice_fixture_id=args.voice_fixture_id,
+        voice_fixture_dir=args.voice_fixture_dir,
+        voice_volume_index=args.voice_volume_index,
+        voice_timeout_ms=args.voice_timeout_ms,
     )
     scenarios = [runner.run_scenario(scenario) for scenario in scenarios]
     run_id = f"on_device-{timestamp_path}-{args.device_id}"

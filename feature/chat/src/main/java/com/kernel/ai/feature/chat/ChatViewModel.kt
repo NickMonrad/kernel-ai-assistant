@@ -132,6 +132,37 @@ private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats 
 internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
     currentState < Lifecycle.State.STARTED
 
+/**
+ * Suspends until the process is eligible to start foreground services.
+ *
+ * Lifecycle callbacks are delivered on the main thread. Re-check after registering the observer
+ * so a STARTED transition racing with registration cannot leave eager model initialization parked.
+ */
+internal suspend fun awaitAppForeground(lifecycle: Lifecycle = ProcessLifecycleOwner.get().lifecycle) {
+    if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) return
+
+    withContext(Dispatchers.Main.immediate) {
+        suspendCancellableCoroutine { continuation ->
+            val observer = object : LifecycleEventObserver {
+                override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                    if (event == Lifecycle.Event.ON_START ||
+                        !shouldWaitForAppForegroundAfterEviction(source.lifecycle.currentState)
+                    ) {
+                        source.lifecycle.removeObserver(this)
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+                }
+            }
+            lifecycle.addObserver(observer)
+            continuation.invokeOnCancellation { lifecycle.removeObserver(observer) }
+            if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) {
+                lifecycle.removeObserver(observer)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+    }
+}
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
@@ -192,10 +223,28 @@ class ChatViewModel @Inject constructor(
     data class MicrophoneState(
         val isPermanentlyDenied: Boolean = false,
     )
-    
+
+    /** One-shot UI actions emitted for permission requests and repair navigation. */
+    sealed interface UiEvent {
+        data object RequestWeatherLocationPermission : UiEvent
+        data object RepairWeatherLocationPermission : UiEvent
+    }
+
+    /** State for the contextual local-weather location permission dialog. */
+    data class WeatherLocationState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
+    private data class PendingWeatherLocationAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val submitMode: SubmitMode,
+    )
+
     /** The voice mode the user chose before requesting mic permission (OneShot or BackAndForth). */
     private val _pendingChatMicMode = MutableStateFlow<VoiceMode?>(null)
-    
+
     /** True while we are waiting for the user to return from mic settings after repair CTA. */
     private val _awaitingChatMicSettingsReturn = MutableStateFlow(false)
 
@@ -213,8 +262,14 @@ class ChatViewModel @Inject constructor(
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
+    private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
+    private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
+    private var awaitingWeatherLocationSettingsReturn = false
     private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
+    val weatherLocationState: StateFlow<WeatherLocationState?> = _weatherLocationState.asStateFlow()
+    val events: SharedFlow<UiEvent> = _events.asSharedFlow()
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
@@ -1011,8 +1066,26 @@ class ChatViewModel @Inject constructor(
                     }
                     return
                 }
+                Log.i(TAG, "Eager inference initialization waiting for app foreground")
+                awaitAppForeground()
+                Log.i(
+                    TAG,
+                    "Eager inference initialization permitted at lifecycle state=" +
+                        ProcessLifecycleOwner.get().lifecycle.currentState,
+                )
+
+                // Re-check after the lifecycle gate. A concurrent manual path may have warmed
+                // the process-scoped singleton while this coroutine was waiting.
+                if (inferenceEngine.isReady.value) {
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    return
+                }
 
                 val preferred = downloadManager.preferredConversationModel()
+
                 val modelPath = downloadManager.getModelPath(preferred) ?: return
                 val settings = hydrateActiveModelState(preferred)
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
@@ -1199,6 +1272,72 @@ class ChatViewModel @Inject constructor(
             speakAssistantReplyIfNeeded(content, spokenSummary)
         }
     }
+    /**
+     * Re-executes a weather QIR call after permission repair. The user message was already
+     * persisted by [sendMessage], so this path appends only the resulting assistant message.
+     */
+    private suspend fun retryWeatherLocationAction(
+        convId: String,
+        pending: PendingWeatherLocationAction,
+    ) {
+        val directSkill = skillRegistry.get(pending.intentName)
+        val (skill, callParams) = if (directSkill != null) {
+            directSkill to pending.params
+        } else {
+            skillRegistry.get("run_intent") to
+                (mapOf("intent_name" to pending.intentName) + pending.params)
+        }
+        if (skill == null) {
+            appendAssistantMessage(
+                convId = convId,
+                content = "I couldn't complete that weather request.",
+                shouldIndex = false,
+            )
+            return
+        }
+
+        when (val result = skill.execute(SkillCall(skill.name, callParams))) {
+            is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
+                convId = convId,
+                content = result.content,
+                skillName = pending.intentName,
+                requestJson = callParams.toString(),
+                isSuccess = true,
+                presentation = result.presentation,
+                spokenSummary = spokenSummaryFrom(result),
+            )
+            is SkillResult.Success -> appendAssistantMessage(
+                convId = convId,
+                content = result.content,
+                shouldIndex = false,
+                spokenSummary = spokenSummaryFrom(result),
+            )
+            is SkillResult.Failure -> appendAssistantMessage(
+                convId = convId,
+                content = result.error,
+                shouldIndex = false,
+                spokenSummary = result.error,
+            )
+            is SkillResult.CapabilityRequired -> {
+                if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+                    pendingWeatherLocationAction = pending
+                    _weatherLocationState.value = WeatherLocationState()
+                } else {
+                    appendAssistantMessage(
+                        convId = convId,
+                        content = capabilityRequiredMessage(result),
+                        shouldIndex = false,
+                        spokenSummary = capabilityRequiredMessage(result),
+                    )
+                }
+            }
+            else -> appendAssistantMessage(
+                convId = convId,
+                content = "I couldn't complete that weather request.",
+                shouldIndex = false,
+            )
+        }
+    }
 
 
     fun retryDownload(model: KernelModel) {
@@ -1380,6 +1519,97 @@ class ChatViewModel @Inject constructor(
         } else {
             _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
             // Keep _pendingChatMicMode alive for another repair attempt.
+        }
+    }
+
+
+    /** Requests ACCESS_COARSE_LOCATION through ChatScreen's runtime permission launcher. */
+    fun onWeatherLocationRequestPermission() {
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestWeatherLocationPermission)
+        }
+    }
+
+    /** Switches the pending local-weather request to the named-place fallback. */
+    fun onWeatherLocationTypePlace() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
+        awaitingWeatherLocationSettingsReturn = false
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
+        _error.value = "Type a place name in the chat input, like \"weather in Tokyo\"."
+    }
+
+    /** Dismisses the weather permission surface without executing the pending request. */
+    fun dismissWeatherLocationDialog() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
+        awaitingWeatherLocationSettingsReturn = false
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
+        _error.value = null
+    }
+
+    /** Retries the original local-weather request after ACCESS_COARSE_LOCATION is granted. */
+    fun onWeatherLocationPermissionGranted() {
+        awaitingWeatherLocationSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val pending = pendingWeatherLocationAction ?: return
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        pendingVoiceReply = pending.submitMode == SubmitMode.Voice
+        viewModelScope.launch {
+            val convId = conversationId ?: return@launch
+            retryWeatherLocationAction(convId, pending)
+        }
+    }
+
+    /** Keeps the contextual dialog on a retryable denial and promotes later denials to repair. */
+    fun onWeatherLocationPermissionDenied(shouldShowRationale: Boolean = false) {
+        val currentState = _weatherLocationState.value ?: return
+        when (denialClassifier.classify(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            shouldShowRationale,
+        )) {
+            DenialOutcome.RepairOnlyDenied ->
+                _weatherLocationState.value = currentState.copy(isPermanentlyDenied = true)
+            DenialOutcome.RetryableDenied ->
+                _weatherLocationState.value = currentState
+        }
+    }
+
+    /** Opens Android's app-permission settings for manual location repair. */
+    fun onWeatherLocationOpenAppPermissions() {
+        awaitingWeatherLocationSettingsReturn = true
+        _weatherLocationState.value = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RepairWeatherLocationPermission)
+        }
+    }
+
+    /**
+     * Called from ChatScreen after returning from permission settings. A grant retries the
+     * original request; a still-denied permission restores the blocked repair surface.
+     */
+    fun onChatWeatherLocationRepairResumeCheck(hasPermission: Boolean) {
+        if (!awaitingWeatherLocationSettingsReturn) return
+        awaitingWeatherLocationSettingsReturn = false
+        if (hasPermission) {
+            onWeatherLocationPermissionGranted()
+        } else if (pendingWeatherLocationAction != null) {
+            _weatherLocationState.value = WeatherLocationState(isPermanentlyDenied = true)
         }
     }
 
@@ -2242,17 +2472,33 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
                         }
                         is com.kernel.ai.core.skills.SkillResult.CapabilityRequired -> {
-                            val message = capabilityRequiredMessage(skillResult)
-                            appendAssistantMessage(
-                                convId = convId,
-                                content = message,
-                                shouldIndex = false,
-                                spokenSummary = message,
-                            )
-                            Log.d(
-                                "KernelAI",
-                                "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
-                            )
+                            if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+                                pendingWeatherLocationAction = PendingWeatherLocationAction(
+                                    query = text,
+                                    intentName = matchedIntent.intentName,
+                                    params = callParams,
+                                    submitMode = submitMode,
+                                )
+                                _weatherLocationState.value = WeatherLocationState()
+                                _error.value = null
+                                Log.d(
+                                    "KernelAI",
+                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} " +
+                                        "result=capability_required_weather_permission",
+                                )
+                            } else {
+                                val message = capabilityRequiredMessage(skillResult)
+                                appendAssistantMessage(
+                                    convId = convId,
+                                    content = message,
+                                    shouldIndex = false,
+                                    spokenSummary = message,
+                                )
+                                Log.d(
+                                    "KernelAI",
+                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
+                                )
+                            }
                             return@launch
                         }
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }

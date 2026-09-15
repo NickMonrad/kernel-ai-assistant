@@ -101,6 +101,14 @@ internal fun checkGpuRestartNeeded(
 private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
+/** Exact malformed close marker observed in the S21 Journey 1 regression. */
+internal const val MALFORMED_THINK_CLOSE_MARKER = "</|/think|>"
+/** Truncated close-marker tail emitted by the same callback protocol. */
+internal const val TRUNCATED_THINK_CLOSE_MARKER = "|/think>"
+/** Exact malformed thought opener observed after a channel close on S21. */
+internal const val MALFORMED_THINK_REOPEN_MARKER = "<|/think>"
+/** Exact malformed thought close observed after that S21 callback sequence. */
+internal const val MALFORMED_HTML_THINK_CLOSE_MARKER = "</think>"
 
 @OptIn(ExperimentalApi::class)
 internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
@@ -230,6 +238,7 @@ internal class ThinkingStreamStateMachine(
         CHANNEL_HEADER,
         CHANNEL_THOUGHT,
         CHANNEL_VISIBLE,
+        MALFORMED_THOUGHT_CANDIDATE,
     }
 
     private enum class MarkerType {
@@ -253,6 +262,8 @@ internal class ThinkingStreamStateMachine(
     private val emittedThinking = StringBuilder()
     private val emittedStructuredThinking = StringBuilder()
     private val emittedResponse = StringBuilder()
+    private val malformedThoughtCandidate = StringBuilder()
+    private var malformedReopenEligible = false
     private var rawMode = RawMode.VISIBLE
 
     fun consume(channelDelta: String?, rawMessage: String): ThinkingStreamEmission {
@@ -292,6 +303,16 @@ internal class ThinkingStreamStateMachine(
     fun finish(): ThinkingStreamEmission {
         val thinking = mutableListOf<String>()
         val response = mutableListOf<String>()
+
+        if (rawMode == RawMode.MALFORMED_THOUGHT_CANDIDATE) {
+            // The confirmed malformed-thought candidate is private reasoning. If its
+            // closing marker never arrives, fail closed and let the blank-response
+            // fallback handle the generation instead of exposing it as visible text.
+            malformedThoughtCandidate.clear()
+            malformedReopenEligible = false
+            rawMode = RawMode.VISIBLE
+        }
+
         processRaw(thinking, response)
         processStructuredThinking(thinking)
 
@@ -362,6 +383,7 @@ internal class ThinkingStreamStateMachine(
                 RawMode.CHANNEL_HEADER -> processChannelHeader()
                 RawMode.CHANNEL_THOUGHT -> processChannelThought(thinking)
                 RawMode.CHANNEL_VISIBLE -> processChannelVisible(response)
+                RawMode.MALFORMED_THOUGHT_CANDIDATE -> processMalformedThoughtCandidate(thinking)
             }
             if (beforeLength == rawPending.length && beforeMode == rawMode) return
             if (rawPending.isNotEmpty() && rawMode == RawMode.VISIBLE) {
@@ -376,6 +398,12 @@ internal class ThinkingStreamStateMachine(
         response: MutableList<String>,
     ) {
         val text = rawPending.toString()
+        if (malformedReopenEligible && text.startsWith(MALFORMED_THINK_REOPEN_MARKER)) {
+            deletePrefix(rawPending, MALFORMED_THINK_REOPEN_MARKER.length)
+            malformedReopenEligible = false
+            rawMode = RawMode.MALFORMED_THOUGHT_CANDIDATE
+            return
+        }
         val marker = findRawMarker(text)
         if (marker == null) {
             val stableEnd = trailingProtocolPrefixStart(text)
@@ -414,6 +442,20 @@ internal class ThinkingStreamStateMachine(
         emitThinking(text.substring(0, stableEnd ?: text.length), thinking)
         deletePrefix(rawPending, stableEnd ?: text.length)
     }
+    private fun processMalformedThoughtCandidate(thinking: MutableList<String>) {
+        malformedThoughtCandidate.append(rawPending)
+        rawPending.clear()
+
+        val candidate = malformedThoughtCandidate.toString()
+        val closeStart = candidate.indexOf(MALFORMED_HTML_THINK_CLOSE_MARKER)
+        if (closeStart < 0) return
+
+        emitThinking(candidate.substring(0, closeStart), thinking)
+        val closeEnd = closeStart + MALFORMED_HTML_THINK_CLOSE_MARKER.length
+        rawPending.append(candidate.substring(closeEnd))
+        malformedThoughtCandidate.clear()
+        rawMode = RawMode.VISIBLE
+    }
 
     private fun processChannelHeader() {
         val text = rawPending.toString()
@@ -445,6 +487,7 @@ internal class ThinkingStreamStateMachine(
         if (marker?.complete == true) {
             emitThinking(text.substring(0, marker.start), thinking)
             deletePrefix(rawPending, marker.endExclusive)
+            malformedReopenEligible = true
             rawMode = RawMode.VISIBLE
             return
         }
@@ -454,7 +497,6 @@ internal class ThinkingStreamStateMachine(
         emitThinking(text.substring(0, stableEnd ?: text.length), thinking)
         deletePrefix(rawPending, stableEnd ?: text.length)
     }
-
     private fun processChannelVisible(response: MutableList<String>) {
         val text = rawPending.toString()
         val marker = findChannelClose(text)
@@ -490,6 +532,7 @@ internal class ThinkingStreamStateMachine(
         response: MutableList<String>,
     ) {
         if (candidate.isEmpty()) return
+        malformedReopenEligible = false
         if (containsProtocolSyntaxOrPrefix(candidate)) {
             warnAmbiguous(candidate.length)
             return
@@ -544,28 +587,70 @@ internal class ThinkingStreamStateMachine(
         )
 
     private fun findExpectedClose(text: String, channel: Boolean): MarkerMatch? =
-        if (channel) findChannelClose(text) else {
+        if (channel) {
+            findChannelClose(text)
+        } else {
             for (index in text.indices) {
-                if (text.startsWith(THINK_CLOSE_MARKER, index)) {
-                    return MarkerMatch(
-                        type = MarkerType.THINK_CLOSE,
-                        start = index,
-                        endExclusive = index + THINK_CLOSE_MARKER.length,
-                        complete = true,
-                    )
-                }
-                val suffix = text.substring(index)
-                if (suffix.length >= 1 && THINK_CLOSE_MARKER.startsWith(suffix)) {
-                    return MarkerMatch(
-                        type = MarkerType.THINK_CLOSE,
-                        start = index,
-                        endExclusive = text.length,
-                        complete = false,
-                    )
-                }
+                val close = findThinkClose(text, index) ?: continue
+                return close.copy(
+                    start = close.start + index,
+                    endExclusive = close.endExclusive + index,
+                )
             }
             null
         }
+
+    private fun findThinkClose(text: String, offset: Int = 0): MarkerMatch? {
+        val completeMarker = THINK_CLOSE_MARKERS.firstOrNull { text.startsWith(it, offset) }
+        if (completeMarker != null) {
+            return MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = completeMarker.length,
+                complete = true,
+            )
+        }
+        val remainingLength = text.length - offset
+        val partialMarker = THINK_CLOSE_MARKERS.firstOrNull {
+            remainingLength >= 1 &&
+                remainingLength < it.length &&
+                it.regionMatches(0, text, offset, remainingLength)
+        }
+        return partialMarker?.let {
+            MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = remainingLength,
+                complete = false,
+            )
+        }
+    }
+
+    private fun findTruncatedThinkClose(text: String, offset: Int = 0): MarkerMatch? {
+        if (offset > 0 && text[offset - 1] == '<') return null
+        if (text.startsWith(TRUNCATED_THINK_CLOSE_MARKER, offset)) {
+            return MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = TRUNCATED_THINK_CLOSE_MARKER.length,
+                complete = true,
+            )
+        }
+        val remainingLength = text.length - offset
+        return if (remainingLength >= 1 &&
+            remainingLength < TRUNCATED_THINK_CLOSE_MARKER.length &&
+            TRUNCATED_THINK_CLOSE_MARKER.regionMatches(0, text, offset, remainingLength)
+        ) {
+            MarkerMatch(
+                type = MarkerType.THINK_CLOSE,
+                start = 0,
+                endExclusive = remainingLength,
+                complete = false,
+            )
+        } else {
+            null
+        }
+    }
 
     private fun findChannelClose(text: String): MarkerMatch? {
         for (index in text.indices) {
@@ -603,8 +688,19 @@ internal class ThinkingStreamStateMachine(
             if (includeThinkOpen && text.startsWith(THINK_OPEN_MARKER, index)) {
                 return MarkerMatch(MarkerType.THINK_OPEN, index, index + THINK_OPEN_MARKER.length, true)
             }
-            if (includeThinkClose && text.startsWith(THINK_CLOSE_MARKER, index)) {
-                return MarkerMatch(MarkerType.THINK_CLOSE, index, index + THINK_CLOSE_MARKER.length, true)
+            if (includeThinkClose) {
+                findThinkClose(text, index)?.let { close ->
+                    return close.copy(
+                        start = close.start + index,
+                        endExclusive = close.endExclusive + index,
+                    )
+                }
+                findTruncatedThinkClose(text, index)?.let { close ->
+                    return close.copy(
+                        start = close.start + index,
+                        endExclusive = close.endExclusive + index,
+                    )
+                }
             }
             if (includeChannelOpen && text.startsWith(CHANNEL_OPEN_PREFIX, index)) {
                 return MarkerMatch(MarkerType.CHANNEL_OPEN, index, index + CHANNEL_OPEN_PREFIX.length, true)
@@ -621,7 +717,6 @@ internal class ThinkingStreamStateMachine(
             val suffix = text.substring(index)
             val partialType = when {
                 includeThinkOpen && suffix.length >= 1 && THINK_OPEN_MARKER.startsWith(suffix) -> MarkerType.THINK_OPEN
-                includeThinkClose && suffix.length >= 1 && THINK_CLOSE_MARKER.startsWith(suffix) -> MarkerType.THINK_CLOSE
                 includeChannelOpen && suffix.length >= 1 && CHANNEL_OPEN_PREFIX.startsWith(suffix) -> MarkerType.CHANNEL_OPEN
                 else -> null
             }
@@ -667,6 +762,10 @@ internal class ThinkingStreamStateMachine(
             .replace(thinkingHeader, "")
             .replace(THINK_OPEN_MARKER, "")
             .replace(THINK_CLOSE_MARKER, "")
+            .replace(MALFORMED_THINK_CLOSE_MARKER, "")
+            .replace(MALFORMED_THINK_REOPEN_MARKER, "")
+            .replace(MALFORMED_HTML_THINK_CLOSE_MARKER, "")
+            .replace(TRUNCATED_THINK_CLOSE_MARKER, "")
             .replace(closeMarker, "")
 
     private fun deletePrefix(target: StringBuilder, count: Int) {
@@ -687,12 +786,17 @@ internal class ThinkingStreamStateMachine(
         const val THINK_OPEN_MARKER = "<|think|>"
         const val THINK_CLOSE_MARKER = "<|/think|>"
         const val MAX_AMBIGUOUS_LENGTH = 256
+        val THINK_CLOSE_MARKERS = listOf(
+            THINK_CLOSE_MARKER,
+            MALFORMED_THINK_CLOSE_MARKER,
+        )
         val PROTOCOL_MARKERS = listOf(
             THINKING_CHANNEL_HEADER,
             CHANNEL_OPEN_PREFIX,
             CHANNEL_CLOSE_PREFIX + ">",
             THINK_OPEN_MARKER,
             THINK_CLOSE_MARKER,
+            MALFORMED_THINK_CLOSE_MARKER,
         )
     }
 }
@@ -715,7 +819,7 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<channel|>",
     "<|think|>",
     "<|/think|>",
-    "<|/think",
+    MALFORMED_THINK_CLOSE_MARKER,
     "<|think",
 )
 
