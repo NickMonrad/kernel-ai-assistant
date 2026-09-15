@@ -67,6 +67,7 @@ class MealPlanSessionRepository @Inject constructor(
     private val projectionWriteDao: MealPlanProjectionWriteDao,
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
+    private val listMutations: ListMutationRepository,
 ) {
     private val sessionMutex = Mutex()
 
@@ -128,35 +129,19 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun recreateRecipeList(sessionId: String, dayIndex: Int): String = database.withTransaction {
         val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
         val targetName = nextAvailableListName(recipeVersion.title.ifBlank { "Recipe" })
-        val now = System.currentTimeMillis()
-        val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
-            .takeIf { it != -1L }
-            ?: error("Failed to create recipe list: $targetName")
-        buildRecipeListTexts(recipeVersion).forEach { text ->
-            listItemDao.insert(
-                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
-            )
-        }
+        listMutations.createCollectionWithItems(targetName, buildRecipeListTexts(recipeVersion))
         targetName
     }
 
     suspend fun addRecipeIngredientsToList(sessionId: String, dayIndex: Int, listId: Long): String = database.withTransaction {
-        val list = requireNotNull(listNameDao.getById(listId)?.takeIf { it.archivedAt == null }) { "Unknown active list: $listId" }
+        val list = requireNotNull(listNameDao.getById(listId)?.takeIf { it.archivedAt == null && it.lifecycle == "ACTIVE" }) { "Unknown active list: $listId" }
         val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
         val ingredientLines = groceryItemDao.getByRecipeVersion(recipeVersion.id)
             .map { grocery -> grocery.displayText.ifBlank { grocery.originalText } }
             .ifEmpty { buildRecipeIngredientTexts(recipeVersion) }
             .filter { it.isNotBlank() }
-        if (ingredientLines.isEmpty()) {
-            throw MealPlanIngredientDataUnavailableException(dayIndex)
-        }
-        val now = System.currentTimeMillis()
-        ingredientLines.forEach { text ->
-            listItemDao.insert(
-                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
-            )
-        }
-        listNameDao.updateTimestamp(listId, now)
+        if (ingredientLines.isEmpty()) throw MealPlanIngredientDataUnavailableException(dayIndex)
+        listMutations.addItems(listId, ingredientLines)
         list.name
     }
 
@@ -602,18 +587,10 @@ class MealPlanSessionRepository @Inject constructor(
             if (targetName !in oldTargets) {
                 deleteList(targetName)
             }
-            val now = System.currentTimeMillis()
-            val projectedAt = now
+            val projectedAt = System.currentTimeMillis()
             projectionWriteDao.markSupersededForTarget(sessionId, TARGET_KIND_PLAN_SHOPPING_LIST, projectedAt)
-            val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
-                .takeIf { it != -1L }
-                ?: error("Failed to create shopping projection list: $targetName")
             val groceries = groceryItemDao.getCurrentForSession(sessionId)
-            aggregateShoppingProjectionItems(groceries).forEach { line ->
-                listItemDao.insert(
-                    ListItemEntity(listId = listId, text = line, createdAt = now, updatedAt = now),
-                )
-            }
+            val listId = listMutations.createCollectionWithItems(targetName, aggregateShoppingProjectionItems(groceries))
             projectionWriteDao.insertAll(
                 groceries.map { grocery ->
                     MealPlanProjectionWriteEntity(
@@ -723,22 +700,14 @@ class MealPlanSessionRepository @Inject constructor(
             if (targetName !in oldTargets) {
                 deleteList(targetName)
             }
-            val now = System.currentTimeMillis()
-            val projectedAt = now
+            val projectedAt = System.currentTimeMillis()
             projectionWriteDao.markSupersededForSourcePrefix(
                 sessionId = session.id,
                 targetKind = TARGET_KIND_RECIPE_LIST,
                 sourceKeyPrefix = sourcePrefix,
                 timestamp = projectedAt,
             )
-            val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
-                .takeIf { it != -1L }
-                ?: error("Failed to create recipe projection list: $targetName")
-            recipeListItems.forEach { (_, text) ->
-                listItemDao.insert(
-                    ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
-                )
-            }
+            listMutations.createCollectionWithItems(targetName, recipeListItems.map { it.second })
             projectionWriteDao.insertAll(
                 recipeListItems.map { (sourceKey, _) ->
                     MealPlanProjectionWriteEntity(
@@ -758,8 +727,7 @@ class MealPlanSessionRepository @Inject constructor(
     }
 
     private suspend fun deleteList(name: String) {
-        // With FK CASCADE on list_items.listId, deleting from lists removes all child items
-        listNameDao.deleteByName(name)
+        listMutations.deleteCollectionByName(name)
     }
 
     private suspend fun deleteActiveProjections(sessionId: String, supersededAt: Long) {

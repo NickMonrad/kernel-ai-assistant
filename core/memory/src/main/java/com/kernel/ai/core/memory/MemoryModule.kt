@@ -121,10 +121,11 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_48_49,
                     KernelDatabase.MIGRATION_49_50,
                     KernelDatabase.MIGRATION_50_51,
+                    KernelDatabase.MIGRATION_51_52,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
-                    // SQLite disables FK enforcement by default — enable it per-connection
-                    // so ON DELETE CASCADE on list_items.listId fires correctly.
+                    // SQLite disables FK enforcement by default; enable it per connection.
+                    // Tombstoned list rows use NO ACTION so history remains available.
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
                         db.execSQL("PRAGMA foreign_keys = ON")

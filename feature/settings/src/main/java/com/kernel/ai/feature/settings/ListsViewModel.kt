@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.lists.ListsDataChanged
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,7 @@ class ListsViewModel @Inject constructor(
     private val listNameDao: ListNameDao,
     private val scheduler: ListNotificationScheduler,
     @ApplicationContext private val appContext: Context,
+    private val listMutations: ListMutationRepository,
 ) : ViewModel() {
     init {
         // Keep the Lists home-screen widget in sync with in-app list mutations. A single combined
@@ -272,14 +274,14 @@ class ListsViewModel @Inject constructor(
 
     fun selectAllLists(ids: List<Long>) { selectedListIds = ids.toSet() }
 
-    /** Bulk-deletes the currently selected lists (cascade removes all child items via FK). */
+    /** Bulk-deletes selected lists by recording collection and item tombstones. */
     fun deleteSelectedLists() {
         val ids = selectedListIds.toList()
         selectedListIds = emptySet()
         viewModelScope.launch(Dispatchers.IO) {
             ids.forEach { listId ->
                 dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-                listNameDao.deleteById(listId)
+                listMutations.deleteCollection(listId)
             }
         }
     }
@@ -307,21 +309,20 @@ class ListsViewModel @Inject constructor(
         selectedItemIds = emptySet()
         ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { dao.deleteItem(it) }
+            listMutations.deleteItems(ids)
         }
     }
 
     /**
      * Marks all currently selected list items as complete.
-     * Uses [ListItemDao.setChecked] to atomically set checked=true without a TOCTOU risk.
+     * Routes each checked-state mutation through the sync-aware repository.
      */
     fun markSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
-        val now = System.currentTimeMillis()
         ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { dao.setChecked(it, true, now) }
+            ids.forEach { listMutations.setItemChecked(it, true) }
         }
     }
 
@@ -336,20 +337,13 @@ class ListsViewModel @Inject constructor(
         val allItems = groupedItems.value.values.flatten()
         val listNames = listEntities.value.associateBy { it.id }
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { id -> dao.setChecked(id, false, now) }
-            // Re-schedule any future notifications that were cancelled on completion
+            ids.forEach { id -> listMutations.setItemChecked(id, false) }
             ids.forEach { id ->
                 val item = allItems.firstOrNull { it.id == id } ?: return@forEach
                 val nt = item.notificationTime ?: return@forEach
                 if (nt > now) {
                     val listName = listNames[item.listId]?.name ?: return@forEach
-                    scheduler.schedule(
-                        itemId = id,
-                        itemText = item.text,
-                        listId = item.listId,
-                        listName = listName,
-                        triggerAtMs = nt,
-                    )
+                    scheduler.schedule(itemId = id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
                 }
             }
         }
@@ -392,11 +386,10 @@ class ListsViewModel @Inject constructor(
      */
     fun reorderItems(orderedIds: List<Long>) {
         itemSort = ItemSort.MANUAL
-        val now = System.currentTimeMillis()
         itemReorderJob?.cancel()
         itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
-            val updates = orderedIds.mapIndexed { index, id -> id to index.toLong() }
-            dao.replaceItemOrders(updates, now)
+            val listId = orderedIds.firstOrNull()?.let { dao.getById(it)?.listId } ?: return@launch
+            listMutations.reorderItems(listId, orderedIds)
         }
     }
 
@@ -409,10 +402,7 @@ class ListsViewModel @Inject constructor(
     fun addList(name: String) {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return
-        val now = System.currentTimeMillis()
-        viewModelScope.launch {
-            listNameDao.insert(ListNameEntity(name = trimmed, createdAt = now, updatedAt = now))
-        }
+        viewModelScope.launch { listMutations.createCollection(trimmed) }
     }
 
     /**
@@ -423,19 +413,12 @@ class ListsViewModel @Inject constructor(
     suspend fun createList(name: String): Long {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return -1L
-        val now = System.currentTimeMillis()
-        val id = listNameDao.insertAndGet(
-            ListNameEntity(name = trimmed, createdAt = now, updatedAt = now),
-        )
-        return if (id > 0L) id else listNameDao.getByName(trimmed)?.id ?: -1L
+        return listMutations.createCollection(trimmed)
     }
 
     fun toggleChecked(item: ListItemEntity) {
-        val now = System.currentTimeMillis()
         viewModelScope.launch(Dispatchers.IO) {
-            dao.toggleChecked(item.id, now)
-            listNameDao.updateTimestamp(item.listId, now)
-            // When an item is being checked (completing), cancel any pending notification
+            listMutations.setItemChecked(item.id, !item.checked)
             if (!item.checked) scheduler.cancel(item.id)
         }
     }
@@ -443,22 +426,18 @@ class ListsViewModel @Inject constructor(
     fun addItem(listId: Long, itemText: String) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
-        val now = System.currentTimeMillis()
-        viewModelScope.launch {
-            dao.insert(ListItemEntity(listId = listId, text = trimmed, createdAt = now, updatedAt = now))
-            listNameDao.updateTimestamp(listId, now)
-        }
+        viewModelScope.launch { listMutations.addItem(listId, trimmed) }
     }
 
     fun deleteItem(id: Long) {
         scheduler.cancel(id)
-        viewModelScope.launch { dao.deleteItem(id) }
+        viewModelScope.launch { listMutations.deleteItem(id) }
     }
 
     /** Entity overload — preferred from the item screen. */
     fun deleteItem(item: ListItemEntity) {
         scheduler.cancel(item.id)
-        viewModelScope.launch { dao.deleteItem(item.id) }
+        viewModelScope.launch { listMutations.deleteItem(item.id) }
     }
 
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
@@ -472,46 +451,28 @@ class ListsViewModel @Inject constructor(
 
     /** Persists edits made in the edit bottom sheet (text, dueAt, isFavourite, notificationTime). */
     fun updateItem(item: ListItemEntity) {
-        val now = System.currentTimeMillis()
         val listName = listEntities.value.firstOrNull { it.id == item.listId }?.name ?: ""
         viewModelScope.launch {
-            dao.updateItem(
-                id = item.id,
-                text = item.text,
-                dueAt = item.dueAt,
-                isFavourite = item.isFavourite,
-                notificationTime = item.notificationTime,
-                updatedAt = now,
-            )
-            listNameDao.updateTimestamp(item.listId, now)
-            // Schedule or cancel the notification alarm
+            listMutations.updateItem(item.id, item.text, item.dueAt, item.isFavourite, item.notificationTime)
             val nt = item.notificationTime
-            if (nt != null) {
-                scheduler.schedule(
-                    itemId = item.id,
-                    itemText = item.text,
-                    listId = item.listId,
-                    listName = listName,
-                    triggerAtMs = nt,
-                )
-            } else {
-                scheduler.cancel(item.id)
-            }
+            if (nt != null) scheduler.schedule(itemId = item.id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
+            else scheduler.cancel(item.id)
         }
     }
 
     fun clearChecked(listId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.getCheckedWithNotification(listId).forEach { scheduler.cancel(it.id) }
-            dao.deleteChecked(listId)
+            val checked = dao.getAllByList(listId).filter { it.checked }
+            checked.forEach { scheduler.cancel(it.id) }
+            listMutations.deleteItems(checked.map { it.id })
         }
     }
 
-    /** Deletes a list by ID; cascade FK removes all child items automatically. */
+    /** Deletes a list by recording tombstones; rows remain for sync convergence. */
     fun deleteList(listId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-            listNameDao.deleteById(listId)
+            listMutations.deleteCollection(listId)
         }
     }
 
@@ -519,9 +480,7 @@ class ListsViewModel @Inject constructor(
     fun renameList(id: Long, newName: String) {
         val trimmed = newName.trim().lowercase()
         if (trimmed.isBlank()) return
-        viewModelScope.launch {
-            listNameDao.updateName(id, trimmed, System.currentTimeMillis())
-        }
+        viewModelScope.launch { listMutations.renameCollection(id, trimmed) }
     }
 
     /** Toggles the pinned state of a list atomically, bumping the updatedAt timestamp. */
