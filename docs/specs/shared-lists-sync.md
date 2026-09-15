@@ -34,13 +34,14 @@
 | **Actor** | One Jandal installation identity used to stamp locally originated changes. |
 | **Change** | One idempotent sync-relevant mutation. |
 | **Version stamp** | Deterministic Lamport-style stamp used to resolve concurrent writes to the same synchronised field. |
-| **Source sequence** | Per-actor contiguous number used to checkpoint delivery of that actor's changes. |
+| **Source sequence** | Per-actor, per-collection contiguous number used to checkpoint delivery of that actor's changes for one collection. |
 | **Tombstone** | Persisted deleted state retaining stable identity and deletion metadata. |
 | **Restore** | Explicit mutation that reactivates a tombstoned identity. |
-| **Placement** | The item's parent relationship and sibling order treated as one synchronised field. |
+| **Placement** | The item's requested parent relationship and sibling order treated as one synchronised field. |
+| **Effective hierarchy** | Deterministic two-level hierarchy derived from all reconciled requested placements in a collection. |
 | **Canonical title** | Shared collection title that participates in sync. |
 | **Local display alias** | Device-local generated name used only when the canonical title would collide with another local list display name. |
-| **Checkpoint** | Per-actor delivery position used for incremental exchange. |
+| **Checkpoint** | Collection-scoped per-actor delivery position used for incremental exchange. |
 
 ---
 
@@ -82,11 +83,11 @@ Text/name matching may be used for user search, never reconciliation.
 
 ## Actor clocks and change sequencing
 
-The contract uses two monotonically increasing counters with different jobs.
+The contract uses two monotonically increasing counters with different jobs and scopes.
 
 ### Lamport logical clock
 
-Each actor persists a `logicalClock`.
+Each actor persists one actor-global `logicalClock`.
 
 When creating any local sync-relevant mutation:
 
@@ -115,24 +116,27 @@ Comparison is lexicographic:
 
 Wall-clock `createdAt`/`updatedAt` values do not decide conflicts.
 
-### Per-actor source sequence
+### Per-actor, per-collection source sequence
 
-Each actor separately persists a contiguous `sourceSequence`.
+Each actor separately persists a contiguous `sourceSequence` **for each collection it changes**.
 
-Every locally originated `Change` increments it by exactly one.
+Every locally originated `Change` increments only the source sequence for that change's `collectionId`.
 
-`sourceSequence` is used for incremental delivery/checkpoints, not conflict resolution. Keeping it separate from the Lamport clock avoids gaps when a device observes a remote clock far ahead of its own.
+`sourceSequence` is used for collection-scoped incremental delivery/checkpoints, not conflict resolution. Keeping it separate from the actor-global Lamport clock avoids gaps when a device observes a remote clock far ahead of its own, while scoping it to the collection avoids gaps caused by unrelated changes to other lists.
 
-A change therefore carries both:
+For example, if one actor changes collection X, then collection Y, then X again, X's changes are sequence 1 and 2 for X; Y has its own independent sequence 1.
+
+A change therefore carries:
 
 ```text
 changeId: UUID
+collectionId: UUID
 actorId: UUID
 sourceSequence: UInt64
 stamp: VersionStamp
 ```
 
-`changeId` is the idempotency key. `(actorId, sourceSequence)` is the checkpoint/delivery coordinate.
+`changeId` is the idempotency key. `(collectionId, actorId, sourceSequence)` is the incremental-delivery coordinate.
 
 ---
 
@@ -397,9 +401,11 @@ This rule covers:
 - due date;
 - placement.
 
-### Reorder/reparent conflicts
+### Reorder/reparent conflicts on the same item
 
-Because placement is one stamped field, a concurrent move conflict chooses one complete `(parentItemId, orderKey)` placement rather than mixing half of each move.
+Because placement is one stamped field, a concurrent move conflict on the same item chooses one complete `(parentItemId, orderKey)` placement rather than mixing half of each move.
+
+Cross-item placement conflicts that can create an invalid hierarchy are resolved by the deterministic hierarchy normalisation below.
 
 ### Delete versus ordinary changes
 
@@ -441,24 +447,49 @@ An item change received while its collection is deleted does not restore the col
 
 ### Valid relationships
 
-An item is either:
+An item's **requested placement** is either:
 
 - top-level: `parentItemId = null`; or
-- child: `parentItemId` references another non-deleted item in the same collection.
+- child candidate: `parentItemId` references another item in the same collection.
 
-Maximum depth is exactly two levels.
+The **effective hierarchy** rendered and exposed to local consumers must always be acyclic and no deeper than two levels.
 
-An item that already has children cannot itself become a child without first applying the explicit hierarchy transformation required by #928.
+An item that already has effective children cannot also be an effective child. Concurrent cross-item placement changes can temporarily produce requested placements that violate this invariant, so validity cannot depend on whichever change happened to arrive first.
+
+### Deterministic cross-item hierarchy normalisation
+
+After ordinary per-item placement-stamp reconciliation, derive the effective hierarchy from the complete current set of requested placements for the collection.
+
+For all active items whose requested `parentItemId` refers to an active item in the same collection:
+
+1. create one candidate edge `child -> parent` carrying the child's `placementStamp`;
+2. sort candidate edges by **descending `placementStamp`**;
+3. for an exact stamp tie, sort by lexicographically ascending child `itemId`, then ascending parent `itemId`;
+4. process candidates in that fixed order and accept an edge only when all of these remain true:
+   - child and parent are different items;
+   - adding the edge does not create a cycle in the already accepted graph;
+   - the parent has no accepted parent, so the parent remains top-level;
+   - the child has no accepted children, so the child does not become both parent and child;
+5. suppress any candidate that fails those checks from the **effective hierarchy** and render that child as top-level using its existing `orderKey` plus stable `itemId` tie-breaker.
+
+The requested placement register and its stamp are retained; normalisation is a deterministic derived view, not a synthetic sync write. This is necessary so every peer with the same reconciled requested placements computes the same effective two-level forest regardless of delivery order. A later explicit placement change writes a newer placement stamp and therefore changes the candidate set/priority normally.
+
+This rule resolves, for example:
+
+- concurrent `A -> B` and `B -> A`: the higher-priority candidate by the ordering above is accepted and the other is effectively top-level;
+- concurrent changes that would produce `grandparent -> parent -> child`: candidate priority deterministically decides which relationship is retained so effective depth never exceeds two.
+
+Do not emit an additional repair change solely because a candidate is suppressed. Transport/package snapshots carry the requested placement registers and stamps; every receiver derives the same effective hierarchy using this rule.
 
 ### Missing parent during delivery
 
 Transport ordering must not hide data.
 
-If a child arrives before its referenced parent:
+If a child's requested parent is not yet present/active:
 
 - persist the requested placement;
 - render/treat the child as temporarily top-level for safe visibility;
-- resolve normal hierarchy display once the parent exists and is active.
+- include the edge in normalisation once the parent exists and is active.
 
 ### Deleted parent
 
@@ -494,7 +525,7 @@ between 5 and 6      -> 5.5
 between 5 and 5.5    -> 5.25
 ```
 
-Top-level items and each parent's child group form independent sibling sequences.
+Top-level items and each parent's child group form independent sibling sequences after effective hierarchy normalisation.
 
 ### Reorder operation
 
@@ -543,40 +574,42 @@ Room current state is authoritative. The change log is a sync aid, not the datab
 A full collection snapshot contains:
 
 - shared collection state;
-- all current shared item state;
+- all current shared item state, including requested placement registers/stamps;
 - required item/collection tombstones;
 - field/version stamps;
-- current per-actor delivery checkpoint information.
+- current per-actor delivery checkpoint information **for this collection**.
 
-Local-only state is excluded.
+Local-only state is excluded. Effective hierarchy is derived from the shared requested placements after reconciliation.
 
 ### Checkpoint
 
-Represent incremental delivery position as:
+A checkpoint is scoped to one `collectionId` and records the delivery position for each origin actor within that collection:
 
 ```text
-Checkpoint
-actorId -> highest contiguous sourceSequence applied
+Checkpoint(collectionId)
+actorId -> highest contiguous sourceSequence applied for this collection
 ```
 
-Because `sourceSequence` is separate from the Lamport clock, sequence numbers are contiguous for each origin actor even when logical clocks jump after remote observations.
+Because `sourceSequence` is both separate from the actor-global Lamport clock and scoped to `(actorId, collectionId)`, sequence numbers are contiguous for one actor's changes to that collection even when the same actor changes other collections between them.
 
 ### Incremental exchange
 
-A sender may provide changes newer than the receiver's checkpoint.
+A sender may provide changes for the package/bound collection newer than the receiver's checkpoint for that same collection.
 
 The receiver:
 
-1. verifies package/change format;
+1. verifies package/change format and matching `collectionId`;
 2. ignores already-applied `changeId` values;
 3. applies new changes through the authoritative mutation/reconciliation seam;
-4. advances per-actor checkpoint only across contiguous applied source sequences.
+4. advances that collection's per-actor checkpoint only across contiguous applied source sequences for the same `(actorId, collectionId)`.
+
+Changes belonging to another collection are never required to fill a checkpoint gap for this collection.
 
 ### Snapshot fallback
 
-If the sender no longer retains enough historical changes to satisfy the receiver's checkpoint, send a fresh full snapshot.
+If the sender no longer retains enough historical changes for this collection to satisfy the receiver's collection-scoped checkpoint, send a fresh full snapshot for that collection.
 
-Snapshot reconciliation uses the same stable IDs, field stamps, lifecycle semantics, and placement rules as incremental changes.
+Snapshot reconciliation uses the same stable IDs, field stamps, lifecycle semantics, requested placements, and deterministic effective-hierarchy normalisation as incremental changes.
 
 ### Change-log compaction
 
@@ -622,7 +655,7 @@ SharedCollectionPayloadV1
 - collection snapshot and/or incremental changes
 - tombstones/lifecycle state
 - field/version stamps
-- checkpoint
+- collection-scoped checkpoint
 - minimum membership metadata
 ```
 
@@ -746,19 +779,19 @@ The #1492 seam is responsible for more than database convenience. It is the corr
 For a local user/skill mutation it must:
 
 1. resolve current stable identity/state;
-2. increment actor logical clock and source sequence as required;
+2. increment the actor-global logical clock and this collection's source sequence as required;
 3. create the explicit change(s);
 4. update current Room state and outbox/applied-change metadata atomically;
 5. trigger existing local observers only after successful persistence.
 
 For an imported/remote change it must:
 
-1. validate format/stable identity;
-2. advance local Lamport clock from observed stamps;
+1. validate format/stable identity and collection scope;
+2. advance local actor-global Lamport clock from observed stamps;
 3. check `changeId` idempotency;
-4. apply field/lifecycle/placement conflict rules;
-5. enforce #928 hierarchy invariants through normal derived mutations where required;
-6. persist current state and applied-change/checkpoint metadata atomically;
+4. apply field/lifecycle/requested-placement conflict rules;
+5. derive the effective hierarchy using the deterministic cross-item normalisation rule rather than arrival-order rejection;
+6. persist current state and applied-change/collection-checkpoint metadata atomically;
 7. allow normal Room observers to update UI/skills/widgets.
 
 Transport code must not write List entities around this seam.
@@ -773,10 +806,11 @@ Reject malformed changes that:
 
 - reference no collection;
 - reuse an identity for an incompatible object;
-- attempt cross-collection parent relationships;
-- create hierarchy deeper than two levels after normal reconciliation.
+- attempt a parent relationship across collections.
 
 Do not partially apply the invalid change.
+
+Same-collection cycle/depth conflicts produced by otherwise valid concurrent placements are **not** rejected based on arrival order; they are resolved by deterministic effective-hierarchy normalisation.
 
 ### Missing parent
 
@@ -811,12 +845,12 @@ Does not roll back an already committed local mutation. Pending work remains loc
 Must prove:
 
 - stable ID migration/persistence;
-- actor clocks/source sequence persistence;
+- actor-global Lamport clock plus per-collection source-sequence persistence;
 - field-stamp comparison;
 - atomic mutation + outbox recording across all known writers;
 - tombstone/restore behaviour;
 - local alias persistence;
-- sync-safe placement storage.
+- sync-safe requested-placement storage and deterministic effective-hierarchy derivation.
 
 ### #928 hierarchy
 
@@ -837,7 +871,8 @@ Must prove:
 - tombstone/restore preservation;
 - collision alias handling;
 - duplicate import idempotency;
-- local-only neutral defaults.
+- local-only neutral defaults;
+- collection-scoped checkpoints do not depend on changes from other collections.
 
 ### #1494 paired-device convergence
 
@@ -850,7 +885,11 @@ Must prove:
 - explicit restore;
 - hierarchy and sibling-order convergence;
 - duplicate delivery;
-- offline/reconnect.
+- offline/reconnect;
+- one actor can interleave changes across two collections without either collection's incremental checkpoint stalling;
+- concurrent `A -> B` and `B -> A` placements converge to the same acyclic effective hierarchy on both devices;
+- concurrent placements that would otherwise create depth greater than two converge to the same effective hierarchy;
+- the same conflicting placement set applied in different delivery orders produces identical effective hierarchy and normalized list state.
 
 ### Provider integrations such as #1539
 
