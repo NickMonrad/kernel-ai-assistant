@@ -69,7 +69,7 @@ Review gates define evidence and review expectations for PRs. They are not produ
 | `.docs/agents/review-gates-navigation-ui.md` | Navigation and UI PR checklist. |
 | `.docs/agents/review-gates-voice.md` | Voice, STT, TTS, VAD, and wake-word review gate. |
 | `.docs/agents/review-gates-litert.md` | LiteRT and model-runtime review gate. |
-| `.docs/agents/review-gates-wallpaper-theme.md` | Wallpaper and theme PR checklist. |
+| `.docs/agents/review-gates-wallpaper-theme.md` | Wallpaper and theme review gate. |
 
 ### Research and design drafts
 
