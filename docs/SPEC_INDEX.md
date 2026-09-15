@@ -42,6 +42,7 @@ These documents define one behaviour area in more detail than the global specs.
 | Path | Scope | Status |
 |---|---|---|
 | `docs/specs/permissions-ux.md` | Android permissions, microphone, wake word, repair flows | Canonical source for permission UX and lifecycle behaviour. |
+| `docs/specs/shared-lists-sync.md` | Shared Lists identity, conflict, hierarchy, ordering, deletion/restore and package contract | Canonical transport-independent source for #1492, #928, #1493, #1494 and provider sync integrations. |
 
 Create new subsystem specs under `docs/specs/` when a behaviour area is too detailed for `docs/SPECIFICATION.md` or `docs/UX_PATTERNS.md`.
 
