@@ -117,7 +117,6 @@ object EffectiveHierarchyNormalizer {
             .toList()
 
         val accepted = linkedMapOf<String, String>()
-        val childrenByParent = mutableMapOf<String, MutableSet<String>>()
         fun createsCycle(child: String, parent: String): Boolean {
             var cursor: String? = parent
             while (cursor != null) {
@@ -131,10 +130,8 @@ object EffectiveHierarchyNormalizer {
             val parent = candidate.parentItemId ?: return@forEach
             if (candidate.itemId == parent || accepted.containsKey(candidate.itemId) || accepted.containsKey(parent)) return@forEach
             if (createsCycle(candidate.itemId, parent)) return@forEach
-            if (childrenByParent[parent].orEmpty().isNotEmpty()) return@forEach
             if (accepted.keys.any { accepted[it] == candidate.itemId }) return@forEach
             accepted[candidate.itemId] = parent
-            childrenByParent.getOrPut(parent) { mutableSetOf() }.add(candidate.itemId)
         }
 
         val topLevel = active.keys.filterNot { accepted.containsKey(it) }

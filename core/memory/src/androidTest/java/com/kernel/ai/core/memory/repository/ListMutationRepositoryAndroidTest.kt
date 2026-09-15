@@ -156,6 +156,85 @@ class ListMutationRepositoryAndroidTest {
     }
 
 
+    @Test
+    fun `collection deletion tombstones only collection and newer restore is explicit`() = runBlocking {
+        val listId = repository.createCollection("Archive")
+        val collectionId = database.listNameDao().getById(listId)!!.collectionId
+        val itemId = repository.addItem(listId, "Keep this item")
+
+        repository.deleteCollection(listId)
+
+        assertEquals(ListLifecycle.DELETED.name, database.listNameDao().getById(listId)!!.lifecycle)
+        assertEquals(ListLifecycle.ACTIVE.name, database.listItemDao().getById(itemId)!!.lifecycle)
+
+        repository.applyRemote(
+            change(collectionId, collectionId, "remote-lifecycle", 1L, 20L, ListChangeOperation.CREATE_COLLECTION, ListChangePayload(canonicalTitle = "Stale create")),
+        )
+        assertEquals(ListLifecycle.DELETED.name, database.listNameDao().getById(listId)!!.lifecycle)
+
+        repository.applyRemote(
+            change(collectionId, collectionId, "remote-lifecycle", 2L, 21L, ListChangeOperation.RESTORE_COLLECTION),
+        )
+        assertEquals(ListLifecycle.ACTIVE.name, database.listNameDao().getById(listId)!!.lifecycle)
+        assertEquals(ListLifecycle.ACTIVE.name, database.listItemDao().getById(itemId)!!.lifecycle)
+
+        val deletedAgain = repository.createCollection("Repeat")
+        repository.deleteCollection(deletedAgain)
+        val replacement = repository.createCollection("Repeat")
+        assertTrue(deletedAgain != replacement)
+    }
+
+    @Test
+    fun `exact order keys survive remote placement and local reorder`() = runBlocking {
+        val listId = repository.createCollection("Ordered")
+        val collectionId = database.listNameDao().getById(listId)!!.collectionId
+        val firstId = repository.addItem(listId, "First")
+        val secondId = repository.addItem(listId, "Second")
+        val first = database.listItemDao().getById(firstId)!!
+        val second = database.listItemDao().getById(secondId)!!
+
+        repository.applyRemote(
+            change(collectionId, first.itemId, "remote-order", 1L, 10L, ListChangeOperation.SET_ITEM_PLACEMENT, ListChangePayload(orderKey = "9007199254740992.1000000001")),
+        )
+        repository.applyRemote(
+            change(collectionId, second.itemId, "remote-order", 2L, 11L, ListChangeOperation.SET_ITEM_PLACEMENT, ListChangePayload(orderKey = "9007199254740992.1000000002")),
+        )
+
+        assertEquals(listOf("First", "Second"), database.listItemDao().getByList(listId).map { it.text })
+        assertEquals("9007199254740992.1000000001", database.listItemDao().getById(firstId)!!.orderKey)
+
+        repository.reorderItems(listId, listOf(secondId, firstId))
+        assertEquals(listOf("Second", "First"), database.listItemDao().getByList(listId).map { it.text })
+    }
+
+    @Test
+    fun `accepted item mutations advance parent timestamp but stale and duplicate do not`() = runBlocking {
+        val listId = repository.createCollection("Timestamped")
+        val collectionId = database.listNameDao().getById(listId)!!.collectionId
+        val itemId = repository.addItem(listId, "Original")
+        val item = database.listItemDao().getById(itemId)!!
+        database.listNameDao().updateTimestamp(listId, 1L)
+
+        repository.applyRemote(
+            change(collectionId, item.itemId, "remote-timestamp", 1L, 10L, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = "Accepted")),
+        )
+        val acceptedAt = database.listNameDao().getById(listId)!!.updatedAt
+        assertTrue(acceptedAt > 1L)
+
+        repository.applyRemote(
+            change(collectionId, item.itemId, "remote-timestamp", 1L, 10L, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = "Duplicate")),
+        )
+        assertEquals(acceptedAt, database.listNameDao().getById(listId)!!.updatedAt)
+
+        repository.applyRemote(
+            change(collectionId, item.itemId, "remote-timestamp", 2L, 9L, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = "Stale")),
+        )
+        assertEquals(acceptedAt, database.listNameDao().getById(listId)!!.updatedAt)
+
+        val beforeLocal = database.listNameDao().getById(listId)!!.updatedAt
+        repository.setItemChecked(itemId, true)
+        assertTrue(database.listNameDao().getById(listId)!!.updatedAt > beforeLocal)
+    }
     private fun change(
         collectionId: String,
         targetId: String,

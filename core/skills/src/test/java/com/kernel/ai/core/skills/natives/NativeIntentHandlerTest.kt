@@ -878,6 +878,30 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `create_list broadcasts after creating a new list`() {
+        coEvery { listNameDao.getByNameAnyLifecycle("new list") } returns null
+
+        handleIntent("create_list", mapOf("list_name" to "new list"))
+
+        verify(exactly = 1) { context.sendBroadcast(any()) }
+    }
+
+    @Test
+    fun `create_list does not broadcast for an existing active list`() {
+        coEvery { listNameDao.getByNameAnyLifecycle("existing list") } returns
+            com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 9L,
+                name = "existing list",
+                createdAt = 0L,
+                updatedAt = 0L,
+            )
+
+        handleIntent("create_list", mapOf("list_name" to "existing list"))
+
+        verify(exactly = 0) { context.sendBroadcast(any()) }
+    }
+
+    @Test
     fun `playYoutubeMusic launches app and sends play key for generic music query`() {
         val packageManager = mockk<PackageManager>(relaxed = true)
         val audioManager = mockk<AudioManager>(relaxed = true)

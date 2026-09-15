@@ -14,6 +14,7 @@ import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.lists.ListsDataChanged
+import com.kernel.ai.core.memory.lists.OrderKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -150,7 +151,7 @@ class ListsViewModel @Inject constructor(
                 dao.observeByList(listId),
                 snapshotFlow { itemSort },
                 snapshotFlow { itemFilter },
-            ) { items, sort, filter ->
+            ) { items: List<ListItemEntity>, sort: ItemSort, filter: ItemFilter ->
                 val filtered = when (filter) {
                     ItemFilter.ALL -> items
                     ItemFilter.FAVOURITES_ONLY -> items.filter { it.isFavourite }
@@ -160,7 +161,12 @@ class ListsViewModel @Inject constructor(
                 val active = filtered.filter { !it.checked }
                 val completed = filtered.filter { it.checked }
                 val comparator: Comparator<ListItemEntity> = when (sort) {
-                    ItemSort.MANUAL -> compareBy { it.displayOrder }
+                    ItemSort.MANUAL -> Comparator { left, right ->
+                        OrderKey.compare(left.orderKey, right.orderKey)
+                            .takeIf { it != 0 }
+                            ?: left.itemId.compareTo(right.itemId).takeIf { it != 0 }
+                            ?: left.id.compareTo(right.id)
+                    }
                     ItemSort.CREATED_NEWEST -> compareByDescending { it.createdAt }
                     ItemSort.CREATED_OLDEST -> compareBy { it.createdAt }
                     ItemSort.UPDATED_NEWEST -> compareByDescending { it.updatedAt }

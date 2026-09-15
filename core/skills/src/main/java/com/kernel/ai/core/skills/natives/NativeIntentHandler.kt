@@ -1961,10 +1961,15 @@ class NativeIntentHandler @Inject constructor(
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val name = normalizeListName(raw)
-        val now = System.currentTimeMillis()
-        runBlocking {
-            listMutations?.createCollection(name) ?: listNameDao.insert(ListNameEntity(name = name, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
+        val changed = runBlocking {
+            val existing = listNameDao.getByNameAnyLifecycle(name)
+            listMutations?.createCollection(name)
+            if (listMutations == null) {
+                listNameDao.insert(ListNameEntity(name = name, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
+            }
+            existing == null || existing.lifecycle == "DELETED"
         }
+        if (changed) ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Created list \"$name\".",
             presentation = buildListPreview(name, emptyList(), "No items yet."),

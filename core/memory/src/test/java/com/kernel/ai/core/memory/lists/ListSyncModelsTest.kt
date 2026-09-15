@@ -32,6 +32,7 @@ class ListSyncModelsTest {
         assertEquals("2.5", OrderKey.canonical("02.500"))
         assertEquals("0", OrderKey.canonical("-0"))
         assertTrue(OrderKey.compare("1.10", "1.2") < 0)
+        assertTrue(OrderKey.compare("9007199254740992.1000000001", "9007199254740992.1000000002") < 0)
     }
 
     @Test
@@ -47,5 +48,21 @@ class ListSyncModelsTest {
         assertEquals(mapOf("b" to "a"), result.parentByChild)
         assertEquals(listOf("a", "c"), result.topLevelItemIds)
         assertNull(result.parentByChild["a"])
+    }
+
+    @Test
+    fun `hierarchy preserves multiple siblings deterministically`() {
+        val items = listOf(
+            HierarchyItem("parent", null, "0", VersionStamp(1, "actor")),
+            HierarchyItem("second", "parent", "2", VersionStamp(2, "actor")),
+            HierarchyItem("first", "parent", "1", VersionStamp(1, "actor")),
+        )
+
+        val forward = EffectiveHierarchyNormalizer.derive(items)
+        val reverse = EffectiveHierarchyNormalizer.derive(items.asReversed())
+
+        assertEquals(mapOf("first" to "parent", "second" to "parent"), forward.parentByChild)
+        assertEquals(forward, reverse)
+        assertEquals(listOf("parent"), forward.topLevelItemIds)
     }
 }

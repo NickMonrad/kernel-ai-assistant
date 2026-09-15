@@ -49,11 +49,12 @@ class ListMutationRepository @Inject constructor(
 
     private suspend fun createCollectionInternal(title: String): Long {
         val existing = listNameDao.getByNameAnyLifecycle(title)
-        if (existing != null) {
-            if (existing.lifecycle == ListLifecycle.DELETED.name) {
-                restoreCollectionInternal(existing)
-            }
+        if (existing != null && existing.lifecycle == ListLifecycle.ACTIVE.name) {
             return existing.id
+        }
+        if (existing != null) {
+            val tombstoneName = uniqueDisplayName("${existing.canonicalTitle} (deleted)", existing.id, existing.collectionId.take(8))
+            listNameDao.upsert(existing.copy(name = tombstoneName, localDisplayAlias = tombstoneName))
         }
         val collectionId = UUID.randomUUID().toString()
         val stamp = nextStamp(collectionId)
@@ -101,6 +102,7 @@ class ListMutationRepository @Inject constructor(
         if (item.checked == checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(checked = checked, updatedAt = System.currentTimeMillis(), checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId))
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_CHECKED, ListChangePayload(checked = checked))
     }
 
@@ -109,6 +111,7 @@ class ListMutationRepository @Inject constructor(
         if (item.text == text || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(text = text, updatedAt = System.currentTimeMillis(), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId))
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = text))
     }
 
@@ -117,27 +120,34 @@ class ListMutationRepository @Inject constructor(
         if (item.dueAt == dueAt || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(dueAt = dueAt, updatedAt = System.currentTimeMillis(), dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId))
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_DUE_AT, ListChangePayload(dueAt = dueAt))
     }
+
 
     suspend fun updateItem(itemId: Long, text: String, dueAt: Long?, favourite: Boolean, notificationTime: Long?) = database.withTransaction {
         var item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        var parentChanged = false
         if (item.text != text) {
             val stamp = nextStamp(item.collectionId)
             item = item.copy(text = text, updatedAt = System.currentTimeMillis(), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId)
             listItemDao.upsert(item)
             recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = text))
+            parentChanged = true
         }
         if (item.dueAt != dueAt) {
             val stamp = nextStamp(item.collectionId)
             item = item.copy(dueAt = dueAt, updatedAt = System.currentTimeMillis(), dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId)
             listItemDao.upsert(item)
             recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_DUE_AT, ListChangePayload(dueAt = dueAt))
+            parentChanged = true
         }
         if (item.isFavourite != favourite || item.notificationTime != notificationTime) {
             listItemDao.upsert(item.copy(isFavourite = favourite, notificationTime = notificationTime, updatedAt = System.currentTimeMillis()))
+            parentChanged = true
         }
+        if (parentChanged) touchList(item.listId)
     }
 
     suspend fun setItemPlacement(itemId: Long, parentItemId: String?, orderKey: String) = database.withTransaction {
@@ -146,6 +156,8 @@ class ListMutationRepository @Inject constructor(
         if (item.parentItemId == parentItemId && OrderKey.canonical(item.orderKey) == canonicalOrderKey) return@withTransaction
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(parentItemId = parentItemId, orderKey = canonicalOrderKey, displayOrder = canonicalOrderKey.toLongOrNull() ?: item.displayOrder, updatedAt = System.currentTimeMillis(), placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
+        refreshLegacyDisplayOrders(item.listId)
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_PLACEMENT, ListChangePayload(parentItemId = parentItemId, orderKey = canonicalOrderKey))
     }
 
@@ -158,11 +170,7 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteItem(itemId: Long) = database.withTransaction {
-        val item = requireItem(itemId)
-        if (item.lifecycle == ListLifecycle.DELETED.name) return@withTransaction
-        val stamp = nextStamp(item.collectionId)
-        listItemDao.upsert(item.copy(lifecycle = ListLifecycle.DELETED.name, updatedAt = System.currentTimeMillis(), lifecycleLogicalClock = stamp.logicalClock, lifecycleStampActorId = stamp.actorId))
-        recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.DELETE_ITEM)
+        deleteItemInternal(itemId)
     }
 
     suspend fun deleteItems(itemIds: List<Long>) = database.withTransaction { itemIds.forEach { deleteItemInternal(it) } }
@@ -173,7 +181,6 @@ class ListMutationRepository @Inject constructor(
 
     private suspend fun deleteCollectionInternal(list: ListNameEntity) {
         if (list.lifecycle == ListLifecycle.DELETED.name) return
-        listItemDao.getAllByList(list.id).forEach { deleteItemInternal(it.id) }
         val stamp = nextStamp(list.collectionId)
         listNameDao.upsert(list.copy(lifecycle = ListLifecycle.DELETED.name, updatedAt = System.currentTimeMillis(), lifecycleLogicalClock = stamp.logicalClock, lifecycleStampActorId = stamp.actorId))
         recordLocal(list.collectionId, list.collectionId, stamp, ListChangeOperation.DELETE_COLLECTION)
@@ -245,6 +252,7 @@ class ListMutationRepository @Inject constructor(
             placementStampActorId = stamp.actorId,
         )
         listItemDao.insert(item)
+        touchList(list.id)
         recordLocal(list.collectionId, itemId, stamp, ListChangeOperation.CREATE_ITEM, ListChangePayload(text = text, checked = checked, dueAt = dueAt, orderKey = orderKey))
         return listItemDao.getByItemId(itemId)?.id ?: error("Failed to create item")
     }
@@ -254,6 +262,8 @@ class ListMutationRepository @Inject constructor(
         if (item.parentItemId == parentItemId && OrderKey.canonical(item.orderKey) == canonical) return
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(parentItemId = parentItemId, orderKey = canonical, displayOrder = canonical.toLongOrNull() ?: item.displayOrder, updatedAt = System.currentTimeMillis(), placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
+        refreshLegacyDisplayOrders(item.listId)
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_PLACEMENT, ListChangePayload(parentItemId = parentItemId, orderKey = canonical))
     }
 
@@ -262,7 +272,14 @@ class ListMutationRepository @Inject constructor(
         if (item.lifecycle == ListLifecycle.DELETED.name) return
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(lifecycle = ListLifecycle.DELETED.name, updatedAt = System.currentTimeMillis(), lifecycleLogicalClock = stamp.logicalClock, lifecycleStampActorId = stamp.actorId))
+        touchList(item.listId)
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.DELETE_ITEM)
+    }
+
+    private suspend fun refreshLegacyDisplayOrders(listId: Long) {
+        listItemDao.getAllByList(listId).forEachIndexed { index, item ->
+            listItemDao.updateDisplayOrderProjection(item.id, index.toLong())
+        }
     }
 
     private suspend fun nextStamp(collectionId: String): VersionStamp {
@@ -314,15 +331,6 @@ class ListMutationRepository @Inject constructor(
                 localDisplayAlias = name.takeIf { it != title },
                 titleLogicalClock = change.stamp.logicalClock,
                 titleStampActorId = change.stamp.actorId,
-            )
-        }
-        if (existing.lifecycle == ListLifecycle.DELETED.name &&
-            change.stamp > VersionStamp(existing.lifecycleLogicalClock, existing.lifecycleStampActorId)
-        ) {
-            merged = merged.copy(
-                lifecycle = ListLifecycle.ACTIVE.name,
-                lifecycleLogicalClock = change.stamp.logicalClock,
-                lifecycleStampActorId = change.stamp.actorId,
             )
         }
         if (merged != existing) listNameDao.upsert(merged)
@@ -406,6 +414,7 @@ class ListMutationRepository @Inject constructor(
         if (existing == null) {
             val orderKey = OrderKey.canonical(payload.orderKey ?: "0")
             listItemDao.insert(ListItemEntity(listId = list.id, text = requireNotNull(payload.text), checked = payload.checked ?: false, dueAt = payload.dueAt, itemId = change.targetId, collectionId = change.collectionId, parentItemId = payload.parentItemId, orderKey = orderKey, displayOrder = orderKey.toLongOrNull() ?: 0L, textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId, checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId, dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId, placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
+            touchList(list.id)
             return
         }
         require(existing.collectionId == change.collectionId) { "Item belongs to another collection" }
@@ -423,19 +432,40 @@ class ListMutationRepository @Inject constructor(
             val orderKey = OrderKey.canonical(payload.orderKey ?: "0")
             merged = merged.copy(parentItemId = payload.parentItemId, orderKey = orderKey, displayOrder = orderKey.toLongOrNull() ?: existing.displayOrder, placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId)
         }
-        if (merged != existing) listItemDao.upsert(merged.copy(updatedAt = System.currentTimeMillis()))
+        if (merged != existing) {
+            listItemDao.upsert(merged.copy(updatedAt = System.currentTimeMillis()))
+            touchList(list.id)
+            refreshLegacyDisplayOrders(list.id)
+        }
     }
 
     private suspend fun applyItemField(change: ListChange) {
         val item = ensureRemoteItem(change)
         require(item.collectionId == change.collectionId) { "Item belongs to another collection" }
         if (item.lifecycle == ListLifecycle.DELETED.name) return
-        when (change.operation) {
-            ListChangeOperation.SET_ITEM_TEXT -> if (change.stamp > VersionStamp(item.textLogicalClock, item.textStampActorId)) listItemDao.upsert(item.copy(text = requireNotNull(change.payload.text), textLogicalClock = change.stamp.logicalClock, textStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis()))
-            ListChangeOperation.SET_ITEM_CHECKED -> if (change.stamp > VersionStamp(item.checkedLogicalClock, item.checkedStampActorId)) listItemDao.upsert(item.copy(checked = requireNotNull(change.payload.checked), checkedLogicalClock = change.stamp.logicalClock, checkedStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis()))
-            ListChangeOperation.SET_ITEM_DUE_AT -> if (change.stamp > VersionStamp(item.dueAtLogicalClock, item.dueAtStampActorId)) listItemDao.upsert(item.copy(dueAt = change.payload.dueAt, dueAtLogicalClock = change.stamp.logicalClock, dueAtStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis()))
-            ListChangeOperation.SET_ITEM_PLACEMENT -> if (change.stamp > VersionStamp(item.placementLogicalClock, item.placementStampActorId)) listItemDao.upsert(item.copy(parentItemId = change.payload.parentItemId, orderKey = OrderKey.canonical(requireNotNull(change.payload.orderKey)), placementLogicalClock = change.stamp.logicalClock, placementStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis()))
-            else -> Unit
+        val updated = when (change.operation) {
+            ListChangeOperation.SET_ITEM_TEXT ->
+                if (change.stamp > VersionStamp(item.textLogicalClock, item.textStampActorId)) {
+                    item.copy(text = requireNotNull(change.payload.text), textLogicalClock = change.stamp.logicalClock, textStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
+                } else null
+            ListChangeOperation.SET_ITEM_CHECKED ->
+                if (change.stamp > VersionStamp(item.checkedLogicalClock, item.checkedStampActorId)) {
+                    item.copy(checked = requireNotNull(change.payload.checked), checkedLogicalClock = change.stamp.logicalClock, checkedStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
+                } else null
+            ListChangeOperation.SET_ITEM_DUE_AT ->
+                if (change.stamp > VersionStamp(item.dueAtLogicalClock, item.dueAtStampActorId)) {
+                    item.copy(dueAt = change.payload.dueAt, dueAtLogicalClock = change.stamp.logicalClock, dueAtStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
+                } else null
+            ListChangeOperation.SET_ITEM_PLACEMENT ->
+                if (change.stamp > VersionStamp(item.placementLogicalClock, item.placementStampActorId)) {
+                    item.copy(parentItemId = change.payload.parentItemId, orderKey = OrderKey.canonical(requireNotNull(change.payload.orderKey)), placementLogicalClock = change.stamp.logicalClock, placementStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
+                } else null
+            else -> null
+        }
+        if (updated != null) {
+            listItemDao.upsert(updated)
+            if (change.operation == ListChangeOperation.SET_ITEM_PLACEMENT) refreshLegacyDisplayOrders(item.listId)
+            touchList(item.listId)
         }
     }
 
@@ -446,6 +476,7 @@ class ListMutationRepository @Inject constructor(
         require(item.collectionId == change.collectionId) { "Item belongs to another collection" }
         if (change.stamp <= VersionStamp(item.lifecycleLogicalClock, item.lifecycleStampActorId)) return
         listItemDao.upsert(item.copy(lifecycle = if (change.operation == ListChangeOperation.DELETE_ITEM) ListLifecycle.DELETED.name else ListLifecycle.ACTIVE.name, lifecycleLogicalClock = change.stamp.logicalClock, lifecycleStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis()))
+        touchList(item.listId)
     }
 
 
@@ -458,6 +489,10 @@ class ListMutationRepository @Inject constructor(
         if (next - 1L > current) {
             checkpointDao.upsert(ListCheckpointEntity(change.collectionId, change.actorId, next - 1L))
         }
+    }
+    private suspend fun touchList(listId: Long) {
+        val list = requireList(listId)
+        listNameDao.updateTimestamp(listId, maxOf(System.currentTimeMillis(), list.updatedAt + 1L))
     }
     private suspend fun requireList(id: Long): ListNameEntity = listNameDao.getById(id) ?: error("Unknown list: $id")
     private suspend fun requireItem(id: Long): ListItemEntity = listItemDao.getById(id) ?: error("Unknown item: $id")
