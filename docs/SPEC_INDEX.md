@@ -42,6 +42,7 @@ These documents define one behaviour area in more detail than the global specs.
 | Path | Scope | Status |
 |---|---|---|
 | `docs/specs/permissions-ux.md` | Android permissions, microphone, wake word, repair flows | Canonical source for permission UX and lifecycle behaviour. |
+| `docs/specs/shared-lists-sync.md` | Shared Lists identity, conflict, hierarchy, ordering, deletion/restore and package contract | Canonical transport-independent source for #1492, #928, #1493, #1494 and provider sync integrations. |
 
 Create new subsystem specs under `docs/specs/` when a behaviour area is too detailed for `docs/SPECIFICATION.md` or `docs/UX_PATTERNS.md`.
 
@@ -68,7 +69,7 @@ Review gates define evidence and review expectations for PRs. They are not produ
 | `.docs/agents/review-gates-navigation-ui.md` | Navigation and UI PR checklist. |
 | `.docs/agents/review-gates-voice.md` | Voice, STT, TTS, VAD, and wake-word review gate. |
 | `.docs/agents/review-gates-litert.md` | LiteRT and model-runtime review gate. |
-| `.docs/agents/review-gates-wallpaper-theme.md` | Wallpaper and theme review gate. |
+| `.docs/agents/review-gates-wallpaper-theme.md` | Wallpaper and theme PR checklist. |
 
 ### Research and design drafts
 
