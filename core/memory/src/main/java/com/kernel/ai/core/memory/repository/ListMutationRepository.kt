@@ -384,7 +384,11 @@ class ListMutationRepository @Inject constructor(
     private suspend fun applyCollectionLifecycle(change: ListChange) {
         val existing = listNameDao.getByCollectionId(change.collectionId)
         if (existing == null) {
-            if (change.operation == ListChangeOperation.RESTORE_COLLECTION) return
+            if (change.operation == ListChangeOperation.RESTORE_COLLECTION) {
+                val placeholder = ensureRemoteCollection(change)
+                listNameDao.upsert(placeholder.copy(lifecycle = ListLifecycle.ACTIVE.name, updatedAt = System.currentTimeMillis(), lifecycleLogicalClock = change.stamp.logicalClock, lifecycleStampActorId = change.stamp.actorId))
+                return
+            }
             val title = change.payload.canonicalTitle ?: "Deleted collection"
             val now = System.currentTimeMillis()
             listNameDao.insert(

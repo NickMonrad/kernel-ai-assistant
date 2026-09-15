@@ -157,6 +157,66 @@ class ListMutationRepositoryAndroidTest {
 
 
     @Test
+    fun `restore before create and delete converges to active`() = runBlocking {
+        val collectionId = "restore-first"
+        val actorId = "remote-lifecycle"
+
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 3L, 30L, ListChangeOperation.RESTORE_COLLECTION),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 1L, 10L, ListChangeOperation.CREATE_COLLECTION, ListChangePayload(canonicalTitle = "Converged")),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 2L, 20L, ListChangeOperation.DELETE_COLLECTION),
+        )
+
+        val list = requireNotNull(database.listNameDao().getByCollectionId(collectionId))
+        assertEquals(ListLifecycle.ACTIVE.name, list.lifecycle)
+
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 3L, 30L, ListChangeOperation.RESTORE_COLLECTION),
+        )
+        assertEquals(ListLifecycle.ACTIVE.name, database.listNameDao().getByCollectionId(collectionId)!!.lifecycle)
+    }
+
+    @Test
+    fun `create delete restore in normal order converges to active`() = runBlocking {
+        val collectionId = "restore-normal"
+        val actorId = "remote-lifecycle"
+
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 1L, 10L, ListChangeOperation.CREATE_COLLECTION, ListChangePayload(canonicalTitle = "Converged")),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 2L, 20L, ListChangeOperation.DELETE_COLLECTION),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 3L, 30L, ListChangeOperation.RESTORE_COLLECTION),
+        )
+
+        assertEquals(ListLifecycle.ACTIVE.name, database.listNameDao().getByCollectionId(collectionId)!!.lifecycle)
+    }
+
+    @Test
+    fun `older restore does not override newer delete`() = runBlocking {
+        val collectionId = "restore-stale"
+        val actorId = "remote-lifecycle"
+
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 1L, 10L, ListChangeOperation.CREATE_COLLECTION, ListChangePayload(canonicalTitle = "Stale restore")),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 2L, 30L, ListChangeOperation.DELETE_COLLECTION),
+        )
+        repository.applyRemote(
+            change(collectionId, collectionId, actorId, 3L, 20L, ListChangeOperation.RESTORE_COLLECTION),
+        )
+
+        assertEquals(ListLifecycle.DELETED.name, database.listNameDao().getByCollectionId(collectionId)!!.lifecycle)
+    }
+
+    @Test
     fun `collection deletion tombstones only collection and newer restore is explicit`() = runBlocking {
         val listId = repository.createCollection("Archive")
         val collectionId = database.listNameDao().getById(listId)!!.collectionId
