@@ -43,6 +43,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: platform-tools
 
       - name: Cache Gradle packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
