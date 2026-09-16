@@ -10,6 +10,12 @@ enum class ItemDropIntent {
     INSERT_AFTER,
 }
 
+internal fun resolveFinalDropIntent(
+    current: ItemDropIntent?,
+    cached: ItemDropIntent?,
+): ItemDropIntent? = current ?: cached
+
+
 /**
  * Rejects the only invalid local drop: nesting a top-level group or nesting into a child.
  * The caller chooses an insertion intent when the pointer is in an insertion slot.
@@ -69,7 +75,12 @@ internal fun moveHierarchyRows(
 
     val remaining = current.filterNot { it.id in sourceIds }
     val targetRows = targetGroup?.let { group ->
-        val ids = (listOf(group.parent.id) + group.children.map(ListItemEntity::id)).toSet()
+        val targetIsChild = group.children.any { it.id == targetId }
+        val ids = if (sourceGroup != null || !targetIsChild) {
+            listOf(group.parent.id) + group.children.map(ListItemEntity::id)
+        } else {
+            listOf(targetId)
+        }.toSet()
         remaining.filter { it.id in ids }
     }.orEmpty()
     val targetAnchorId = if (sourceGroup != null) targetGroup?.parent?.id ?: targetId else targetId

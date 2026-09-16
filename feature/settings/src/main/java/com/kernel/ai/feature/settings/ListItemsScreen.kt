@@ -562,7 +562,10 @@ fun ListItemsScreen(
                             val isChild = activeGroups.any { group -> group.children.any { it.id == item.id } }
                             val isDropTarget = item.id == dragTargetId && item.id != dragSourceId
                             val itemDropIntent = if (isDropTarget) {
-                                currentDropIntent() ?: dragIntent
+                                resolveFinalDropIntent(
+                                    current = currentDropIntent(),
+                                    cached = dragIntent,
+                                )
                             } else {
                                 null
                             }
@@ -598,7 +601,10 @@ fun ListItemsScreen(
                                                     itemDragInProgress = false
                                                     val source = dragSourceId
                                                     val target = dragTargetId
-                                                    val intent = dragIntent ?: currentDropIntent()
+                                                    val intent = resolveFinalDropIntent(
+                                                        current = currentDropIntent(),
+                                                        cached = dragIntent,
+                                                    )
                                                     if (source != null && target != null && source != target && intent != null) {
                                                         viewModel.moveItemFromDrag(
                                                             visibleIds = localActiveItems.map { it.id },
