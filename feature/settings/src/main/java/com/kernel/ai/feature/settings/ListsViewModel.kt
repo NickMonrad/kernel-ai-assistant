@@ -139,6 +139,8 @@ class ListsViewModel @Inject constructor(
     /** Enters the explicit hierarchy editing mode exposed by the Lists overflow menu. */
     fun enterManualHierarchyEditing() {
         itemSort = ItemSort.MANUAL
+        itemFilter = ItemFilter.ALL
+        clearItemSearchQuery()
     }
 
     /** Current filter for the drill-in item screen. */
