@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -183,6 +184,9 @@ fun ListItemsScreen(
     val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
+
+    // Restores this list's saved sort so reopening never falls back to the default.
+    LaunchedEffect(listId) { viewModel.bindItemList(listId) }
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
     val (activeGroups, completedGroups) = displayedGroups
@@ -417,7 +421,7 @@ fun ListItemsScreen(
                                     DropdownMenuItem(
                                         text = { Text(sort.label()) },
                                         onClick = {
-                                            viewModel.itemSort = sort
+                                            viewModel.selectItemSort(sort)
                                             showSortMenu = false
                                         },
                                         trailingIcon = if (viewModel.itemSort == sort) {
@@ -600,8 +604,8 @@ fun ListItemsScreen(
                                         isMultiSelectMode = isItemMultiSelectMode,
                                         isSelected = item.id in selectedItemIds,
                                         showDragHandle = hierarchyDragEnabled,
-                                        modifier = if (hierarchyDragEnabled) {
-                                            Modifier.longPressDraggableHandle(
+                                        dragHandleModifier = if (hierarchyDragEnabled) {
+                                            Modifier.draggableHandle(
                                                 onDragStarted = {
                                                     itemDragInProgress = true
                                                     dragSourceId = item.id
@@ -827,7 +831,7 @@ private fun SwipeToUnparentRow(
 @Composable
 private fun ListItemRow(
     item: ListItemEntity,
-    modifier: Modifier = Modifier,
+    dragHandleModifier: Modifier = Modifier,
     isChild: Boolean = false,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
@@ -946,7 +950,13 @@ private fun ListItemRow(
                         Icon(
                             Icons.Default.DragHandle,
                             contentDescription = "Drag to reorder",
-                            modifier = modifier.padding(8.dp),
+                            // The handle owns its whole gesture surface: absorbing the long press
+                            // stops the row's multi-select click from winning on the handle.
+                            modifier = dragHandleModifier
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onLongPress = { /* absorb */ })
+                                }
+                                .padding(8.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

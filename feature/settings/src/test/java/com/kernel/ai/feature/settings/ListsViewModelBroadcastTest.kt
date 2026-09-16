@@ -46,7 +46,7 @@ class ListsViewModelBroadcastTest {
 
     @Test
     fun `broadcasts on item and name mutations, never on initial replay`() {
-        ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
+        ListsViewModel(dao, listNameDao, scheduler, context, listMutations, testListsUiPreferences(UnconfinedTestDispatcher()))
 
         itemFlow.tryEmit(emptyList())
         nameFlow.tryEmit(emptyList())

@@ -62,6 +62,7 @@ class ListsViewModel @Inject constructor(
     private val scheduler: ListNotificationScheduler,
     @ApplicationContext private val appContext: Context,
     private val listMutations: ListMutationRepository,
+    private val listsUiPreferences: ListsUiPreferences,
 ) : ViewModel() {
     init {
         // Keep the Lists home-screen widget in sync with in-app list mutations. A single combined
@@ -133,12 +134,57 @@ class ListsViewModel @Inject constructor(
 
     // ── Item sort / filter state ─────────────────────────────────────────────────────────────────
 
-    /** Current sort order for the drill-in item screen. */
-    var itemSort by mutableStateOf(ItemSort.CREATED_NEWEST)
+    /**
+     * Sort order for the drill-in item screen of the currently bound list.
+     *
+     * Restored per list by [bindItemList]; stays [DEFAULT_ITEM_SORT] until a list is bound.
+     */
+    var itemSort by mutableStateOf(DEFAULT_ITEM_SORT)
+        private set
 
-    /** Enters the explicit hierarchy editing mode exposed by the Lists overflow menu. */
+    /** List whose drill-in sort preference is bound, or null when no drill-in screen is open. */
+    private var boundItemListId: Long? = null
+
+    private var itemSortLoadJob: Job? = null
+
+    /**
+     * Binds the drill-in screen to [listId] and restores that list's saved sort.
+     *
+     * Binding by identity is what stops a list inheriting another list's sort, and keeps a late
+     * restore for a previously opened list from overwriting the list that is open now.
+     */
+    fun bindItemList(listId: Long) {
+        if (boundItemListId == listId) return
+        boundItemListId = listId
+        itemSortLoadJob?.cancel()
+        itemSortLoadJob = viewModelScope.launch {
+            val saved = listsUiPreferences.itemSortFor(listId)
+            if (boundItemListId == listId) itemSort = saved
+        }
+    }
+
+    /**
+     * Applies the user's explicit sort choice and persists it for the bound list.
+     *
+     * This preference is local presentation state: it never emits a sync change record.
+     */
+    fun selectItemSort(sort: ItemSort) {
+        if (itemSort == sort) return
+        // An explicit choice supersedes any restore still in flight for this list.
+        itemSortLoadJob?.cancel()
+        itemSort = sort
+        val listId = boundItemListId ?: return
+        viewModelScope.launch { listsUiPreferences.setItemSort(listId, sort) }
+    }
+
+    /**
+     * Enters the explicit hierarchy editing mode exposed by the Lists overflow menu.
+     *
+     * Manual order is persisted for the bound list, and the filter and search that would hide or
+     * reorder rows are cleared so the drag handles are usable immediately.
+     */
     fun enterManualHierarchyEditing() {
-        itemSort = ItemSort.MANUAL
+        selectItemSort(ItemSort.MANUAL)
         itemFilter = ItemFilter.ALL
         clearItemSearchQuery()
     }
@@ -482,7 +528,7 @@ class ListsViewModel @Inject constructor(
         requestedIntent: ItemDropIntent,
     ) {
         if (draggedId == targetId || draggedId !in visibleIds || targetId !in visibleIds) return
-        itemSort = ItemSort.MANUAL
+        selectItemSort(ItemSort.MANUAL)
         viewModelScope.launch(Dispatchers.IO) {
             val dragged = dao.getById(draggedId) ?: return@launch
             val target = dao.getById(targetId) ?: return@launch
@@ -547,7 +593,7 @@ class ListsViewModel @Inject constructor(
     private var itemReorderJob: Job? = null
 
     fun reorderItems(orderedIds: List<Long>) {
-        itemSort = ItemSort.MANUAL
+        selectItemSort(ItemSort.MANUAL)
         itemReorderJob?.cancel()
         itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
             val listId = orderedIds.firstOrNull()?.let { dao.getById(it)?.listId } ?: return@launch

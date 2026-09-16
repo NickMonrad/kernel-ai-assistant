@@ -15,6 +15,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -32,24 +33,28 @@ class ListsViewModelCheckedReminderTest {
     private val scheduler = mockk<ListNotificationScheduler>(relaxed = true)
     private val listMutations = mockk<ListMutationRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
+    private val dispatcher = UnconfinedTestDispatcher()
+    private val preferences = testListsUiPreferences(dispatcher)
 
     @BeforeEach
     fun setUp() {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        Dispatchers.setMain(dispatcher)
         every { dao.observeAll() } returns flowOf(emptyList())
         every { listNameDao.observeActiveLists() } returns flowOf(emptyList())
     }
 
     @Test
     fun `reorder and group entry point switches to manual order`() {
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
-        viewModel.itemSort = ItemSort.NAME_ASC
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        viewModel.bindItemList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
         viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
         viewModel.setItemSearchQuery("find")
 
         viewModel.enterManualHierarchyEditing()
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        assertEquals(ItemSort.MANUAL, savedItemSort(1L))
         assertEquals(ItemFilter.ALL, viewModel.itemFilter)
         assertEquals("", viewModel.itemSearchQuery.value)
         assertTrue(
@@ -74,7 +79,7 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listMutations.setItemChecked(1L, true) } returns CheckedStateMutation(
             checkedIds = setOf(parent.id, child.id),
         )
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
 
         viewModel.toggleChecked(parent)
 
@@ -94,7 +99,7 @@ class ListsViewModelCheckedReminderTest {
         )
         coEvery { dao.getById(any()) } answers { items[firstArg()] }
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
         viewModel.enterItemMultiSelect(parent.id)
 
         viewModel.unmarkSelectedItemsComplete()
@@ -107,6 +112,8 @@ class ListsViewModelCheckedReminderTest {
         }
         verify(exactly = 0) { scheduler.schedule(unrelated.id, unrelated.text, unrelated.listId, "groceries", triggerAtMs) }
     }
+
+    private fun savedItemSort(listId: Long): ItemSort = runBlocking { preferences.itemSortFor(listId) }
 
     private fun item(
         id: Long,
