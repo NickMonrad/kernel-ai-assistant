@@ -75,6 +75,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,9 +85,15 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -205,14 +212,35 @@ fun ListItemsScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
-
     // ── Drag-to-reorder state (#928) ─────────────────────────────────────────────────────────────
     var localActiveItems by remember { mutableStateOf(sortedActive) }
     var itemDragInProgress by remember { mutableStateOf(false) }
     var dragSourceId by remember { mutableStateOf<Long?>(null) }
     var dragTargetId by remember { mutableStateOf<Long?>(null) }
+    var dragIntent by remember { mutableStateOf<ItemDropIntent?>(null) }
+    var pointerPositionRoot by remember { mutableStateOf<Offset?>(null) }
+    var listRootOffset by remember { mutableStateOf(Offset.Zero) }
+    val rowBounds = remember { mutableStateMapOf<Long, Rect>() }
     LaunchedEffect(activeGroups) {
         if (!itemDragInProgress) localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
+    }
+
+    fun currentDropIntent(): ItemDropIntent? {
+        val sourceId = dragSourceId ?: return null
+        val targetId = dragTargetId ?: return null
+        val pointer = pointerPositionRoot ?: return null
+        val bounds = rowBounds[targetId] ?: return null
+        val sourceHasChildren = activeGroups.any {
+            it.parent.id == sourceId && it.children.isNotEmpty()
+        }
+        val targetIsChild = activeGroups.any { group -> group.children.any { it.id == targetId } }
+        return itemDropIntentForPosition(
+            pointerY = pointer.y,
+            targetTop = bounds.top,
+            targetBottom = bounds.bottom,
+            sourceHasChildren = sourceHasChildren,
+            targetIsChild = targetIsChild,
+        )
     }
 
     val lazyListState = rememberLazyListState()
@@ -220,11 +248,19 @@ fun ListItemsScreen(
         if (!hierarchyDragEnabled) return@rememberReorderableLazyListState
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
         val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
-        val fi = localActiveItems.indexOfFirst { it.id == fromKey }
-        val ti = localActiveItems.indexOfFirst { it.id == toKey }
-        if (fi < 0 || ti < 0) return@rememberReorderableLazyListState
+        if (localActiveItems.none { it.id == fromKey } || localActiveItems.none { it.id == toKey }) {
+            return@rememberReorderableLazyListState
+        }
         dragTargetId = toKey
-        localActiveItems = localActiveItems.toMutableList().apply { add(ti, removeAt(fi)) }
+        val intent = currentDropIntent() ?: ItemDropIntent.INSERT_AFTER
+        dragIntent = intent
+        localActiveItems = moveHierarchyRows(
+            current = localActiveItems,
+            groups = activeGroups,
+            draggedId = fromKey,
+            targetId = toKey,
+            intent = intent,
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -311,7 +347,13 @@ fun ListItemsScreen(
                                     text = { Text("Select all") },
                                     onClick = {
                                         showSelectAllMenu = false
-                                        viewModel.selectAllItems(allItems.map { it.id })
+                                        viewModel.selectAllItems(
+                                            visibleSelectableItemIds(
+                                                activeRows = sortedActive,
+                                                completedRows = sortedCompleted,
+                                                completedExpanded = completedExpanded,
+                                            ),
+                                        )
                                     },
                                 )
                             }
@@ -494,7 +536,23 @@ fun ListItemsScreen(
                     )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize(), state = lazyListState) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { listRootOffset = it.localToRoot(Offset.Zero) }
+                        .pointerInput(hierarchyDragEnabled) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull() ?: continue
+                                    if (change.pressed) {
+                                        pointerPositionRoot = change.position + listRootOffset
+                                    }
+                                }
+                            }
+                        },
+                    state = lazyListState,
+                ) {
                     items(localActiveItems, key = { it.id }) { item ->
                         ReorderableItem(reorderState, key = item.id) { isDragging ->
                             val elevation by animateDpAsState(
@@ -502,25 +560,17 @@ fun ListItemsScreen(
                                 label = "item_drag_elevation",
                             )
                             val isChild = activeGroups.any { group -> group.children.any { it.id == item.id } }
-                            val sourceItem = dragSourceId?.let { sourceId ->
-                                localActiveItems.firstOrNull { it.id == sourceId }
-                            }
-                            val sourceHasChildren = dragSourceId?.let { sourceId ->
-                                activeGroups.any { group -> group.parent.id == sourceId && group.children.isNotEmpty() }
-                            } == true
-                            val targetHasChildren = activeGroups.any {
-                                group -> group.parent.id == item.id && group.children.isNotEmpty()
-                            }
-                            val targetIsChild = isChild
-                            val sourceIsChild = sourceItem?.let { source ->
-                                activeGroups.any { group -> group.children.any { it.id == source.id } }
-                            } == true
                             val isDropTarget = item.id == dragTargetId && item.id != dragSourceId
-                            val isNestTarget = isDropTarget &&
-                                !sourceHasChildren &&
-                                !targetIsChild &&
-                                (targetHasChildren || sourceIsChild)
+                            val itemDropIntent = if (isDropTarget) {
+                                currentDropIntent() ?: dragIntent
+                            } else {
+                                null
+                            }
+                            val isNestTarget = itemDropIntent == ItemDropIntent.NEST
                             Surface(
+                                modifier = Modifier.onGloballyPositioned {
+                                    rowBounds[item.id] = it.boundsInRoot()
+                                },
                                 color = when {
                                     isNestTarget -> MaterialTheme.colorScheme.tertiaryContainer
                                     isDropTarget -> MaterialTheme.colorScheme.secondaryContainer
@@ -540,16 +590,27 @@ fun ListItemsScreen(
                                                 onDragStarted = {
                                                     itemDragInProgress = true
                                                     dragSourceId = item.id
+                                                    dragTargetId = null
+                                                    dragIntent = null
+                                                    pointerPositionRoot = null
                                                 },
                                                 onDragStopped = {
                                                     itemDragInProgress = false
                                                     val source = dragSourceId
                                                     val target = dragTargetId
-                                                    if (source != null && target != null && source != target) {
-                                                        viewModel.moveItemFromDrag(localActiveItems.map { it.id }, source, target)
+                                                    val intent = dragIntent ?: currentDropIntent()
+                                                    if (source != null && target != null && source != target && intent != null) {
+                                                        viewModel.moveItemFromDrag(
+                                                            visibleIds = localActiveItems.map { it.id },
+                                                            draggedId = source,
+                                                            targetId = target,
+                                                            requestedIntent = intent,
+                                                        )
                                                     }
                                                     dragSourceId = null
                                                     dragTargetId = null
+                                                    dragIntent = null
+                                                    pointerPositionRoot = null
                                                 },
                                             )
                                         } else Modifier,

@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
@@ -396,6 +397,23 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun applyCheckedStateReminderTransitions(mutation: CheckedStateMutation) {
+        mutation.checkedIds.forEach(scheduler::cancel)
+        val now = System.currentTimeMillis()
+        mutation.uncheckedIds.forEach { id ->
+            val item = dao.getById(id) ?: return@forEach
+            val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
+            val listName = listNameDao.getById(item.listId)?.name ?: return@forEach
+            scheduler.schedule(
+                itemId = item.id,
+                itemText = item.text,
+                listId = item.listId,
+                listName = listName,
+                triggerAtMs = triggerAtMs,
+            )
+        }
+    }
+
     /**
      * Marks all currently selected list items as complete.
      * Routes each checked-state mutation through the sync-aware repository.
@@ -403,32 +421,20 @@ class ListsViewModel @Inject constructor(
     fun markSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
-        ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
-            listMutations.setItemsChecked(ids, true)
+            applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, true))
         }
     }
 
     /**
      * Unmarks all currently selected list items (sets checked=false).
-     * Re-schedules any future notification alarms that were cancelled when the item was completed.
+     * Re-schedules future notification alarms for every item actually restored to active.
      */
     fun unmarkSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
-        val now = System.currentTimeMillis()
-        val allItems = groupedItems.value.values.flatten()
-        val listNames = listEntities.value.associateBy { it.id }
         viewModelScope.launch(Dispatchers.IO) {
-            listMutations.setItemsChecked(ids, false)
-            ids.forEach { id ->
-                val item = allItems.firstOrNull { it.id == id } ?: return@forEach
-                val nt = item.notificationTime ?: return@forEach
-                if (nt > now) {
-                    val listName = listNames[item.listId]?.name ?: return@forEach
-                    scheduler.schedule(itemId = id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
-                }
-            }
+            applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, false))
         }
     }
 
@@ -462,8 +468,13 @@ class ListsViewModel @Inject constructor(
     }
 
     // ── Item drag-to-reparent/reorder (#928) ─────────────────────────────────────────────────────
-    fun moveItemFromDrag(visibleIds: List<Long>, draggedId: Long, targetId: Long) {
-        if (draggedId == targetId) return
+    fun moveItemFromDrag(
+        visibleIds: List<Long>,
+        draggedId: Long,
+        targetId: Long,
+        requestedIntent: ItemDropIntent,
+    ) {
+        if (draggedId == targetId || draggedId !in visibleIds || targetId !in visibleIds) return
         itemSort = ItemSort.MANUAL
         viewModelScope.launch(Dispatchers.IO) {
             val dragged = dao.getById(draggedId) ?: return@launch
@@ -482,51 +493,47 @@ class ListsViewModel @Inject constructor(
             val parentByChild = groups.flatMap { group ->
                 group.children.map { child -> child.itemId to group.parent.itemId }
             }.toMap()
-            val draggedHasChildren = groupByParent.containsKey(dragged.itemId)
-            val draggedParent = parentByChild[dragged.itemId]
-            val targetParent = parentByChild[target.itemId]
-            val targetHasChildren = groupByParent.containsKey(target.itemId)
-            val destinationParentId = when {
-                draggedHasChildren -> null
-                targetParent != null -> targetParent
-                draggedParent != null -> target.itemId
-                targetHasChildren -> target.itemId
-                else -> null
+            val draggedHasChildren = groupByParent[dragged.itemId]?.children?.isNotEmpty() == true
+            val targetIsChild = target.itemId in parentByChild
+            val intent = resolveItemDropIntent(
+                requested = requestedIntent,
+                sourceHasChildren = draggedHasChildren,
+                targetIsChild = targetIsChild,
+            ) ?: return@launch
+            val destinationParentId = when (intent) {
+                ItemDropIntent.NEST -> {
+                    if (targetIsChild) return@launch
+                    target.itemId
+                }
+                ItemDropIntent.INSERT_BEFORE,
+                ItemDropIntent.INSERT_AFTER,
+                -> if (draggedHasChildren) null else parentByChild[target.itemId]
             }
             val siblings = if (destinationParentId == null) {
                 groups.map { it.parent }
             } else {
                 groupByParent[destinationParentId]?.children.orEmpty()
-            }.filter { it.id != dragged.id }
-            val nestingTarget = destinationParentId == target.itemId && targetParent == null
-            val siblingTargetId = if (draggedHasChildren && targetParent != null) {
-                targetParent
+            }
+            val sourceIsGroup = draggedHasChildren
+            val anchorId = if (sourceIsGroup) {
+                groups.firstOrNull { group -> group.children.any { it.itemId == target.itemId } }?.parent?.itemId
+                    ?: target.itemId
             } else {
                 target.itemId
             }
-            val targetIndex = if (nestingTarget) {
-                siblings.size
-            } else {
-                siblings.indexOfFirst { it.itemId == siblingTargetId }
+            val anchorIndex = siblings.indexOfFirst { it.itemId == anchorId }
+            if (intent != ItemDropIntent.NEST && anchorIndex < 0) return@launch
+            val sourceIndex = siblings.indexOfFirst { it.itemId == dragged.itemId }
+            val insertionIndex = when (intent) {
+                ItemDropIntent.NEST -> siblings.size
+                ItemDropIntent.INSERT_BEFORE -> anchorIndex
+                ItemDropIntent.INSERT_AFTER -> anchorIndex + 1
             }
-            if (targetIndex < 0) return@launch
-            val sourcePosition = visibleIds.indexOf(dragged.id)
-            val targetPosition = visibleIds.indexOf(target.id)
-            val insertAfterTarget = sourcePosition > targetPosition
-            val lower = if (nestingTarget) {
-                siblings.lastOrNull()?.orderKey
-            } else if (insertAfterTarget) {
-                siblings[targetIndex].orderKey
-            } else {
-                siblings.getOrNull(targetIndex - 1)?.orderKey
-            }
-            val upper = if (nestingTarget) {
-                null
-            } else if (insertAfterTarget) {
-                siblings.getOrNull(targetIndex + 1)?.orderKey
-            } else {
-                siblings[targetIndex].orderKey
-            }
+            val remaining = siblings.filter { it.id != dragged.id }
+            val adjustedIndex = (insertionIndex - if (sourceIndex in 0 until insertionIndex) 1 else 0)
+                .coerceIn(0, remaining.size)
+            val lower = remaining.getOrNull(adjustedIndex - 1)?.orderKey
+            val upper = remaining.getOrNull(adjustedIndex)?.orderKey
             listMutations.moveItem(dragged.id, destinationParentId, OrderKey.between(lower, upper))
         }
     }
@@ -579,8 +586,9 @@ class ListsViewModel @Inject constructor(
 
     fun toggleChecked(item: ListItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            listMutations.setItemChecked(item.id, !item.checked)
-            if (!item.checked) scheduler.cancel(item.id)
+            applyCheckedStateReminderTransitions(
+                listMutations.setItemChecked(item.id, !item.checked),
+            )
         }
     }
 

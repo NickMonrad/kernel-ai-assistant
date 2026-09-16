@@ -84,6 +84,11 @@ data class ListChange(
     val payload: ListChangePayload = ListChangePayload(),
 )
 
+data class CheckedStateMutation(
+    val checkedIds: Set<Long> = emptySet(),
+    val uncheckedIds: Set<Long> = emptySet(),
+)
+
 object OrderKey {
     fun canonical(value: String): String = BigDecimal(value).stripTrailingZeros().toPlainString().let { if (it == "-0") "0" else it }
     fun compare(left: String, right: String): Int = BigDecimal(left).compareTo(BigDecimal(right))

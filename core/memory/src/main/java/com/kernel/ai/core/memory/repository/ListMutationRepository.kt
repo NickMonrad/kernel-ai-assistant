@@ -16,6 +16,7 @@ import com.kernel.ai.core.memory.entity.ListCheckpointEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ListSourceSequenceEntity
+import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyNormalizer
 import com.kernel.ai.core.memory.lists.HierarchyItem
 import com.kernel.ai.core.memory.lists.ListChange
@@ -98,17 +99,17 @@ class ListMutationRepository @Inject constructor(
     suspend fun addItems(listId: Long, texts: List<String>): List<Long> = database.withTransaction {
         texts.map { addItemInternal(listId, it, null, false, null) }
     }
-
     suspend fun setItemChecked(itemId: Long, checked: Boolean) =
         setItemsChecked(listOf(itemId), checked)
 
-    suspend fun setItemsChecked(itemIds: List<Long>, checked: Boolean) = database.withTransaction {
-        if (itemIds.isEmpty()) return@withTransaction
+    suspend fun setItemsChecked(itemIds: List<Long>, checked: Boolean): CheckedStateMutation = database.withTransaction {
+        if (itemIds.isEmpty()) return@withTransaction CheckedStateMutation()
         val requested = itemIds.distinct().map { requireItem(it) }
         val activeByList = requested.groupBy { it.listId }.mapValues { (listId, _) ->
             listItemDao.getAllByListUnordered(listId)
                 .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         }
+        val before = activeByList.values.flatten().associateBy { it.id }
         requested.groupBy { it.listId }.forEach { (listId, listRequested) ->
             val items = activeByList.getValue(listId)
             val hierarchy = deriveHierarchy(items)
@@ -133,6 +134,14 @@ class ListMutationRepository @Inject constructor(
                 recomputeParentCompletionInternal(requireItem(byStableId.getValue(stableId).id))
             }
         }
+        val after = activeByList.keys.flatMap { listId ->
+            listItemDao.getAllByListUnordered(listId)
+                .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        }.associateBy { it.id }
+        CheckedStateMutation(
+            checkedIds = after.values.filter { before[it.id]?.checked == false && it.checked }.map { it.id }.toSet(),
+            uncheckedIds = after.values.filter { before[it.id]?.checked == true && !it.checked }.map { it.id }.toSet(),
+        )
     }
 
     private suspend fun setItemCheckedInternal(item: ListItemEntity, checked: Boolean) {

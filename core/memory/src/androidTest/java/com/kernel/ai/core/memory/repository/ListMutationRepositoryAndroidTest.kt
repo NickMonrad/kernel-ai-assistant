@@ -292,9 +292,9 @@ class ListMutationRepositoryAndroidTest {
             change(collectionId, item.itemId, "remote-timestamp", 2L, 9L, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = "Stale")),
         )
         assertEquals(acceptedAt, database.listNameDao().getById(listId)!!.updatedAt)
-
         val beforeLocal = database.listNameDao().getById(listId)!!.updatedAt
-        repository.setItemChecked(itemId, true)
+        val mutation = repository.setItemChecked(itemId, true)
+        assertEquals(setOf(itemId), mutation.checkedIds)
         assertTrue(database.listNameDao().getById(listId)!!.updatedAt > beforeLocal)
     }
     @Test
@@ -308,13 +308,16 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(secondId, parent.itemId, "2")
 
         repository.setItemChecked(firstId, true)
-        repository.setItemChecked(secondId, true)
+        val completedMutation = repository.setItemChecked(secondId, true)
+        assertEquals(setOf(secondId, parentId), completedMutation.checkedIds)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
 
-        repository.setItemChecked(firstId, false)
+        val reopenedMutation = repository.setItemChecked(firstId, false)
+        assertEquals(setOf(firstId, parentId), reopenedMutation.uncheckedIds)
         assertTrue(!database.listItemDao().getById(parentId)!!.checked)
 
-        repository.setItemChecked(parentId, true)
+        val parentMutation = repository.setItemChecked(parentId, true)
+        assertEquals(setOf(firstId, secondId, parentId), parentMutation.checkedIds)
         assertTrue(database.listItemDao().getById(firstId)!!.checked)
         assertTrue(database.listItemDao().getById(secondId)!!.checked)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
