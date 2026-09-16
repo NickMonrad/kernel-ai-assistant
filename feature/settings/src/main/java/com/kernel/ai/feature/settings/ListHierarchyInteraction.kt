@@ -15,6 +15,15 @@ internal fun resolveFinalDropIntent(
     cached: ItemDropIntent?,
 ): ItemDropIntent? = current ?: cached
 
+internal fun isHierarchyDragEnabled(
+    itemSort: ItemSort,
+    itemFilter: ItemFilter,
+    searchQuery: String,
+    isMultiSelectMode: Boolean,
+): Boolean = itemSort == ItemSort.MANUAL &&
+    itemFilter == ItemFilter.ALL &&
+    searchQuery.isBlank() &&
+    !isMultiSelectMode
 
 /**
  * Rejects the only invalid local drop: nesting a top-level group or nesting into a child.

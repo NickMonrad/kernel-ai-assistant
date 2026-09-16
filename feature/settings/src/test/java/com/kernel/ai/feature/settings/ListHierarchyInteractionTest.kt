@@ -3,6 +3,8 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ListHierarchyInteractionTest {
@@ -60,6 +62,15 @@ class ListHierarchyInteractionTest {
                 cached = ItemDropIntent.INSERT_AFTER,
             ),
         )
+    }
+
+    @Test
+    fun `hierarchy drag is enabled only for manual all unsearched single-select state`() {
+        assertTrue(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.CREATED_NEWEST, ItemFilter.ALL, "", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ACTIVE_ONLY, "", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "find", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", true))
     }
 
 

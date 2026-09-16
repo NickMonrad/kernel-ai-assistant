@@ -200,11 +200,12 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
-    val hierarchyDragEnabled =
-        viewModel.itemSort == ItemSort.MANUAL &&
-            viewModel.itemFilter == ItemFilter.ALL &&
-            searchQuery.isBlank() &&
-            !isItemMultiSelectMode
+    val hierarchyDragEnabled = isHierarchyDragEnabled(
+        itemSort = viewModel.itemSort,
+        itemFilter = viewModel.itemFilter,
+        searchQuery = searchQuery,
+        isMultiSelectMode = isItemMultiSelectMode,
+    )
 
     var showSelectAllMenu by remember { mutableStateOf(false) }
 
@@ -389,6 +390,17 @@ fun ListItemsScreen(
                                 expanded = showSortMenu,
                                 onDismissRequest = { showSortMenu = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Reorder & group") },
+                                    onClick = {
+                                        viewModel.enterManualHierarchyEditing()
+                                        showSortMenu = false
+                                    },
+                                    trailingIcon = if (viewModel.itemSort == ItemSort.MANUAL) {
+                                        { Icon(Icons.Default.Check, contentDescription = null) }
+                                    } else null,
+                                )
+                                HorizontalDivider()
                                 // ── Sort section ──────────────────────────────────────────
                                 DropdownMenuItem(
                                     text = {
@@ -543,7 +555,7 @@ fun ListItemsScreen(
                         .pointerInput(hierarchyDragEnabled) {
                             awaitPointerEventScope {
                                 while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val event = awaitPointerEvent(PointerEventPass.Final)
                                     val change = event.changes.firstOrNull() ?: continue
                                     if (change.pressed) {
                                         pointerPositionRoot = change.position + listRootOffset

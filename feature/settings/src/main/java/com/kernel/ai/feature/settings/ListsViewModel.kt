@@ -136,6 +136,11 @@ class ListsViewModel @Inject constructor(
     /** Current sort order for the drill-in item screen. */
     var itemSort by mutableStateOf(ItemSort.CREATED_NEWEST)
 
+    /** Enters the explicit hierarchy editing mode exposed by the Lists overflow menu. */
+    fun enterManualHierarchyEditing() {
+        itemSort = ItemSort.MANUAL
+    }
+
     /** Current filter for the drill-in item screen. */
     var itemFilter by mutableStateOf(ItemFilter.ALL)
 

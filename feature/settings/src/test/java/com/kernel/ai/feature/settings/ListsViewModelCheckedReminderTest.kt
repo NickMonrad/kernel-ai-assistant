@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.concurrent.TimeUnit
@@ -36,6 +37,16 @@ class ListsViewModelCheckedReminderTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         every { dao.observeAll() } returns flowOf(emptyList())
         every { listNameDao.observeActiveLists() } returns flowOf(emptyList())
+    }
+
+    @Test
+    fun `reorder and group entry point switches to manual order`() {
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations)
+        viewModel.itemSort = ItemSort.NAME_ASC
+
+        viewModel.enterManualHierarchyEditing()
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
     }
 
     @AfterEach
