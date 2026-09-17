@@ -43,9 +43,23 @@ class ListsViewModelCheckedReminderTest {
         every { listNameDao.observeActiveLists() } returns flowOf(emptyList())
     }
 
+    /**
+     * Every hierarchy interaction hops through [ListsViewModel.ioDispatcher] before touching the
+     * repository. Binding the test dispatcher keeps that hop inside the test instead of resuming on
+     * `Dispatchers.Main` after `resetMain`.
+     */
+    private fun testViewModel(preferences: ListsUiPreferences) = ListsViewModel(
+        dao,
+        listNameDao,
+        scheduler,
+        context,
+        listMutations,
+        preferences,
+    ).apply { ioDispatcher = dispatcher }
+
     @Test
     fun `reorder and group entry point switches to manual order`() {
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
         viewModel.bindItemList(1L)
         viewModel.selectItemSort(ItemSort.NAME_ASC)
         viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
@@ -78,7 +92,7 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listMutations.setItemChecked(1L, true) } returns CheckedStateMutation(
             checkedIds = setOf(parent.id, child.id),
         )
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
 
         viewModel.toggleChecked(parent)
 
@@ -98,7 +112,7 @@ class ListsViewModelCheckedReminderTest {
         )
         coEvery { dao.getById(any()) } answers { items[firstArg()] }
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
         viewModel.enterItemMultiSelect(parent.id)
 
         viewModel.unmarkSelectedItemsComplete()
@@ -123,7 +137,7 @@ class ListsViewModelCheckedReminderTest {
         )
         coEvery { dao.getById(parent.id) } returns parent
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
 
         viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
@@ -139,7 +153,7 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listMutations.outdentItem(open.id) } returns CheckedStateMutation(
             checkedIds = setOf(parent.id),
         )
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
 
         viewModel.outdentItem(listOf(open.id), open)
 
@@ -151,7 +165,7 @@ class ListsViewModelCheckedReminderTest {
         val newcomer = item(3L, checked = false)
         val preceding = item(2L, checked = false)
         coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation()
-        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+        val viewModel = testViewModel(preferences)
 
         viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
