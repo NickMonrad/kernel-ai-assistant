@@ -22,7 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
+import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -99,6 +100,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -206,8 +208,7 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
-    val hierarchyDragEnabled = isHierarchyDragEnabled(
-        itemSort = viewModel.itemSort,
+    val hierarchyEditingEnabled = isHierarchyEditingEnabled(
         itemFilter = viewModel.itemFilter,
         searchQuery = searchQuery,
         isMultiSelectMode = isItemMultiSelectMode,
@@ -224,13 +225,18 @@ fun ListItemsScreen(
     var itemDragInProgress by remember { mutableStateOf(false) }
     var dragSourceId by remember { mutableStateOf<Long?>(null) }
     var dragDestinationGroupId by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(activeGroups) {
-        if (!itemDragInProgress) localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
+    var dragStartOrder by remember { mutableStateOf<List<Long>>(emptyList()) }
+    // While a hierarchy interaction is materialising the visible order, the optimistic projection
+    // stays authoritative so the list cannot flash the previous persisted order.
+    LaunchedEffect(activeGroups, viewModel.isHierarchyTransitionPending) {
+        if (!itemDragInProgress && !viewModel.isHierarchyTransitionPending) {
+            localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
+        }
     }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        if (!hierarchyDragEnabled) return@rememberReorderableLazyListState
+        if (!hierarchyEditingEnabled) return@rememberReorderableLazyListState
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
         val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
         if (localActiveItems.none { it.id == fromKey } || localActiveItems.none { it.id == toKey }) {
@@ -544,7 +550,7 @@ fun ListItemsScreen(
                             val isChild = owningId != null && owningId != item.id
                             val rowIndex = localActiveItems.indexOfFirst { it.id == item.id }
                             val precedingRow = localActiveItems.getOrNull(rowIndex - 1)
-                            val depthGesturesEnabled = hierarchyDragEnabled && !itemDragInProgress
+                            val depthGesturesEnabled = hierarchyEditingEnabled && !itemDragInProgress
                             Surface(
                                 color = when {
                                     item.id == dragDestinationGroupId ->
@@ -566,31 +572,50 @@ fun ListItemsScreen(
                                             canIndentRow(localActiveItems, activeGroups, item.id),
                                         canOutdent = depthGesturesEnabled &&
                                             canOutdentRow(activeGroups, item.id),
-                                        onIndent = { precedingRow?.let { viewModel.indentItem(item, it) } },
-                                        onOutdent = { viewModel.outdentItem(item) },
+                                        onIndent = {
+                                            precedingRow?.let {
+                                                viewModel.indentItem(
+                                                    visibleRowIds = localActiveItems.map(ListItemEntity::id),
+                                                    item = item,
+                                                    precedingRow = it,
+                                                )
+                                            }
+                                        },
+                                        onOutdent = {
+                                            viewModel.outdentItem(
+                                                visibleRowIds = localActiveItems.map(ListItemEntity::id),
+                                                item = item,
+                                            )
+                                        },
                                     ) {
                                         ListItemRow(
                                             item = item,
                                             isMultiSelectMode = isItemMultiSelectMode,
                                             isSelected = item.id in selectedItemIds,
-                                            showDragHandle = hierarchyDragEnabled,
-                                        dragHandleModifier = if (hierarchyDragEnabled) {
+                                            showDragHandle = hierarchyEditingEnabled,
+                                        dragHandleModifier = if (hierarchyEditingEnabled) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = {
                                                     itemDragInProgress = true
                                                     dragSourceId = item.id
                                                     dragDestinationGroupId = null
+                                                    dragStartOrder = localActiveItems.map { it.id }
                                                 },
                                                 onDragStopped = {
                                                     itemDragInProgress = false
-                                                    dragSourceId?.let { source ->
+                                                    val source = dragSourceId
+                                                    val ordered = localActiveItems.map { it.id }
+                                                    // A drag that ends where it started must not write
+                                                    // placements or switch the list to Manual.
+                                                    if (source != null && ordered != dragStartOrder) {
                                                         viewModel.moveItemFromDrag(
-                                                            orderedRowIds = localActiveItems.map { it.id },
+                                                            orderedRowIds = ordered,
                                                             draggedId = source,
                                                         )
                                                     }
                                                     dragSourceId = null
                                                     dragDestinationGroupId = null
+                                                    dragStartOrder = emptyList()
                                                 },
                                             )
                                         } else Modifier,
@@ -735,6 +760,36 @@ fun ListItemsScreen(
 
 }
 /**
+ * The reveal behind a hierarchy swipe. It names the depth change and uses the neutral secondary
+ * hierarchy treatment, so it cannot be mistaken for the archive/dismiss gesture.
+ */
+@Composable
+internal fun HierarchySwipeReveal(indenting: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 20.dp)
+            .testTag(if (indenting) "hierarchy_indent_reveal" else "hierarchy_outdent_reveal"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (indenting) Arrangement.Start else Arrangement.End,
+    ) {
+        Icon(
+            imageVector = if (indenting) Icons.AutoMirrored.Filled.FormatIndentIncrease
+            else Icons.AutoMirrored.Filled.FormatIndentDecrease,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = if (indenting) "Indent" else "Outdent",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/**
  * Horizontal hierarchy gesture: swipe right indents, swipe left outdents.
  *
  * Each direction is only enabled when the row is eligible, and neither direction ever dismisses
@@ -772,21 +827,7 @@ private fun SwipeToChangeDepthRow(
         enableDismissFromStartToEnd = canIndent,
         enableDismissFromEndToStart = canOutdent,
         backgroundContent = {
-            val indenting = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = if (indenting) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                Icon(
-                    imageVector = if (indenting) Icons.AutoMirrored.Filled.ArrowForward
-                    else Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = if (indenting) "Indent" else "Outdent",
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
+            HierarchySwipeReveal(indenting = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
         },
         content = { content() },
     )

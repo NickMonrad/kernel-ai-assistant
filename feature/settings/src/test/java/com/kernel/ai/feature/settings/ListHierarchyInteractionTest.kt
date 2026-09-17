@@ -15,12 +15,20 @@ import org.junit.jupiter.api.Test
 class ListHierarchyInteractionTest {
 
     @Test
-    fun `hierarchy gestures are enabled only for manual all unsearched single-select state`() {
-        assertTrue(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.NAME_ASC, ItemFilter.ALL, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.FAVOURITES_ONLY, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "milk", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", true))
+    fun `hierarchy editing stays available under any sort while the projection is complete`() {
+        // Sort is deliberately not part of the rule: handles and gestures stay discoverable under
+        // Created/Updated/Name/Due/Favourites, and the first interaction materialises the visible
+        // order as the Manual baseline.
+        assertTrue(isHierarchyEditingEnabled(ItemFilter.ALL, "", false))
+    }
+
+    @Test
+    fun `hierarchy editing is disabled when the visible projection is incomplete or ambiguous`() {
+        assertFalse(isHierarchyEditingEnabled(ItemFilter.ALL, "milk", false))
+        assertFalse(isHierarchyEditingEnabled(ItemFilter.FAVOURITES_ONLY, "", false))
+        assertFalse(isHierarchyEditingEnabled(ItemFilter.ACTIVE_ONLY, "", false))
+        assertFalse(isHierarchyEditingEnabled(ItemFilter.COMPLETED_ONLY, "", false))
+        assertFalse(isHierarchyEditingEnabled(ItemFilter.ALL, "", true))
     }
 
     @Test

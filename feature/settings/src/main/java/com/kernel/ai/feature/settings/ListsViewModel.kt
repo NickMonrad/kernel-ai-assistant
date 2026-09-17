@@ -21,6 +21,7 @@ import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
@@ -146,6 +148,19 @@ class ListsViewModel @Inject constructor(
     private var boundItemListId: Long? = null
 
     private var itemSortLoadJob: Job? = null
+
+    /**
+     * True while a hierarchy interaction is materialising the visible order and switching to
+     * Manual.
+     *
+     * The screen holds its optimistic projection for the duration, so the list cannot flash the
+     * previous persisted order between the placement write and the sort switch.
+     */
+    var isHierarchyTransitionPending by mutableStateOf(false)
+        private set
+
+    /** Dispatcher for repository work; replaced by the test scheduler in unit tests. */
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     /**
      * Binds the drill-in screen to [listId] and restores that list's saved sort.
@@ -387,7 +402,7 @@ class ListsViewModel @Inject constructor(
         listSort = ListSort.MANUAL
         val now = System.currentTimeMillis()
         reorderJob?.cancel()
-        reorderJob = viewModelScope.launch(Dispatchers.IO) {
+        reorderJob = viewModelScope.launch(ioDispatcher) {
             val updates = pinnedIds.mapIndexed { i, id -> id to i } +
                 unpinnedIds.mapIndexed { i, id -> id to i }
             listNameDao.updateDisplayOrders(updates, now)
@@ -415,7 +430,7 @@ class ListsViewModel @Inject constructor(
     fun deleteSelectedLists() {
         val ids = selectedListIds.toList()
         selectedListIds = emptySet()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { listId ->
                 dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
                 listMutations.deleteCollection(listId)
@@ -445,7 +460,7 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         ids.forEach { scheduler.cancel(it) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             listMutations.deleteItems(ids)
         }
     }
@@ -474,7 +489,7 @@ class ListsViewModel @Inject constructor(
     fun markSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, true))
         }
     }
@@ -486,7 +501,7 @@ class ListsViewModel @Inject constructor(
     fun unmarkSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, false))
         }
     }
@@ -499,24 +514,50 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { dao.setFavourite(it, true, now) }
         }
     }
 
-    /** Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible. */
-    fun indentItem(item: ListItemEntity, precedingRow: ListItemEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            applyCheckedStateReminderTransitions(
-                listMutations.indentItem(item.id, precedingRow.itemId),
-            )
+    /**
+     * Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible.
+     *
+     * Under an automatic sort the visible order becomes the Manual baseline first, so the item is
+     * placed relative to the group the user could actually see above it.
+     */
+    fun indentItem(visibleRowIds: List<Long>, item: ListItemEntity, precedingRow: ListItemEntity) {
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val switched = withContext(ioDispatcher) { materialiseVisibleOrder(visibleRowIds) }
+                val mutation = withContext(ioDispatcher) {
+                    listMutations.indentItem(item.id, precedingRow.itemId)
+                }
+                applyCheckedStateReminderTransitions(mutation)
+                if (switched) selectItemSort(ItemSort.MANUAL)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
         }
     }
 
-    /** Outdents [item] to top level, leaving its former siblings under the old parent. */
-    fun outdentItem(item: ListItemEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            applyCheckedStateReminderTransitions(listMutations.outdentItem(item.id))
+    /**
+     * Outdents [item] to top level, leaving its former siblings under the old parent.
+     *
+     * Under an automatic sort the visible order becomes the Manual baseline first, so the promoted
+     * item lands next to the group the user could actually see above it.
+     */
+    fun outdentItem(visibleRowIds: List<Long>, item: ListItemEntity) {
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val switched = withContext(ioDispatcher) { materialiseVisibleOrder(visibleRowIds) }
+                val mutation = withContext(ioDispatcher) { listMutations.outdentItem(item.id) }
+                applyCheckedStateReminderTransitions(mutation)
+                if (switched) selectItemSort(ItemSort.MANUAL)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
         }
     }
 
@@ -527,7 +568,7 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { dao.setFavourite(it, false, now) }
         }
     }
@@ -539,39 +580,78 @@ class ListsViewModel @Inject constructor(
      *
      * Drag never changes depth: a top-level row stays top-level, and a child stays a child of the
      * group it was dropped into. [orderedRowIds] is the projected order after the move.
+     *
+     * Under an automatic sort that projection also becomes the Manual baseline, in one bounded
+     * mutation, so switching sorts cannot reorder the rows the user did not move.
      */
     fun moveItemFromDrag(orderedRowIds: List<Long>, draggedId: Long) {
         if (draggedId !in orderedRowIds) return
-        selectItemSort(ItemSort.MANUAL)
-        viewModelScope.launch(Dispatchers.IO) {
-            val dragged = dao.getById(draggedId) ?: return@launch
-            val rows = orderedRowIds.map { dao.getById(it) ?: return@launch }
-            if (rows.any { it.listId != dragged.listId }) return@launch
-            val all = dao.getAllByListUnordered(dragged.listId)
-                .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
-            val groups = EffectiveHierarchyProjection.derive(
-                all,
-                itemId = { it.itemId },
-                parentItemId = { it.parentItemId },
-                orderKey = { it.orderKey },
-                placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
-            )
-            val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
-            applyCheckedStateReminderTransitions(
-                listMutations.moveItem(
-                    dragged.id,
-                    placement.parentItemId,
-                    OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
-                ),
-            )
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val dragged = withContext(ioDispatcher) { dao.getById(draggedId) }
+                val rows = withContext(ioDispatcher) { orderedRowIds.mapNotNull { dao.getById(it) } }
+                if (dragged == null || rows.size != orderedRowIds.size) return@launch
+                if (rows.any { it.listId != dragged.listId }) return@launch
+                if (itemSort != ItemSort.MANUAL) {
+                    if (materialiseVisibleOrder(orderedRowIds)) selectItemSort(ItemSort.MANUAL)
+                    return@launch
+                }
+                val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
+                val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId)
+                placement ?: return@launch
+                val mutation = withContext(ioDispatcher) {
+                    listMutations.moveItem(
+                        dragged.id,
+                        placement.parentItemId,
+                        OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
+                    )
+                }
+                applyCheckedStateReminderTransitions(mutation)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
         }
+    }
+
+    /**
+     * Writes the order the user is currently looking at as this list's Manual baseline.
+     *
+     * Returns false when the list is already on Manual, where the visible order is the persisted
+     * order, so nothing needs materialising.
+     */
+    private suspend fun materialiseVisibleOrder(visibleRowIds: List<Long>): Boolean {
+        if (itemSort == ItemSort.MANUAL) return false
+        val listId = withContext(ioDispatcher) {
+            visibleRowIds.firstOrNull()?.let { dao.getById(it)?.listId }
+        } ?: return false
+        val groups = withContext(ioDispatcher) { effectiveGroups(listId) } ?: return false
+        val visibleRows = visibleRowIds.mapNotNull { rowId ->
+            val owner = owningRowId(groups, rowId) ?: return@mapNotNull null
+            ListMutationRepository.VisibleHierarchyRow(rowId, owner.takeIf { it != rowId })
+        }
+        if (visibleRows.isEmpty()) return false
+        withContext(ioDispatcher) { listMutations.applyVisibleHierarchyOrder(listId, visibleRows) }
+        return true
+    }
+
+    private suspend fun effectiveGroups(listId: Long): List<EffectiveHierarchyGroup<ListItemEntity>>? {
+        val all = dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        if (all.isEmpty()) return null
+        return EffectiveHierarchyProjection.derive(
+            all,
+            itemId = { it.itemId },
+            parentItemId = { it.parentItemId },
+            orderKey = { it.orderKey },
+            placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+        )
     }
     private var itemReorderJob: Job? = null
 
     fun reorderItems(orderedIds: List<Long>) {
         selectItemSort(ItemSort.MANUAL)
         itemReorderJob?.cancel()
-        itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
+        itemReorderJob = viewModelScope.launch(ioDispatcher) {
             val listId = orderedIds.firstOrNull()?.let { dao.getById(it)?.listId } ?: return@launch
             val all = dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
             val groups = EffectiveHierarchyProjection.derive(
@@ -614,7 +694,7 @@ class ListsViewModel @Inject constructor(
     }
 
     fun toggleChecked(item: ListItemEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             applyCheckedStateReminderTransitions(
                 listMutations.setItemChecked(item.id, !item.checked),
             )
@@ -641,7 +721,7 @@ class ListsViewModel @Inject constructor(
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
     fun toggleFavourite(item: ListItemEntity) {
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             dao.toggleFavourite(item.id, now)
             listNameDao.updateTimestamp(item.listId, now)
         }
@@ -659,7 +739,7 @@ class ListsViewModel @Inject constructor(
     }
 
     fun clearChecked(listId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val checked = dao.getAllByList(listId).filter { it.checked }
             checked.forEach { scheduler.cancel(it.id) }
             listMutations.deleteItems(checked.map { it.id })
@@ -668,7 +748,7 @@ class ListsViewModel @Inject constructor(
 
     /** Deletes a list by recording tombstones; rows remain for sync convergence. */
     fun deleteList(listId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
             listMutations.deleteCollection(listId)
         }
@@ -700,7 +780,7 @@ class ListsViewModel @Inject constructor(
     fun archiveList(id: Long) {
         selectedListIds = selectedListIds - id
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             dao.getAllWithNotification(id).forEach { scheduler.cancel(it.id) }
             listNameDao.archiveList(id = id, archivedAt = now, updatedAt = now)
         }
@@ -708,7 +788,7 @@ class ListsViewModel @Inject constructor(
 
     /** Restores an archived list back to the active view, re-scheduling any future alarms. */
     fun restoreList(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             listNameDao.restoreList(id = id, updatedAt = System.currentTimeMillis())
             val listName = listNameDao.getById(id)?.name ?: return@launch
             val now = System.currentTimeMillis()
@@ -730,7 +810,7 @@ class ListsViewModel @Inject constructor(
         val ids = selectedListIds.toList()
         selectedListIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { listId ->
                 dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
                 listNameDao.archiveList(id = listId, archivedAt = now, updatedAt = now)

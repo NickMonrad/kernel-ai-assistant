@@ -6,8 +6,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
@@ -17,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -118,10 +124,69 @@ class ListsItemSortPersistenceTest {
         context,
         listMutations,
         testListsUiPreferences(dispatcher, store),
-    )
+    ).apply { ioDispatcher = dispatcher }
 
     /** Opens [listId] the way the drill-in screen does: a fresh ViewModel bound to that list. */
     private fun openList(listId: Long) = viewModelOn(store).also { it.bindItemList(listId) }
+
+    @Test
+    fun `a drag under an automatic sort materialises the visible order and switches to manual`() {
+        val a = row(1L, "stable-a", "0")
+        val b = row(2L, "stable-b", "1")
+        val c = row(3L, "stable-c", "2")
+        val rows = listOf(c, b, a)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        // The automatic sort shows C, B, A; the drag released as B, C, A.
+        viewModel.moveItemFromDrag(orderedRowIds = listOf(b.id, c.id, a.id), draggedId = c.id)
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        assertEquals(ItemSort.MANUAL, savedItemSort(1L))
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(b.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(c.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(a.id, null),
+                ),
+            )
+        }
+        coVerify(exactly = 0) { listMutations.moveItem(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a drag under manual order applies a single placement without materialising`() {
+        val a = row(1L, "stable-a", "0")
+        val b = row(2L, "stable-b", "1")
+        coEvery { dao.getAllByListUnordered(1L) } returns listOf(a, b)
+        coEvery { dao.getById(a.id) } returns a
+        coEvery { dao.getById(b.id) } returns b
+        coEvery { listMutations.moveItem(any(), any(), any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.MANUAL)
+
+        viewModel.moveItemFromDrag(orderedRowIds = listOf(b.id, a.id), draggedId = b.id)
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        coVerify { listMutations.moveItem(b.id, null, any()) }
+        coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
+    }
+
+    private fun savedItemSort(listId: Long): ItemSort = runBlocking { testListsUiPreferences(dispatcher, store).itemSortFor(listId) }
+
+    private fun row(id: Long, itemId: String, orderKey: String) = ListItemEntity(
+        id = id,
+        listId = 1L,
+        text = itemId,
+        itemId = itemId,
+        orderKey = orderKey,
+        lifecycle = ListLifecycle.ACTIVE.name,
+    )
 
     @Test
     fun `a list with no saved sort opens in created newest`() {

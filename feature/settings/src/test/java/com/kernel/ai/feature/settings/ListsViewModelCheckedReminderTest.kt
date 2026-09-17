@@ -58,8 +58,7 @@ class ListsViewModelCheckedReminderTest {
         assertEquals(ItemFilter.ALL, viewModel.itemFilter)
         assertEquals("", viewModel.itemSearchQuery.value)
         assertTrue(
-            isHierarchyDragEnabled(
-                itemSort = viewModel.itemSort,
+            isHierarchyEditingEnabled(
                 itemFilter = viewModel.itemFilter,
                 searchQuery = viewModel.itemSearchQuery.value,
                 isMultiSelectMode = false,
@@ -126,7 +125,7 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
         val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
 
-        viewModel.indentItem(newcomer, preceding)
+        viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
             scheduler.schedule(parent.id, parent.text, parent.listId, "groceries", triggerAtMs)
@@ -142,7 +141,7 @@ class ListsViewModelCheckedReminderTest {
         )
         val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
 
-        viewModel.outdentItem(open)
+        viewModel.outdentItem(listOf(open.id), open)
 
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(parent.id) }
     }
@@ -154,7 +153,7 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation()
         val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
 
-        viewModel.indentItem(newcomer, preceding)
+        viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
         verify(exactly = 0) { scheduler.cancel(any()) }
         verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }

@@ -276,6 +276,94 @@ class ListMutationRepository @Inject constructor(
     }
 
     /**
+     * One row of a visible hierarchy projection, addressed by local Room row id.
+     *
+     * [parentRowId] is the local row id of the top-level row that owns the row, or null when the
+     * row itself is top-level.
+     */
+    data class VisibleHierarchyRow(val rowId: Long, val parentRowId: Long?)
+
+    /**
+     * Materialises [visibleRows] as this list's manual order, in one bounded transaction.
+     *
+     * Used when a hierarchy interaction starts from an automatic sort: the order the user was
+     * looking at becomes the Manual baseline, so switching sorts cannot reorder anything the user
+     * did not move. A scope whose visible sequence already matches its persisted key order keeps
+     * its existing keys and writes nothing, which is what makes this a no-op under Manual order.
+     */
+    suspend fun applyVisibleHierarchyOrder(
+        listId: Long,
+        visibleRows: List<VisibleHierarchyRow>,
+    ): CheckedStateMutation = database.withTransaction {
+        if (visibleRows.isEmpty()) return@withTransaction CheckedStateMutation()
+        val active = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val byRowId = active.associateBy { it.id }
+
+        val scopes = LinkedHashMap<Long?, MutableList<ListItemEntity>>()
+        visibleRows.forEach { entry ->
+            val row = byRowId[entry.rowId] ?: return@forEach
+            val ownerId = entry.parentRowId
+            if (ownerId != null && byRowId[ownerId] == null) return@forEach
+            scopes.getOrPut(ownerId) { mutableListOf() }.add(row)
+        }
+        val topLevelVisibleRowIds = visibleRows.filter { it.parentRowId == null }.map { it.rowId }.toSet()
+        require(visibleRows.all { it.parentRowId == null || it.parentRowId in topLevelVisibleRowIds }) {
+            "A visible hierarchy may only be two levels deep"
+        }
+        require(scopes.keys.filterNotNull().all { byRowId.getValue(it).parentItemId == null }) {
+            "Only a current top-level row may own children"
+        }
+
+        val targetParentByRowId = mutableMapOf<Long, String?>()
+        val targetKeyByRowId = mutableMapOf<Long, String>()
+        scopes.forEach { (ownerRowId, rows) ->
+            val ownerItemId = ownerRowId?.let { byRowId.getValue(it).itemId }
+            val alreadyOrdered = rows.zipWithNext().all { (first, second) ->
+                OrderKey.compare(first.orderKey, second.orderKey) < 0
+            }
+            rows.forEachIndexed { index, row ->
+                targetParentByRowId[row.id] = ownerItemId
+                targetKeyByRowId[row.id] = if (alreadyOrdered) row.orderKey else OrderKey.forIndex(index)
+            }
+        }
+
+        val impactedParentItemIds = buildSet {
+            targetParentByRowId.forEach { (rowId, targetParentItemId) ->
+                val row = byRowId.getValue(rowId)
+                if (row.parentItemId != targetParentItemId) {
+                    row.parentItemId?.let(::add)
+                    targetParentItemId?.let(::add)
+                }
+            }
+            addAll(scopes.keys.filterNotNull().map { byRowId.getValue(it).itemId })
+        }
+        val checkedBefore = impactedParentItemIds.associateWith { itemId ->
+            active.firstOrNull { it.itemId == itemId }?.checked
+        }
+
+        targetParentByRowId.forEach { (rowId, targetParentItemId) ->
+            setItemPlacementInternal(
+                byRowId.getValue(rowId),
+                targetParentItemId,
+                targetKeyByRowId.getValue(rowId),
+            )
+        }
+        impactedParentItemIds.forEach { itemId ->
+            listItemDao.getByItemId(itemId)?.let { recomputeParentCompletionInternal(it) }
+        }
+
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        impactedParentItemIds.forEach { itemId ->
+            val before = checkedBefore[itemId] ?: return@forEach
+            val after = listItemDao.getByItemId(itemId) ?: return@forEach
+            if (before == after.checked) return@forEach
+            if (after.checked) checkedIds += after.id else uncheckedIds += after.id
+        }
+        CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds)
+    }
+
+    /**
      * Applies one placement and returns every checked-state change its completion recomputation
      * caused, so the caller can cancel or restore reminders for the parents that actually flipped.
      */

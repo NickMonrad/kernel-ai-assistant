@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyProjection
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.ListChange
@@ -520,6 +521,196 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `materialising a visible order replaces the stale manual order`() = runBlocking {
+        val listId = repository.createCollection("Visible order")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val cId = repository.addItem(listId, "C")
+        assertEquals(listOf("A", "B", "C"), database.listItemDao().getAllByList(listId).map { it.text })
+        val changesBefore = repository.pendingChanges().size
+
+        val visible = listOf(
+            ListMutationRepository.VisibleHierarchyRow(cId, null),
+            ListMutationRepository.VisibleHierarchyRow(bId, null),
+            ListMutationRepository.VisibleHierarchyRow(aId, null),
+        )
+        val mutation = repository.applyVisibleHierarchyOrder(listId, visible)
+
+        assertEquals(listOf("C", "B", "A"), effectiveRowTexts(listId))
+        assertTrue(database.listItemDao().getAllByListUnordered(listId).all { it.parentItemId == null })
+        assertEquals(CheckedStateMutation(), mutation)
+        // C and A move to new index keys; B already sits at index 1, so it is not rewritten.
+        val emitted = repository.pendingChanges().drop(changesBefore)
+        assertEquals(2, emitted.count { it.operation == ListChangeOperation.SET_ITEM_PLACEMENT })
+        assertTrue(emitted.all { it.operation == ListChangeOperation.SET_ITEM_PLACEMENT })
+    }
+
+    @Test
+    fun `materialising a grouped visible order keeps every parent with its children`() = runBlocking {
+        val listId = repository.createCollection("Visible groups")
+        val firstId = repository.addItem(listId, "P1")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val secondId = repository.addItem(listId, "P2")
+        val cId = repository.addItem(listId, "C")
+        val first = database.listItemDao().getById(firstId)!!
+        val second = database.listItemDao().getById(secondId)!!
+        repository.setItemPlacement(aId, first.itemId, "1")
+        repository.setItemPlacement(bId, first.itemId, "2")
+        repository.setItemPlacement(cId, second.itemId, "1")
+
+        val visible = listOf(
+            ListMutationRepository.VisibleHierarchyRow(secondId, null),
+            ListMutationRepository.VisibleHierarchyRow(cId, secondId),
+            ListMutationRepository.VisibleHierarchyRow(firstId, null),
+            ListMutationRepository.VisibleHierarchyRow(aId, firstId),
+            ListMutationRepository.VisibleHierarchyRow(bId, firstId),
+        )
+        repository.applyVisibleHierarchyOrder(listId, visible)
+
+        assertEquals(listOf("P2", "C", "P1", "A", "B"), effectiveRowTexts(listId))
+        assertEquals(second.itemId, database.listItemDao().getById(cId)!!.parentItemId)
+        assertEquals(first.itemId, database.listItemDao().getById(aId)!!.parentItemId)
+        assertEquals(first.itemId, database.listItemDao().getById(bId)!!.parentItemId)
+    }
+
+    @Test
+    fun `a visible order that already matches the persisted order writes nothing`() = runBlocking {
+        val listId = repository.createCollection("Visible no-op")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val changesBefore = repository.pendingChanges().size
+
+        val mutation = repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(aId, null),
+                ListMutationRepository.VisibleHierarchyRow(bId, null),
+            ),
+        )
+
+        assertEquals(CheckedStateMutation(), mutation)
+        assertEquals(changesBefore, repository.pendingChanges().size)
+    }
+
+    @Test
+    fun `materialising a child into another group reparents it and recomputes both groups`() = runBlocking {
+        val listId = repository.createCollection("Visible reparent")
+        val oldParentId = repository.addItem(listId, "Old parent")
+        val settledId = repository.addItem(listId, "Settled child")
+        val openId = repository.addItem(listId, "Open child")
+        val newParentId = repository.addItem(listId, "New parent")
+        val completeId = repository.addItem(listId, "Complete child")
+        val oldParent = database.listItemDao().getById(oldParentId)!!
+        val newParent = database.listItemDao().getById(newParentId)!!
+        repository.setItemPlacement(settledId, oldParent.itemId, "1")
+        repository.setItemPlacement(openId, oldParent.itemId, "2")
+        repository.setItemPlacement(completeId, newParent.itemId, "1")
+        repository.setItemChecked(settledId, true)
+        repository.setItemChecked(completeId, true)
+        assertFalse(database.listItemDao().getById(oldParentId)!!.checked)
+        assertTrue(database.listItemDao().getById(newParentId)!!.checked)
+
+        val visible = listOf(
+            ListMutationRepository.VisibleHierarchyRow(oldParentId, null),
+            ListMutationRepository.VisibleHierarchyRow(settledId, oldParentId),
+            ListMutationRepository.VisibleHierarchyRow(newParentId, null),
+            ListMutationRepository.VisibleHierarchyRow(completeId, newParentId),
+            ListMutationRepository.VisibleHierarchyRow(openId, newParentId),
+        )
+        val mutation = repository.applyVisibleHierarchyOrder(listId, visible)
+
+        assertEquals(newParent.itemId, database.listItemDao().getById(openId)!!.parentItemId)
+        assertTrue("old parent's remaining child is complete", database.listItemDao().getById(oldParentId)!!.checked)
+        assertFalse("new parent gained an open child", database.listItemDao().getById(newParentId)!!.checked)
+        assertEquals(setOf(oldParentId), mutation.checkedIds)
+        assertEquals(setOf(newParentId), mutation.uncheckedIds)
+    }
+
+    @Test
+    fun `a visible order deeper than two levels is rejected without writing`() = runBlocking {
+        val listId = repository.createCollection("Visible invalid")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        val changesBefore = repository.pendingChanges().size
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                repository.applyVisibleHierarchyOrder(
+                    listId,
+                    listOf(
+                        ListMutationRepository.VisibleHierarchyRow(parentId, null),
+                        ListMutationRepository.VisibleHierarchyRow(childId, parentId),
+                        ListMutationRepository.VisibleHierarchyRow(parentId, childId),
+                    ),
+                )
+            }
+        }
+        assertEquals(changesBefore, repository.pendingChanges().size)
+        assertEquals(listOf("Parent", "Child"), effectiveRowTexts(listId))
+    }
+
+    @Test
+    fun `indent from an automatic sort uses the materialised visible order as its baseline`() = runBlocking {
+        val listId = repository.createCollection("Visible indent")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val cId = repository.addItem(listId, "C")
+        val b = database.listItemDao().getById(bId)!!
+
+        // The automatic sort shows C, B, A while the persisted manual order is A, B, C.
+        repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(cId, null),
+                ListMutationRepository.VisibleHierarchyRow(bId, null),
+                ListMutationRepository.VisibleHierarchyRow(aId, null),
+            ),
+        )
+        // Swiping A right uses B, the row the user could see directly above it.
+        repository.indentItem(aId, b.itemId)
+
+        assertEquals(b.itemId, database.listItemDao().getById(aId)!!.parentItemId)
+        assertEquals(listOf("C", "B", "A"), effectiveRowTexts(listId))
+        assertTrue(database.listItemDao().getById(cId)!!.parentItemId == null)
+    }
+
+    @Test
+    fun `outdent from an automatic sort places the child after the visible parent group`() = runBlocking {
+        val listId = repository.createCollection("Visible outdent")
+        val firstId = repository.addItem(listId, "P1")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val secondId = repository.addItem(listId, "P2")
+        val cId = repository.addItem(listId, "C")
+        val first = database.listItemDao().getById(firstId)!!
+        val second = database.listItemDao().getById(secondId)!!
+        repository.setItemPlacement(aId, first.itemId, "1")
+        repository.setItemPlacement(bId, first.itemId, "2")
+        repository.setItemPlacement(cId, second.itemId, "1")
+
+        // The automatic sort shows P2, C, P1, A, B.
+        repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(secondId, null),
+                ListMutationRepository.VisibleHierarchyRow(cId, secondId),
+                ListMutationRepository.VisibleHierarchyRow(firstId, null),
+                ListMutationRepository.VisibleHierarchyRow(aId, firstId),
+                ListMutationRepository.VisibleHierarchyRow(bId, firstId),
+            ),
+        )
+        repository.outdentItem(bId)
+
+        assertEquals(null, database.listItemDao().getById(bId)!!.parentItemId)
+        assertEquals(first.itemId, database.listItemDao().getById(aId)!!.parentItemId)
+        assertEquals(second.itemId, database.listItemDao().getById(cId)!!.parentItemId)
+        assertEquals(listOf("P2", "C", "P1", "A", "B"), effectiveRowTexts(listId))
+    }
+
+    @Test
     fun `a placement with no completion effect reports an empty mutation`() = runBlocking {
         val listId = repository.createCollection("Move no-op")
         val parentId = repository.addItem(listId, "Parent")
@@ -593,6 +784,18 @@ class ListMutationRepositoryAndroidTest {
         assertTrue(database.listItemDao().getById(oldParentId)!!.checked)
         assertTrue(database.listItemDao().getById(newParentId)!!.checked)
         assertEquals(newParent.itemId, database.listItemDao().getById(childId)!!.parentItemId)
+    }
+
+    /** The effective projection order the user sees: each top-level row followed by its children. */
+    private suspend fun effectiveRowTexts(listId: Long): List<String> {
+        val groups = EffectiveHierarchyProjection.derive(
+            database.listItemDao().getAllByListUnordered(listId),
+            itemId = { it.itemId },
+            parentItemId = { it.parentItemId },
+            orderKey = { it.orderKey },
+            placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+        )
+        return groups.flatMap { group -> listOf(group.parent.text) + group.children.map { it.text } }
     }
 
     private fun change(

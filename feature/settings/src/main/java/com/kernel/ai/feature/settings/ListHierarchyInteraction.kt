@@ -4,16 +4,18 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 
 /**
- * Hierarchy gestures stay disabled whenever the manual projection is filtered or reordered by
- * something other than the user, because indent/outdent placement would then be ambiguous.
+ * Hierarchy editing is offered whenever the visible projection is complete enough to derive
+ * placement from it: the full All-items view, no search, and not multi-select.
+ *
+ * The current item sort is deliberately not part of this. Handles and gestures stay available
+ * under automatic sorts, and the first interaction materialises the visible order as the Manual
+ * baseline before applying itself.
  */
-internal fun isHierarchyDragEnabled(
-    itemSort: ItemSort,
+internal fun isHierarchyEditingEnabled(
     itemFilter: ItemFilter,
     searchQuery: String,
     isMultiSelectMode: Boolean,
-): Boolean = itemSort == ItemSort.MANUAL &&
-    itemFilter == ItemFilter.ALL &&
+): Boolean = itemFilter == ItemFilter.ALL &&
     searchQuery.isBlank() &&
     !isMultiSelectMode
 
@@ -33,7 +35,7 @@ internal fun owningRowId(
 
 /**
  * True when [rowId] can be indented: a top-level row that has no children of its own and has
- * another group directly above it in the manual projection.
+ * another group directly above it in the visible projection.
  */
 internal fun canIndentRow(
     rows: List<ListItemEntity>,
