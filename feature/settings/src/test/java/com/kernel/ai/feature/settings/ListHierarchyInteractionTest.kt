@@ -4,171 +4,209 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+/**
+ * Hierarchy gestures are split in two: swipe changes depth, drag only changes order.
+ * These cover the projection and eligibility rules that decide both.
+ */
 class ListHierarchyInteractionTest {
-    @Test
-    fun `drop position distinguishes nesting from bounded insertion slots`() {
-        assertEquals(
-            ItemDropIntent.NEST,
-            itemDropIntentForPosition(50f, 0f, 100f, sourceHasChildren = false, targetIsChild = false),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_BEFORE,
-            itemDropIntentForPosition(10f, 0f, 100f, sourceHasChildren = false, targetIsChild = false),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_AFTER,
-            itemDropIntentForPosition(90f, 0f, 100f, sourceHasChildren = false, targetIsChild = false),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_AFTER,
-            itemDropIntentForPosition(50f, 0f, 100f, sourceHasChildren = true, targetIsChild = false),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_AFTER,
-            itemDropIntentForPosition(60f, 0f, 100f, sourceHasChildren = false, targetIsChild = true),
-        )
-    }
 
     @Test
-    fun `live pointer intent wins over cached intent at release`() {
-        assertEquals(
-            ItemDropIntent.NEST,
-            resolveFinalDropIntent(
-                current = ItemDropIntent.NEST,
-                cached = ItemDropIntent.INSERT_BEFORE,
-            ),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_AFTER,
-            resolveFinalDropIntent(
-                current = ItemDropIntent.INSERT_AFTER,
-                cached = ItemDropIntent.NEST,
-            ),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_BEFORE,
-            resolveFinalDropIntent(
-                current = ItemDropIntent.INSERT_BEFORE,
-                cached = ItemDropIntent.INSERT_AFTER,
-            ),
-        )
-        assertEquals(
-            ItemDropIntent.INSERT_AFTER,
-            resolveFinalDropIntent(
-                current = null,
-                cached = ItemDropIntent.INSERT_AFTER,
-            ),
-        )
-    }
-
-    @Test
-    fun `hierarchy drag is enabled only for manual all unsearched single-select state`() {
+    fun `hierarchy gestures are enabled only for manual all unsearched single-select state`() {
         assertTrue(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.CREATED_NEWEST, ItemFilter.ALL, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ACTIVE_ONLY, "", false))
-        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "find", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.NAME_ASC, ItemFilter.ALL, "", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.FAVOURITES_ONLY, "", false))
+        assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "milk", false))
         assertFalse(isHierarchyDragEnabled(ItemSort.MANUAL, ItemFilter.ALL, "", true))
     }
 
+    @Test
+    fun `top-level drag never nests the dragged row`() {
+        val a = item(1)
+        val b = item(2)
+        val c = item(3)
+        val groups = listOf(a, b, c).map { EffectiveHierarchyGroup(it, emptyList()) }
+
+        val moved = moveHierarchyRows(
+            current = listOf(a, b, c),
+            groups = groups,
+            draggedId = c.id,
+            targetId = a.id,
+        )
+
+        assertEquals(listOf(3L, 1L, 2L), moved.map { it.id })
+        assertNull(dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
+    }
 
     @Test
-    fun `parent drag moves parent and all children as one visual group`() {
-        val parentOne = item(1)
-        val childOne = item(2, parentItemId = parentOne.itemId)
-        val parentTwo = item(3)
-        val childTwo = item(4, parentItemId = parentTwo.itemId)
-        val parentThree = item(5)
+    fun `top-level group only lands on another group boundary`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val peas = item(3, parentItemId = frozen.itemId)
+        val bakery = item(4)
+        val bread = item(5, parentItemId = bakery.itemId)
         val groups = listOf(
-            EffectiveHierarchyGroup(parentOne, listOf(childOne)),
-            EffectiveHierarchyGroup(parentTwo, listOf(childTwo)),
-            EffectiveHierarchyGroup(parentThree, emptyList()),
+            EffectiveHierarchyGroup(frozen, listOf(iceCream, peas)),
+            EffectiveHierarchyGroup(bakery, listOf(bread)),
         )
 
         val moved = moveHierarchyRows(
-            current = listOf(parentOne, childOne, parentTwo, childTwo, parentThree),
+            current = listOf(frozen, iceCream, peas, bakery, bread),
             groups = groups,
-            draggedId = parentTwo.id,
-            targetId = parentThree.id,
-            intent = ItemDropIntent.INSERT_AFTER,
+            draggedId = frozen.id,
+            targetId = bread.id,
         )
 
-        assertEquals(listOf(1L, 2L, 5L, 3L, 4L), moved.map { it.id })
+        assertEquals(listOf(4L, 5L, 1L, 2L, 3L), moved.map { it.id })
     }
 
     @Test
-    fun `child insert and nest preserve explicit target semantics`() {
-        val parentOne = item(1)
-        val childOne = item(2, parentItemId = parentOne.itemId)
-        val childTwo = item(3, parentItemId = parentOne.itemId)
-        val parentTwo = item(4)
-        val groups = listOf(
-            EffectiveHierarchyGroup(parentOne, listOf(childOne, childTwo)),
-            EffectiveHierarchyGroup(parentTwo, emptyList()),
-        )
-        val reordered = moveHierarchyRows(
-            listOf(parentOne, childOne, childTwo, parentTwo), groups, 3L, 2L, ItemDropIntent.INSERT_BEFORE,
-        )
-        val nested = moveHierarchyRows(
-            listOf(parentOne, childOne, parentTwo), groups, 2L, 4L, ItemDropIntent.NEST,
-        )
-
-        assertEquals(listOf(1L, 3L, 2L, 4L), reordered.map { it.id })
-        assertEquals(listOf(1L, 4L, 2L), nested.map { it.id })
-    }
-
-    @Test
-    fun `child sibling insertion uses the exact target row`() {
+    fun `child reorder inside its group stays with the same parent`() {
         val parent = item(1)
         val a = item(2, parentItemId = parent.itemId)
         val b = item(3, parentItemId = parent.itemId)
         val c = item(4, parentItemId = parent.itemId)
-        val d = item(5, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c, d)))
-        val current = listOf(parent, a, b, c, d)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
 
-        val afterA = moveHierarchyRows(
-            current = current,
+        val moved = moveHierarchyRows(
+            current = listOf(parent, a, b, c),
             groups = groups,
-            draggedId = d.id,
-            targetId = a.id,
-            intent = ItemDropIntent.INSERT_AFTER,
-        )
-        val beforeB = moveHierarchyRows(
-            current = current,
-            groups = groups,
-            draggedId = d.id,
+            draggedId = c.id,
             targetId = b.id,
-            intent = ItemDropIntent.INSERT_BEFORE,
         )
 
-        assertEquals(listOf(1L, 2L, 5L, 3L, 4L), afterA.map { it.id })
-        assertEquals(listOf(1L, 2L, 5L, 3L, 4L), beforeB.map { it.id })
+        assertEquals(listOf(1L, 2L, 4L, 3L), moved.map { it.id })
+        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
     }
 
     @Test
-    fun `child insertion can move across parent groups at exact sibling position`() {
-        val parentA = item(10)
-        val childA = item(11, parentItemId = parentA.itemId)
-        val parentB = item(20)
-        val childB = item(21, parentItemId = parentB.itemId)
-        val childC = item(22, parentItemId = parentB.itemId)
+    fun `child dragged into another group reparents to that group parent`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val bakery = item(4)
+        val bread = item(5, parentItemId = bakery.itemId)
         val groups = listOf(
-            EffectiveHierarchyGroup(parentA, listOf(childA)),
-            EffectiveHierarchyGroup(parentB, listOf(childB, childC)),
+            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
+            EffectiveHierarchyGroup(bakery, listOf(bread)),
+        )
+        val current = listOf(frozen, iceCream, bakery, bread)
+
+        val moved = moveHierarchyRows(
+            current = current,
+            groups = groups,
+            draggedId = iceCream.id,
+            targetId = bread.id,
+        )
+
+        assertEquals(listOf(1L, 4L, 5L, 2L), moved.map { it.id })
+        assertEquals(bakery.itemId, dragPlacementFor(moved, topLevelRowIds(groups), iceCream.id)?.parentItemId)
+        assertEquals(bakery.id, crossGroupDestinationRowId(groups, moved, iceCream.id))
+    }
+
+    @Test
+    fun `child dropping onto a standalone row makes that row its parent`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val bakery = item(4)
+        val groups = listOf(
+            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
+            EffectiveHierarchyGroup(bakery, emptyList()),
         )
 
         val moved = moveHierarchyRows(
-            current = listOf(parentA, childA, parentB, childB, childC),
+            current = listOf(frozen, iceCream, bakery),
             groups = groups,
-            draggedId = childA.id,
-            targetId = childB.id,
-            intent = ItemDropIntent.INSERT_AFTER,
+            draggedId = iceCream.id,
+            targetId = bakery.id,
         )
 
-        assertEquals(listOf(10L, 20L, 21L, 11L, 22L), moved.map { it.id })
+        assertEquals(listOf(1L, 4L, 2L), moved.map { it.id })
+        assertEquals(bakery.itemId, dragPlacementFor(moved, topLevelRowIds(groups), iceCream.id)?.parentItemId)
+        assertEquals(bakery.id, crossGroupDestinationRowId(groups, moved, iceCream.id))
+    }
+
+    @Test
+    fun `a drag that keeps the current parent reports no destination highlight`() {
+        val parent = item(1)
+        val a = item(2, parentItemId = parent.itemId)
+        val b = item(3, parentItemId = parent.itemId)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b)))
+
+        val moved = moveHierarchyRows(
+            current = listOf(parent, a, b),
+            groups = groups,
+            draggedId = b.id,
+            targetId = a.id,
+        )
+
+        assertNull(crossGroupDestinationRowId(groups, moved, b.id))
+    }
+
+    @Test
+    fun `a top-level drag never reports a destination highlight`() {
+        val a = item(1)
+        val b = item(2)
+        val groups = listOf(a, b).map { EffectiveHierarchyGroup(it, emptyList()) }
+
+        val moved = moveHierarchyRows(
+            current = listOf(a, b),
+            groups = groups,
+            draggedId = b.id,
+            targetId = a.id,
+        )
+
+        assertNull(crossGroupDestinationRowId(groups, moved, b.id))
+    }
+
+    @Test
+    fun `indent is offered only to a top-level row with a group above it and no children`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val peas = item(3)
+        val groups = listOf(
+            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
+            EffectiveHierarchyGroup(peas, emptyList()),
+        )
+        val rows = listOf(frozen, iceCream, peas)
+
+        assertTrue(canIndentRow(rows, groups, peas.id))
+        assertFalse(canIndentRow(rows, groups, frozen.id), "first group has nothing above it")
+        assertFalse(canIndentRow(rows, groups, iceCream.id), "a child is outdented, not indented")
+    }
+
+    @Test
+    fun `a parent with children cannot be indented`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val other = item(3)
+        val groups = listOf(
+            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
+            EffectiveHierarchyGroup(other, emptyList()),
+        )
+
+        assertFalse(canIndentRow(listOf(frozen, iceCream, other), groups, frozen.id))
+        assertFalse(
+            canIndentRow(listOf(other, frozen, iceCream), groups, frozen.id),
+            "a row with children is never indented, whatever sits above it",
+        )
+    }
+
+    @Test
+    fun `outdent is offered only to effective children`() {
+        val frozen = item(1)
+        val iceCream = item(2, parentItemId = frozen.itemId)
+        val bakery = item(3)
+        val groups = listOf(
+            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
+            EffectiveHierarchyGroup(bakery, emptyList()),
+        )
+
+        assertTrue(canOutdentRow(groups, iceCream.id))
+        assertFalse(canOutdentRow(groups, frozen.id))
+        assertFalse(canOutdentRow(groups, bakery.id))
     }
 
     @Test
@@ -188,5 +226,6 @@ class ListHierarchyInteractionTest {
             itemId = "stable-$id",
             parentItemId = parentItemId,
             checked = checked,
+            orderKey = id.toString(),
         )
 }

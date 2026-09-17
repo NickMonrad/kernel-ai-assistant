@@ -13,6 +13,7 @@ import com.kernel.ai.core.memory.lists.VersionStamp
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -329,31 +330,149 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
-    fun `splitting a middle child promotes it and reparents following siblings`() = runBlocking {
-        val listId = repository.createCollection("Split")
-        val parentId = repository.addItem(listId, "Parent")
-        val firstId = repository.addItem(listId, "First")
-        val middleId = repository.addItem(listId, "Middle")
-        val lastId = repository.addItem(listId, "Last")
+    fun `swipe right indents a standalone item under the group above it`() = runBlocking {
+        val listId = repository.createCollection("Indent standalone")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val a = database.listItemDao().getById(aId)!!
+        val changesBefore = repository.pendingChanges().size
+
+        assertTrue(repository.indentItem(bId, a.itemId))
+
+        assertEquals(a.itemId, database.listItemDao().getById(bId)!!.parentItemId)
+        val emitted = repository.pendingChanges().drop(changesBefore)
+        assertEquals(1, emitted.size)
+        assertEquals(ListChangeOperation.SET_ITEM_PLACEMENT, emitted.single().operation)
+    }
+
+    @Test
+    fun `swipe right after an existing child joins that child's parent`() = runBlocking {
+        val listId = repository.createCollection("Indent after child")
+        val parentId = repository.addItem(listId, "A")
+        val childId = repository.addItem(listId, "B")
+        val cId = repository.addItem(listId, "C")
         val parent = database.listItemDao().getById(parentId)!!
-        repository.setItemPlacement(firstId, parent.itemId, "1")
-        repository.setItemPlacement(middleId, parent.itemId, "2")
-        repository.setItemPlacement(lastId, parent.itemId, "3")
+        val child = database.listItemDao().getById(childId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
 
-        val changesBeforeSplit = repository.pendingChanges().size
-        repository.splitItem(middleId)
+        assertTrue(repository.indentItem(cId, child.itemId))
 
-        val middle = database.listItemDao().getById(middleId)!!
-        val last = database.listItemDao().getById(lastId)!!
-        assertEquals(null, middle.parentItemId)
-        assertEquals(middle.itemId, last.parentItemId)
-        val first = database.listItemDao().getById(firstId)!!
-        assertEquals(parent.itemId, first.parentItemId)
-        assertTrue(OrderKey.compare(middle.orderKey, parent.orderKey) > 0)
+        assertEquals(parent.itemId, database.listItemDao().getById(cId)!!.parentItemId)
         assertTrue(
-            repository.pendingChanges().drop(changesBeforeSplit)
-                .count { it.operation == ListChangeOperation.SET_ITEM_PLACEMENT } >= 2,
+            OrderKey.compare(
+                database.listItemDao().getById(childId)!!.orderKey,
+                database.listItemDao().getById(cId)!!.orderKey,
+            ) < 0,
         )
+    }
+
+    @Test
+    fun `a parent with children cannot be indented`() = runBlocking {
+        val listId = repository.createCollection("Indent rejected")
+        val otherId = repository.addItem(listId, "Other")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val parent = database.listItemDao().getById(parentId)!!
+        val other = database.listItemDao().getById(otherId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        val changesBefore = repository.pendingChanges().size
+
+        assertFalse(repository.indentItem(parentId, other.itemId))
+
+        assertEquals(null, database.listItemDao().getById(parentId)!!.parentItemId)
+        assertEquals(changesBefore, repository.pendingChanges().size)
+    }
+
+    @Test
+    fun `swipe right moves an incomplete item into a completed group and reopens its parent`() = runBlocking {
+        val listId = repository.createCollection("Indent completion")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val newcomerId = repository.addItem(listId, "Newcomer")
+        val parent = database.listItemDao().getById(parentId)!!
+        val child = database.listItemDao().getById(childId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        repository.setItemChecked(parentId, true)
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+
+        assertTrue(repository.indentItem(newcomerId, child.itemId))
+
+        assertEquals(parent.itemId, database.listItemDao().getById(newcomerId)!!.parentItemId)
+        assertFalse(database.listItemDao().getById(parentId)!!.checked)
+    }
+
+    @Test
+    fun `swipe left outdents only the selected child and leaves later siblings behind`() = runBlocking {
+        val listId = repository.createCollection("Outdent middle")
+        val parentId = repository.addItem(listId, "Parent")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val cId = repository.addItem(listId, "C")
+        val dId = repository.addItem(listId, "D")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(aId, parent.itemId, "1")
+        repository.setItemPlacement(bId, parent.itemId, "2")
+        repository.setItemPlacement(cId, parent.itemId, "3")
+        repository.setItemPlacement(dId, parent.itemId, "4")
+        val changesBefore = repository.pendingChanges().size
+
+        assertTrue(repository.outdentItem(bId))
+
+        val b = database.listItemDao().getById(bId)!!
+        assertEquals(null, b.parentItemId)
+        assertEquals(parent.itemId, database.listItemDao().getById(aId)!!.parentItemId)
+        assertEquals(parent.itemId, database.listItemDao().getById(cId)!!.parentItemId)
+        assertEquals(parent.itemId, database.listItemDao().getById(dId)!!.parentItemId)
+        assertTrue(OrderKey.compare(b.orderKey, parent.orderKey) > 0)
+        val emitted = repository.pendingChanges().drop(changesBefore)
+        assertEquals(1, emitted.size)
+        assertEquals(ListChangeOperation.SET_ITEM_PLACEMENT, emitted.single().operation)
+    }
+
+    @Test
+    fun `outdenting the last incomplete child makes the parent incomplete`() = runBlocking {
+        val listId = repository.createCollection("Outdent completion")
+        val parentId = repository.addItem(listId, "Parent")
+        val completeId = repository.addItem(listId, "Complete child")
+        val openId = repository.addItem(listId, "Open child")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(completeId, parent.itemId, "1")
+        repository.setItemPlacement(openId, parent.itemId, "2")
+        repository.setItemChecked(completeId, true)
+        assertFalse(database.listItemDao().getById(parentId)!!.checked)
+
+        assertTrue(repository.outdentItem(openId))
+
+        assertTrue("remaining child is complete", database.listItemDao().getById(parentId)!!.checked)
+        assertTrue("promoted item keeps its own state", database.listItemDao().getById(openId)!!.checked)
+    }
+
+    @Test
+    fun `outdenting the only child keeps the parent's checked state`() = runBlocking {
+        val listId = repository.createCollection("Outdent last child")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Only child")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        repository.setItemChecked(parentId, true)
+        assertTrue(database.listItemDao().getById(childId)!!.checked)
+
+        assertTrue(repository.outdentItem(childId))
+
+        assertEquals(null, database.listItemDao().getById(childId)!!.parentItemId)
+        assertTrue("childless parent is unchanged", database.listItemDao().getById(parentId)!!.checked)
+        assertEquals(listOf("Parent", "Only child"), database.listItemDao().getByList(listId).map { it.text })
+    }
+
+    @Test
+    fun `outdenting a top-level item changes nothing`() = runBlocking {
+        val listId = repository.createCollection("Outdent no-op")
+        val aId = repository.addItem(listId, "A")
+        val changesBefore = repository.pendingChanges().size
+
+        assertFalse(repository.outdentItem(aId))
+
+        assertEquals(changesBefore, repository.pendingChanges().size)
     }
 
     @Test
@@ -416,21 +535,6 @@ class ListMutationRepositoryAndroidTest {
         assertTrue(database.listItemDao().getById(oldParentId)!!.checked)
         assertTrue(database.listItemDao().getById(newParentId)!!.checked)
         assertEquals(newParent.itemId, database.listItemDao().getById(childId)!!.parentItemId)
-    }
-
-    @Test
-    fun `splitting the final child promotes it without losing its placement`() = runBlocking {
-        val listId = repository.createCollection("Final split")
-        val parentId = repository.addItem(listId, "Parent")
-        val childId = repository.addItem(listId, "Only child")
-        val parent = database.listItemDao().getById(parentId)!!
-
-        repository.setItemPlacement(childId, parent.itemId, "1")
-        repository.splitItem(childId)
-
-        val child = database.listItemDao().getById(childId)!!
-        assertEquals(null, child.parentItemId)
-        assertEquals(listOf("Parent", "Only child"), database.listItemDao().getByList(listId).map { it.text })
     }
 
     private fun change(

@@ -212,41 +212,82 @@ class ListMutationRepository @Inject constructor(
     suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String) = database.withTransaction {
         val item = requireItem(itemId)
         require(item.lifecycle == ListLifecycle.ACTIVE.name) { "Item is not active" }
+        applyPlacementInternal(item, parentItemId, orderKey)
+    }
+
+    /**
+     * Indents [itemId] beneath the effective group that [precedingRowItemId] belongs to.
+     *
+     * The preceding row is the row directly above the item in the manual projection: if it is a
+     * standalone parent it becomes the parent, otherwise the item joins its effective parent as
+     * the next sibling. Returns false without changing anything when the item already has children
+     * (which would exceed two levels) or the preceding row cannot own a child.
+     */
+    suspend fun indentItem(itemId: Long, precedingRowItemId: String): Boolean = database.withTransaction {
+        if (itemId == 0L) return@withTransaction false
+        val item = requireItem(itemId)
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction false
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
+        val preceding = items.firstOrNull { it.itemId == precedingRowItemId } ?: return@withTransaction false
+        if (preceding.itemId == item.itemId) return@withTransaction false
+        if (item.itemId !in hierarchy.topLevelItemIds) return@withTransaction false
+        if (hierarchy.parentByChild.values.any { it == item.itemId }) return@withTransaction false
+        val parentItemId = hierarchy.parentByChild[preceding.itemId] ?: preceding.itemId
+        if (parentItemId == item.itemId) return@withTransaction false
+        if (parentItemId !in hierarchy.topLevelItemIds) return@withTransaction false
+        val siblings = items.filter { hierarchy.parentByChild[it.itemId] == parentItemId }
+            .sortedWith(orderComparator())
+        val insertAfter = siblings.firstOrNull { it.itemId == preceding.itemId }
+        val next = insertAfter?.let { anchor ->
+            siblings.firstOrNull { OrderKey.compare(it.orderKey, anchor.orderKey) > 0 }
+        }
+        val orderKey = if (siblings.isEmpty() || insertAfter == null) {
+            OrderKey.between(siblings.lastOrNull()?.orderKey, null)
+        } else {
+            OrderKey.between(insertAfter.orderKey, next?.orderKey)
+        }
+        applyPlacementInternal(item, parentItemId, orderKey)
+        true
+    }
+
+    /**
+     * Outdents [itemId] to top level, placed immediately after its former parent group.
+     *
+     * Only this item changes parent; its former siblings stay with the old parent. Returns false
+     * without changing anything when the item is not an effective child.
+     */
+    suspend fun outdentItem(itemId: Long): Boolean = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction false
+        val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = deriveHierarchy(items)
+        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction false
+        val oldParent = items.firstOrNull { it.itemId == oldParentId } ?: return@withTransaction false
+        val nextTopLevel = hierarchy.topLevelItemIds
+            .mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
+            .firstOrNull { OrderKey.compare(it.orderKey, oldParent.orderKey) > 0 }
+        applyPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTopLevel?.orderKey))
+        true
+    }
+
+    private suspend fun applyPlacementInternal(item: ListItemEntity, parentItemId: String?, orderKey: String) {
         require(parentItemId == null || parentItemId != item.itemId) { "Item cannot parent itself" }
+        val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = deriveHierarchy(items)
         if (parentItemId != null) {
             val parent = items.firstOrNull { it.itemId == parentItemId }
             require(parent != null) { "Parent does not belong to list" }
             require(parentItemId in hierarchy.topLevelItemIds) { "Parent must be an effective top-level item" }
             require(hierarchy.parentByChild.entries.none { it.value == item.itemId }) { "An item with children cannot become a child" }
         }
-        setItemPlacementInternal(item, parentItemId, OrderKey.canonical(orderKey))
+        setItemPlacementInternal(item, parentItemId, orderKey)
         hierarchy.parentByChild[item.itemId]?.let { oldParent ->
             listItemDao.getByItemId(oldParent)?.let { recomputeParentCompletionInternal(it) }
         }
         parentItemId?.let { newParent ->
             listItemDao.getByItemId(newParent)?.let { recomputeParentCompletionInternal(it) }
         }
-    }
-
-    suspend fun splitItem(itemId: Long) = database.withTransaction {
-        val item = requireItem(itemId)
-        val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
-        val hierarchy = deriveHierarchy(items)
-        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction
-        val oldParent = items.first { it.itemId == oldParentId }
-        val siblings = items.filter { hierarchy.parentByChild[it.itemId] == oldParentId }
-            .sortedWith(orderComparator())
-        val index = siblings.indexOfFirst { it.itemId == item.itemId }
-        val topLevel = hierarchy.topLevelItemIds.mapNotNull { id -> items.firstOrNull { it.itemId == id } }
-        val nextTop = topLevel.firstOrNull { OrderKey.compare(it.orderKey, oldParent.orderKey) > 0 }
-        setItemPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTop?.orderKey))
-        siblings.drop(index + 1).forEach { child ->
-            setItemPlacementInternal(child, item.itemId, child.orderKey)
-        }
-        recomputeParentCompletionInternal(oldParent)
-        recomputeParentCompletionInternal(item)
     }
 
     suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {

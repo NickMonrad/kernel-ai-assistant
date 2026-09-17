@@ -504,8 +504,16 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    fun splitItem(item: ListItemEntity) {
-        viewModelScope.launch(Dispatchers.IO) { listMutations.splitItem(item.id) }
+    /** Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible. */
+    fun indentItem(item: ListItemEntity, precedingRow: ListItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            listMutations.indentItem(item.id, precedingRow.itemId)
+        }
+    }
+
+    /** Outdents [item] to top level, leaving its former siblings under the old parent. */
+    fun outdentItem(item: ListItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) { listMutations.outdentItem(item.id) }
     }
 
     /**
@@ -520,19 +528,21 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    // ── Item drag-to-reparent/reorder (#928) ─────────────────────────────────────────────────────
-    fun moveItemFromDrag(
-        visibleIds: List<Long>,
-        draggedId: Long,
-        targetId: Long,
-        requestedIntent: ItemDropIntent,
-    ) {
-        if (draggedId == targetId || draggedId !in visibleIds || targetId !in visibleIds) return
+    // ── Item drag ordering (#928) ────────────────────────────────────────────────────────────────
+
+    /**
+     * Persists the placement of a dragged row from the projection it was released in.
+     *
+     * Drag never changes depth: a top-level row stays top-level, and a child stays a child of the
+     * group it was dropped into. [orderedRowIds] is the projected order after the move.
+     */
+    fun moveItemFromDrag(orderedRowIds: List<Long>, draggedId: Long) {
+        if (draggedId !in orderedRowIds) return
         selectItemSort(ItemSort.MANUAL)
         viewModelScope.launch(Dispatchers.IO) {
             val dragged = dao.getById(draggedId) ?: return@launch
-            val target = dao.getById(targetId) ?: return@launch
-            if (dragged.listId != target.listId) return@launch
+            val rows = orderedRowIds.map { dao.getById(it) ?: return@launch }
+            if (rows.any { it.listId != dragged.listId }) return@launch
             val all = dao.getAllByListUnordered(dragged.listId)
                 .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
             val groups = EffectiveHierarchyProjection.derive(
@@ -542,52 +552,12 @@ class ListsViewModel @Inject constructor(
                 orderKey = { it.orderKey },
                 placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
             )
-            val groupByParent = groups.associateBy { it.parent.itemId }
-            val parentByChild = groups.flatMap { group ->
-                group.children.map { child -> child.itemId to group.parent.itemId }
-            }.toMap()
-            val draggedHasChildren = groupByParent[dragged.itemId]?.children?.isNotEmpty() == true
-            val targetIsChild = target.itemId in parentByChild
-            val intent = resolveItemDropIntent(
-                requested = requestedIntent,
-                sourceHasChildren = draggedHasChildren,
-                targetIsChild = targetIsChild,
-            ) ?: return@launch
-            val destinationParentId = when (intent) {
-                ItemDropIntent.NEST -> {
-                    if (targetIsChild) return@launch
-                    target.itemId
-                }
-                ItemDropIntent.INSERT_BEFORE,
-                ItemDropIntent.INSERT_AFTER,
-                -> if (draggedHasChildren) null else parentByChild[target.itemId]
-            }
-            val siblings = if (destinationParentId == null) {
-                groups.map { it.parent }
-            } else {
-                groupByParent[destinationParentId]?.children.orEmpty()
-            }
-            val sourceIsGroup = draggedHasChildren
-            val anchorId = if (sourceIsGroup) {
-                groups.firstOrNull { group -> group.children.any { it.itemId == target.itemId } }?.parent?.itemId
-                    ?: target.itemId
-            } else {
-                target.itemId
-            }
-            val anchorIndex = siblings.indexOfFirst { it.itemId == anchorId }
-            if (intent != ItemDropIntent.NEST && anchorIndex < 0) return@launch
-            val sourceIndex = siblings.indexOfFirst { it.itemId == dragged.itemId }
-            val insertionIndex = when (intent) {
-                ItemDropIntent.NEST -> siblings.size
-                ItemDropIntent.INSERT_BEFORE -> anchorIndex
-                ItemDropIntent.INSERT_AFTER -> anchorIndex + 1
-            }
-            val remaining = siblings.filter { it.id != dragged.id }
-            val adjustedIndex = (insertionIndex - if (sourceIndex in 0 until insertionIndex) 1 else 0)
-                .coerceIn(0, remaining.size)
-            val lower = remaining.getOrNull(adjustedIndex - 1)?.orderKey
-            val upper = remaining.getOrNull(adjustedIndex)?.orderKey
-            listMutations.moveItem(dragged.id, destinationParentId, OrderKey.between(lower, upper))
+            val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
+            listMutations.moveItem(
+                dragged.id,
+                placement.parentItemId,
+                OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
+            )
         }
     }
     private var itemReorderJob: Job? = null
