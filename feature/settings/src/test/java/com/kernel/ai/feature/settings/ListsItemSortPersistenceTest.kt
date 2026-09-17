@@ -160,6 +160,40 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
+    fun `a child drag under an automatic sort materialises it into the dropped group`() {
+        val first = row(1L, "stable-first", "0")
+        val firstChild = row(2L, "stable-first-child", "0", parentItemId = first.itemId)
+        val second = row(4L, "stable-second", "1")
+        val secondChild = row(3L, "stable-second-child", "0", parentItemId = second.itemId)
+        coEvery { dao.getAllByListUnordered(1L) } returns listOf(first, firstChild, second, secondChild)
+        listOf(first, firstChild, second, secondChild).forEach {
+            coEvery { dao.getById(it.id) } returns it
+        }
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        // Second's child was dragged up into the first group, released between the two groups.
+        viewModel.moveItemFromDrag(
+            orderedRowIds = listOf(first.id, secondChild.id, firstChild.id, second.id),
+            draggedId = secondChild.id,
+        )
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(first.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(secondChild.id, first.id),
+                    ListMutationRepository.VisibleHierarchyRow(firstChild.id, first.id),
+                    ListMutationRepository.VisibleHierarchyRow(second.id, null),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `a drag under manual order applies a single placement without materialising`() {
         val a = row(1L, "stable-a", "0")
         val b = row(2L, "stable-b", "1")
@@ -179,11 +213,12 @@ class ListsItemSortPersistenceTest {
 
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { testListsUiPreferences(dispatcher, store).itemSortFor(listId) }
 
-    private fun row(id: Long, itemId: String, orderKey: String) = ListItemEntity(
+    private fun row(id: Long, itemId: String, orderKey: String, parentItemId: String? = null, listId: Long = 1L) = ListItemEntity(
         id = id,
-        listId = 1L,
+        listId = listId,
         text = itemId,
         itemId = itemId,
+        parentItemId = parentItemId,
         orderKey = orderKey,
         lifecycle = ListLifecycle.ACTIVE.name,
     )

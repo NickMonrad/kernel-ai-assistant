@@ -593,13 +593,22 @@ class ListsViewModel @Inject constructor(
                 val rows = withContext(ioDispatcher) { orderedRowIds.mapNotNull { dao.getById(it) } }
                 if (dragged == null || rows.size != orderedRowIds.size) return@launch
                 if (rows.any { it.listId != dragged.listId }) return@launch
+                val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
+                val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
                 if (itemSort != ItemSort.MANUAL) {
-                    if (materialiseVisibleOrder(orderedRowIds)) selectItemSort(ItemSort.MANUAL)
+                    // Materialising the projection has to carry the dragged row's new group too, so
+                    // its owner comes from the same placement the Manual path would apply.
+                    val ownerRowId = placement.parentItemId?.let { parentItemId ->
+                        rows.firstOrNull { it.itemId == parentItemId }?.id
+                    }
+                    val switched = if (placement.parentItemId == null || ownerRowId != null) {
+                        materialiseVisibleOrder(orderedRowIds, mapOf(draggedId to ownerRowId))
+                    } else {
+                        materialiseVisibleOrder(orderedRowIds)
+                    }
+                    if (switched) selectItemSort(ItemSort.MANUAL)
                     return@launch
                 }
-                val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
-                val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId)
-                placement ?: return@launch
                 val mutation = withContext(ioDispatcher) {
                     listMutations.moveItem(
                         dragged.id,
@@ -617,17 +626,28 @@ class ListsViewModel @Inject constructor(
     /**
      * Writes the order the user is currently looking at as this list's Manual baseline.
      *
+     * Owners default to the persisted hierarchy, which is what the visible projection shows for an
+     * indent, an outdent, or a drag that only reordered rows. [ownerRowIds] overrides that for rows
+     * the projection moved into another group, which a drag can do.
+     *
      * Returns false when the list is already on Manual, where the visible order is the persisted
      * order, so nothing needs materialising.
      */
-    private suspend fun materialiseVisibleOrder(visibleRowIds: List<Long>): Boolean {
+    private suspend fun materialiseVisibleOrder(
+        visibleRowIds: List<Long>,
+        ownerRowIds: Map<Long, Long?> = emptyMap(),
+    ): Boolean {
         if (itemSort == ItemSort.MANUAL) return false
         val listId = withContext(ioDispatcher) {
             visibleRowIds.firstOrNull()?.let { dao.getById(it)?.listId }
         } ?: return false
         val groups = withContext(ioDispatcher) { effectiveGroups(listId) } ?: return false
         val visibleRows = visibleRowIds.mapNotNull { rowId ->
-            val owner = owningRowId(groups, rowId) ?: return@mapNotNull null
+            val owner = if (ownerRowIds.containsKey(rowId)) {
+                ownerRowIds.getValue(rowId)
+            } else {
+                owningRowId(groups, rowId) ?: return@mapNotNull null
+            }
             ListMutationRepository.VisibleHierarchyRow(rowId, owner.takeIf { it != rowId })
         }
         if (visibleRows.isEmpty()) return false
