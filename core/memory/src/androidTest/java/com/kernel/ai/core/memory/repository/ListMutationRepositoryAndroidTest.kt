@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.kernel.ai.core.memory.KernelDatabase
+import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.ListChange
@@ -318,7 +319,11 @@ class ListMutationRepositoryAndroidTest {
         assertTrue(!database.listItemDao().getById(parentId)!!.checked)
 
         val parentMutation = repository.setItemChecked(parentId, true)
-        assertEquals(setOf(firstId, secondId, parentId), parentMutation.checkedIds)
+        assertEquals(
+            "the second child was already complete, so it is not a transition",
+            setOf(firstId, parentId),
+            parentMutation.checkedIds,
+        )
         assertTrue(database.listItemDao().getById(firstId)!!.checked)
         assertTrue(database.listItemDao().getById(secondId)!!.checked)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
@@ -337,16 +342,17 @@ class ListMutationRepositoryAndroidTest {
         val a = database.listItemDao().getById(aId)!!
         val changesBefore = repository.pendingChanges().size
 
-        assertTrue(repository.indentItem(bId, a.itemId))
+        val mutation = repository.indentItem(bId, a.itemId)
 
         assertEquals(a.itemId, database.listItemDao().getById(bId)!!.parentItemId)
+        assertEquals("placing an item alone changes no completion state", CheckedStateMutation(), mutation)
         val emitted = repository.pendingChanges().drop(changesBefore)
         assertEquals(1, emitted.size)
         assertEquals(ListChangeOperation.SET_ITEM_PLACEMENT, emitted.single().operation)
     }
 
     @Test
-    fun `swipe right after an existing child joins that child's parent`() = runBlocking {
+    fun `swipe right after an existing child joins the same parent`() = runBlocking {
         val listId = repository.createCollection("Indent after child")
         val parentId = repository.addItem(listId, "A")
         val childId = repository.addItem(listId, "B")
@@ -355,9 +361,10 @@ class ListMutationRepositoryAndroidTest {
         val child = database.listItemDao().getById(childId)!!
         repository.setItemPlacement(childId, parent.itemId, "1")
 
-        assertTrue(repository.indentItem(cId, child.itemId))
+        val mutation = repository.indentItem(cId, child.itemId)
 
         assertEquals(parent.itemId, database.listItemDao().getById(cId)!!.parentItemId)
+        assertEquals(CheckedStateMutation(), mutation)
         assertTrue(
             OrderKey.compare(
                 database.listItemDao().getById(childId)!!.orderKey,
@@ -377,8 +384,9 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(childId, parent.itemId, "1")
         val changesBefore = repository.pendingChanges().size
 
-        assertFalse(repository.indentItem(parentId, other.itemId))
+        val mutation = repository.indentItem(parentId, other.itemId)
 
+        assertEquals(CheckedStateMutation(), mutation)
         assertEquals(null, database.listItemDao().getById(parentId)!!.parentItemId)
         assertEquals(changesBefore, repository.pendingChanges().size)
     }
@@ -395,10 +403,12 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(parentId, true)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
 
-        assertTrue(repository.indentItem(newcomerId, child.itemId))
+        val mutation = repository.indentItem(newcomerId, child.itemId)
 
         assertEquals(parent.itemId, database.listItemDao().getById(newcomerId)!!.parentItemId)
         assertFalse(database.listItemDao().getById(parentId)!!.checked)
+        assertEquals(setOf(parentId), mutation.uncheckedIds)
+        assertTrue(mutation.checkedIds.isEmpty())
     }
 
     @Test
@@ -416,7 +426,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(dId, parent.itemId, "4")
         val changesBefore = repository.pendingChanges().size
 
-        assertTrue(repository.outdentItem(bId))
+        val mutation = repository.outdentItem(bId)
 
         val b = database.listItemDao().getById(bId)!!
         assertEquals(null, b.parentItemId)
@@ -424,13 +434,14 @@ class ListMutationRepositoryAndroidTest {
         assertEquals(parent.itemId, database.listItemDao().getById(cId)!!.parentItemId)
         assertEquals(parent.itemId, database.listItemDao().getById(dId)!!.parentItemId)
         assertTrue(OrderKey.compare(b.orderKey, parent.orderKey) > 0)
+        assertEquals(CheckedStateMutation(), mutation)
         val emitted = repository.pendingChanges().drop(changesBefore)
         assertEquals(1, emitted.size)
         assertEquals(ListChangeOperation.SET_ITEM_PLACEMENT, emitted.single().operation)
     }
 
     @Test
-    fun `outdenting the last incomplete child makes the parent incomplete`() = runBlocking {
+    fun `outdenting the only incomplete child completes parent while promoted child stays incomplete`() = runBlocking {
         val listId = repository.createCollection("Outdent completion")
         val parentId = repository.addItem(listId, "Parent")
         val completeId = repository.addItem(listId, "Complete child")
@@ -441,14 +452,16 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(completeId, true)
         assertFalse(database.listItemDao().getById(parentId)!!.checked)
 
-        assertTrue(repository.outdentItem(openId))
+        val mutation = repository.outdentItem(openId)
 
-        assertTrue("remaining child is complete", database.listItemDao().getById(parentId)!!.checked)
-        assertTrue("promoted item keeps its own state", database.listItemDao().getById(openId)!!.checked)
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+        assertFalse(database.listItemDao().getById(openId)!!.checked)
+        assertEquals(setOf(parentId), mutation.checkedIds)
+        assertFalse("the promoted child was already incomplete", openId in mutation.checkedIds)
     }
 
     @Test
-    fun `outdenting the only child keeps the parent's checked state`() = runBlocking {
+    fun `outdenting the only child keeps the parent checked state`() = runBlocking {
         val listId = repository.createCollection("Outdent last child")
         val parentId = repository.addItem(listId, "Parent")
         val childId = repository.addItem(listId, "Only child")
@@ -457,11 +470,15 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(parentId, true)
         assertTrue(database.listItemDao().getById(childId)!!.checked)
 
-        assertTrue(repository.outdentItem(childId))
+        val mutation = repository.outdentItem(childId)
 
         assertEquals(null, database.listItemDao().getById(childId)!!.parentItemId)
-        assertTrue("childless parent is unchanged", database.listItemDao().getById(parentId)!!.checked)
-        assertEquals(listOf("Parent", "Only child"), database.listItemDao().getByList(listId).map { it.text })
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+        assertEquals("a childless parent keeps its own state", CheckedStateMutation(), mutation)
+        assertEquals(
+            listOf("Parent", "Only child"),
+            database.listItemDao().getAllByList(listId).map { it.text },
+        )
     }
 
     @Test
@@ -470,9 +487,50 @@ class ListMutationRepositoryAndroidTest {
         val aId = repository.addItem(listId, "A")
         val changesBefore = repository.pendingChanges().size
 
-        assertFalse(repository.outdentItem(aId))
+        val mutation = repository.outdentItem(aId)
 
+        assertEquals(CheckedStateMutation(), mutation)
         assertEquals(changesBefore, repository.pendingChanges().size)
+    }
+
+    @Test
+    fun `moving an incomplete child between completed groups reports both parent transitions`() = runBlocking {
+        val listId = repository.createCollection("Move transitions")
+        val oldParentId = repository.addItem(listId, "Old parent")
+        val newParentId = repository.addItem(listId, "New parent")
+        val settledSiblingId = repository.addItem(listId, "Settled sibling")
+        val settledChildId = repository.addItem(listId, "Settled child")
+        val openChildId = repository.addItem(listId, "Open child")
+        val oldParent = database.listItemDao().getById(oldParentId)!!
+        val newParent = database.listItemDao().getById(newParentId)!!
+        repository.setItemPlacement(settledSiblingId, oldParent.itemId, "1")
+        repository.setItemPlacement(openChildId, oldParent.itemId, "2")
+        repository.setItemPlacement(settledChildId, newParent.itemId, "1")
+        repository.setItemChecked(settledSiblingId, true)
+        repository.setItemChecked(settledChildId, true)
+        assertFalse("one child is still open", database.listItemDao().getById(oldParentId)!!.checked)
+        assertTrue(database.listItemDao().getById(newParentId)!!.checked)
+
+        val mutation = repository.moveItem(openChildId, newParent.itemId, "2")
+
+        assertTrue("old parent's remaining child is complete", database.listItemDao().getById(oldParentId)!!.checked)
+        assertFalse("new parent gained an open child", database.listItemDao().getById(newParentId)!!.checked)
+        assertEquals(setOf(oldParentId), mutation.checkedIds)
+        assertEquals(setOf(newParentId), mutation.uncheckedIds)
+    }
+
+    @Test
+    fun `a placement with no completion effect reports an empty mutation`() = runBlocking {
+        val listId = repository.createCollection("Move no-op")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val otherId = repository.addItem(listId, "Other")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+
+        val mutation = repository.moveItem(otherId, null, "1")
+
+        assertEquals(CheckedStateMutation(), mutation)
     }
 
     @Test

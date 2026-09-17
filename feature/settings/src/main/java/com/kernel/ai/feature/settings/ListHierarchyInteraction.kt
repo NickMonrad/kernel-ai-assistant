@@ -84,6 +84,10 @@ internal fun moveHierarchyRows(
     val ownerId = owningRowId(groups, targetId) ?: return current
     val ownerIndex = remaining.indexOfFirst { it.id == ownerId }
     if (ownerIndex < 0) return current
+    // The target's index must be resolved against the list the row is actually inserted into:
+    // the source block is already gone, so the original index is stale for downward moves.
+    val targetIndexInRemaining = remaining.indexOfFirst { it.id == targetId }
+    if (targetIndexInRemaining < 0) return current
     var groupEnd = ownerIndex + 1
     while (groupEnd < remaining.size && remaining[groupEnd].id !in topLevelIds) groupEnd++
 
@@ -91,8 +95,8 @@ internal fun moveHierarchyRows(
     val insertIndex = when {
         draggedIsTopLevel -> if (movingDown) groupEnd else ownerIndex
         targetId == ownerId -> if (movingDown) groupEnd else ownerIndex + 1
-        movingDown -> targetIndex + 1
-        else -> targetIndex
+        movingDown -> targetIndexInRemaining + 1
+        else -> targetIndexInRemaining
     }
     return remaining.toMutableList().apply {
         addAll(insertIndex.coerceIn(0, size), sourceRows)

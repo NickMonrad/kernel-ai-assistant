@@ -209,7 +209,11 @@ class ListMutationRepository @Inject constructor(
 
     suspend fun setItemPlacement(itemId: Long, parentItemId: String?, orderKey: String) = moveItem(itemId, parentItemId, orderKey)
 
-    suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String) = database.withTransaction {
+    /**
+     * Moves [itemId] to [parentItemId] at [orderKey], returning the parent checked-state changes
+     * the placement caused so the caller can keep reminders in step.
+     */
+    suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
         require(item.lifecycle == ListLifecycle.ACTIVE.name) { "Item is not active" }
         applyPlacementInternal(item, parentItemId, orderKey)
@@ -220,22 +224,23 @@ class ListMutationRepository @Inject constructor(
      *
      * The preceding row is the row directly above the item in the manual projection: if it is a
      * standalone parent it becomes the parent, otherwise the item joins its effective parent as
-     * the next sibling. Returns false without changing anything when the item already has children
-     * (which would exceed two levels) or the preceding row cannot own a child.
+     * the next sibling. Returns an empty mutation without changing anything when the item already
+     * has children (which would exceed two levels) or the preceding row cannot own a child.
      */
-    suspend fun indentItem(itemId: Long, precedingRowItemId: String): Boolean = database.withTransaction {
-        if (itemId == 0L) return@withTransaction false
+    suspend fun indentItem(itemId: Long, precedingRowItemId: String): CheckedStateMutation = database.withTransaction {
+        if (itemId == 0L) return@withTransaction CheckedStateMutation()
         val item = requireItem(itemId)
-        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction false
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
-        val preceding = items.firstOrNull { it.itemId == precedingRowItemId } ?: return@withTransaction false
-        if (preceding.itemId == item.itemId) return@withTransaction false
-        if (item.itemId !in hierarchy.topLevelItemIds) return@withTransaction false
-        if (hierarchy.parentByChild.values.any { it == item.itemId }) return@withTransaction false
+        val preceding = items.firstOrNull { it.itemId == precedingRowItemId }
+            ?: return@withTransaction CheckedStateMutation()
+        if (preceding.itemId == item.itemId) return@withTransaction CheckedStateMutation()
+        if (item.itemId !in hierarchy.topLevelItemIds) return@withTransaction CheckedStateMutation()
+        if (hierarchy.parentByChild.values.any { it == item.itemId }) return@withTransaction CheckedStateMutation()
         val parentItemId = hierarchy.parentByChild[preceding.itemId] ?: preceding.itemId
-        if (parentItemId == item.itemId) return@withTransaction false
-        if (parentItemId !in hierarchy.topLevelItemIds) return@withTransaction false
+        if (parentItemId == item.itemId) return@withTransaction CheckedStateMutation()
+        if (parentItemId !in hierarchy.topLevelItemIds) return@withTransaction CheckedStateMutation()
         val siblings = items.filter { hierarchy.parentByChild[it.itemId] == parentItemId }
             .sortedWith(orderComparator())
         val insertAfter = siblings.firstOrNull { it.itemId == preceding.itemId }
@@ -248,30 +253,37 @@ class ListMutationRepository @Inject constructor(
             OrderKey.between(insertAfter.orderKey, next?.orderKey)
         }
         applyPlacementInternal(item, parentItemId, orderKey)
-        true
     }
 
     /**
      * Outdents [itemId] to top level, placed immediately after its former parent group.
      *
-     * Only this item changes parent; its former siblings stay with the old parent. Returns false
-     * without changing anything when the item is not an effective child.
+     * Only this item changes parent; its former siblings stay with the old parent. Returns an empty
+     * mutation without changing anything when the item is not an effective child.
      */
-    suspend fun outdentItem(itemId: Long): Boolean = database.withTransaction {
+    suspend fun outdentItem(itemId: Long): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
-        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction false
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
-        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction false
-        val oldParent = items.firstOrNull { it.itemId == oldParentId } ?: return@withTransaction false
+        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction CheckedStateMutation()
+        val oldParent = items.firstOrNull { it.itemId == oldParentId }
+            ?: return@withTransaction CheckedStateMutation()
         val nextTopLevel = hierarchy.topLevelItemIds
             .mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
             .firstOrNull { OrderKey.compare(it.orderKey, oldParent.orderKey) > 0 }
         applyPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTopLevel?.orderKey))
-        true
     }
 
-    private suspend fun applyPlacementInternal(item: ListItemEntity, parentItemId: String?, orderKey: String) {
+    /**
+     * Applies one placement and returns every checked-state change its completion recomputation
+     * caused, so the caller can cancel or restore reminders for the parents that actually flipped.
+     */
+    private suspend fun applyPlacementInternal(
+        item: ListItemEntity,
+        parentItemId: String?,
+        orderKey: String,
+    ): CheckedStateMutation {
         require(parentItemId == null || parentItemId != item.itemId) { "Item cannot parent itself" }
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
@@ -281,13 +293,23 @@ class ListMutationRepository @Inject constructor(
             require(parentItemId in hierarchy.topLevelItemIds) { "Parent must be an effective top-level item" }
             require(hierarchy.parentByChild.entries.none { it.value == item.itemId }) { "An item with children cannot become a child" }
         }
+        val affectedParents = listOfNotNull(hierarchy.parentByChild[item.itemId], parentItemId).distinct()
+        val checkedBefore = affectedParents.associateWith { parentItemId ->
+            items.firstOrNull { it.itemId == parentItemId }?.checked
+        }
         setItemPlacementInternal(item, parentItemId, orderKey)
-        hierarchy.parentByChild[item.itemId]?.let { oldParent ->
-            listItemDao.getByItemId(oldParent)?.let { recomputeParentCompletionInternal(it) }
+        affectedParents.forEach { parentItemId ->
+            listItemDao.getByItemId(parentItemId)?.let { recomputeParentCompletionInternal(it) }
         }
-        parentItemId?.let { newParent ->
-            listItemDao.getByItemId(newParent)?.let { recomputeParentCompletionInternal(it) }
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        affectedParents.forEach { parentItemId ->
+            val before = checkedBefore[parentItemId] ?: return@forEach
+            val after = listItemDao.getByItemId(parentItemId) ?: return@forEach
+            if (before == after.checked) return@forEach
+            if (after.checked) checkedIds += after.id else uncheckedIds += after.id
         }
+        return CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds)
     }
 
     suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {

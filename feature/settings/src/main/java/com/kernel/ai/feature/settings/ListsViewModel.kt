@@ -507,13 +507,17 @@ class ListsViewModel @Inject constructor(
     /** Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible. */
     fun indentItem(item: ListItemEntity, precedingRow: ListItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            listMutations.indentItem(item.id, precedingRow.itemId)
+            applyCheckedStateReminderTransitions(
+                listMutations.indentItem(item.id, precedingRow.itemId),
+            )
         }
     }
 
     /** Outdents [item] to top level, leaving its former siblings under the old parent. */
     fun outdentItem(item: ListItemEntity) {
-        viewModelScope.launch(Dispatchers.IO) { listMutations.outdentItem(item.id) }
+        viewModelScope.launch(Dispatchers.IO) {
+            applyCheckedStateReminderTransitions(listMutations.outdentItem(item.id))
+        }
     }
 
     /**
@@ -553,10 +557,12 @@ class ListsViewModel @Inject constructor(
                 placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
             )
             val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
-            listMutations.moveItem(
-                dragged.id,
-                placement.parentItemId,
-                OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
+            applyCheckedStateReminderTransitions(
+                listMutations.moveItem(
+                    dragged.id,
+                    placement.parentItemId,
+                    OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
+                ),
             )
         }
     }

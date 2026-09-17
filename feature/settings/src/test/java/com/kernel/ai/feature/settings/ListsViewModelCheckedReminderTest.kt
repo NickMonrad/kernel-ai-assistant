@@ -113,6 +113,53 @@ class ListsViewModelCheckedReminderTest {
         verify(exactly = 0) { scheduler.schedule(unrelated.id, unrelated.text, unrelated.listId, "groceries", triggerAtMs) }
     }
 
+    @Test
+    fun `indenting an incomplete item into a completed parent reschedules that parent's reminder`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val parent = item(1L, checked = true, notificationTime = triggerAtMs)
+        val preceding = item(2L, checked = true, parentItemId = parent.itemId)
+        val newcomer = item(3L, checked = false)
+        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation(
+            uncheckedIds = setOf(parent.id),
+        )
+        coEvery { dao.getById(parent.id) } returns parent
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+
+        viewModel.indentItem(newcomer, preceding)
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(parent.id, parent.text, parent.listId, "groceries", triggerAtMs)
+        }
+    }
+
+    @Test
+    fun `outdenting the only incomplete child cancels the completed parent's reminder`() {
+        val parent = item(1L, checked = false)
+        val open = item(2L, checked = false, parentItemId = parent.itemId)
+        coEvery { listMutations.outdentItem(open.id) } returns CheckedStateMutation(
+            checkedIds = setOf(parent.id),
+        )
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+
+        viewModel.outdentItem(open)
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(parent.id) }
+    }
+
+    @Test
+    fun `a placement that changes no completion state touches no reminder`() {
+        val newcomer = item(3L, checked = false)
+        val preceding = item(2L, checked = false)
+        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation()
+        val viewModel = ListsViewModel(dao, listNameDao, scheduler, context, listMutations, preferences)
+
+        viewModel.indentItem(newcomer, preceding)
+
+        verify(exactly = 0) { scheduler.cancel(any()) }
+        verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { preferences.itemSortFor(listId) }
 
     private fun item(

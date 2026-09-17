@@ -64,7 +64,113 @@ class ListHierarchyInteractionTest {
     }
 
     @Test
-    fun `child reorder inside its group stays with the same parent`() {
+    fun `child dragged down one sibling lands directly after it`() {
+        val parent = item(1)
+        val a = item(2, parentItemId = parent.itemId)
+        val b = item(3, parentItemId = parent.itemId)
+        val c = item(4, parentItemId = parent.itemId)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
+
+        val moved = moveHierarchyRows(
+            current = listOf(parent, a, b, c),
+            groups = groups,
+            draggedId = a.id,
+            targetId = b.id,
+        )
+
+        assertEquals(listOf(1L, 3L, 2L, 4L), moved.map { it.id })
+        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
+    }
+
+    @Test
+    fun `child dragged down several siblings lands directly after the target`() {
+        val parent = item(1)
+        val a = item(2, parentItemId = parent.itemId)
+        val b = item(3, parentItemId = parent.itemId)
+        val c = item(4, parentItemId = parent.itemId)
+        val d = item(5, parentItemId = parent.itemId)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c, d)))
+
+        val moved = moveHierarchyRows(
+            current = listOf(parent, a, b, c, d),
+            groups = groups,
+            draggedId = a.id,
+            targetId = c.id,
+        )
+
+        assertEquals(listOf(1L, 3L, 4L, 2L, 5L), moved.map { it.id })
+        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
+    }
+
+    @Test
+    fun `child dragged up lands directly before the target`() {
+        val parent = item(1)
+        val a = item(2, parentItemId = parent.itemId)
+        val b = item(3, parentItemId = parent.itemId)
+        val c = item(4, parentItemId = parent.itemId)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
+
+        val moved = moveHierarchyRows(
+            current = listOf(parent, a, b, c),
+            groups = groups,
+            draggedId = c.id,
+            targetId = b.id,
+        )
+
+        assertEquals(listOf(1L, 2L, 4L, 3L), moved.map { it.id })
+        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
+    }
+
+    @Test
+    fun `child dragged down into another group lands at the indicated sibling slot`() {
+        val first = item(1)
+        val a = item(2, parentItemId = first.itemId)
+        val b = item(3, parentItemId = first.itemId)
+        val second = item(4)
+        val c = item(5, parentItemId = second.itemId)
+        val d = item(6, parentItemId = second.itemId)
+        val groups = listOf(
+            EffectiveHierarchyGroup(first, listOf(a, b)),
+            EffectiveHierarchyGroup(second, listOf(c, d)),
+        )
+
+        val moved = moveHierarchyRows(
+            current = listOf(first, a, b, second, c, d),
+            groups = groups,
+            draggedId = a.id,
+            targetId = c.id,
+        )
+
+        assertEquals(listOf(1L, 3L, 4L, 5L, 2L, 6L), moved.map { it.id })
+        assertEquals(second.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
+    }
+
+    @Test
+    fun `child dragged up into another group lands directly before the target`() {
+        val first = item(1)
+        val a = item(2, parentItemId = first.itemId)
+        val b = item(3, parentItemId = first.itemId)
+        val second = item(4)
+        val c = item(5, parentItemId = second.itemId)
+        val d = item(6, parentItemId = second.itemId)
+        val groups = listOf(
+            EffectiveHierarchyGroup(first, listOf(a, b)),
+            EffectiveHierarchyGroup(second, listOf(c, d)),
+        )
+
+        val moved = moveHierarchyRows(
+            current = listOf(first, a, b, second, c, d),
+            groups = groups,
+            draggedId = d.id,
+            targetId = b.id,
+        )
+
+        assertEquals(listOf(1L, 2L, 6L, 3L, 4L, 5L), moved.map { it.id })
+        assertEquals(first.itemId, dragPlacementFor(moved, topLevelRowIds(groups), d.id)?.parentItemId)
+    }
+
+    @Test
+    fun `sibling reorder inside its group stays with the same parent`() {
         val parent = item(1)
         val a = item(2, parentItemId = parent.itemId)
         val b = item(3, parentItemId = parent.itemId)
