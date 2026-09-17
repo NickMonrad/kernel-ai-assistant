@@ -1,16 +1,12 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -86,6 +81,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -103,7 +99,6 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -559,20 +554,26 @@ fun ListItemsScreen(
                                 },
                                 shadowElevation = elevation,
                             ) {
-                                SwipeToChangeDepthRow(
-                                    canIndent = depthGesturesEnabled &&
-                                        canIndentRow(localActiveItems, activeGroups, item.id),
-                                    canOutdent = depthGesturesEnabled &&
-                                        canOutdentRow(activeGroups, item.id),
-                                    onIndent = { precedingRow?.let { viewModel.indentItem(item, it) } },
-                                    onOutdent = { viewModel.outdentItem(item) },
+                                // The child indent sits outside the swipe surface so the row keeps
+                                // its full background and the swipe hint never shows through.
+                                Box(
+                                    modifier = Modifier.then(
+                                        if (isChild) Modifier.padding(start = 24.dp) else Modifier,
+                                    ),
                                 ) {
-                                    ListItemRow(
-                                        item = item,
-                                        isChild = isChild,
-                                        isMultiSelectMode = isItemMultiSelectMode,
-                                        isSelected = item.id in selectedItemIds,
-                                        showDragHandle = hierarchyDragEnabled,
+                                    SwipeToChangeDepthRow(
+                                        canIndent = depthGesturesEnabled &&
+                                            canIndentRow(localActiveItems, activeGroups, item.id),
+                                        canOutdent = depthGesturesEnabled &&
+                                            canOutdentRow(activeGroups, item.id),
+                                        onIndent = { precedingRow?.let { viewModel.indentItem(item, it) } },
+                                        onOutdent = { viewModel.outdentItem(item) },
+                                    ) {
+                                        ListItemRow(
+                                            item = item,
+                                            isMultiSelectMode = isItemMultiSelectMode,
+                                            isSelected = item.id in selectedItemIds,
+                                            showDragHandle = hierarchyDragEnabled,
                                         dragHandleModifier = if (hierarchyDragEnabled) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = {
@@ -600,6 +601,7 @@ fun ListItemsScreen(
                                         onLongClick = { viewModel.enterItemMultiSelect(item.id) },
                                         onSelectToggle = { viewModel.toggleItemSelection(item.id) },
                                     )
+                                }
                                 }
                             }
                             HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 80.dp else 56.dp))
@@ -649,19 +651,20 @@ fun ListItemsScreen(
                                 onSelectToggle = { viewModel.toggleItemSelection(group.parent.id) },
                             )
                             group.children.forEach { child ->
-                                ListItemRow(
-                                    item = child,
-                                    isChild = true,
-                                    isMultiSelectMode = isItemMultiSelectMode,
-                                    isSelected = child.id in selectedItemIds,
-                                    showDragHandle = false,
-                                    onToggle = { viewModel.toggleChecked(child) },
-                                    onDelete = { viewModel.deleteItem(child) },
-                                    onEdit = { editingItem = child },
-                                    onToggleFavourite = { viewModel.toggleFavourite(child) },
-                                    onLongClick = { viewModel.enterItemMultiSelect(child.id) },
-                                    onSelectToggle = { viewModel.toggleItemSelection(child.id) },
-                                )
+                                Box(modifier = Modifier.padding(start = 24.dp)) {
+                                    ListItemRow(
+                                        item = child,
+                                        isMultiSelectMode = isItemMultiSelectMode,
+                                        isSelected = child.id in selectedItemIds,
+                                        showDragHandle = false,
+                                        onToggle = { viewModel.toggleChecked(child) },
+                                        onDelete = { viewModel.deleteItem(child) },
+                                        onEdit = { editingItem = child },
+                                        onToggleFavourite = { viewModel.toggleFavourite(child) },
+                                        onLongClick = { viewModel.enterItemMultiSelect(child.id) },
+                                        onSelectToggle = { viewModel.toggleItemSelection(child.id) },
+                                    )
+                                }
                             }
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                         }
@@ -734,9 +737,10 @@ fun ListItemsScreen(
 /**
  * Horizontal hierarchy gesture: swipe right indents, swipe left outdents.
  *
- * A direction is inert when the row is not eligible, so the row simply settles back and nothing
- * is mutated. The hint icon is only revealed while the row is being dragged that way.
+ * Each direction is only enabled when the row is eligible, and neither direction ever dismisses
+ * the row: the action fires past the threshold and the row settles back into place.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToChangeDepthRow(
     canIndent: Boolean,
@@ -745,70 +749,48 @@ private fun SwipeToChangeDepthRow(
     onOutdent: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    val thresholdPx = with(LocalDensity.current) { DEPTH_SWIPE_THRESHOLD.toPx() }
-    val maxOffsetPx = thresholdPx * 2f
-    val offsetX = remember { Animatable(0f) }
-    val swipe = offsetX.value
-    Box(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(horizontal = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (swipe > 0f) {
+    // The dismiss state is remembered for the row's lifetime, so the callbacks it captures would
+    // otherwise stay frozen at first composition and a row could never change direction again.
+    val indentAction by rememberUpdatedState(onIndent)
+    val outdentAction by rememberUpdatedState(onOutdent)
+    val indentEnabled by rememberUpdatedState(canIndent)
+    val outdentEnabled by rememberUpdatedState(canOutdent)
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> if (indentEnabled) indentAction()
+                SwipeToDismissBoxValue.EndToStart -> if (outdentEnabled) outdentAction()
+                else -> Unit
+            }
+            false
+        },
+        // A hierarchy gesture is a nudge, not a full-width dismissal swipe.
+        positionalThreshold = { distance -> distance * 0.25f },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = canIndent,
+        enableDismissFromEndToStart = canOutdent,
+        backgroundContent = {
+            val indenting = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = if (indenting) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
                 Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+                    imageVector = if (indenting) Icons.AutoMirrored.Filled.ArrowForward
+                    else Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = if (indenting) "Indent" else "Outdent",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
-            Spacer(modifier = Modifier.weight(1f))
-            if (swipe < 0f) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { translationX = swipe }
-                .then(
-                    if (!canIndent && !canOutdent) {
-                        Modifier
-                    } else {
-                        Modifier.draggable(
-                            orientation = Orientation.Horizontal,
-                            state = rememberDraggableState { delta ->
-                                scope.launch {
-                                    offsetX.snapTo((offsetX.value + delta).coerceIn(-maxOffsetPx, maxOffsetPx))
-                                }
-                            },
-                            onDragStopped = {
-                                val settled = offsetX.value
-                                when {
-                                    settled >= thresholdPx && canIndent -> onIndent()
-                                    settled <= -thresholdPx && canOutdent -> onOutdent()
-                                }
-                                offsetX.animateTo(0f)
-                            },
-                        )
-                    },
-                ),
-        ) {
-            content()
-        }
-    }
+        },
+        content = { content() },
+    )
 }
-
-/** Horizontal travel, in dp, before a row commits to indenting or outdenting. */
-private val DEPTH_SWIPE_THRESHOLD = 56.dp
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -817,7 +799,6 @@ private val DEPTH_SWIPE_THRESHOLD = 56.dp
 private fun ListItemRow(
     item: ListItemEntity,
     dragHandleModifier: Modifier = Modifier,
-    isChild: Boolean = false,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
@@ -831,7 +812,6 @@ private fun ListItemRow(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (isChild) Modifier.padding(start = 40.dp) else Modifier)
             .combinedClickable(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
