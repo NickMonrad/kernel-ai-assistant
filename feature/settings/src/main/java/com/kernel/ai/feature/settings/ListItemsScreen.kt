@@ -897,11 +897,13 @@ private fun SwipeToChangeDepthRow(
                     canMakeSubItem = canMakeSubItem,
                     canMoveToTopLevel = canMoveToTopLevel,
                     onDelta = { delta -> handleDragX += delta },
-                    onCommit = { total ->
+                    onCommit = { permitted ->
                         handleDragX = 0f
                         when {
-                            total >= commitDistancePx && makeSubItemEnabled -> makeSubItemAction()
-                            total <= -commitDistancePx && moveToTopLevelEnabled -> moveToTopLevelAction()
+                            permitted > 0f && isDepthCommitReached(permitted, commitDistancePx) &&
+                                makeSubItemEnabled -> makeSubItemAction()
+                            permitted < 0f && isDepthCommitReached(permitted, commitDistancePx) &&
+                                moveToTopLevelEnabled -> moveToTopLevelAction()
                         }
                     },
                 )
@@ -953,7 +955,7 @@ private fun rememberDepthHandleGesture(
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 var totalX = 0f
                 var totalY = 0f
-                // Only movement in a direction this row can actually act on drives feedback.
+                // Cumulative displacement this row is permitted to show, so a reversal retracts.
                 var depthX = 0f
                 var axis = MoveAxis.Undecided
                 while (true) {
@@ -969,15 +971,14 @@ private fun rememberDepthHandleGesture(
                     }
                     when (axis) {
                         MoveAxis.Horizontal -> {
-                            if (
-                                isDepthHandleDirectionEnabled(
-                                    delta.x,
-                                    currentCanMakeSubItem,
-                                    currentCanMoveToTopLevel,
-                                )
-                            ) {
-                                depthX += delta.x
-                                currentOnDelta(delta.x)
+                            val permitted = permittedDepthDisplacement(
+                                totalX,
+                                currentCanMakeSubItem,
+                                currentCanMoveToTopLevel,
+                            )
+                            if (permitted != depthX) {
+                                currentOnDelta(permitted - depthX)
+                                depthX = permitted
                             }
                             change.consume()
                         }

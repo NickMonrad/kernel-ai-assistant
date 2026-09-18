@@ -356,28 +356,55 @@ class ListHierarchyInteractionTest {
     @Test
     fun `an ineligible depth direction never drives handle feedback`() {
         // The first effective top-level row: no group above it, and not a child.
-        assertFalse(isDepthHandleDirectionEnabled(120f, canMakeSubItem = false, canMoveToTopLevel = false))
-        assertFalse(isDepthHandleDirectionEnabled(-120f, canMakeSubItem = false, canMoveToTopLevel = false))
+        assertEquals(0f, permittedDepthDisplacement(200f, canMakeSubItem = false, canMoveToTopLevel = false))
+        assertEquals(0f, permittedDepthDisplacement(-200f, canMakeSubItem = false, canMoveToTopLevel = false))
 
         // A later top-level row that is not an effective child cannot move to top level, but its
         // rightward make-sub-item is unaffected.
-        assertFalse(isDepthHandleDirectionEnabled(-120f, canMakeSubItem = true, canMoveToTopLevel = false))
-        assertTrue(isDepthHandleDirectionEnabled(120f, canMakeSubItem = true, canMoveToTopLevel = false))
+        assertEquals(0f, permittedDepthDisplacement(-200f, canMakeSubItem = true, canMoveToTopLevel = false))
+        assertEquals(200f, permittedDepthDisplacement(200f, canMakeSubItem = true, canMoveToTopLevel = false))
     }
 
     @Test
     fun `an eligible depth direction still drives handle feedback`() {
         // A later top-level row with a group above it can become a child.
-        assertTrue(isDepthHandleDirectionEnabled(80f, canMakeSubItem = true, canMoveToTopLevel = false))
-        // An effective child can move to top level.
-        assertTrue(isDepthHandleDirectionEnabled(-80f, canMakeSubItem = false, canMoveToTopLevel = true))
-        // Being able to move to top level never enables the rightward direction.
-        assertFalse(isDepthHandleDirectionEnabled(80f, canMakeSubItem = false, canMoveToTopLevel = true))
+        assertEquals(80f, permittedDepthDisplacement(80f, canMakeSubItem = true, canMoveToTopLevel = false))
+        // An effective child can move to top level, and that never enables the rightward side.
+        assertEquals(-80f, permittedDepthDisplacement(-80f, canMakeSubItem = false, canMoveToTopLevel = true))
+        assertEquals(0f, permittedDepthDisplacement(80f, canMakeSubItem = false, canMoveToTopLevel = true))
+    }
+
+    @Test
+    fun `reversing an eligible rightward gesture retracts the feedback towards zero`() {
+        // Rightwards with a group above: the row may move right.
+        assertEquals(200f, permittedDepthDisplacement(200f, canMakeSubItem = true, canMoveToTopLevel = false))
+        // Reversing towards the origin keeps the smaller cumulative displacement, so the reveal
+        // retracts instead of staying where the outward movement left it.
+        assertEquals(40f, permittedDepthDisplacement(40f, canMakeSubItem = true, canMoveToTopLevel = false))
+        assertFalse(isDepthCommitReached(40f, commitDistancePx = 120f))
+        // Past the origin nothing is revealed, because leftwards is ineligible for this row.
+        assertEquals(0f, permittedDepthDisplacement(-60f, canMakeSubItem = true, canMoveToTopLevel = false))
+        assertFalse(isDepthCommitReached(0f, commitDistancePx = 120f))
+        // Only a displacement that is still past the commit distance commits.
+        assertTrue(isDepthCommitReached(200f, commitDistancePx = 120f))
+    }
+
+    @Test
+    fun `reversing an eligible leftward gesture retracts the feedback towards zero`() {
+        // An effective child may move left.
+        assertEquals(-200f, permittedDepthDisplacement(-200f, canMakeSubItem = false, canMoveToTopLevel = true))
+        assertEquals(-40f, permittedDepthDisplacement(-40f, canMakeSubItem = false, canMoveToTopLevel = true))
+        assertFalse(isDepthCommitReached(-40f, commitDistancePx = 120f))
+        // Reversing past the origin reveals nothing, because rightwards is ineligible here.
+        assertEquals(0f, permittedDepthDisplacement(60f, canMakeSubItem = false, canMoveToTopLevel = true))
+        assertFalse(isDepthCommitReached(0f, commitDistancePx = 120f))
+        assertTrue(isDepthCommitReached(-200f, commitDistancePx = 120f))
     }
 
     @Test
     fun `no horizontal movement carries no depth direction`() {
-        assertFalse(isDepthHandleDirectionEnabled(0f, canMakeSubItem = true, canMoveToTopLevel = true))
+        assertEquals(0f, permittedDepthDisplacement(0f, canMakeSubItem = true, canMoveToTopLevel = true))
+        assertFalse(isDepthCommitReached(0f, commitDistancePx = 48f))
     }
 
     @Test
@@ -388,7 +415,7 @@ class ListHierarchyInteractionTest {
         // action still reorders vertically from the same handle.
         assertEquals(MoveAxis.Vertical, moveAxisFor(4f, slop, slop))
         assertEquals(MoveAxis.Horizontal, moveAxisFor(slop, 4f, slop))
-        assertFalse(isDepthHandleDirectionEnabled(slop, canMakeSubItem = false, canMoveToTopLevel = false))
+        assertEquals(0f, permittedDepthDisplacement(slop, canMakeSubItem = false, canMoveToTopLevel = false))
     }
 
     @Test

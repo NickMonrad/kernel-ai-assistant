@@ -208,18 +208,24 @@ internal fun isInsideDraggedBlock(
 ): Boolean = draggedId != null && (rowId == draggedId || owningRowId(groups, rowId) == draggedId)
 
 /**
- * True when a horizontal move-handle movement of [deltaX] may drive the depth reveal and commit.
+ * The cumulative horizontal displacement a move-handle gesture is allowed to show.
  *
- * The feedback must never advertise an action the row cannot perform: the first effective top-level
- * row has no group above it, and a row that is not an effective child cannot move to top level.
- * A zero movement carries no direction and is therefore never enabled.
+ * Feedback must never advertise an action the row cannot perform: the first effective top-level row
+ * has no group above it, and a row that is not an effective child cannot move to top level. The
+ * returned value is the *cumulative* permitted displacement rather than a sum of filtered deltas,
+ * so reversing an eligible gesture retracts the feedback towards the origin even though the
+ * opposite direction is ineligible.
  */
-internal fun isDepthHandleDirectionEnabled(
-    deltaX: Float,
+internal fun permittedDepthDisplacement(
+    totalX: Float,
     canMakeSubItem: Boolean,
     canMoveToTopLevel: Boolean,
-): Boolean = when {
-    deltaX > 0f -> canMakeSubItem
-    deltaX < 0f -> canMoveToTopLevel
-    else -> false
+): Float = when {
+    totalX > 0f && canMakeSubItem -> totalX
+    totalX < 0f && canMoveToTopLevel -> totalX
+    else -> 0f
 }
+
+/** True when a permitted cumulative displacement is far enough to commit its depth change. */
+internal fun isDepthCommitReached(permittedDepthX: Float, commitDistancePx: Float): Boolean =
+    kotlin.math.abs(permittedDepthX) >= commitDistancePx
