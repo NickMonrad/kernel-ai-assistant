@@ -894,6 +894,8 @@ private fun SwipeToChangeDepthRow(
             ) {
                 val handleGesture = rememberDepthHandleGesture(
                     enabled = handleGesturesEnabled,
+                    canMakeSubItem = canMakeSubItem,
+                    canMoveToTopLevel = canMoveToTopLevel,
                     onDelta = { delta -> handleDragX += delta },
                     onCommit = { total ->
                         handleDragX = 0f
@@ -935,10 +937,14 @@ private suspend fun awaitLayoutChange(state: LazyListState) {
 @Composable
 private fun rememberDepthHandleGesture(
     enabled: Boolean,
+    canMakeSubItem: Boolean,
+    canMoveToTopLevel: Boolean,
     onDelta: (Float) -> Unit,
     onCommit: (Float) -> Unit,
 ): Modifier {
     val currentEnabled by rememberUpdatedState(enabled)
+    val currentCanMakeSubItem by rememberUpdatedState(canMakeSubItem)
+    val currentCanMoveToTopLevel by rememberUpdatedState(canMoveToTopLevel)
     val currentOnDelta by rememberUpdatedState(onDelta)
     val currentOnCommit by rememberUpdatedState(onCommit)
     return remember {
@@ -947,6 +953,8 @@ private fun rememberDepthHandleGesture(
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 var totalX = 0f
                 var totalY = 0f
+                // Only movement in a direction this row can actually act on drives feedback.
+                var depthX = 0f
                 var axis = MoveAxis.Undecided
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -961,14 +969,23 @@ private fun rememberDepthHandleGesture(
                     }
                     when (axis) {
                         MoveAxis.Horizontal -> {
-                            currentOnDelta(delta.x)
+                            if (
+                                isDepthHandleDirectionEnabled(
+                                    delta.x,
+                                    currentCanMakeSubItem,
+                                    currentCanMoveToTopLevel,
+                                )
+                            ) {
+                                depthX += delta.x
+                                currentOnDelta(delta.x)
+                            }
                             change.consume()
                         }
                         MoveAxis.Vertical -> break
                         MoveAxis.Undecided -> Unit
                     }
                 }
-                if (axis == MoveAxis.Horizontal) currentOnCommit(totalX)
+                if (axis == MoveAxis.Horizontal && depthX != 0f) currentOnCommit(depthX)
             }
         }
     }

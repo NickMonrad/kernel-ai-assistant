@@ -206,3 +206,20 @@ internal fun isInsideDraggedBlock(
     draggedId: Long?,
     rowId: Long,
 ): Boolean = draggedId != null && (rowId == draggedId || owningRowId(groups, rowId) == draggedId)
+
+/**
+ * True when a horizontal move-handle movement of [deltaX] may drive the depth reveal and commit.
+ *
+ * The feedback must never advertise an action the row cannot perform: the first effective top-level
+ * row has no group above it, and a row that is not an effective child cannot move to top level.
+ * A zero movement carries no direction and is therefore never enabled.
+ */
+internal fun isDepthHandleDirectionEnabled(
+    deltaX: Float,
+    canMakeSubItem: Boolean,
+    canMoveToTopLevel: Boolean,
+): Boolean = when {
+    deltaX > 0f -> canMakeSubItem
+    deltaX < 0f -> canMoveToTopLevel
+    else -> false
+}
