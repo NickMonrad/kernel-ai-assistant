@@ -151,7 +151,8 @@ class ListsItemSortPersistenceTest {
                 1L,
                 listOf(
                     ListMutationRepository.VisibleHierarchyRow(b.id, null),
-                    ListMutationRepository.VisibleHierarchyRow(c.id, null),
+                    // C is the row the user dropped into its new slot.
+                    ListMutationRepository.VisibleHierarchyRow(c.id, null, reparent = true),
                     ListMutationRepository.VisibleHierarchyRow(a.id, null),
                 ),
             )
@@ -185,12 +186,50 @@ class ListsItemSortPersistenceTest {
                 1L,
                 listOf(
                     ListMutationRepository.VisibleHierarchyRow(first.id, null),
-                    ListMutationRepository.VisibleHierarchyRow(secondChild.id, first.id),
+                    ListMutationRepository.VisibleHierarchyRow(secondChild.id, first.id, reparent = true),
                     ListMutationRepository.VisibleHierarchyRow(firstChild.id, first.id),
                     ListMutationRepository.VisibleHierarchyRow(second.id, null),
                 ),
             )
         }
+    }
+
+    @Test
+    fun `an indent under an automatic sort materialises and edits in one repository call`() {
+        val parent = row(1L, "stable-parent", "0")
+        val child = row(2L, "stable-child", "1", parentItemId = parent.itemId)
+        val newcomer = row(3L, "stable-newcomer", "2")
+        coEvery { dao.getAllByListUnordered(1L) } returns listOf(parent, child, newcomer)
+        listOf(parent, child, newcomer).forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.indentItem(any(), any(), any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        // The automatic sort shows the newcomer last, so it indents under the child above it.
+        viewModel.indentItem(
+            visibleRowIds = listOf(parent.id, child.id, newcomer.id),
+            item = newcomer,
+            precedingRow = child,
+        )
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        assertEquals(ItemSort.MANUAL, savedItemSort(1L))
+        coVerify {
+            listMutations.indentItem(
+                newcomer.id,
+                child.itemId,
+                ListMutationRepository.VisibleOrderBaseline(
+                    1L,
+                    listOf(
+                        ListMutationRepository.VisibleHierarchyRow(parent.id, null),
+                        ListMutationRepository.VisibleHierarchyRow(child.id, parent.id),
+                        ListMutationRepository.VisibleHierarchyRow(newcomer.id, null),
+                    ),
+                ),
+            )
+        }
+        // One transaction owns the baseline and the indent; the ViewModel must not write them apart.
+        coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
     }
 
     @Test

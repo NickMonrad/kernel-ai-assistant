@@ -522,19 +522,21 @@ class ListsViewModel @Inject constructor(
     /**
      * Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible.
      *
-     * Under an automatic sort the visible order becomes the Manual baseline first, so the item is
-     * placed relative to the group the user could actually see above it.
+     * Under an automatic sort the visible order becomes the Manual baseline in the same repository
+     * transaction, so the item is placed relative to the group the user could actually see above it
+     * and a failed indent commits nothing.
      */
     fun indentItem(visibleRowIds: List<Long>, item: ListItemEntity, precedingRow: ListItemEntity) {
         viewModelScope.launch {
             isHierarchyTransitionPending = true
             try {
-                val switched = withContext(ioDispatcher) { materialiseVisibleOrder(visibleRowIds) }
+                val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
+                if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
                 val mutation = withContext(ioDispatcher) {
-                    listMutations.indentItem(item.id, precedingRow.itemId)
+                    listMutations.indentItem(item.id, precedingRow.itemId, baseline)
                 }
                 applyCheckedStateReminderTransitions(mutation)
-                if (switched) selectItemSort(ItemSort.MANUAL)
+                if (baseline != null) selectItemSort(ItemSort.MANUAL)
             } finally {
                 isHierarchyTransitionPending = false
             }
@@ -544,17 +546,19 @@ class ListsViewModel @Inject constructor(
     /**
      * Outdents [item] to top level, leaving its former siblings under the old parent.
      *
-     * Under an automatic sort the visible order becomes the Manual baseline first, so the promoted
-     * item lands next to the group the user could actually see above it.
+     * Under an automatic sort the visible order becomes the Manual baseline in the same repository
+     * transaction, so the promoted item lands next to the group the user could actually see above it
+     * and a failed outdent commits nothing.
      */
     fun outdentItem(visibleRowIds: List<Long>, item: ListItemEntity) {
         viewModelScope.launch {
             isHierarchyTransitionPending = true
             try {
-                val switched = withContext(ioDispatcher) { materialiseVisibleOrder(visibleRowIds) }
-                val mutation = withContext(ioDispatcher) { listMutations.outdentItem(item.id) }
+                val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
+                if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
+                val mutation = withContext(ioDispatcher) { listMutations.outdentItem(item.id, baseline) }
                 applyCheckedStateReminderTransitions(mutation)
-                if (switched) selectItemSort(ItemSort.MANUAL)
+                if (baseline != null) selectItemSort(ItemSort.MANUAL)
             } finally {
                 isHierarchyTransitionPending = false
             }
@@ -596,17 +600,20 @@ class ListsViewModel @Inject constructor(
                 val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
                 val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
                 if (itemSort != ItemSort.MANUAL) {
-                    // Materialising the projection has to carry the dragged row's new group too, so
-                    // its owner comes from the same placement the Manual path would apply.
-                    val ownerRowId = placement.parentItemId?.let { parentItemId ->
-                        rows.firstOrNull { it.itemId == parentItemId }?.id
-                    }
-                    val switched = if (placement.parentItemId == null || ownerRowId != null) {
-                        materialiseVisibleOrder(orderedRowIds, mapOf(draggedId to ownerRowId))
+                    // The baseline carries the dragged row's new group, because the projection the
+                    // user released in has already put it there.
+                    val ownerRowId = if (placement.parentItemId == null) {
+                        null
                     } else {
-                        materialiseVisibleOrder(orderedRowIds)
+                        rows.firstOrNull { it.itemId == placement.parentItemId }?.id ?: return@launch
                     }
-                    if (switched) selectItemSort(ItemSort.MANUAL)
+                    val baseline = visibleOrderBaseline(orderedRowIds, draggedId to ownerRowId)
+                        ?: return@launch
+                    val mutation = withContext(ioDispatcher) {
+                        listMutations.applyVisibleHierarchyOrder(baseline.listId, baseline.rows)
+                    }
+                    applyCheckedStateReminderTransitions(mutation)
+                    selectItemSort(ItemSort.MANUAL)
                     return@launch
                 }
                 val mutation = withContext(ioDispatcher) {
@@ -624,35 +631,39 @@ class ListsViewModel @Inject constructor(
     }
 
     /**
-     * Writes the order the user is currently looking at as this list's Manual baseline.
+     * The order the user is currently looking at, as a baseline the repository can materialise.
      *
-     * Owners default to the persisted hierarchy, which is what the visible projection shows for an
-     * indent, an outdent, or a drag that only reordered rows. [ownerRowIds] overrides that for rows
-     * the projection moved into another group, which a drag can do.
+     * Owners come from the effective hierarchy, which is what the visible projection shows for an
+     * indent, an outdent, or a drag that only reordered rows. [reparentedRow] names the single row a
+     * drag dropped into another group, paired with the row that now owns it.
      *
-     * Returns false when the list is already on Manual, where the visible order is the persisted
-     * order, so nothing needs materialising.
+     * Returns null when the list is already on Manual, where the visible order is the persisted
+     * order and nothing needs materialising.
      */
-    private suspend fun materialiseVisibleOrder(
+    private suspend fun visibleOrderBaseline(
         visibleRowIds: List<Long>,
-        ownerRowIds: Map<Long, Long?> = emptyMap(),
-    ): Boolean {
-        if (itemSort == ItemSort.MANUAL) return false
+        reparentedRow: Pair<Long, Long?>? = null,
+    ): ListMutationRepository.VisibleOrderBaseline? {
+        if (itemSort == ItemSort.MANUAL) return null
         val listId = withContext(ioDispatcher) {
             visibleRowIds.firstOrNull()?.let { dao.getById(it)?.listId }
-        } ?: return false
-        val groups = withContext(ioDispatcher) { effectiveGroups(listId) } ?: return false
-        val visibleRows = visibleRowIds.mapNotNull { rowId ->
-            val owner = if (ownerRowIds.containsKey(rowId)) {
-                ownerRowIds.getValue(rowId)
+        } ?: return null
+        val groups = withContext(ioDispatcher) { effectiveGroups(listId) } ?: return null
+        val rows = visibleRowIds.mapNotNull { rowId ->
+            val isReparented = reparentedRow?.first == rowId
+            val owner = if (isReparented) {
+                reparentedRow.second
             } else {
                 owningRowId(groups, rowId) ?: return@mapNotNull null
             }
-            ListMutationRepository.VisibleHierarchyRow(rowId, owner.takeIf { it != rowId })
+            ListMutationRepository.VisibleHierarchyRow(
+                rowId = rowId,
+                parentRowId = owner.takeIf { it != rowId },
+                reparent = isReparented,
+            )
         }
-        if (visibleRows.isEmpty()) return false
-        withContext(ioDispatcher) { listMutations.applyVisibleHierarchyOrder(listId, visibleRows) }
-        return true
+        if (rows.isEmpty()) return null
+        return ListMutationRepository.VisibleOrderBaseline(listId, rows)
     }
 
     private suspend fun effectiveGroups(listId: Long): List<EffectiveHierarchyGroup<ListItemEntity>>? {

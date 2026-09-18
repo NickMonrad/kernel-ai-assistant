@@ -226,21 +226,34 @@ class ListMutationRepository @Inject constructor(
      * standalone parent it becomes the parent, otherwise the item joins its effective parent as
      * the next sibling. Returns an empty mutation without changing anything when the item already
      * has children (which would exceed two levels) or the preceding row cannot own a child.
+     *
+     * [baseline] is materialised first, inside the same transaction, when the interaction started
+     * from an automatic sort. Nothing commits unless the indent itself commits.
      */
-    suspend fun indentItem(itemId: Long, precedingRowItemId: String): CheckedStateMutation = database.withTransaction {
-        if (itemId == 0L) return@withTransaction CheckedStateMutation()
+    suspend fun indentItem(
+        itemId: Long,
+        precedingRowItemId: String,
+        baseline: VisibleOrderBaseline? = null,
+    ): CheckedStateMutation = database.withTransaction {
+        val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
+            ?: CheckedStateMutation()
+        materialised + indentItemInternal(itemId, precedingRowItemId)
+    }
+
+    private suspend fun indentItemInternal(itemId: Long, precedingRowItemId: String): CheckedStateMutation {
+        if (itemId == 0L) return CheckedStateMutation()
         val item = requireItem(itemId)
-        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction CheckedStateMutation()
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
         val preceding = items.firstOrNull { it.itemId == precedingRowItemId }
-            ?: return@withTransaction CheckedStateMutation()
-        if (preceding.itemId == item.itemId) return@withTransaction CheckedStateMutation()
-        if (item.itemId !in hierarchy.topLevelItemIds) return@withTransaction CheckedStateMutation()
-        if (hierarchy.parentByChild.values.any { it == item.itemId }) return@withTransaction CheckedStateMutation()
+            ?: return CheckedStateMutation()
+        if (preceding.itemId == item.itemId) return CheckedStateMutation()
+        if (item.itemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
+        if (hierarchy.parentByChild.values.any { it == item.itemId }) return CheckedStateMutation()
         val parentItemId = hierarchy.parentByChild[preceding.itemId] ?: preceding.itemId
-        if (parentItemId == item.itemId) return@withTransaction CheckedStateMutation()
-        if (parentItemId !in hierarchy.topLevelItemIds) return@withTransaction CheckedStateMutation()
+        if (parentItemId == item.itemId) return CheckedStateMutation()
+        if (parentItemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
         val siblings = items.filter { hierarchy.parentByChild[it.itemId] == parentItemId }
             .sortedWith(orderComparator())
         val insertAfter = siblings.firstOrNull { it.itemId == preceding.itemId }
@@ -252,7 +265,7 @@ class ListMutationRepository @Inject constructor(
         } else {
             OrderKey.between(insertAfter.orderKey, next?.orderKey)
         }
-        applyPlacementInternal(item, parentItemId, orderKey)
+        return applyPlacementInternal(item, parentItemId, orderKey)
     }
 
     /**
@@ -260,28 +273,57 @@ class ListMutationRepository @Inject constructor(
      *
      * Only this item changes parent; its former siblings stay with the old parent. Returns an empty
      * mutation without changing anything when the item is not an effective child.
+     *
+     * [baseline] is materialised first, inside the same transaction, when the interaction started
+     * from an automatic sort. Nothing commits unless the outdent itself commits.
      */
-    suspend fun outdentItem(itemId: Long): CheckedStateMutation = database.withTransaction {
+    suspend fun outdentItem(
+        itemId: Long,
+        baseline: VisibleOrderBaseline? = null,
+    ): CheckedStateMutation = database.withTransaction {
+        val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
+            ?: CheckedStateMutation()
+        materialised + outdentItemInternal(itemId)
+    }
+
+    private suspend fun outdentItemInternal(itemId: Long): CheckedStateMutation {
         val item = requireItem(itemId)
-        if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction CheckedStateMutation()
+        if (item.lifecycle != ListLifecycle.ACTIVE.name) return CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
-        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return@withTransaction CheckedStateMutation()
+        val oldParentId = hierarchy.parentByChild[item.itemId] ?: return CheckedStateMutation()
         val oldParent = items.firstOrNull { it.itemId == oldParentId }
-            ?: return@withTransaction CheckedStateMutation()
+            ?: return CheckedStateMutation()
         val nextTopLevel = hierarchy.topLevelItemIds
             .mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
             .firstOrNull { OrderKey.compare(it.orderKey, oldParent.orderKey) > 0 }
-        applyPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTopLevel?.orderKey))
+        return applyPlacementInternal(item, null, OrderKey.between(oldParent.orderKey, nextTopLevel?.orderKey))
     }
 
     /**
      * One row of a visible hierarchy projection, addressed by local Room row id.
      *
-     * [parentRowId] is the local row id of the top-level row that owns the row, or null when the
-     * row itself is top-level.
+     * [parentRowId] is the local row id of the top-level row that owns the row in the visible
+     * projection, or null when the row is displayed at top level.
+     *
+     * [reparent] marks the single row the user explicitly dropped into another group. Every other
+     * row keeps the requested placement it already had, so materialising an automatic-sort
+     * baseline cannot repair away a requested parent that normalisation currently suppresses.
      */
-    data class VisibleHierarchyRow(val rowId: Long, val parentRowId: Long?)
+    data class VisibleHierarchyRow(
+        val rowId: Long,
+        val parentRowId: Long?,
+        val reparent: Boolean = false,
+    )
+
+    /**
+     * The visible order a hierarchy interaction started from, to be written before the interaction
+     * it belongs to, inside that interaction's transaction.
+     */
+    data class VisibleOrderBaseline(
+        val listId: Long,
+        val rows: List<VisibleHierarchyRow>,
+    )
 
     /**
      * Materialises [visibleRows] as this list's manual order, in one bounded transaction.
@@ -290,6 +332,10 @@ class ListMutationRepository @Inject constructor(
      * looking at becomes the Manual baseline, so switching sorts cannot reorder anything the user
      * did not move. A scope whose visible sequence already matches its persisted key order keeps
      * its existing keys and writes nothing, which is what makes this a no-op under Manual order.
+     *
+     * Only [VisibleHierarchyRow.reparent] rows have their requested parent written. Owners are read
+     * from the effective hierarchy, so a row whose requested parent is currently suppressed can
+     * still own the children the user can see.
      */
     suspend fun applyVisibleHierarchyOrder(
         listId: Long,
@@ -298,6 +344,8 @@ class ListMutationRepository @Inject constructor(
         if (visibleRows.isEmpty()) return@withTransaction CheckedStateMutation()
         val active = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val byRowId = active.associateBy { it.id }
+        val effectiveTopLevelItemIds = deriveHierarchy(active).topLevelItemIds.toSet()
+        val reparentedRowIds = visibleRows.filter { it.reparent }.map { it.rowId }.toSet()
 
         val scopes = LinkedHashMap<Long?, MutableList<ListItemEntity>>()
         visibleRows.forEach { entry ->
@@ -310,8 +358,10 @@ class ListMutationRepository @Inject constructor(
         require(visibleRows.all { it.parentRowId == null || it.parentRowId in topLevelVisibleRowIds }) {
             "A visible hierarchy may only be two levels deep"
         }
-        require(scopes.keys.filterNotNull().all { byRowId.getValue(it).parentItemId == null }) {
-            "Only a current top-level row may own children"
+        require(
+            scopes.keys.filterNotNull().all { byRowId.getValue(it).itemId in effectiveTopLevelItemIds },
+        ) {
+            "Only an effective top-level row may own children"
         }
 
         val targetParentByRowId = mutableMapOf<Long, String?>()
@@ -322,7 +372,7 @@ class ListMutationRepository @Inject constructor(
                 OrderKey.compare(first.orderKey, second.orderKey) < 0
             }
             rows.forEachIndexed { index, row ->
-                targetParentByRowId[row.id] = ownerItemId
+                targetParentByRowId[row.id] = if (row.id in reparentedRowIds) ownerItemId else row.parentItemId
                 targetKeyByRowId[row.id] = if (alreadyOrdered) row.orderKey else OrderKey.forIndex(index)
             }
         }

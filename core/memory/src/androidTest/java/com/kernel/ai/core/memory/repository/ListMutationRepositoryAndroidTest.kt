@@ -616,7 +616,7 @@ class ListMutationRepositoryAndroidTest {
             ListMutationRepository.VisibleHierarchyRow(settledId, oldParentId),
             ListMutationRepository.VisibleHierarchyRow(newParentId, null),
             ListMutationRepository.VisibleHierarchyRow(completeId, newParentId),
-            ListMutationRepository.VisibleHierarchyRow(openId, newParentId),
+            ListMutationRepository.VisibleHierarchyRow(openId, newParentId, reparent = true),
         )
         val mutation = repository.applyVisibleHierarchyOrder(listId, visible)
 
@@ -625,6 +625,89 @@ class ListMutationRepositoryAndroidTest {
         assertFalse("new parent gained an open child", database.listItemDao().getById(newParentId)!!.checked)
         assertEquals(setOf(oldParentId), mutation.checkedIds)
         assertEquals(setOf(newParentId), mutation.uncheckedIds)
+    }
+
+    @Test
+    fun `a suppressed requested parent survives materialising an unrelated visible order`() = runBlocking {
+        val listId = repository.createCollection("Suppressed edge")
+        val collectionId = database.listNameDao().getById(listId)!!.collectionId
+        val parentId = repository.addItem(listId, "P")
+        val childId = repository.addItem(listId, "C")
+        val suppressedId = repository.addItem(listId, "X")
+        val grandchildId = repository.addItem(listId, "Y")
+        val parent = database.listItemDao().getById(parentId)!!
+        val child = database.listItemDao().getById(childId)!!
+        val suppressed = database.listItemDao().getById(suppressedId)!!
+
+        repository.setItemPlacement(childId, parent.itemId, "1")
+        // Y is accepted first, which makes X an effective parent, so the newer remote edge from X to
+        // the child C is retained but suppressed. X stays effectively top-level.
+        repository.setItemPlacement(grandchildId, suppressed.itemId, "3")
+        repository.applyRemote(
+            change(
+                collectionId = collectionId,
+                targetId = suppressed.itemId,
+                actorId = "remote-actor",
+                sourceSequence = 1L,
+                logicalClock = database.listItemDao().getById(grandchildId)!!.placementLogicalClock - 1L,
+                operation = ListChangeOperation.SET_ITEM_PLACEMENT,
+                payload = ListChangePayload(parentItemId = child.itemId, orderKey = "2"),
+            ),
+        )
+
+        assertEquals(listOf("P", "C", "X", "Y"), effectiveRowTexts(listId))
+        assertEquals(child.itemId, database.listItemDao().getById(suppressedId)!!.parentItemId)
+        val changesBefore = repository.pendingChanges().size
+
+        val mutation = repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(parentId, null),
+                ListMutationRepository.VisibleHierarchyRow(childId, parentId),
+                ListMutationRepository.VisibleHierarchyRow(suppressedId, null),
+                ListMutationRepository.VisibleHierarchyRow(grandchildId, suppressedId),
+            ),
+        )
+
+        assertEquals(CheckedStateMutation(), mutation)
+        assertEquals(
+            "a suppressed requested parent is derived state, not a placement to repair",
+            child.itemId,
+            database.listItemDao().getById(suppressedId)!!.parentItemId,
+        )
+        assertEquals(changesBefore, repository.pendingChanges().size)
+        assertEquals(listOf("P", "C", "X", "Y"), effectiveRowTexts(listId))
+    }
+
+    @Test
+    fun `an automatic sort baseline is rolled back when the requested edit fails`() = runBlocking {
+        val listId = repository.createCollection("Baseline atomicity")
+        val aId = repository.addItem(listId, "A")
+        val bId = repository.addItem(listId, "B")
+        val cId = repository.addItem(listId, "C")
+        val b = database.listItemDao().getById(bId)!!
+        val orderBefore = database.listItemDao().getAllByList(listId).map { it.text }
+        val changesBefore = repository.pendingChanges().size
+
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                repository.indentItem(
+                    999_999L,
+                    b.itemId,
+                    ListMutationRepository.VisibleOrderBaseline(
+                        listId,
+                        listOf(
+                            ListMutationRepository.VisibleHierarchyRow(cId, null),
+                            ListMutationRepository.VisibleHierarchyRow(bId, null),
+                            ListMutationRepository.VisibleHierarchyRow(aId, null),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        assertEquals(orderBefore, database.listItemDao().getAllByList(listId).map { it.text })
+        assertEquals(changesBefore, repository.pendingChanges().size)
     }
 
     @Test
@@ -660,17 +743,21 @@ class ListMutationRepositoryAndroidTest {
         val cId = repository.addItem(listId, "C")
         val b = database.listItemDao().getById(bId)!!
 
-        // The automatic sort shows C, B, A while the persisted manual order is A, B, C.
-        repository.applyVisibleHierarchyOrder(
-            listId,
-            listOf(
-                ListMutationRepository.VisibleHierarchyRow(cId, null),
-                ListMutationRepository.VisibleHierarchyRow(bId, null),
-                ListMutationRepository.VisibleHierarchyRow(aId, null),
+        // The automatic sort shows C, B, A while the persisted manual order is A, B, C, so the
+        // baseline and the indent have to commit together. Swiping A right uses B, the row the
+        // user could see directly above it.
+        repository.indentItem(
+            aId,
+            b.itemId,
+            ListMutationRepository.VisibleOrderBaseline(
+                listId,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(cId, null),
+                    ListMutationRepository.VisibleHierarchyRow(bId, null),
+                    ListMutationRepository.VisibleHierarchyRow(aId, null),
+                ),
             ),
         )
-        // Swiping A right uses B, the row the user could see directly above it.
-        repository.indentItem(aId, b.itemId)
 
         assertEquals(b.itemId, database.listItemDao().getById(aId)!!.parentItemId)
         assertEquals(listOf("C", "B", "A"), effectiveRowTexts(listId))
@@ -691,18 +778,20 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(bId, first.itemId, "2")
         repository.setItemPlacement(cId, second.itemId, "1")
 
-        // The automatic sort shows P2, C, P1, A, B.
-        repository.applyVisibleHierarchyOrder(
-            listId,
-            listOf(
-                ListMutationRepository.VisibleHierarchyRow(secondId, null),
-                ListMutationRepository.VisibleHierarchyRow(cId, secondId),
-                ListMutationRepository.VisibleHierarchyRow(firstId, null),
-                ListMutationRepository.VisibleHierarchyRow(aId, firstId),
-                ListMutationRepository.VisibleHierarchyRow(bId, firstId),
+        // The automatic sort shows P2, C, P1, A, B, so the baseline and the outdent commit together.
+        repository.outdentItem(
+            bId,
+            ListMutationRepository.VisibleOrderBaseline(
+                listId,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(secondId, null),
+                    ListMutationRepository.VisibleHierarchyRow(cId, secondId),
+                    ListMutationRepository.VisibleHierarchyRow(firstId, null),
+                    ListMutationRepository.VisibleHierarchyRow(aId, firstId),
+                    ListMutationRepository.VisibleHierarchyRow(bId, firstId),
+                ),
             ),
         )
-        repository.outdentItem(bId)
 
         assertEquals(null, database.listItemDao().getById(bId)!!.parentItemId)
         assertEquals(first.itemId, database.listItemDao().getById(aId)!!.parentItemId)

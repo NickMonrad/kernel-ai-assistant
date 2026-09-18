@@ -87,7 +87,19 @@ data class ListChange(
 data class CheckedStateMutation(
     val checkedIds: Set<Long> = emptySet(),
     val uncheckedIds: Set<Long> = emptySet(),
-)
+) {
+    /**
+     * Combines this report with one produced by a step that ran later in the same transaction.
+     *
+     * Each step reports the transitions it caused relative to the state it inherited, so two steps
+     * can name the same item in opposite sets. The later verdict describes the final row, which is
+     * what reminder scheduling needs, so it wins.
+     */
+    operator fun plus(later: CheckedStateMutation): CheckedStateMutation = CheckedStateMutation(
+        checkedIds = (checkedIds + later.checkedIds) - later.uncheckedIds,
+        uncheckedIds = (uncheckedIds + later.uncheckedIds) - later.checkedIds,
+    )
+}
 
 object OrderKey {
     fun canonical(value: String): String = BigDecimal(value).stripTrailingZeros().toPlainString().let { if (it == "-0") "0" else it }

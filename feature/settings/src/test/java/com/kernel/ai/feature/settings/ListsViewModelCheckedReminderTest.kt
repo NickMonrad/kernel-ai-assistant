@@ -132,12 +132,12 @@ class ListsViewModelCheckedReminderTest {
         val parent = item(1L, checked = true, notificationTime = triggerAtMs)
         val preceding = item(2L, checked = true, parentItemId = parent.itemId)
         val newcomer = item(3L, checked = false)
-        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation(
+        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation(
             uncheckedIds = setOf(parent.id),
         )
         coEvery { dao.getById(parent.id) } returns parent
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
-        val viewModel = testViewModel(preferences)
+        val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
         viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
@@ -150,10 +150,10 @@ class ListsViewModelCheckedReminderTest {
     fun `outdenting the only incomplete child cancels the completed parent's reminder`() {
         val parent = item(1L, checked = false)
         val open = item(2L, checked = false, parentItemId = parent.itemId)
-        coEvery { listMutations.outdentItem(open.id) } returns CheckedStateMutation(
+        coEvery { listMutations.outdentItem(open.id, null) } returns CheckedStateMutation(
             checkedIds = setOf(parent.id),
         )
-        val viewModel = testViewModel(preferences)
+        val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
         viewModel.outdentItem(listOf(open.id), open)
 
@@ -164,13 +164,42 @@ class ListsViewModelCheckedReminderTest {
     fun `a placement that changes no completion state touches no reminder`() {
         val newcomer = item(3L, checked = false)
         val preceding = item(2L, checked = false)
-        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId) } returns CheckedStateMutation()
-        val viewModel = testViewModel(preferences)
+        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation()
+        val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
         viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
         verify(exactly = 0) { scheduler.cancel(any()) }
         verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `an automatic sort cross-group drag routes the completion changes from the baseline`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val newParent = item(1L, checked = false, notificationTime = triggerAtMs)
+        val oldParent = item(2L, checked = true, notificationTime = triggerAtMs)
+        val dragged = item(3L, checked = false, parentItemId = oldParent.itemId)
+        val rows = listOf(newParent, oldParent, dragged)
+        coEvery { dao.getById(any()) } answers { rows.firstOrNull { it.id == firstArg() } }
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        // Dragging the open child into the settled parent completes it and reopens the old parent.
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation(
+            checkedIds = setOf(newParent.id),
+            uncheckedIds = setOf(oldParent.id),
+        )
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = testViewModel(preferences)
+
+        viewModel.moveItemFromDrag(
+            orderedRowIds = listOf(newParent.id, dragged.id, oldParent.id),
+            draggedId = dragged.id,
+        )
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(newParent.id) }
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(oldParent.id, oldParent.text, oldParent.listId, "groceries", triggerAtMs)
+        }
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
     }
 
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { preferences.itemSortFor(listId) }
