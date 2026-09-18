@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -670,7 +671,7 @@ fun ListItemsScreen(
                                 }
                                 }
                             }
-                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 72.dp else 48.dp))
+                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 88.dp else 64.dp))
                         }
                     }
 
@@ -1073,20 +1074,26 @@ private fun ListItemRow(
         leadingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (showDragHandle) {
-                    Icon(
-                        // A four-way icon, because the handle owns vertical reorder and the
-                        // horizontal make-sub-item / move-to-top-level gestures.
-                        Icons.Default.OpenWith,
-                        contentDescription = "Move item",
-                        // The handle owns its whole gesture surface: absorbing the long press
-                        // stops the row's multi-select click from winning on the handle.
+                    // The handle owns its whole gesture surface, and it carries vertical reorder
+                    // plus both horizontal depth gestures, so it keeps a 48.dp target around the
+                    // 24.dp icon. Absorbing the long press stops the row's multi-select click
+                    // from winning on the handle.
+                    Box(
                         modifier = dragHandleModifier
                             .pointerInput(Unit) {
                                 detectTapGestures(onLongPress = { /* absorb */ })
                             }
-                            .padding(horizontal = 4.dp, vertical = 8.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                            .size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            // A four-way icon, because the handle owns vertical reorder and the
+                            // horizontal make-sub-item / move-to-top-level gestures.
+                            Icons.Default.OpenWith,
+                            contentDescription = "Move item",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (isMultiSelectMode) {
                     Checkbox(
