@@ -752,17 +752,6 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch { listMutations.addItem(listId, trimmed) }
     }
 
-    fun deleteItem(id: Long) {
-        scheduler.cancel(id)
-        viewModelScope.launch { listMutations.deleteItem(id) }
-    }
-
-    /** Entity overload — preferred from the item screen. */
-    fun deleteItem(item: ListItemEntity) {
-        scheduler.cancel(item.id)
-        viewModelScope.launch { listMutations.deleteItem(item.id) }
-    }
-
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
     fun toggleFavourite(item: ListItemEntity) {
         val now = System.currentTimeMillis()

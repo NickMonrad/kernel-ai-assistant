@@ -662,7 +662,6 @@ fun ListItemsScreen(
                                             )
                                         } else Modifier,
                                         onToggle = { viewModel.toggleChecked(item) },
-                                        onDelete = { viewModel.deleteItem(item) },
                                         onEdit = { editingItem = item },
                                         onToggleFavourite = { viewModel.toggleFavourite(item) },
                                         onLongClick = { viewModel.enterItemMultiSelect(item.id) },
@@ -671,7 +670,7 @@ fun ListItemsScreen(
                                 }
                                 }
                             }
-                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 80.dp else 56.dp))
+                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 72.dp else 48.dp))
                         }
                     }
 
@@ -711,7 +710,6 @@ fun ListItemsScreen(
                                 isSelected = group.parent.id in selectedItemIds,
                                 showDragHandle = false,
                                 onToggle = { viewModel.toggleChecked(group.parent) },
-                                onDelete = { viewModel.deleteItem(group.parent) },
                                 onEdit = { editingItem = group.parent },
                                 onToggleFavourite = { viewModel.toggleFavourite(group.parent) },
                                 onLongClick = { viewModel.enterItemMultiSelect(group.parent.id) },
@@ -725,7 +723,6 @@ fun ListItemsScreen(
                                         isSelected = child.id in selectedItemIds,
                                         showDragHandle = false,
                                         onToggle = { viewModel.toggleChecked(child) },
-                                        onDelete = { viewModel.deleteItem(child) },
                                         onEdit = { editingItem = child },
                                         onToggleFavourite = { viewModel.toggleFavourite(child) },
                                         onLongClick = { viewModel.enterItemMultiSelect(child.id) },
@@ -1003,7 +1000,6 @@ private fun ListItemRow(
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
     onToggle: () -> Unit,
-    onDelete: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
     onLongClick: () -> Unit = {},
@@ -1088,7 +1084,7 @@ private fun ListItemRow(
                             .pointerInput(Unit) {
                                 detectTapGestures(onLongPress = { /* absorb */ })
                             }
-                            .padding(8.dp),
+                            .padding(horizontal = 4.dp, vertical = 8.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1119,23 +1115,16 @@ private fun ListItemRow(
             } else null
         } else {
             {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onToggleFavourite) {
-                        Icon(
-                            imageVector = if (item.isFavourite) Icons.Default.Star
-                            else Icons.Default.StarBorder,
-                            contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
-                            tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete item",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                // The star is the entire trailing column, so the text keeps every remaining pixel.
+                // Deletion stays in the existing long-press multi-select toolbar.
+                IconButton(onClick = onToggleFavourite) {
+                    Icon(
+                        imageVector = if (item.isFavourite) Icons.Default.Star
+                        else Icons.Default.StarBorder,
+                        contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
+                        tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
