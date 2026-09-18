@@ -663,6 +663,7 @@ fun ListItemsScreen(
                                             )
                                         } else Modifier,
                                         onToggle = { viewModel.toggleChecked(item) },
+                                        onDelete = { viewModel.deleteItem(item) },
                                         onEdit = { editingItem = item },
                                         onToggleFavourite = { viewModel.toggleFavourite(item) },
                                         onLongClick = { viewModel.enterItemMultiSelect(item.id) },
@@ -711,6 +712,7 @@ fun ListItemsScreen(
                                 isSelected = group.parent.id in selectedItemIds,
                                 showDragHandle = false,
                                 onToggle = { viewModel.toggleChecked(group.parent) },
+                                onDelete = { viewModel.deleteItem(group.parent) },
                                 onEdit = { editingItem = group.parent },
                                 onToggleFavourite = { viewModel.toggleFavourite(group.parent) },
                                 onLongClick = { viewModel.enterItemMultiSelect(group.parent.id) },
@@ -724,6 +726,7 @@ fun ListItemsScreen(
                                         isSelected = child.id in selectedItemIds,
                                         showDragHandle = false,
                                         onToggle = { viewModel.toggleChecked(child) },
+                                        onDelete = { viewModel.deleteItem(child) },
                                         onEdit = { editingItem = child },
                                         onToggleFavourite = { viewModel.toggleFavourite(child) },
                                         onLongClick = { viewModel.enterItemMultiSelect(child.id) },
@@ -1001,6 +1004,7 @@ private fun ListItemRow(
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
     onToggle: () -> Unit,
+    onDelete: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
     onLongClick: () -> Unit = {},
@@ -1115,10 +1119,9 @@ private fun ListItemRow(
                 maxLines = 1,
             )
         }
-        // The star is the entire trailing column, so the text keeps every remaining pixel and the
-        // star never moves with the text length. Deletion stays in the long-press multi-select
-        // toolbar. The 8.dp gap keeps the text about 20.dp clear of the star glyph while the star
-        // itself keeps its full 48.dp target.
+        // The star and the row's own delete action share the trailing column, which stays a fixed
+        // width so the star never moves with the text length. The 8.dp gap keeps the text clear of
+        // the star glyph while both controls keep their full 48.dp targets.
         if (isMultiSelectMode) {
             if (item.isFavourite) {
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1139,6 +1142,13 @@ private fun ListItemRow(
                     contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
                     tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete item",
+                    tint = MaterialTheme.colorScheme.error,
                 )
             }
         }
