@@ -194,3 +194,15 @@ internal fun moveAxisFor(totalX: Float, totalY: Float, touchSlop: Float): MoveAx
 
 /** Horizontal distance a handle gesture must cover before it commits to a depth change. */
 internal const val DEPTH_GESTURE_COMMIT_FRACTION = 0.25f
+
+/**
+ * True when [rowId] travels with a drag of [draggedId], so it can never be that drag's drop target.
+ *
+ * A moved block lands on group boundaries, never inside itself: reporting one of its own rows as a
+ * target would only make the reorderable library compensate against a move that cannot happen.
+ */
+internal fun isInsideDraggedBlock(
+    groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    draggedId: Long?,
+    rowId: Long,
+): Boolean = draggedId != null && (rowId == draggedId || owningRowId(groups, rowId) == draggedId)

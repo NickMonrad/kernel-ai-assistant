@@ -2,7 +2,9 @@ package com.kernel.ai.feature.settings
 
 import android.content.Intent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -120,6 +123,8 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -257,6 +262,11 @@ fun ListItemsScreen(
         )
         localActiveItems = moved
         dragDestinationGroupId = crossGroupDestinationRowId(activeGroups, moved, fromKey)
+        // The library draws the dragged item at the reported target's slot until the reordered
+        // layout is published, which assumes a plain adjacent swap. A top-level row or block lands
+        // on a group boundary instead, so let the layout catch up before returning: that window is
+        // the one-frame jump the displaced rows used to snap through.
+        awaitLayoutChange(lazyListState)
     }
 
     LaunchedEffect(Unit) {
@@ -548,7 +558,21 @@ fun ListItemsScreen(
                     state = lazyListState,
                 ) {
                     items(localActiveItems, key = { it.id }) { item ->
-                        ReorderableItem(reorderState, key = item.id) { isDragging ->
+                        ReorderableItem(
+                            reorderState,
+                            key = item.id,
+                            enabled = !isInsideDraggedBlock(activeGroups, dragSourceId, item.id),
+                            // Rows displaced by a hierarchy drag travel several slots at once. The
+                            // library's default placement spring covers ~a quarter of that distance
+                            // in its first frame, which reads as a lurch; an eased short tween glides
+                            // instead, while the dragged row still follows the pointer directly.
+                            animateItemModifier = Modifier.animateItem(
+                                placementSpec = tween(
+                                    durationMillis = 250,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            ),
+                        ) { isDragging ->
                             val elevation by animateDpAsState(
                                 if (isDragging) 6.dp else 0.dp,
                                 label = "item_drag_elevation",
@@ -808,12 +832,6 @@ internal fun HierarchySwipeReveal(indenting: Boolean) {
     }
 }
 
-/**
- * Horizontal hierarchy gesture: swipe right indents, swipe left outdents.
- *
- * Each direction is only enabled when the row is eligible, and neither direction ever dismisses
- * the row: the action fires past the threshold and the row settles back into place.
- */
 /** Horizontal distance a move-handle gesture must cover before it commits to a depth change. */
 private val HANDLE_DEPTH_COMMIT_DISTANCE = 48.dp
 
@@ -889,6 +907,17 @@ private fun SwipeToChangeDepthRow(
             }
         },
     )
+}
+
+/**
+ * Suspends until [state] publishes a new layout, so a reorder callback cannot return while the
+ * reorderable library is still compensating against the pre-move layout.
+ */
+private suspend fun awaitLayoutChange(state: LazyListState) {
+    val before = state.layoutInfo
+    withTimeoutOrNull(250) {
+        snapshotFlow { state.layoutInfo }.first { it !== before }
+    }
 }
 
 /**

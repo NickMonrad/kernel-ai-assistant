@@ -327,6 +327,33 @@ class ListHierarchyInteractionTest {
     }
 
     @Test
+    fun `rows travelling with a dragged block are never drop targets for it`() {
+        val parent = item(1)
+        val firstChild = item(2, parentItemId = parent.itemId)
+        val secondChild = item(3, parentItemId = parent.itemId)
+        val other = item(4)
+        val groups = listOf(
+            EffectiveHierarchyGroup(parent, listOf(firstChild, secondChild)),
+            EffectiveHierarchyGroup(other, emptyList()),
+        )
+
+        // Dragging the parent blocks its own rows: the block lands on group boundaries, so the
+        // library must not report a move that can never happen.
+        assertTrue(isInsideDraggedBlock(groups, parent.id, parent.id))
+        assertTrue(isInsideDraggedBlock(groups, parent.id, firstChild.id))
+        assertTrue(isInsideDraggedBlock(groups, parent.id, secondChild.id))
+        assertFalse(isInsideDraggedBlock(groups, parent.id, other.id))
+
+        // Dragging a child only blocks that child; its sibling stays a valid sibling target.
+        assertTrue(isInsideDraggedBlock(groups, firstChild.id, firstChild.id))
+        assertFalse(isInsideDraggedBlock(groups, firstChild.id, secondChild.id))
+        assertFalse(isInsideDraggedBlock(groups, firstChild.id, parent.id))
+
+        // Outside a drag every row is a target.
+        assertFalse(isInsideDraggedBlock(groups, null, parent.id))
+    }
+
+    @Test
     fun `a move-handle gesture locks to the dominant axis once touch slop is crossed`() {
         val slop = 24f
 
