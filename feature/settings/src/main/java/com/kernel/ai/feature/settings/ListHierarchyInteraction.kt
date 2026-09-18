@@ -34,22 +34,24 @@ internal fun owningRowId(
 }
 
 /**
- * True when [rowId] can be indented: a top-level row that has no children of its own and has
- * another group directly above it in the visible projection.
+ * True when [rowId] can be made a sub-item: an effective top-level row with another group directly
+ * above it in the visible projection.
+ *
+ * A row that already has children is eligible too. It moves as its whole group and is flattened
+ * beneath the destination, so the two-level invariant is preserved instead of blocking the gesture.
  */
-internal fun canIndentRow(
+internal fun canMakeSubItemRow(
     rows: List<ListItemEntity>,
     groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
     rowId: Long,
 ): Boolean {
     val index = rows.indexOfFirst { it.id == rowId }
     if (index <= 0) return false
-    if (groups.any { group -> group.parent.id == rowId && group.children.isNotEmpty() }) return false
     return owningRowId(groups, rowId) == rowId
 }
 
-/** True when [rowId] is an effective child and can therefore be outdented. */
-internal fun canOutdentRow(
+/** True when [rowId] is an effective child and can therefore move to top level. */
+internal fun canMoveToTopLevelRow(
     groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
     rowId: Long,
 ): Boolean = groups.any { group -> group.children.any { it.id == rowId } }
@@ -174,3 +176,21 @@ internal fun visibleSelectableItemIds(
     completedExpanded: Boolean,
 ): List<Long> = activeRows.map(ListItemEntity::id) +
     if (completedExpanded) completedRows.map(ListItemEntity::id) else emptyList()
+
+/** Locked intent of a move-handle gesture once touch slop has been crossed. */
+internal enum class MoveAxis { Undecided, Vertical, Horizontal }
+
+/**
+ * Classifies a move-handle gesture by its dominant axis.
+ *
+ * Returns [MoveAxis.Undecided] until the gesture passes [touchSlop], so the intent is only locked
+ * once the user has actually moved, and never switches afterwards for that gesture.
+ */
+internal fun moveAxisFor(totalX: Float, totalY: Float, touchSlop: Float): MoveAxis = when {
+    maxOf(kotlin.math.abs(totalX), kotlin.math.abs(totalY)) < touchSlop -> MoveAxis.Undecided
+    kotlin.math.abs(totalX) > kotlin.math.abs(totalY) -> MoveAxis.Horizontal
+    else -> MoveAxis.Vertical
+}
+
+/** Horizontal distance a handle gesture must cover before it commits to a depth change. */
+internal const val DEPTH_GESTURE_COMMIT_FRACTION = 0.25f

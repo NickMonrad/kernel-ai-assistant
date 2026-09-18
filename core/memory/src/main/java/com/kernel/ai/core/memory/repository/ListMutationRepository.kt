@@ -220,73 +220,106 @@ class ListMutationRepository @Inject constructor(
     }
 
     /**
-     * Indents [itemId] beneath the effective group that [precedingRowItemId] belongs to.
+     * Makes [itemId] a sub-item of the effective group that [precedingRowItemId] belongs to.
      *
      * The preceding row is the row directly above the item in the manual projection: if it is a
-     * standalone parent it becomes the parent, otherwise the item joins its effective parent as
-     * the next sibling. Returns an empty mutation without changing anything when the item already
-     * has children (which would exceed two levels) or the preceding row cannot own a child.
+     * standalone parent it becomes the destination, otherwise the item joins that child's effective
+     * parent as the next sibling. Returns an empty mutation without changing anything when the item
+     * is not an effective top-level row or the preceding row cannot own a child.
+     *
+     * A top-level parent moves as its whole group and is flattened beneath the destination, so the
+     * two-level invariant holds: [itemId] becomes a direct child, its former children become
+     * direct children of the same destination, and the block order is preserved with the moved
+     * parent first. The moved parent ends up childless and keeps its own checked state.
      *
      * [baseline] is materialised first, inside the same transaction, when the interaction started
-     * from an automatic sort. Nothing commits unless the indent itself commits.
+     * from an automatic sort. Nothing commits unless the requested change commits.
      */
-    suspend fun indentItem(
+    suspend fun makeSubItem(
         itemId: Long,
         precedingRowItemId: String,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
-        materialised + indentItemInternal(itemId, precedingRowItemId)
+        materialised + makeSubItemInternal(itemId, precedingRowItemId)
     }
 
-    private suspend fun indentItemInternal(itemId: Long, precedingRowItemId: String): CheckedStateMutation {
+    private suspend fun makeSubItemInternal(itemId: Long, precedingRowItemId: String): CheckedStateMutation {
         if (itemId == 0L) return CheckedStateMutation()
         val item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
+        if (item.itemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
         val preceding = items.firstOrNull { it.itemId == precedingRowItemId }
             ?: return CheckedStateMutation()
         if (preceding.itemId == item.itemId) return CheckedStateMutation()
-        if (item.itemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
-        if (hierarchy.parentByChild.values.any { it == item.itemId }) return CheckedStateMutation()
-        val parentItemId = hierarchy.parentByChild[preceding.itemId] ?: preceding.itemId
-        if (parentItemId == item.itemId) return CheckedStateMutation()
-        if (parentItemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
-        val siblings = items.filter { hierarchy.parentByChild[it.itemId] == parentItemId }
+        val destinationItemId = hierarchy.parentByChild[preceding.itemId] ?: preceding.itemId
+        if (destinationItemId == item.itemId) return CheckedStateMutation()
+        if (destinationItemId !in hierarchy.topLevelItemIds) return CheckedStateMutation()
+
+        // The moved block is the parent followed by its former children in sibling order, which is
+        // what keeps the destination two levels deep.
+        val movedChildren = items.filter { hierarchy.parentByChild[it.itemId] == item.itemId }
+            .sortedWith(orderComparator())
+        if (movedChildren.any { it.itemId == destinationItemId }) return CheckedStateMutation()
+        val block = listOf(item) + movedChildren
+
+        val siblings = items.filter { hierarchy.parentByChild[it.itemId] == destinationItemId }
             .sortedWith(orderComparator())
         val insertAfter = siblings.firstOrNull { it.itemId == preceding.itemId }
-        val next = insertAfter?.let { anchor ->
-            siblings.firstOrNull { OrderKey.compare(it.orderKey, anchor.orderKey) > 0 }
-        }
-        val orderKey = if (siblings.isEmpty() || insertAfter == null) {
-            OrderKey.between(siblings.lastOrNull()?.orderKey, null)
+        val upper = if (insertAfter == null) {
+            null
         } else {
-            OrderKey.between(insertAfter.orderKey, next?.orderKey)
+            siblings.firstOrNull { OrderKey.compare(it.orderKey, insertAfter.orderKey) > 0 }?.orderKey
         }
-        return applyPlacementInternal(item, parentItemId, orderKey)
+        var lower = insertAfter?.orderKey ?: siblings.lastOrNull()?.orderKey
+
+        val affectedParentItemIds = listOf(item.itemId, destinationItemId).distinct()
+        val checkedBefore = affectedParentItemIds.associateWith { parentItemId ->
+            items.firstOrNull { it.itemId == parentItemId }?.checked
+        }
+
+        block.forEach { member ->
+            val orderKey = OrderKey.between(lower, upper)
+            setItemPlacementInternal(member, destinationItemId, orderKey)
+            lower = orderKey
+        }
+        affectedParentItemIds.forEach { parentItemId ->
+            listItemDao.getByItemId(parentItemId)?.let { recomputeParentCompletionInternal(it) }
+        }
+
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        affectedParentItemIds.forEach { parentItemId ->
+            val before = checkedBefore[parentItemId] ?: return@forEach
+            val after = listItemDao.getByItemId(parentItemId) ?: return@forEach
+            if (before == after.checked) return@forEach
+            if (after.checked) checkedIds += after.id else uncheckedIds += after.id
+        }
+        return CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds)
     }
 
     /**
-     * Outdents [itemId] to top level, placed immediately after its former parent group.
+     * Moves [itemId] to top level, placed immediately after its former parent group.
      *
      * Only this item changes parent; its former siblings stay with the old parent. Returns an empty
      * mutation without changing anything when the item is not an effective child.
      *
      * [baseline] is materialised first, inside the same transaction, when the interaction started
-     * from an automatic sort. Nothing commits unless the outdent itself commits.
+     * from an automatic sort. Nothing commits unless the requested change commits.
      */
-    suspend fun outdentItem(
+    suspend fun moveToTopLevel(
         itemId: Long,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
-        materialised + outdentItemInternal(itemId)
+        materialised + moveToTopLevelInternal(itemId)
     }
 
-    private suspend fun outdentItemInternal(itemId: Long): CheckedStateMutation {
+    private suspend fun moveToTopLevelInternal(itemId: Long): CheckedStateMutation {
         val item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return CheckedStateMutation()
         val items = listItemDao.getAllByListUnordered(item.listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }

@@ -520,20 +520,23 @@ class ListsViewModel @Inject constructor(
     }
 
     /**
-     * Indents [item] beneath the group that [precedingRow] belongs to. No-op when not eligible.
+     * Makes [item] a sub-item of the group that [precedingRow] belongs to. No-op when not eligible.
+     *
+     * A top-level parent moves as its whole group and is flattened beneath the destination, so the
+     * two-level invariant holds and the moved parent keeps its own checked state.
      *
      * Under an automatic sort the visible order becomes the Manual baseline in the same repository
      * transaction, so the item is placed relative to the group the user could actually see above it
-     * and a failed indent commits nothing.
+     * and a failed change commits nothing.
      */
-    fun indentItem(visibleRowIds: List<Long>, item: ListItemEntity, precedingRow: ListItemEntity) {
+    fun makeSubItem(visibleRowIds: List<Long>, item: ListItemEntity, precedingRow: ListItemEntity) {
         viewModelScope.launch {
             isHierarchyTransitionPending = true
             try {
                 val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
                 if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
                 val mutation = withContext(ioDispatcher) {
-                    listMutations.indentItem(item.id, precedingRow.itemId, baseline)
+                    listMutations.makeSubItem(item.id, precedingRow.itemId, baseline)
                 }
                 applyCheckedStateReminderTransitions(mutation)
                 if (baseline != null) selectItemSort(ItemSort.MANUAL)
@@ -544,19 +547,19 @@ class ListsViewModel @Inject constructor(
     }
 
     /**
-     * Outdents [item] to top level, leaving its former siblings under the old parent.
+     * Moves [item] to top level, leaving its former siblings under the old parent.
      *
      * Under an automatic sort the visible order becomes the Manual baseline in the same repository
      * transaction, so the promoted item lands next to the group the user could actually see above it
-     * and a failed outdent commits nothing.
+     * and a failed change commits nothing.
      */
-    fun outdentItem(visibleRowIds: List<Long>, item: ListItemEntity) {
+    fun moveToTopLevel(visibleRowIds: List<Long>, item: ListItemEntity) {
         viewModelScope.launch {
             isHierarchyTransitionPending = true
             try {
                 val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
                 if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
-                val mutation = withContext(ioDispatcher) { listMutations.outdentItem(item.id, baseline) }
+                val mutation = withContext(ioDispatcher) { listMutations.moveToTopLevel(item.id, baseline) }
                 applyCheckedStateReminderTransitions(mutation)
                 if (baseline != null) selectItemSort(ItemSort.MANUAL)
             } finally {

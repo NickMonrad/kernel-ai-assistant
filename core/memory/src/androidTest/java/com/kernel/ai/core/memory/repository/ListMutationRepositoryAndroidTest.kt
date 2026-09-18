@@ -343,7 +343,7 @@ class ListMutationRepositoryAndroidTest {
         val a = database.listItemDao().getById(aId)!!
         val changesBefore = repository.pendingChanges().size
 
-        val mutation = repository.indentItem(bId, a.itemId)
+        val mutation = repository.makeSubItem(bId, a.itemId)
 
         assertEquals(a.itemId, database.listItemDao().getById(bId)!!.parentItemId)
         assertEquals("placing an item alone changes no completion state", CheckedStateMutation(), mutation)
@@ -362,7 +362,7 @@ class ListMutationRepositoryAndroidTest {
         val child = database.listItemDao().getById(childId)!!
         repository.setItemPlacement(childId, parent.itemId, "1")
 
-        val mutation = repository.indentItem(cId, child.itemId)
+        val mutation = repository.makeSubItem(cId, child.itemId)
 
         assertEquals(parent.itemId, database.listItemDao().getById(cId)!!.parentItemId)
         assertEquals(CheckedStateMutation(), mutation)
@@ -372,24 +372,6 @@ class ListMutationRepositoryAndroidTest {
                 database.listItemDao().getById(cId)!!.orderKey,
             ) < 0,
         )
-    }
-
-    @Test
-    fun `a parent with children cannot be indented`() = runBlocking {
-        val listId = repository.createCollection("Indent rejected")
-        val otherId = repository.addItem(listId, "Other")
-        val parentId = repository.addItem(listId, "Parent")
-        val childId = repository.addItem(listId, "Child")
-        val parent = database.listItemDao().getById(parentId)!!
-        val other = database.listItemDao().getById(otherId)!!
-        repository.setItemPlacement(childId, parent.itemId, "1")
-        val changesBefore = repository.pendingChanges().size
-
-        val mutation = repository.indentItem(parentId, other.itemId)
-
-        assertEquals(CheckedStateMutation(), mutation)
-        assertEquals(null, database.listItemDao().getById(parentId)!!.parentItemId)
-        assertEquals(changesBefore, repository.pendingChanges().size)
     }
 
     @Test
@@ -404,7 +386,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(parentId, true)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
 
-        val mutation = repository.indentItem(newcomerId, child.itemId)
+        val mutation = repository.makeSubItem(newcomerId, child.itemId)
 
         assertEquals(parent.itemId, database.listItemDao().getById(newcomerId)!!.parentItemId)
         assertFalse(database.listItemDao().getById(parentId)!!.checked)
@@ -427,7 +409,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(dId, parent.itemId, "4")
         val changesBefore = repository.pendingChanges().size
 
-        val mutation = repository.outdentItem(bId)
+        val mutation = repository.moveToTopLevel(bId)
 
         val b = database.listItemDao().getById(bId)!!
         assertEquals(null, b.parentItemId)
@@ -453,7 +435,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(completeId, true)
         assertFalse(database.listItemDao().getById(parentId)!!.checked)
 
-        val mutation = repository.outdentItem(openId)
+        val mutation = repository.moveToTopLevel(openId)
 
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
         assertFalse(database.listItemDao().getById(openId)!!.checked)
@@ -471,7 +453,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemChecked(parentId, true)
         assertTrue(database.listItemDao().getById(childId)!!.checked)
 
-        val mutation = repository.outdentItem(childId)
+        val mutation = repository.moveToTopLevel(childId)
 
         assertEquals(null, database.listItemDao().getById(childId)!!.parentItemId)
         assertTrue(database.listItemDao().getById(parentId)!!.checked)
@@ -488,7 +470,7 @@ class ListMutationRepositoryAndroidTest {
         val aId = repository.addItem(listId, "A")
         val changesBefore = repository.pendingChanges().size
 
-        val mutation = repository.outdentItem(aId)
+        val mutation = repository.moveToTopLevel(aId)
 
         assertEquals(CheckedStateMutation(), mutation)
         assertEquals(changesBefore, repository.pendingChanges().size)
@@ -742,6 +724,73 @@ class ListMutationRepositoryAndroidTest {
         }
 
     @Test
+    fun `making a parent group a sub-item flattens it beneath the destination`() = runBlocking {
+        val listId = repository.createCollection("Flatten group")
+        val destinationId = repository.addItem(listId, "Q")
+        val movedId = repository.addItem(listId, "P")
+        val firstChildId = repository.addItem(listId, "A")
+        val secondChildId = repository.addItem(listId, "B")
+        val destination = database.listItemDao().getById(destinationId)!!
+        val moved = database.listItemDao().getById(movedId)!!
+        val destinationChildId = repository.addItem(listId, "Q child")
+        repository.setItemPlacement(destinationChildId, destination.itemId, "1")
+        repository.setItemPlacement(firstChildId, moved.itemId, "1")
+        repository.setItemPlacement(secondChildId, moved.itemId, "2")
+        assertEquals(listOf("Q", "Q child", "P", "A", "B"), effectiveRowTexts(listId))
+
+        val mutation = repository.makeSubItem(movedId, destination.itemId)
+
+        // Q, then its existing child, then the flattened block: P first, then its former children.
+        assertEquals(listOf("Q", "Q child", "P", "A", "B"), effectiveRowTexts(listId))
+        assertEquals(destination.itemId, database.listItemDao().getById(movedId)!!.parentItemId)
+        assertEquals(destination.itemId, database.listItemDao().getById(firstChildId)!!.parentItemId)
+        assertEquals(destination.itemId, database.listItemDao().getById(secondChildId)!!.parentItemId)
+        assertTrue(
+            "the moved parent ends up childless",
+            database.listItemDao().getAllByListUnordered(listId).none { it.parentItemId == moved.itemId },
+        )
+        // Still two levels: every parent is top level, every child points at a top-level row.
+        val groups = EffectiveHierarchyProjection.derive(
+            database.listItemDao().getAllByListUnordered(listId),
+            itemId = { it.itemId },
+            parentItemId = { it.parentItemId },
+            orderKey = { it.orderKey },
+            placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+        )
+        assertTrue(groups.flatMap { it.children }.all { child -> groups.any { it.parent.itemId == child.parentItemId } })
+        assertEquals(CheckedStateMutation(), mutation)
+    }
+
+    @Test
+    fun `flattening an incomplete group reopens the completed destination parent`() = runBlocking {
+        val listId = repository.createCollection("Flatten completion")
+        val destinationId = repository.addItem(listId, "Q")
+        val destinationChildId = repository.addItem(listId, "Q child")
+        val movedId = repository.addItem(listId, "P")
+        val childId = repository.addItem(listId, "A")
+        val destination = database.listItemDao().getById(destinationId)!!
+        val moved = database.listItemDao().getById(movedId)!!
+        repository.setItemPlacement(destinationChildId, destination.itemId, "1")
+        repository.setItemPlacement(childId, moved.itemId, "1")
+        repository.setItemChecked(destinationChildId, true)
+        assertTrue(database.listItemDao().getById(destinationId)!!.checked)
+        assertFalse(database.listItemDao().getById(movedId)!!.checked)
+
+        val mutation = repository.makeSubItem(movedId, destination.itemId)
+
+        assertFalse(
+            "the completed destination gained incomplete children",
+            database.listItemDao().getById(destinationId)!!.checked,
+        )
+        assertFalse(
+            "the flattened parent keeps its own checked state",
+            database.listItemDao().getById(movedId)!!.checked,
+        )
+        assertEquals(setOf(destinationId), mutation.uncheckedIds)
+        assertEquals(emptySet<Long>(), mutation.checkedIds)
+    }
+
+    @Test
     fun `an automatic sort baseline is rolled back when the requested edit fails`() = runBlocking {
         val listId = repository.createCollection("Baseline atomicity")
         val aId = repository.addItem(listId, "A")
@@ -753,7 +802,7 @@ class ListMutationRepositoryAndroidTest {
 
         assertThrows(IllegalStateException::class.java) {
             runBlocking {
-                repository.indentItem(
+                repository.makeSubItem(
                     999_999L,
                     b.itemId,
                     ListMutationRepository.VisibleOrderBaseline(
@@ -808,7 +857,7 @@ class ListMutationRepositoryAndroidTest {
         // The automatic sort shows C, B, A while the persisted manual order is A, B, C, so the
         // baseline and the indent have to commit together. Swiping A right uses B, the row the
         // user could see directly above it.
-        repository.indentItem(
+        repository.makeSubItem(
             aId,
             b.itemId,
             ListMutationRepository.VisibleOrderBaseline(
@@ -841,7 +890,7 @@ class ListMutationRepositoryAndroidTest {
         repository.setItemPlacement(cId, second.itemId, "1")
 
         // The automatic sort shows P2, C, P1, A, B, so the baseline and the outdent commit together.
-        repository.outdentItem(
+        repository.moveToTopLevel(
             bId,
             ListMutationRepository.VisibleOrderBaseline(
                 listId,

@@ -276,7 +276,7 @@ class ListHierarchyInteractionTest {
     }
 
     @Test
-    fun `indent is offered only to a top-level row with a group above it and no children`() {
+    fun `make sub-item is offered to a top-level row with a group above it`() {
         val frozen = item(1)
         val iceCream = item(2, parentItemId = frozen.itemId)
         val peas = item(3)
@@ -286,13 +286,13 @@ class ListHierarchyInteractionTest {
         )
         val rows = listOf(frozen, iceCream, peas)
 
-        assertTrue(canIndentRow(rows, groups, peas.id))
-        assertFalse(canIndentRow(rows, groups, frozen.id), "first group has nothing above it")
-        assertFalse(canIndentRow(rows, groups, iceCream.id), "a child is outdented, not indented")
+        assertTrue(canMakeSubItemRow(rows, groups, peas.id))
+        assertFalse(canMakeSubItemRow(rows, groups, frozen.id), "first group has nothing above it")
+        assertFalse(canMakeSubItemRow(rows, groups, iceCream.id), "a child moves to top level instead")
     }
 
     @Test
-    fun `a parent with children cannot be indented`() {
+    fun `a parent with children can be made a sub-item and is flattened instead`() {
         val frozen = item(1)
         val iceCream = item(2, parentItemId = frozen.itemId)
         val other = item(3)
@@ -301,15 +301,18 @@ class ListHierarchyInteractionTest {
             EffectiveHierarchyGroup(other, emptyList()),
         )
 
-        assertFalse(canIndentRow(listOf(frozen, iceCream, other), groups, frozen.id))
         assertFalse(
-            canIndentRow(listOf(other, frozen, iceCream), groups, frozen.id),
-            "a row with children is never indented, whatever sits above it",
+            canMakeSubItemRow(listOf(frozen, iceCream, other), groups, frozen.id),
+            "the first group has nothing above it",
+        )
+        assertTrue(
+            canMakeSubItemRow(listOf(other, frozen, iceCream), groups, frozen.id),
+            "a group below another group moves right as a whole and is flattened",
         )
     }
 
     @Test
-    fun `outdent is offered only to effective children`() {
+    fun `move to top level is offered only to effective children`() {
         val frozen = item(1)
         val iceCream = item(2, parentItemId = frozen.itemId)
         val bakery = item(3)
@@ -318,9 +321,25 @@ class ListHierarchyInteractionTest {
             EffectiveHierarchyGroup(bakery, emptyList()),
         )
 
-        assertTrue(canOutdentRow(groups, iceCream.id))
-        assertFalse(canOutdentRow(groups, frozen.id))
-        assertFalse(canOutdentRow(groups, bakery.id))
+        assertTrue(canMoveToTopLevelRow(groups, iceCream.id))
+        assertFalse(canMoveToTopLevelRow(groups, frozen.id))
+        assertFalse(canMoveToTopLevelRow(groups, bakery.id))
+    }
+
+    @Test
+    fun `a move-handle gesture locks to the dominant axis once touch slop is crossed`() {
+        val slop = 24f
+
+        assertEquals(MoveAxis.Undecided, moveAxisFor(0f, 0f, slop))
+        assertEquals(MoveAxis.Undecided, moveAxisFor(slop - 1f, slop - 1f, slop))
+
+        assertEquals(MoveAxis.Vertical, moveAxisFor(4f, slop, slop))
+        assertEquals(MoveAxis.Vertical, moveAxisFor(-4f, -slop * 2f, slop))
+        assertEquals(MoveAxis.Horizontal, moveAxisFor(slop, 4f, slop))
+        assertEquals(MoveAxis.Horizontal, moveAxisFor(-slop * 2f, 6f, slop))
+
+        // The axis is read from the whole gesture, so it cannot flip once it has been locked.
+        assertEquals(MoveAxis.Horizontal, moveAxisFor(slop * 3f, -slop * 2f, slop))
     }
 
     @Test

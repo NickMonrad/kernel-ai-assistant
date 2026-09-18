@@ -1,18 +1,22 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,7 +33,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -80,6 +84,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -97,13 +102,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListItemEntity
@@ -113,6 +119,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -546,18 +553,25 @@ fun ListItemsScreen(
                                 if (isDragging) 6.dp else 0.dp,
                                 label = "item_drag_elevation",
                             )
+                            // Crossing a group boundary or starting a drag changes the row colour.
+                            // Animating it keeps the placement feedback continuous instead of
+                            // snapping the highlight on at the exact crossing frame.
+                            val rowColor by animateColorAsState(
+                                when {
+                                    item.id == dragDestinationGroupId ->
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    isDragging -> MaterialTheme.colorScheme.surfaceVariant
+                                    else -> MaterialTheme.colorScheme.surface
+                                },
+                                label = "item_drag_color",
+                            )
                             val owningId = owningRowId(activeGroups, item.id)
                             val isChild = owningId != null && owningId != item.id
                             val rowIndex = localActiveItems.indexOfFirst { it.id == item.id }
                             val precedingRow = localActiveItems.getOrNull(rowIndex - 1)
                             val depthGesturesEnabled = hierarchyEditingEnabled && !itemDragInProgress
                             Surface(
-                                color = when {
-                                    item.id == dragDestinationGroupId ->
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    isDragging -> MaterialTheme.colorScheme.surfaceVariant
-                                    else -> MaterialTheme.colorScheme.surface
-                                },
+                                color = rowColor,
                                 shadowElevation = elevation,
                             ) {
                                 // The child indent sits outside the swipe surface so the row keeps
@@ -568,33 +582,37 @@ fun ListItemsScreen(
                                     ),
                                 ) {
                                     SwipeToChangeDepthRow(
-                                        canIndent = depthGesturesEnabled &&
-                                            canIndentRow(localActiveItems, activeGroups, item.id),
-                                        canOutdent = depthGesturesEnabled &&
-                                            canOutdentRow(activeGroups, item.id),
-                                        onIndent = {
+                                        handleGesturesEnabled = depthGesturesEnabled,
+                                        canMakeSubItem = depthGesturesEnabled &&
+                                            canMakeSubItemRow(localActiveItems, activeGroups, item.id),
+                                        canMoveToTopLevel = depthGesturesEnabled &&
+                                            canMoveToTopLevelRow(activeGroups, item.id),
+                                        onMakeSubItem = {
                                             precedingRow?.let {
-                                                viewModel.indentItem(
+                                                viewModel.makeSubItem(
                                                     visibleRowIds = localActiveItems.map(ListItemEntity::id),
                                                     item = item,
                                                     precedingRow = it,
                                                 )
                                             }
                                         },
-                                        onOutdent = {
-                                            viewModel.outdentItem(
+                                        onMoveToTopLevel = {
+                                            viewModel.moveToTopLevel(
                                                 visibleRowIds = localActiveItems.map(ListItemEntity::id),
                                                 item = item,
                                             )
                                         },
-                                    ) {
+                                    ) { handleGestureModifier ->
                                         ListItemRow(
                                             item = item,
                                             isMultiSelectMode = isItemMultiSelectMode,
                                             isSelected = item.id in selectedItemIds,
                                             showDragHandle = hierarchyEditingEnabled,
                                         dragHandleModifier = if (hierarchyEditingEnabled) {
-                                            Modifier.draggableHandle(
+                                            // The axis detector is outer, so it sees the gesture
+                                            // first and can consume a horizontal one before the
+                                            // reorderable drag handle claims it.
+                                            handleGestureModifier.draggableHandle(
                                                 onDragStarted = {
                                                     itemDragInProgress = true
                                                     dragSourceId = item.id
@@ -761,8 +779,8 @@ fun ListItemsScreen(
 }
 
 /**
- * The reveal behind a hierarchy swipe. It names the depth change and uses the neutral secondary
- * hierarchy treatment, so it cannot be mistaken for the archive/dismiss gesture.
+ * The reveal behind a hierarchy depth gesture. It names the depth change and uses the neutral
+ * secondary hierarchy treatment, so it cannot be mistaken for the archive/dismiss gesture.
  */
 @Composable
 internal fun HierarchySwipeReveal(indenting: Boolean) {
@@ -771,7 +789,7 @@ internal fun HierarchySwipeReveal(indenting: Boolean) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(horizontal = 20.dp)
-            .testTag(if (indenting) "hierarchy_indent_reveal" else "hierarchy_outdent_reveal"),
+            .testTag(if (indenting) "hierarchy_make_sub_item_reveal" else "hierarchy_move_to_top_level_reveal"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (indenting) Arrangement.Start else Arrangement.End,
     ) {
@@ -783,7 +801,7 @@ internal fun HierarchySwipeReveal(indenting: Boolean) {
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = if (indenting) "Indent" else "Outdent",
+            text = if (indenting) "Make sub-item" else "Move to top level",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
@@ -796,42 +814,135 @@ internal fun HierarchySwipeReveal(indenting: Boolean) {
  * Each direction is only enabled when the row is eligible, and neither direction ever dismisses
  * the row: the action fires past the threshold and the row settles back into place.
  */
+/** Horizontal distance a move-handle gesture must cover before it commits to a depth change. */
+private val HANDLE_DEPTH_COMMIT_DISTANCE = 48.dp
+
+/**
+ * Owns every horizontal depth gesture for one row, whichever surface started it.
+ *
+ * The row body uses the Material [SwipeToDismissBox]; the leading move handle drives the same reveal
+ * through [rememberDepthHandleGesture], so a gesture only ever has one owner and the feedback words
+ * are identical.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToChangeDepthRow(
-    canIndent: Boolean,
-    canOutdent: Boolean,
-    onIndent: () -> Unit,
-    onOutdent: () -> Unit,
-    content: @Composable () -> Unit,
+    handleGesturesEnabled: Boolean,
+    canMakeSubItem: Boolean,
+    canMoveToTopLevel: Boolean,
+    onMakeSubItem: () -> Unit,
+    onMoveToTopLevel: () -> Unit,
+    content: @Composable (handleGestureModifier: Modifier) -> Unit,
 ) {
     // The dismiss state is remembered for the row's lifetime, so the callbacks it captures would
     // otherwise stay frozen at first composition and a row could never change direction again.
-    val indentAction by rememberUpdatedState(onIndent)
-    val outdentAction by rememberUpdatedState(onOutdent)
-    val indentEnabled by rememberUpdatedState(canIndent)
-    val outdentEnabled by rememberUpdatedState(canOutdent)
+    val makeSubItemAction by rememberUpdatedState(onMakeSubItem)
+    val moveToTopLevelAction by rememberUpdatedState(onMoveToTopLevel)
+    val makeSubItemEnabled by rememberUpdatedState(canMakeSubItem)
+    val moveToTopLevelEnabled by rememberUpdatedState(canMoveToTopLevel)
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> if (indentEnabled) indentAction()
-                SwipeToDismissBoxValue.EndToStart -> if (outdentEnabled) outdentAction()
+                SwipeToDismissBoxValue.StartToEnd -> if (makeSubItemEnabled) makeSubItemAction()
+                SwipeToDismissBoxValue.EndToStart -> if (moveToTopLevelEnabled) moveToTopLevelAction()
                 else -> Unit
             }
             false
         },
         // A hierarchy gesture is a nudge, not a full-width dismissal swipe.
-        positionalThreshold = { distance -> distance * 0.25f },
+        positionalThreshold = { distance -> distance * DEPTH_GESTURE_COMMIT_FRACTION },
     )
+
+    // Live horizontal offset of a move-handle gesture, so the handle shows the same reveal while
+    // the finger is still down instead of acting invisibly.
+    var handleDragX by remember { mutableFloatStateOf(0f) }
+    // A handle sits near the leading edge, so a fraction-of-row threshold is unreachable leftward.
+    // The commit distance is a fixed nudge instead; the axis lock already stops accidental intent.
+    val commitDistancePx = with(LocalDensity.current) { HANDLE_DEPTH_COMMIT_DISTANCE.toPx() }
+
     SwipeToDismissBox(
         state = state,
-        enableDismissFromStartToEnd = canIndent,
-        enableDismissFromEndToStart = canOutdent,
+        enableDismissFromStartToEnd = canMakeSubItem,
+        enableDismissFromEndToStart = canMoveToTopLevel,
         backgroundContent = {
-            HierarchySwipeReveal(indenting = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
+            HierarchySwipeReveal(
+                indenting = handleDragX > 0f ||
+                    state.dismissDirection == SwipeToDismissBoxValue.StartToEnd,
+            )
         },
-        content = { content() },
+        content = {
+            Box(
+                modifier = Modifier.offset { IntOffset(handleDragX.roundToInt(), 0) },
+            ) {
+                val handleGesture = rememberDepthHandleGesture(
+                    enabled = handleGesturesEnabled,
+                    onDelta = { delta -> handleDragX += delta },
+                    onCommit = { total ->
+                        handleDragX = 0f
+                        when {
+                            total >= commitDistancePx && makeSubItemEnabled -> makeSubItemAction()
+                            total <= -commitDistancePx && moveToTopLevelEnabled -> moveToTopLevelAction()
+                        }
+                    },
+                )
+                content(handleGesture)
+            }
+        },
     )
+}
+
+/**
+ * Classifies a move-handle gesture by its dominant axis and takes ownership of it when the axis is
+ * horizontal.
+ *
+ * Touch slop decides the intent, and it is locked for the rest of the gesture. A vertical intent
+ * consumes nothing, so the reorderable drag handle underneath still receives the same events and
+ * performs the vertical reorder.
+ *
+ * The modifier itself never changes once composed. Enabling and disabling, and the callbacks, are
+ * read through [rememberUpdatedState] so a drag that is already in flight cannot have its handle
+ * removed from the modifier chain — that would cancel the reorder mid-gesture.
+ */
+@Composable
+private fun rememberDepthHandleGesture(
+    enabled: Boolean,
+    onDelta: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
+): Modifier {
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentOnDelta by rememberUpdatedState(onDelta)
+    val currentOnCommit by rememberUpdatedState(onCommit)
+    return remember {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var totalX = 0f
+                var totalY = 0f
+                var axis = MoveAxis.Undecided
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null || !change.pressed) break
+                    val delta = change.position - change.previousPosition
+                    totalX += delta.x
+                    totalY += delta.y
+                    if (axis == MoveAxis.Undecided) {
+                        if (!currentEnabled) break
+                        axis = moveAxisFor(totalX, totalY, viewConfiguration.touchSlop)
+                    }
+                    when (axis) {
+                        MoveAxis.Horizontal -> {
+                            currentOnDelta(delta.x)
+                            change.consume()
+                        }
+                        MoveAxis.Vertical -> break
+                        MoveAxis.Undecided -> Unit
+                    }
+                }
+                if (axis == MoveAxis.Horizontal) currentOnCommit(totalX)
+            }
+        }
+    }
 }
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
@@ -920,8 +1031,10 @@ private fun ListItemRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (showDragHandle) {
                     Icon(
-                        Icons.Default.DragHandle,
-                        contentDescription = "Drag to reorder",
+                        // A four-way icon, because the handle owns vertical reorder and the
+                        // horizontal make-sub-item / move-to-top-level gestures.
+                        Icons.Default.OpenWith,
+                        contentDescription = "Move item",
                         // The handle owns its whole gesture surface: absorbing the long press
                         // stops the row's multi-select click from winning on the handle.
                         modifier = dragHandleModifier

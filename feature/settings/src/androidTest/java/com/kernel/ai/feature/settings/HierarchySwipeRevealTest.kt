@@ -16,20 +16,20 @@ class HierarchySwipeRevealTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun swipeRightRevealNamesIndent() {
+    fun rightwardRevealNamesMakeSubItem() {
         composeTestRule.setContent { HierarchySwipeReveal(indenting = true) }
 
-        composeTestRule.onNodeWithTag("hierarchy_indent_reveal").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Indent").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Outdent").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("hierarchy_make_sub_item_reveal").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Make sub-item").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Move to top level").assertDoesNotExist()
     }
 
     @Test
-    fun swipeLeftRevealNamesOutdent() {
+    fun leftwardRevealNamesMoveToTopLevel() {
         composeTestRule.setContent { HierarchySwipeReveal(indenting = false) }
 
-        composeTestRule.onNodeWithTag("hierarchy_outdent_reveal").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Outdent").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Indent").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("hierarchy_move_to_top_level_reveal").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Move to top level").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Make sub-item").assertDoesNotExist()
     }
 }

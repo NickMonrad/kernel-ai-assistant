@@ -132,14 +132,14 @@ class ListsViewModelCheckedReminderTest {
         val parent = item(1L, checked = true, notificationTime = triggerAtMs)
         val preceding = item(2L, checked = true, parentItemId = parent.itemId)
         val newcomer = item(3L, checked = false)
-        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation(
+        coEvery { listMutations.makeSubItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation(
             uncheckedIds = setOf(parent.id),
         )
         coEvery { dao.getById(parent.id) } returns parent
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
         val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
-        viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
+        viewModel.makeSubItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
             scheduler.schedule(parent.id, parent.text, parent.listId, "groceries", triggerAtMs)
@@ -150,12 +150,12 @@ class ListsViewModelCheckedReminderTest {
     fun `outdenting the only incomplete child cancels the completed parent's reminder`() {
         val parent = item(1L, checked = false)
         val open = item(2L, checked = false, parentItemId = parent.itemId)
-        coEvery { listMutations.outdentItem(open.id, null) } returns CheckedStateMutation(
+        coEvery { listMutations.moveToTopLevel(open.id, null) } returns CheckedStateMutation(
             checkedIds = setOf(parent.id),
         )
         val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
-        viewModel.outdentItem(listOf(open.id), open)
+        viewModel.moveToTopLevel(listOf(open.id), open)
 
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(parent.id) }
     }
@@ -164,10 +164,10 @@ class ListsViewModelCheckedReminderTest {
     fun `a placement that changes no completion state touches no reminder`() {
         val newcomer = item(3L, checked = false)
         val preceding = item(2L, checked = false)
-        coEvery { listMutations.indentItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation()
+        coEvery { listMutations.makeSubItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation()
         val viewModel = testViewModel(preferences).apply { selectItemSort(ItemSort.MANUAL) }
 
-        viewModel.indentItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
+        viewModel.makeSubItem(listOf(newcomer.id, preceding.id), newcomer, preceding)
 
         verify(exactly = 0) { scheduler.cancel(any()) }
         verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }

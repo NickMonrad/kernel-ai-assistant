@@ -201,12 +201,12 @@ class ListsItemSortPersistenceTest {
         val newcomer = row(3L, "stable-newcomer", "2")
         coEvery { dao.getAllByListUnordered(1L) } returns listOf(parent, child, newcomer)
         listOf(parent, child, newcomer).forEach { coEvery { dao.getById(it.id) } returns it }
-        coEvery { listMutations.indentItem(any(), any(), any()) } returns CheckedStateMutation()
+        coEvery { listMutations.makeSubItem(any(), any(), any()) } returns CheckedStateMutation()
         val viewModel = openList(1L)
         viewModel.selectItemSort(ItemSort.NAME_ASC)
 
         // The automatic sort shows the newcomer last, so it indents under the child above it.
-        viewModel.indentItem(
+        viewModel.makeSubItem(
             visibleRowIds = listOf(parent.id, child.id, newcomer.id),
             item = newcomer,
             precedingRow = child,
@@ -215,7 +215,7 @@ class ListsItemSortPersistenceTest {
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
         assertEquals(ItemSort.MANUAL, savedItemSort(1L))
         coVerify {
-            listMutations.indentItem(
+            listMutations.makeSubItem(
                 newcomer.id,
                 child.itemId,
                 ListMutationRepository.VisibleOrderBaseline(
