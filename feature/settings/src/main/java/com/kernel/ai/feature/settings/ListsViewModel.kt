@@ -585,6 +585,10 @@ class ListsViewModel @Inject constructor(
      * Drag never changes depth: a top-level row stays top-level, and a child stays a child of the
      * group it was dropped into. [orderedRowIds] is the projected order after the move.
      *
+     * Only a drag whose effective owner actually changes is a reparent. A top-level reorder of a row
+     * whose requested parent is currently suppressed stays an order-only change, so the retained
+     * requested placement survives it.
+     *
      * Under an automatic sort that projection also becomes the Manual baseline, in one bounded
      * mutation, so switching sorts cannot reorder the rows the user did not move.
      */
@@ -599,16 +603,23 @@ class ListsViewModel @Inject constructor(
                 if (rows.any { it.listId != dragged.listId }) return@launch
                 val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
                 val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
+                val desiredOwnerRowId = if (placement.parentItemId == null) {
+                    null
+                } else {
+                    rows.firstOrNull { it.itemId == placement.parentItemId }?.id ?: return@launch
+                }
+                // Effective owners on both sides, with top-level normalised to null. The Manual
+                // branch below keeps its single-placement call: only the materialisation path can
+                // carry a retained requested parent, and the repository rejects a placement whose
+                // parent is not an effective top-level row.
+                val currentOwnerRowId = owningRowId(groups, draggedId)?.takeIf { it != draggedId }
+                val reparentedRow = if (currentOwnerRowId == desiredOwnerRowId) {
+                    null
+                } else {
+                    draggedId to desiredOwnerRowId
+                }
                 if (itemSort != ItemSort.MANUAL) {
-                    // The baseline carries the dragged row's new group, because the projection the
-                    // user released in has already put it there.
-                    val ownerRowId = if (placement.parentItemId == null) {
-                        null
-                    } else {
-                        rows.firstOrNull { it.itemId == placement.parentItemId }?.id ?: return@launch
-                    }
-                    val baseline = visibleOrderBaseline(orderedRowIds, draggedId to ownerRowId)
-                        ?: return@launch
+                    val baseline = visibleOrderBaseline(orderedRowIds, reparentedRow) ?: return@launch
                     val mutation = withContext(ioDispatcher) {
                         listMutations.applyVisibleHierarchyOrder(baseline.listId, baseline.rows)
                     }

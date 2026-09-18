@@ -680,6 +680,68 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `moving a suppressed requested edge to a new top level position keeps its requested parent`() =
+        runBlocking {
+            val listId = repository.createCollection("Suppressed move")
+            val collectionId = database.listNameDao().getById(listId)!!.collectionId
+            val parentId = repository.addItem(listId, "P")
+            val childId = repository.addItem(listId, "C")
+            val suppressedId = repository.addItem(listId, "X")
+            val firstGrandchildId = repository.addItem(listId, "Y")
+            val secondGrandchildId = repository.addItem(listId, "Z")
+            val parent = database.listItemDao().getById(parentId)!!
+            val child = database.listItemDao().getById(childId)!!
+            val suppressed = database.listItemDao().getById(suppressedId)!!
+
+            repository.setItemPlacement(childId, parent.itemId, "1")
+            // Y then Z are accepted first, which makes X an effective parent and keeps its newer
+            // remote edge to the child C suppressed.
+            repository.setItemPlacement(firstGrandchildId, suppressed.itemId, "3")
+            repository.setItemPlacement(secondGrandchildId, suppressed.itemId, "5")
+            repository.applyRemote(
+                change(
+                    collectionId = collectionId,
+                    targetId = suppressed.itemId,
+                    actorId = "remote-actor",
+                    sourceSequence = 1L,
+                    logicalClock = database.listItemDao().getById(firstGrandchildId)!!.placementLogicalClock - 1L,
+                    operation = ListChangeOperation.SET_ITEM_PLACEMENT,
+                    payload = ListChangePayload(parentItemId = child.itemId, orderKey = "2"),
+                ),
+            )
+            assertEquals(listOf("P", "C", "X", "Y", "Z"), effectiveRowTexts(listId))
+            assertEquals(child.itemId, database.listItemDao().getById(suppressedId)!!.parentItemId)
+            val changesBefore = repository.pendingChanges().size
+
+            // The user drags X to the front of the visible top level and swaps its two children.
+            // X is not explicitly reparented: its retained requested parent must survive intact.
+            val mutation = repository.applyVisibleHierarchyOrder(
+                listId,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(suppressedId, null, reparent = false),
+                    ListMutationRepository.VisibleHierarchyRow(secondGrandchildId, suppressedId),
+                    ListMutationRepository.VisibleHierarchyRow(firstGrandchildId, suppressedId),
+                    ListMutationRepository.VisibleHierarchyRow(parentId, null),
+                    ListMutationRepository.VisibleHierarchyRow(childId, parentId),
+                ),
+            )
+
+            assertEquals(CheckedStateMutation(), mutation)
+            assertEquals(listOf("X", "Z", "Y", "P", "C"), effectiveRowTexts(listId))
+            assertEquals(
+                "the suppressed requested parent survives a top-level reorder",
+                child.itemId,
+                database.listItemDao().getById(suppressedId)!!.parentItemId,
+            )
+            val emitted = repository.pendingChanges().drop(changesBefore)
+            assertTrue(emitted.isNotEmpty())
+            assertTrue(emitted.all { it.operation == ListChangeOperation.SET_ITEM_PLACEMENT })
+            val moved = emitted.single { it.targetId == suppressed.itemId }
+            assertEquals(child.itemId, moved.payload.parentItemId)
+            assertEquals("0", moved.payload.orderKey)
+        }
+
+    @Test
     fun `an automatic sort baseline is rolled back when the requested edit fails`() = runBlocking {
         val listId = repository.createCollection("Baseline atomicity")
         val aId = repository.addItem(listId, "A")

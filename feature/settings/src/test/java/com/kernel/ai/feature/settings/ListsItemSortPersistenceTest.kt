@@ -151,8 +151,8 @@ class ListsItemSortPersistenceTest {
                 1L,
                 listOf(
                     ListMutationRepository.VisibleHierarchyRow(b.id, null),
-                    // C is the row the user dropped into its new slot.
-                    ListMutationRepository.VisibleHierarchyRow(c.id, null, reparent = true),
+                    // C is dragged between top-level rows, so only its order changes.
+                    ListMutationRepository.VisibleHierarchyRow(c.id, null, reparent = false),
                     ListMutationRepository.VisibleHierarchyRow(a.id, null),
                 ),
             )
@@ -230,6 +230,100 @@ class ListsItemSortPersistenceTest {
         }
         // One transaction owns the baseline and the indent; the ViewModel must not write them apart.
         coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
+    }
+
+    @Test
+    fun `a top-level drag of a row with a suppressed requested parent is not a reparent`() {
+        val top = row(1L, "stable-a", "0")
+        // X requests a parent that is not in the list, so the edge is suppressed and X is presented
+        // and dragged as a top-level row.
+        val suppressed = row(2L, "stable-x", "1", parentItemId = "stable-missing")
+        val other = row(3L, "stable-b", "2")
+        val rows = listOf(top, suppressed, other)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        viewModel.moveItemFromDrag(
+            orderedRowIds = listOf(top.id, other.id, suppressed.id),
+            draggedId = suppressed.id,
+        )
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(top.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(other.id, null),
+                    // Order only: the retained requested parent is not an explicit outdent.
+                    ListMutationRepository.VisibleHierarchyRow(suppressed.id, null, reparent = false),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `a same-parent child reorder under an automatic sort is not a reparent`() {
+        val parent = row(1L, "stable-parent", "0")
+        val first = row(2L, "stable-first", "0", parentItemId = parent.itemId)
+        val second = row(3L, "stable-second", "1", parentItemId = parent.itemId)
+        val rows = listOf(parent, first, second)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        // The second child is dragged above the first; it stays in the same group.
+        viewModel.moveItemFromDrag(
+            orderedRowIds = listOf(parent.id, second.id, first.id),
+            draggedId = second.id,
+        )
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(parent.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(second.id, parent.id, reparent = false),
+                    ListMutationRepository.VisibleHierarchyRow(first.id, parent.id),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `a cross-group child drag under an automatic sort still reparents`() {
+        val first = row(1L, "stable-first", "0")
+        val child = row(2L, "stable-child", "0", parentItemId = first.itemId)
+        val second = row(4L, "stable-second", "1")
+        val rows = listOf(first, child, second)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        viewModel.moveItemFromDrag(
+            orderedRowIds = listOf(first.id, second.id, child.id),
+            draggedId = child.id,
+        )
+
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(first.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(second.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(child.id, second.id, reparent = true),
+                ),
+            )
+        }
     }
 
     @Test
