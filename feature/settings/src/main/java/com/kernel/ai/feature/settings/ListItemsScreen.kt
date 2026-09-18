@@ -1006,7 +1006,11 @@ private fun ListItemRow(
     onLongClick: () -> Unit = {},
     onSelectToggle: () -> Unit = {},
 ) {
-    ListItem(
+    // An explicit Row rather than M3 ListItem: the ListItem slots add fixed 16.dp start, leading
+    // and trailing padding on top of the mandatory 48.dp handle, checkbox and star targets, and
+    // that reservation was squeezing the item text. Spacing here is one 8.dp step, all three
+    // targets are untouched, and the text column takes every remaining pixel.
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -1016,126 +1020,129 @@ private fun ListItemRow(
                 onLongClick = {
                     if (!isMultiSelectMode) onLongClick()
                 },
-            ),
-        headlineContent = {
+            )
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showDragHandle) {
+            // The handle owns its whole gesture surface, and it carries vertical reorder plus both
+            // horizontal depth gestures, so it keeps a 48.dp target around the 24.dp icon.
+            // Absorbing the long press stops the row's multi-select click from winning on it.
+            Box(
+                modifier = dragHandleModifier
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { /* absorb */ })
+                    }
+                    .size(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    // A four-way icon, because the handle owns vertical reorder and the
+                    // horizontal make-sub-item / move-to-top-level gestures.
+                    Icons.Default.OpenWith,
+                    contentDescription = "Move item",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // The checkbox keeps its full 48.dp target: the tick stays a comfortable tap away from
+        // the handle and from the text.
+        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            if (isMultiSelectMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onSelectToggle() },
+                )
+            } else {
+                Checkbox(
+                    checked = item.checked,
+                    onCheckedChange = { onToggle() },
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp),
+        ) {
             Text(
                 text = item.text,
                 style = if (item.checked) {
                     MaterialTheme.typography.bodyLarge.copy(
                         textDecoration = TextDecoration.LineThrough,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     MaterialTheme.typography.bodyLarge
                 },
+                color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
             )
-        },
-        supportingContent = {
-            Column {
-                val dueAtMs = item.dueAt
-                if (dueAtMs != null) {
-                    val overdue = isOverdue(dueAtMs, item.checked)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.Event,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 2.dp),
-                            tint = if (overdue) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = formatDueDate(dueAtMs),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (overdue) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                        if (item.notificationTime != null) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                Icons.Default.Notifications,
-                                contentDescription = "Notification set",
-                                modifier = Modifier.padding(end = 2.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = formatTimestamp(item),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        },
-        leadingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showDragHandle) {
-                    // The handle owns its whole gesture surface, and it carries vertical reorder
-                    // plus both horizontal depth gestures, so it keeps a 48.dp target around the
-                    // 24.dp icon. Absorbing the long press stops the row's multi-select click
-                    // from winning on the handle.
-                    Box(
-                        modifier = dragHandleModifier
-                            .pointerInput(Unit) {
-                                detectTapGestures(onLongPress = { /* absorb */ })
-                            }
-                            .size(48.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            // A four-way icon, because the handle owns vertical reorder and the
-                            // horizontal make-sub-item / move-to-top-level gestures.
-                            Icons.Default.OpenWith,
-                            contentDescription = "Move item",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (isMultiSelectMode) {
-                    Checkbox(
-                        checked = isSelected,
-                        onCheckedChange = { onSelectToggle() },
-                    )
-                } else {
-                    Checkbox(
-                        checked = item.checked,
-                        onCheckedChange = { onToggle() },
-                    )
-                }
-            }
-        },
-        trailingContent = if (isMultiSelectMode) {
-            if (item.isFavourite) {
-                {
-                    IconButton(onClick = {}) {
-                        Icon(
-                            Icons.Default.Star,
-                            contentDescription = "Favourited",
-                            tint = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-                }
-            } else null
-        } else {
-            {
-                // The star is the entire trailing column, so the text keeps every remaining pixel.
-                // Deletion stays in the existing long-press multi-select toolbar.
-                IconButton(onClick = onToggleFavourite) {
+            val dueAtMs = item.dueAt
+            if (dueAtMs != null) {
+                val overdue = isOverdue(dueAtMs, item.checked)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Icon(
-                        imageVector = if (item.isFavourite) Icons.Default.Star
-                        else Icons.Default.StarBorder,
-                        contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
-                        tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
+                        Icons.Default.Event,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 2.dp),
+                        tint = if (overdue) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Text(
+                        text = formatDueDate(dueAtMs),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (overdue) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    if (item.notificationTime != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = "Notification set",
+                            modifier = Modifier.padding(end = 2.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
-        },
-    )
+            Text(
+                text = formatTimestamp(item),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        // The star is the entire trailing column, so the text keeps every remaining pixel and the
+        // star never moves with the text length. Deletion stays in the long-press multi-select
+        // toolbar. The 8.dp gap keeps the text about 20.dp clear of the star glyph while the star
+        // itself keeps its full 48.dp target.
+        if (isMultiSelectMode) {
+            if (item.isFavourite) {
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = {}) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = "Favourited",
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onToggleFavourite) {
+                Icon(
+                    imageVector = if (item.isFavourite) Icons.Default.Star
+                    else Icons.Default.StarBorder,
+                    contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
+                    tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 // ── Edit bottom sheet ─────────────────────────────────────────────────────────────────────────────
