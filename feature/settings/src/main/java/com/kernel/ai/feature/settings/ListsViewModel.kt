@@ -752,16 +752,6 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch { listMutations.addItem(listId, trimmed) }
     }
 
-    /**
-     * Deletes one item from its own row: the row's delete action cancels any pending reminder and
-     * records the delete through the hierarchy-aware mutation seam, which promotes surviving
-     * children of a deleted parent.
-     */
-    fun deleteItem(item: ListItemEntity) {
-        scheduler.cancel(item.id)
-        viewModelScope.launch { listMutations.deleteItem(item.id) }
-    }
-
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
     fun toggleFavourite(item: ListItemEntity) {
         val now = System.currentTimeMillis()
