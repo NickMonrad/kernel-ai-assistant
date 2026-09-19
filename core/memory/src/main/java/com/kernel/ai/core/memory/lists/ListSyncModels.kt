@@ -66,11 +66,13 @@ data class ListChangePayload(
     }
 }
 
-private fun String?.encodeToken(): String =
-    this?.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(StandardCharsets.UTF_8)) } ?: "~"
+internal fun String?.encodeToken(): String =
+    this?.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(StandardCharsets.UTF_8)) } ?: NULL_TOKEN
 
-private fun String.decodeToken(): String? =
-    takeUnless { it == "~" }?.let { String(Base64.getUrlDecoder().decode(it), StandardCharsets.UTF_8) }
+internal fun String.decodeToken(): String? =
+    takeUnless { it == NULL_TOKEN }?.let { String(Base64.getUrlDecoder().decode(it), StandardCharsets.UTF_8) }
+
+internal const val NULL_TOKEN = "~"
 
 data class ListChange(
     val formatVersion: Int = 1,

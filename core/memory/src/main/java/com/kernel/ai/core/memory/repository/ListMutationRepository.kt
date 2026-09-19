@@ -23,7 +23,13 @@ import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListChangePayload
 import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.ListPackageException
+import com.kernel.ai.core.memory.lists.ListPackageFailure
+import com.kernel.ai.core.memory.lists.ListPackageImportResult
 import com.kernel.ai.core.memory.lists.OrderKey
+import com.kernel.ai.core.memory.lists.SharedCheckpointSnapshot
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
+import com.kernel.ai.core.memory.lists.SharedItemSnapshot
 import com.kernel.ai.core.memory.lists.VersionStamp
 import java.util.UUID
 import javax.inject.Inject
@@ -588,6 +594,299 @@ class ListMutationRepository @Inject constructor(
         }
         appliedDao.insert(ListAppliedChangeEntity(change.changeId, change.collectionId, change.actorId, change.sourceSequence))
         advanceCheckpoint(change)
+    }
+
+    /** This device's actor identity, used as the member id on an exported package invite. */
+    suspend fun localActorId(): String = actorDao.get()?.actorId ?: UUID.randomUUID().toString()
+
+    /**
+     * Reads one active list as a shared snapshot for an encrypted package.
+     *
+     * The snapshot carries every item row including tombstones, each field's version stamp, and this
+     * device's per-actor checkpoints for the collection. Device-local state — pinned, archived, local
+     * overview order, local display alias, favourite, notification time — is deliberately excluded.
+     */
+    suspend fun exportSnapshot(listId: Long): SharedCollectionSnapshot = database.withTransaction {
+        val list = requireList(listId)
+        require(list.lifecycle == ListLifecycle.ACTIVE.name) { "Only an active list can be exported" }
+        SharedCollectionSnapshot(
+            collectionId = list.collectionId,
+            canonicalTitle = list.canonicalTitle,
+            lifecycle = ListLifecycle.valueOf(list.lifecycle),
+            createdAt = list.createdAt,
+            titleStamp = VersionStamp(list.titleLogicalClock, list.titleStampActorId),
+            lifecycleStamp = VersionStamp(list.lifecycleLogicalClock, list.lifecycleStampActorId),
+            items = listItemDao.getAllByListAnyLifecycle(listId)
+                .sortedBy { it.itemId }
+                .map { it.toSnapshot() },
+            checkpoints = checkpointDao.getAllForCollection(list.collectionId)
+                .sortedBy { it.actorId }
+                .map { SharedCheckpointSnapshot(it.actorId, it.highestContiguousSourceSequence) },
+        )
+    }
+
+    /**
+     * Applies one shared snapshot through the same reconciliation rules as [applyRemote].
+     *
+     * The collection and each item merge field by field, keeping whichever side holds the greater
+     * version stamp, so a repeated or out-of-order import cannot lose newer local work and a
+     * duplicate import is a no-op. Imported rows are new shared state, not new local edits: no
+     * placement or field change is recorded for them, exactly as with any other remote application.
+     * Completion cascades the merge itself causes still record their normal explicit changes.
+     *
+     * Local-only columns are never written, so the device keeps its own pin, archive, favourite and
+     * reminder state, and an unknown collection is created with the contract's neutral defaults.
+     *
+     * Everything runs in one transaction: a rejection or failure leaves no partial import behind.
+     */
+    suspend fun importSnapshot(snapshot: SharedCollectionSnapshot): ListPackageImportResult =
+        database.withTransaction {
+            require(snapshot.items.map { it.itemId }.toSet().size == snapshot.items.size) {
+                "Snapshot repeats an item identity"
+            }
+            require(snapshot.items.none { it.parentItemId != null && it.parentItemId == it.itemId }) {
+                "Snapshot makes an item its own parent"
+            }
+
+            // Observing remote stamps advances this device's Lamport clock beyond them, so a later
+            // local edit cannot be overwritten by re-importing the package that was just seen.
+            val actor = actorDao.get() ?: ListActorStateEntity(UUID.randomUUID().toString(), 0L)
+            val observedClock = maxOf(
+                snapshot.titleStamp.logicalClock,
+                snapshot.lifecycleStamp.logicalClock,
+                snapshot.items.maxOfOrNull { it.observedClock() } ?: 0L,
+            )
+            actorDao.upsert(actor.copy(logicalClock = maxOf(actor.logicalClock, observedClock) + 1L))
+
+            val existing = listNameDao.getByCollectionId(snapshot.collectionId)
+            val collectionCreated = existing == null
+            val list = if (existing == null) {
+                insertImportedCollection(snapshot)
+            } else {
+                val merged = mergeImportedCollection(existing, snapshot)
+                if (merged != existing) listNameDao.upsert(merged)
+                merged
+            }
+
+            val checkedBefore = listItemDao.getAllByListAnyLifecycle(list.id).associate { it.itemId to it.checked }
+            val parentsBefore = deriveHierarchy(listItemDao.getAllByListAnyLifecycle(list.id))
+                .parentByChild.values.toSet()
+
+            var itemsCreated = 0
+            var itemsUpdated = 0
+            snapshot.items.forEach { incoming ->
+                val local = listItemDao.getByItemId(incoming.itemId)
+                if (local == null) {
+                    listItemDao.insert(incoming.toEntity(list.id, snapshot.collectionId))
+                    itemsCreated += 1
+                    return@forEach
+                }
+                if (local.collectionId != snapshot.collectionId) {
+                    throw ListPackageException(
+                        ListPackageFailure.IDENTITY_MISMATCH,
+                        "A local item already uses this identity in another collection",
+                    )
+                }
+                val merged = mergeImportedItem(local, incoming)
+                if (merged != local) {
+                    listItemDao.upsert(merged)
+                    itemsUpdated += 1
+                }
+            }
+
+            val changed = itemsCreated > 0 || itemsUpdated > 0
+            if (changed) {
+                // A merge can complete or reopen a parent, and it can move a child between groups:
+                // reconcile both the groups that had children before and those that have them now.
+                val parentsAfter = deriveHierarchy(listItemDao.getAllByListAnyLifecycle(list.id))
+                    .parentByChild.values.toSet()
+                (parentsBefore + parentsAfter)
+                    .mapNotNull { listItemDao.getByItemId(it) }
+                    .forEach { recomputeParentCompletionInternal(it) }
+                refreshLegacyDisplayOrders(list.id)
+                touchList(list.id)
+            }
+
+            snapshot.checkpoints.forEach { incoming ->
+                val current = checkpointDao.get(snapshot.collectionId, incoming.actorId)
+                    ?.highestContiguousSourceSequence ?: 0L
+                if (incoming.highestContiguousSourceSequence > current) {
+                    checkpointDao.upsert(
+                        ListCheckpointEntity(
+                            snapshot.collectionId,
+                            incoming.actorId,
+                            incoming.highestContiguousSourceSequence,
+                        ),
+                    )
+                }
+            }
+
+            val checkedIds = mutableSetOf<Long>()
+            val uncheckedIds = mutableSetOf<Long>()
+            listItemDao.getAllByListAnyLifecycle(list.id).forEach { row ->
+                val was = checkedBefore[row.itemId] ?: return@forEach
+                if (was == row.checked) return@forEach
+                if (row.checked) checkedIds += row.id else uncheckedIds += row.id
+            }
+
+            ListPackageImportResult(
+                listId = list.id,
+                collectionCreated = collectionCreated,
+                itemsCreated = itemsCreated,
+                itemsUpdated = itemsUpdated,
+                checkedStateMutation = CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds),
+            )
+        }
+
+    /** Creates an imported collection with the contract's neutral device-local defaults. */
+    private suspend fun insertImportedCollection(snapshot: SharedCollectionSnapshot): ListNameEntity {
+        val name = uniqueDisplayName(snapshot.canonicalTitle, stableLabel = snapshot.collectionId.take(8))
+        val displayOrder = (listNameDao.getAll().maxOfOrNull { it.displayOrder } ?: -1) + 1
+        listNameDao.insert(
+            ListNameEntity(
+                name = name,
+                canonicalTitle = snapshot.canonicalTitle,
+                localDisplayAlias = name.takeIf { it != snapshot.canonicalTitle },
+                collectionId = snapshot.collectionId,
+                createdAt = snapshot.createdAt,
+                updatedAt = System.currentTimeMillis(),
+                // Appended locally; the sender's pin, archive and overview order are not copied.
+                pinned = false,
+                displayOrder = displayOrder,
+                archivedAt = null,
+                lifecycle = snapshot.lifecycle.name,
+                titleLogicalClock = snapshot.titleStamp.logicalClock,
+                titleStampActorId = snapshot.titleStamp.actorId,
+                lifecycleLogicalClock = snapshot.lifecycleStamp.logicalClock,
+                lifecycleStampActorId = snapshot.lifecycleStamp.actorId,
+            ),
+        )
+        return requireNotNull(listNameDao.getByCollectionId(snapshot.collectionId))
+    }
+
+    /** Merges shared collection fields by version stamp, leaving device-local fields untouched. */
+    private suspend fun mergeImportedCollection(
+        existing: ListNameEntity,
+        snapshot: SharedCollectionSnapshot,
+    ): ListNameEntity {
+        var merged = existing
+        if (snapshot.titleStamp > VersionStamp(existing.titleLogicalClock, existing.titleStampActorId)) {
+            val name = uniqueDisplayName(snapshot.canonicalTitle, existing.id, snapshot.collectionId.take(8))
+            merged = merged.copy(
+                name = name,
+                canonicalTitle = snapshot.canonicalTitle,
+                localDisplayAlias = name.takeIf { it != snapshot.canonicalTitle },
+                titleLogicalClock = snapshot.titleStamp.logicalClock,
+                titleStampActorId = snapshot.titleStamp.actorId,
+            )
+        }
+        if (snapshot.lifecycleStamp > VersionStamp(existing.lifecycleLogicalClock, existing.lifecycleStampActorId)) {
+            merged = merged.copy(
+                lifecycle = snapshot.lifecycle.name,
+                lifecycleLogicalClock = snapshot.lifecycleStamp.logicalClock,
+                lifecycleStampActorId = snapshot.lifecycleStamp.actorId,
+            )
+        }
+        return if (merged == existing) existing else merged.copy(updatedAt = System.currentTimeMillis())
+    }
+
+    /** Merges one item field by field by version stamp, leaving device-local columns untouched. */
+    private fun mergeImportedItem(local: ListItemEntity, incoming: SharedItemSnapshot): ListItemEntity {
+        var merged = local
+        if (incoming.textStamp > VersionStamp(local.textLogicalClock, local.textStampActorId)) {
+            merged = merged.copy(
+                text = incoming.text,
+                textLogicalClock = incoming.textStamp.logicalClock,
+                textStampActorId = incoming.textStamp.actorId,
+            )
+        }
+        if (incoming.checkedStamp > VersionStamp(local.checkedLogicalClock, local.checkedStampActorId)) {
+            merged = merged.copy(
+                checked = incoming.checked,
+                checkedLogicalClock = incoming.checkedStamp.logicalClock,
+                checkedStampActorId = incoming.checkedStamp.actorId,
+            )
+        }
+        if (incoming.dueAtStamp > VersionStamp(local.dueAtLogicalClock, local.dueAtStampActorId)) {
+            merged = merged.copy(
+                dueAt = incoming.dueAt,
+                dueAtLogicalClock = incoming.dueAtStamp.logicalClock,
+                dueAtStampActorId = incoming.dueAtStamp.actorId,
+            )
+        }
+        if (incoming.placementStamp > VersionStamp(local.placementLogicalClock, local.placementStampActorId)) {
+            val orderKey = OrderKey.canonical(incoming.orderKey)
+            merged = merged.copy(
+                parentItemId = incoming.parentItemId,
+                orderKey = orderKey,
+                displayOrder = orderKey.toLongOrNull() ?: merged.displayOrder,
+                placementLogicalClock = incoming.placementStamp.logicalClock,
+                placementStampActorId = incoming.placementStamp.actorId,
+            )
+        }
+        if (incoming.lifecycleStamp > VersionStamp(local.lifecycleLogicalClock, local.lifecycleStampActorId)) {
+            merged = merged.copy(
+                lifecycle = incoming.lifecycle.name,
+                lifecycleLogicalClock = incoming.lifecycleStamp.logicalClock,
+                lifecycleStampActorId = incoming.lifecycleStamp.actorId,
+            )
+        }
+        return if (merged == local) local else merged.copy(updatedAt = System.currentTimeMillis())
+    }
+
+    private fun SharedItemSnapshot.observedClock(): Long = maxOf(
+        textStamp.logicalClock,
+        checkedStamp.logicalClock,
+        dueAtStamp.logicalClock,
+        placementStamp.logicalClock,
+        lifecycleStamp.logicalClock,
+    )
+
+    private fun ListItemEntity.toSnapshot(): SharedItemSnapshot = SharedItemSnapshot(
+        itemId = itemId,
+        text = text,
+        checked = checked,
+        dueAt = dueAt,
+        parentItemId = parentItemId,
+        orderKey = OrderKey.canonical(orderKey),
+        lifecycle = ListLifecycle.valueOf(lifecycle),
+        createdAt = createdAt,
+        textStamp = VersionStamp(textLogicalClock, textStampActorId),
+        checkedStamp = VersionStamp(checkedLogicalClock, checkedStampActorId),
+        dueAtStamp = VersionStamp(dueAtLogicalClock, dueAtStampActorId),
+        placementStamp = VersionStamp(placementLogicalClock, placementStampActorId),
+        lifecycleStamp = VersionStamp(lifecycleLogicalClock, lifecycleStampActorId),
+    )
+
+    private fun SharedItemSnapshot.toEntity(listId: Long, collectionId: String): ListItemEntity {
+        val canonical = OrderKey.canonical(orderKey)
+        return ListItemEntity(
+            listId = listId,
+            text = text,
+            createdAt = createdAt,
+            updatedAt = System.currentTimeMillis(),
+            checked = checked,
+            dueAt = dueAt,
+            // Device-local presentation/automation state starts neutral on import.
+            isFavourite = false,
+            notificationTime = null,
+            displayOrder = canonical.toLongOrNull() ?: 0L,
+            itemId = itemId,
+            collectionId = collectionId,
+            parentItemId = parentItemId,
+            orderKey = canonical,
+            textLogicalClock = textStamp.logicalClock,
+            textStampActorId = textStamp.actorId,
+            checkedLogicalClock = checkedStamp.logicalClock,
+            checkedStampActorId = checkedStamp.actorId,
+            dueAtLogicalClock = dueAtStamp.logicalClock,
+            dueAtStampActorId = dueAtStamp.actorId,
+            placementLogicalClock = placementStamp.logicalClock,
+            placementStampActorId = placementStamp.actorId,
+            lifecycle = lifecycle.name,
+            lifecycleLogicalClock = lifecycleStamp.logicalClock,
+            lifecycleStampActorId = lifecycleStamp.actorId,
+        )
     }
 
     private suspend fun addItemInternal(listId: Long, text: String, dueAt: Long?, checked: Boolean, notificationTime: Long?): Long {

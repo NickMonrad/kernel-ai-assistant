@@ -33,6 +33,10 @@ interface ListCheckpointDao {
     @Query("SELECT * FROM list_checkpoints WHERE collectionId = :collectionId AND actorId = :actorId LIMIT 1")
     suspend fun get(collectionId: String, actorId: String): ListCheckpointEntity?
 
+    /** Every actor's delivery position for one collection; used by snapshot export. */
+    @Query("SELECT * FROM list_checkpoints WHERE collectionId = :collectionId")
+    suspend fun getAllForCollection(collectionId: String): List<ListCheckpointEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(checkpoint: ListCheckpointEntity)
 }

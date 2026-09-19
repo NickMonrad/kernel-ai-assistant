@@ -7,11 +7,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListPackageException
+import com.kernel.ai.core.memory.lists.ListPackageExchange
+import com.kernel.ai.core.memory.lists.ListPackageFailure
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
@@ -35,11 +42,32 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 import javax.inject.Inject
 
 data class ListItemCounts(val active: Int, val completed: Int) {
     val total: Int get() = active + completed
 }
+
+/** Outcome of picking a shared-list package file. */
+sealed interface ListPackageImportState {
+    /** Nothing picked, or the user dismissed the preview. */
+    data object Idle : ListPackageImportState
+
+    /** A valid package is waiting for the user to accept or cancel it. */
+    data class Ready(val preview: ListPackagePreview) : ListPackageImportState
+
+    /** The file could not be used; local Lists state is unchanged. */
+    data class Failed(val message: String) : ListPackageImportState
+}
+
+/** What accepting a package would do, shown before it is applied. */
+data class ListPackagePreview(
+    val canonicalTitle: String,
+    val itemCount: Int,
+    val mergesExistingList: Boolean,
+)
 
 enum class ListSort { MANUAL, LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
 enum class ListFilter { ALL, PINNED_ONLY }
@@ -873,4 +901,150 @@ class ListsViewModel @Inject constructor(
         }
         return lines.joinToString("\n")
     }
+
+    // ── Encrypted shared-list package exchange (#1493) ───────────────────────────────────────────
+
+    /** A package waiting for the user to accept or cancel it, or why the last file was rejected. */
+    var importState by mutableStateOf<ListPackageImportState>(ListPackageImportState.Idle)
+        private set
+
+    /** One-shot result text for the Lists snackbar; the screen clears it after showing it. */
+    var packageMessage by mutableStateOf<String?>(null)
+        private set
+
+    private var inspectedPackage: SharedCollectionSnapshot? = null
+
+    /**
+     * Writes [listId] as an encrypted shared-list package and returns the intent that shares it.
+     *
+     * The file carries its own invite, so whoever receives it can open the list in Jandal.
+     */
+    suspend fun exportPackageIntent(listId: Long): Intent = withContext(ioDispatcher) {
+        val snapshot = listMutations.exportSnapshot(listId)
+        val file = File(appContext.cacheDir, packageFileName(listId))
+        file.writeText(ListPackageExchange.export(snapshot, listMutations.localActorId()))
+        val uri = FileProvider.getUriForFile(appContext, "${appContext.packageName}.fileprovider", file)
+        Intent(Intent.ACTION_SEND).apply {
+            type = PACKAGE_MIME_TYPE
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TITLE, snapshot.canonicalTitle)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    /**
+     * Reads and validates a picked package, without applying it.
+     *
+     * Nothing here can change local Lists state: a rejected file reports why and stops.
+     */
+    fun selectImportPackage(uri: Uri) {
+        packageMessage = null
+        viewModelScope.launch(ioDispatcher) {
+            importState = try {
+                val snapshot = ListPackageExchange.inspect(readPackageFile(uri))
+                inspectedPackage = snapshot
+                ListPackageImportState.Ready(
+                    ListPackagePreview(
+                        canonicalTitle = snapshot.canonicalTitle,
+                        itemCount = snapshot.activeItemCount,
+                        mergesExistingList = listNameDao.getByCollectionId(snapshot.collectionId) != null,
+                    ),
+                )
+            } catch (e: ListPackageException) {
+                inspectedPackage = null
+                ListPackageImportState.Failed(e.reason.explanation())
+            } catch (e: Exception) {
+                inspectedPackage = null
+                ListPackageImportState.Failed("That file could not be read as a Jandal shared list.")
+            }
+        }
+    }
+
+    /**
+     * Applies the inspected package through the authoritative mutation seam.
+     *
+     * Completion changes the merge causes take the same reminder path as any other checked-state
+     * change, and a duplicate package merges to nothing.
+     */
+    fun confirmImport() {
+        val snapshot = inspectedPackage ?: return
+        inspectedPackage = null
+        importState = ListPackageImportState.Idle
+        viewModelScope.launch(ioDispatcher) {
+            val outcome = runCatching { listMutations.importSnapshot(snapshot) }
+            outcome.getOrNull()?.let { imported ->
+                val localName = listNameDao.getById(imported.listId)?.name ?: snapshot.canonicalTitle
+                packageMessage = when {
+                    imported.collectionCreated -> "Imported \"$localName\""
+                    imported.itemsCreated == 0 && imported.itemsUpdated == 0 ->
+                        "\"$localName\" is already up to date"
+                    else -> "Updated \"$localName\""
+                }
+                applyCheckedStateReminderTransitions(imported.checkedStateMutation)
+            }
+            outcome.exceptionOrNull()?.let { error ->
+                packageMessage = (error as? ListPackageException)?.reason?.explanation()
+                    ?: "That shared list could not be imported."
+            }
+        }
+    }
+
+    /** Dismisses a pending package without applying it. */
+    fun cancelImport() {
+        inspectedPackage = null
+        importState = ListPackageImportState.Idle
+    }
+
+    fun clearPackageMessage() { packageMessage = null }
+
+    private suspend fun packageFileName(listId: Long): String {
+        val name = listNameDao.getById(listId)?.name
+            ?.lowercase()
+            ?.map { if (it.isLetterOrDigit()) it else '-' }
+            ?.joinToString("")
+            ?.trim('-')
+            ?.take(48)
+            ?.takeIf { it.isNotBlank() }
+            ?: "list"
+        return "$name.jandal"
+    }
+
+    /** Reads a picked file, refusing anything larger than a plausible list package. */
+    private fun readPackageFile(uri: Uri): String {
+        val stream = appContext.contentResolver.openInputStream(uri)
+            ?: throw ListPackageException(
+                ListPackageFailure.MALFORMED,
+                "Shared list package could not be opened",
+            )
+        return stream.use { input ->
+            val collected = ByteArrayOutputStream()
+            val chunk = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(chunk)
+                if (read < 0) break
+                collected.write(chunk, 0, read)
+                if (collected.size() > MAX_PACKAGE_BYTES) {
+                    throw ListPackageException(
+                        ListPackageFailure.MALFORMED,
+                        "Shared list package is too large",
+                    )
+                }
+            }
+            String(collected.toByteArray(), Charsets.UTF_8)
+        }
+    }
+}
+
+private const val PACKAGE_MIME_TYPE = "application/octet-stream"
+private const val MAX_PACKAGE_BYTES = 8 * 1024 * 1024
+
+private fun ListPackageFailure.explanation(): String = when (this) {
+    ListPackageFailure.UNSUPPORTED_VERSION ->
+        "This shared list was created by a newer version of Jandal."
+    ListPackageFailure.MALFORMED ->
+        "That file is not a valid Jandal shared list package."
+    ListPackageFailure.UNAUTHENTICATED ->
+        "That shared list package failed its security check. Ask the sender to export it again."
+    ListPackageFailure.IDENTITY_MISMATCH ->
+        "That shared list conflicts with lists already on this device."
 }

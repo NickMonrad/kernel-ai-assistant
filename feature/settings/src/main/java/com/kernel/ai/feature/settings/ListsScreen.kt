@@ -1,6 +1,8 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -107,6 +110,9 @@ fun ListsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
     var showBulkArchiveDialog by remember { mutableStateOf(false) }
+    val importPackageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::selectImportPackage) }
     val handleAddShortcut: () -> Unit = {
         val result = ListsShortcut.requestPin(context)
         scope.launch {
@@ -241,6 +247,7 @@ fun ListsScreen(
                                 onFilterSelected = { viewModel.listFilter = it },
                                 onDismiss = { showSortMenu = false },
                                 onAddShortcut = { handleAddShortcut() },
+                                onImportSharedList = { importPackageLauncher.launch(arrayOf("*/*")) },
                             )
                         }
                     },
@@ -564,6 +571,54 @@ fun ListsScreen(
             },
         )
     }
+
+    // ── Shared list package import (#1493) ────────────────────────────────────────────────────
+    val importedPackage = viewModel.importState as? ListPackageImportState.Ready
+    if (importedPackage != null) {
+        val preview = importedPackage.preview
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelImport() },
+            title = { Text("Import \"${preview.canonicalTitle}\"?") },
+            text = {
+                Text(
+                    buildString {
+                        append(preview.itemCount)
+                        append(if (preview.itemCount == 1) " item" else " items")
+                        append(
+                            if (preview.mergesExistingList) {
+                                " will merge into the shared list already on this device."
+                            } else {
+                                " will be added as a new list on this device."
+                            },
+                        )
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmImport() }) {
+                    Text(if (preview.mergesExistingList) "Merge" else "Add list")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelImport() }) { Text("Cancel") }
+            },
+        )
+    }
+
+    val rejectedPackage = viewModel.importState as? ListPackageImportState.Failed
+    LaunchedEffect(rejectedPackage?.message) {
+        rejectedPackage?.let {
+            snackbarHostState.showSnackbar(it.message)
+            viewModel.cancelImport()
+        }
+    }
+
+    LaunchedEffect(viewModel.packageMessage) {
+        viewModel.packageMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearPackageMessage()
+        }
+    }
 }
 
 // ── Internal composables ──────────────────────────────────────────────────────────────────────────
@@ -726,6 +781,7 @@ private fun SortFilterMenu(
     onToggleArchived: () -> Unit,
     onDismiss: () -> Unit,
     onAddShortcut: () -> Unit,
+    onImportSharedList: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // ── Archive toggle ──────────────────────────────────────────────────
@@ -816,6 +872,12 @@ private fun SortFilterMenu(
             leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
             onClick = { onDismiss(); onAddShortcut() },
             modifier = Modifier.testTag("lists_add_home_shortcut"),
+        )
+        DropdownMenuItem(
+            text = { Text("Import shared list") },
+            leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+            onClick = { onDismiss(); onImportSharedList() },
+            modifier = Modifier.testTag("lists_import_shared_list"),
         )
     }
 }

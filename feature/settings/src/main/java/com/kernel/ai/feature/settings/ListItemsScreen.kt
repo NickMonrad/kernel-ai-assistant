@@ -218,6 +218,7 @@ fun ListItemsScreen(
     val renameInitialValue = remember(showRenameDialog) { if (showRenameDialog) displayName else "" }
     var completedExpanded by rememberSaveable { mutableStateOf(viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
 
     val selectedItemIds = viewModel.selectedItemIds
@@ -484,6 +485,13 @@ fun ListItemsScreen(
                                             clipboardManager.setText(AnnotatedString(text))
                                             snackbarHostState.showSnackbar("List copied to clipboard")
                                         }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export encrypted package") },
+                                    onClick = {
+                                        showSortMenu = false
+                                        showExportDialog = true
                                     },
                                 )
                             }
@@ -807,6 +815,40 @@ fun ListItemsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showItemBulkDeleteDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // ── Export shared list dialog (#1493) ────────────────────────────────────────────────────────
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Export encrypted package?") },
+            text = {
+                Text(
+                    "Jandal writes an encrypted package for this list that another Jandal app can " +
+                        "import. The file carries its own key, so anyone you send it to can open and " +
+                        "change the shared list.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        coroutineScope.launch {
+                            runCatching { viewModel.exportPackageIntent(listId) }
+                                .onSuccess {
+                                    context.startActivity(Intent.createChooser(it, "Export shared list"))
+                                }
+                                .onFailure {
+                                    snackbarHostState.showSnackbar("Could not export this list")
+                                }
+                        }
+                    },
+                ) { Text("Export") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) { Text("Cancel") }
             },
         )
     }
