@@ -6,6 +6,10 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
+import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.ListPackageImportResult
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
@@ -103,8 +107,8 @@ class ListsViewModelCheckedReminderTest {
     @Test
     fun `uncompleting cascaded items schedules only future actual unchecked transitions`() {
         val triggerAtMs = System.currentTimeMillis() + 60_000L
-        val parent = item(1L, checked = true, notificationTime = triggerAtMs)
-        val child = item(2L, checked = true, parentItemId = parent.itemId, notificationTime = triggerAtMs)
+        val parent = item(1L, checked = false, notificationTime = triggerAtMs)
+        val child = item(2L, checked = false, parentItemId = parent.itemId, notificationTime = triggerAtMs)
         val unrelated = item(3L, checked = true, notificationTime = triggerAtMs)
         val items = mapOf(parent.id to parent, child.id to child, unrelated.id to unrelated)
         coEvery { listMutations.setItemsChecked(listOf(parent.id), false) } returns CheckedStateMutation(
@@ -129,7 +133,7 @@ class ListsViewModelCheckedReminderTest {
     @Test
     fun `indenting an incomplete item into a completed parent reschedules that parent's reminder`() {
         val triggerAtMs = System.currentTimeMillis() + 60_000L
-        val parent = item(1L, checked = true, notificationTime = triggerAtMs)
+        val parent = item(1L, checked = false, notificationTime = triggerAtMs)
         val preceding = item(2L, checked = true, parentItemId = parent.itemId)
         val newcomer = item(3L, checked = false)
         coEvery { listMutations.makeSubItem(newcomer.id, preceding.itemId, null) } returns CheckedStateMutation(
@@ -195,7 +199,7 @@ class ListsViewModelCheckedReminderTest {
     fun `an automatic sort cross-group drag routes the completion changes from the baseline`() {
         val triggerAtMs = System.currentTimeMillis() + 60_000L
         val newParent = item(1L, checked = false, notificationTime = triggerAtMs)
-        val oldParent = item(2L, checked = true, notificationTime = triggerAtMs)
+        val oldParent = item(2L, checked = false, notificationTime = triggerAtMs)
         val dragged = item(3L, checked = false, parentItemId = oldParent.itemId)
         val rows = listOf(newParent, oldParent, dragged)
         coEvery { dao.getById(any()) } answers { rows.firstOrNull { it.id == firstArg() } }
@@ -218,6 +222,104 @@ class ListsViewModelCheckedReminderTest {
             scheduler.schedule(oldParent.id, oldParent.text, oldParent.listId, "groceries", triggerAtMs)
         }
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+    }
+
+    @Test
+    fun `imported tombstone cancels the existing local reminder without rescheduling`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val snapshot = packageSnapshot()
+        val result = ListPackageImportResult(
+            listId = 1L,
+            collectionCreated = false,
+            itemsCreated = 0,
+            itemsUpdated = 1,
+            checkedStateMutation = CheckedStateMutation(uncheckedIds = setOf(7L)),
+            lifecycleTransitions = listOf(
+                ListItemLifecycleTransition(itemId = 7L, wasActive = true, isActive = false),
+            ),
+        )
+        val tombstone = item(7L, checked = false, notificationTime = triggerAtMs)
+            .copy(lifecycle = ListLifecycle.DELETED.name)
+        coEvery { listMutations.importSnapshot(snapshot) } returns result
+        coEvery { dao.getById(7L) } returns tombstone
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = testViewModel(preferences)
+        setInspectedPackage(viewModel, snapshot)
+
+        viewModel.confirmImport()
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(7L) }
+        verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `imported restore reschedules the preserved future local reminder`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val snapshot = packageSnapshot()
+        val result = ListPackageImportResult(
+            listId = 1L,
+            collectionCreated = false,
+            itemsCreated = 0,
+            itemsUpdated = 1,
+            lifecycleTransitions = listOf(
+                ListItemLifecycleTransition(itemId = 7L, wasActive = false, isActive = true),
+            ),
+        )
+        val restored = item(7L, checked = false, notificationTime = triggerAtMs)
+        coEvery { listMutations.importSnapshot(snapshot) } returns result
+        coEvery { dao.getById(7L) } returns restored
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = testViewModel(preferences)
+        setInspectedPackage(viewModel, snapshot)
+
+        viewModel.confirmImport()
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(7L, restored.text, restored.listId, "groceries", triggerAtMs)
+        }
+    }
+
+    @Test
+    fun `imported restore does not reschedule a checked item`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val snapshot = packageSnapshot()
+        val result = ListPackageImportResult(
+            listId = 1L,
+            collectionCreated = false,
+            itemsCreated = 0,
+            itemsUpdated = 1,
+            lifecycleTransitions = listOf(
+                ListItemLifecycleTransition(itemId = 7L, wasActive = false, isActive = true),
+            ),
+        )
+        val restored = item(7L, checked = true, notificationTime = triggerAtMs)
+        coEvery { listMutations.importSnapshot(snapshot) } returns result
+        coEvery { dao.getById(7L) } returns restored
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = testViewModel(preferences)
+        setInspectedPackage(viewModel, snapshot)
+
+        viewModel.confirmImport()
+
+        verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
+    private fun packageSnapshot() = SharedCollectionSnapshot(
+        collectionId = "collection-1",
+        canonicalTitle = "groceries",
+        lifecycle = ListLifecycle.ACTIVE,
+        createdAt = 1L,
+        titleStamp = com.kernel.ai.core.memory.lists.VersionStamp(1L, "actor"),
+        lifecycleStamp = com.kernel.ai.core.memory.lists.VersionStamp(1L, "actor"),
+        items = emptyList(),
+        checkpoints = emptyList(),
+    )
+
+    private fun setInspectedPackage(viewModel: ListsViewModel, snapshot: SharedCollectionSnapshot) {
+        ListsViewModel::class.java.getDeclaredField("inspectedPackage").apply {
+            isAccessible = true
+            set(viewModel, snapshot)
+        }
     }
 
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { preferences.itemSortFor(listId) }
