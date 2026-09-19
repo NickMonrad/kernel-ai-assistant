@@ -950,6 +950,28 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `deleting the last incomplete child reports its completed parent`() = runBlocking {
+        val listId = repository.createCollection("Delete completes parent")
+        val parentId = repository.addItem(listId, "Parent")
+        val doneId = repository.addItem(listId, "Done child")
+        val openId = repository.addItem(listId, "Open child")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(doneId, parent.itemId, "1")
+        repository.setItemPlacement(openId, parent.itemId, "2")
+        repository.setItemChecked(doneId, true)
+        assertFalse(database.listItemDao().getById(parentId)!!.checked)
+
+        val mutation = repository.deleteItem(openId)
+
+        assertEquals(
+            "the surviving child is complete, so the parent completes with the delete",
+            setOf(parentId),
+            mutation.checkedIds,
+        )
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+    }
+
+    @Test
     fun `moving an item under an existing child is rejected atomically`() = runBlocking {
         val listId = repository.createCollection("Validation")
         val parentId = repository.addItem(listId, "Parent")

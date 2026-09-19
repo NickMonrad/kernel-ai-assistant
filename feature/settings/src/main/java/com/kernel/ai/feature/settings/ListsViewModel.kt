@@ -461,7 +461,10 @@ class ListsViewModel @Inject constructor(
         selectedItemIds = emptySet()
         ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(ioDispatcher) {
-            listMutations.deleteItems(ids)
+            // Deleting the last incomplete child can complete its surviving parent, so the delete
+            // seam reports those transitions and they take the same reminder path as any other
+            // checked-state change.
+            applyCheckedStateReminderTransitions(listMutations.deleteItems(ids))
         }
     }
 
@@ -776,7 +779,7 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             val checked = dao.getAllByList(listId).filter { it.checked }
             checked.forEach { scheduler.cancel(it.id) }
-            listMutations.deleteItems(checked.map { it.id })
+            applyCheckedStateReminderTransitions(listMutations.deleteItems(checked.map { it.id }))
         }
     }
 

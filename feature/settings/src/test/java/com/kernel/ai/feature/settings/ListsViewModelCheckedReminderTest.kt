@@ -174,6 +174,24 @@ class ListsViewModelCheckedReminderTest {
     }
 
     @Test
+    fun `deleting the last incomplete child reconciles the completed parent's reminder`() {
+        val parent = item(1L, checked = false, notificationTime = System.currentTimeMillis() + 60_000L)
+        val child = item(2L, checked = false, parentItemId = parent.itemId)
+        // The delete seam recomputes surviving parents, so deleting this child completes the parent.
+        coEvery { listMutations.deleteItems(listOf(child.id)) } returns CheckedStateMutation(
+            checkedIds = setOf(parent.id),
+        )
+        val viewModel = testViewModel(preferences)
+
+        viewModel.enterItemMultiSelect(child.id)
+        viewModel.deleteSelectedItems()
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(child.id) }
+        // The parent's own reminder must be cancelled too: it did not complete until the delete.
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(parent.id) }
+    }
+
+    @Test
     fun `an automatic sort cross-group drag routes the completion changes from the baseline`() {
         val triggerAtMs = System.currentTimeMillis() + 60_000L
         val newParent = item(1L, checked = false, notificationTime = triggerAtMs)

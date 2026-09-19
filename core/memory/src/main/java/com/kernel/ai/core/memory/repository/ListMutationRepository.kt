@@ -493,10 +493,17 @@ class ListMutationRepository @Inject constructor(
         }
     }
 
-    suspend fun deleteItem(itemId: Long) = deleteItems(listOf(itemId))
+    suspend fun deleteItem(itemId: Long): CheckedStateMutation = deleteItems(listOf(itemId))
 
-    suspend fun deleteItems(itemIds: List<Long>) = database.withTransaction {
-        if (itemIds.isEmpty()) return@withTransaction
+    /**
+     * Deletes [itemIds], promoting surviving children of a deleted parent.
+     *
+     * Returns the completion transitions that recomputing the surviving parents produced, because
+     * deleting the last incomplete child can complete its parent, and that parent's reminder has to
+     * be reconciled by the caller exactly as any other checked-state change.
+     */
+    suspend fun deleteItems(itemIds: List<Long>): CheckedStateMutation = database.withTransaction {
+        if (itemIds.isEmpty()) return@withTransaction CheckedStateMutation()
         val items = itemIds.distinct().map { requireItem(it) }
         val active = listItemDao.getAllByListUnordered(items.first().listId)
             .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
@@ -518,8 +525,21 @@ class ListMutationRepository @Inject constructor(
             }
         }
         items.filter { it.itemId in targets }.forEach { deleteItemInternal(it.id) }
-        active.filter { it.itemId !in targets && (hierarchy.parentByChild.containsKey(it.itemId) || hierarchy.parentByChild.values.contains(it.itemId)) }
-            .forEach { recomputeParentCompletionInternal(it) }
+        val affectedSurvivors = active.filter {
+            it.itemId !in targets &&
+                (hierarchy.parentByChild.containsKey(it.itemId) || hierarchy.parentByChild.values.contains(it.itemId))
+        }
+        val checkedBefore = affectedSurvivors.associate { it.itemId to it.checked }
+        affectedSurvivors.forEach { recomputeParentCompletionInternal(it) }
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        affectedSurvivors.forEach { survivor ->
+            val before = checkedBefore[survivor.itemId] ?: return@forEach
+            val after = listItemDao.getByItemId(survivor.itemId) ?: return@forEach
+            if (before == after.checked) return@forEach
+            if (after.checked) checkedIds += after.id else uncheckedIds += after.id
+        }
+        CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds)
     }
 
     suspend fun deleteCollection(listId: Long) = database.withTransaction {
