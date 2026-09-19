@@ -60,6 +60,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
@@ -1013,6 +1014,11 @@ private fun ListItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // The row paints the list-item container colour itself. M3 ListItem did this for us
+            // before this row was laid out explicitly, and without it the always-composed
+            // SwipeToDismissBox background (the "Make sub-item" / "Move to top level" reveal)
+            // shows through every idle row.
+            .background(ListItemDefaults.containerColor)
             .combinedClickable(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
