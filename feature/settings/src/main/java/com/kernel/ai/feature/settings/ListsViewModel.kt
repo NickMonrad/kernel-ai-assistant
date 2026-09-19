@@ -515,14 +515,15 @@ class ListsViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         scheduleIds.forEach { id ->
             val item = dao.getById(id) ?: return@forEach
-            if (id in restoredIds && item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+            if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+            val list = listNameDao.getById(item.listId) ?: return@forEach
+            if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
             val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
-            val listName = listNameDao.getById(item.listId)?.name ?: return@forEach
             scheduler.schedule(
                 itemId = item.id,
                 itemText = item.text,
                 listId = item.listId,
-                listName = listName,
+                listName = list.name,
                 triggerAtMs = triggerAtMs,
             )
         }
