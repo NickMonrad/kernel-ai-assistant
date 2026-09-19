@@ -6,6 +6,10 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
+import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.ListPackageImportResult
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
@@ -218,6 +222,73 @@ class ListsViewModelCheckedReminderTest {
             scheduler.schedule(oldParent.id, oldParent.text, oldParent.listId, "groceries", triggerAtMs)
         }
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+    }
+
+    @Test
+    fun `imported tombstone cancels the existing local reminder`() {
+        val snapshot = packageSnapshot()
+        val result = ListPackageImportResult(
+            listId = 1L,
+            collectionCreated = false,
+            itemsCreated = 0,
+            itemsUpdated = 1,
+            lifecycleTransitions = listOf(
+                ListItemLifecycleTransition(itemId = 7L, wasActive = true, isActive = false),
+            ),
+        )
+        coEvery { listMutations.importSnapshot(snapshot) } returns result
+        val viewModel = testViewModel(preferences)
+        setInspectedPackage(viewModel, snapshot)
+
+        viewModel.confirmImport()
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(7L) }
+        verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `imported restore reschedules the preserved future local reminder`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val snapshot = packageSnapshot()
+        val result = ListPackageImportResult(
+            listId = 1L,
+            collectionCreated = false,
+            itemsCreated = 0,
+            itemsUpdated = 1,
+            lifecycleTransitions = listOf(
+                ListItemLifecycleTransition(itemId = 7L, wasActive = false, isActive = true),
+            ),
+        )
+        val restored = item(7L, checked = false, notificationTime = triggerAtMs)
+        coEvery { listMutations.importSnapshot(snapshot) } returns result
+        coEvery { dao.getById(7L) } returns restored
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        val viewModel = testViewModel(preferences)
+        setInspectedPackage(viewModel, snapshot)
+
+        viewModel.confirmImport()
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(7L, restored.text, restored.listId, "groceries", triggerAtMs)
+        }
+    }
+
+    private fun packageSnapshot() = SharedCollectionSnapshot(
+        collectionId = "collection-1",
+        canonicalTitle = "groceries",
+        lifecycle = ListLifecycle.ACTIVE,
+        createdAt = 1L,
+        titleStamp = com.kernel.ai.core.memory.lists.VersionStamp(1L, "actor"),
+        lifecycleStamp = com.kernel.ai.core.memory.lists.VersionStamp(1L, "actor"),
+        items = emptyList(),
+        checkpoints = emptyList(),
+    )
+
+    private fun setInspectedPackage(viewModel: ListsViewModel, snapshot: SharedCollectionSnapshot) {
+        ListsViewModel::class.java.getDeclaredField("inspectedPackage").apply {
+            isAccessible = true
+            set(viewModel, snapshot)
+        }
     }
 
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { preferences.itemSortFor(listId) }

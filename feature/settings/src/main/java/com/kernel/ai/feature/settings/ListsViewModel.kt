@@ -15,6 +15,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
 import com.kernel.ai.core.memory.lists.ListPackageException
 import com.kernel.ai.core.memory.lists.ListPackageExchange
 import com.kernel.ai.core.memory.lists.ListPackageFailure
@@ -496,11 +497,25 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun applyCheckedStateReminderTransitions(mutation: CheckedStateMutation) {
-        mutation.checkedIds.forEach(scheduler::cancel)
+    private suspend fun applyCheckedStateReminderTransitions(
+        mutation: CheckedStateMutation,
+        lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
+    ) {
+        val cancellationIds = (
+            mutation.checkedIds +
+                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId }
+            ).toSet()
+        cancellationIds.forEach(scheduler::cancel)
+
+        val restoredIds = lifecycleTransitions
+            .filter { !it.wasActive && it.isActive }
+            .map { it.itemId }
+            .toSet()
+        val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
         val now = System.currentTimeMillis()
-        mutation.uncheckedIds.forEach { id ->
+        scheduleIds.forEach { id ->
             val item = dao.getById(id) ?: return@forEach
+            if (id in restoredIds && item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
             val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
             val listName = listNameDao.getById(item.listId)?.name ?: return@forEach
             scheduler.schedule(
@@ -980,7 +995,10 @@ class ListsViewModel @Inject constructor(
                         "\"$localName\" is already up to date"
                     else -> "Updated \"$localName\""
                 }
-                applyCheckedStateReminderTransitions(imported.checkedStateMutation)
+                applyCheckedStateReminderTransitions(
+                    imported.checkedStateMutation,
+                    imported.lifecycleTransitions,
+                )
             }
             outcome.exceptionOrNull()?.let { error ->
                 packageMessage = (error as? ListPackageException)?.reason?.explanation()

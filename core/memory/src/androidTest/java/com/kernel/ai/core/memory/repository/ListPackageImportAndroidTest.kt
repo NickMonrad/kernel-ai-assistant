@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListChangePayload
 import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
 import com.kernel.ai.core.memory.lists.ListPackageException
 import com.kernel.ai.core.memory.lists.ListPackageFailure
 import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
@@ -118,13 +119,25 @@ class ListPackageImportAndroidTest {
         val listId = remoteRepository.createCollection("groceries")
         val item = remoteRepository.addItem(listId, "Milk")
         val stableItemId = stableId(remoteDatabase, item)
+        val initialSnapshot = remoteRepository.exportSnapshot(listId)
+        repository.importSnapshot(initialSnapshot)
+
+        val importedList = requireNotNull(database.listNameDao().getByCollectionId(initialSnapshot.collectionId))
+        val reminderAt = System.currentTimeMillis() + 60_000L
+        val localBeforeDelete = requireNotNull(localRowByStableId(importedList.id, stableItemId))
+        database.listItemDao().upsert(
+            localBeforeDelete.copy(notificationTime = reminderAt),
+        )
+
         remoteRepository.deleteItem(item)
         val snapshot = remoteRepository.exportSnapshot(listId)
+        val tombstoneImport = repository.importSnapshot(snapshot)
 
-        repository.importSnapshot(snapshot)
-
-        val importedList = requireNotNull(database.listNameDao().getByCollectionId(snapshot.collectionId))
         val tombstone = requireNotNull(localRowByStableId(importedList.id, stableItemId))
+        assertEquals(
+            listOf(ListItemLifecycleTransition(tombstone.id, wasActive = true, isActive = false)),
+            tombstoneImport.lifecycleTransitions,
+        )
         assertEquals(ListLifecycle.DELETED.name, tombstone.lifecycle)
         assertTrue(database.listItemDao().getAllByList(importedList.id).isEmpty())
 
@@ -137,10 +150,15 @@ class ListPackageImportAndroidTest {
                 }
             },
         )
-        repository.importSnapshot(restored)
+        val restoreImport = repository.importSnapshot(restored)
 
         val reactivated = requireNotNull(localRowByStableId(importedList.id, stableItemId))
+        assertEquals(
+            listOf(ListItemLifecycleTransition(tombstone.id, wasActive = false, isActive = true)),
+            restoreImport.lifecycleTransitions,
+        )
         assertEquals(ListLifecycle.ACTIVE.name, reactivated.lifecycle)
+        assertEquals(reminderAt, reactivated.notificationTime)
         assertEquals(listOf("Milk"), database.listItemDao().getAllByList(importedList.id).map { it.text })
     }
 
@@ -316,13 +334,26 @@ class ListPackageImportAndroidTest {
         }
 
         val snapshot = remoteRepository.exportSnapshot(firstListId)
-        assertEquals(listOf("peer"), snapshot.checkpoints.map { it.actorId })
+        val localActor = requireNotNull(remoteDatabase.listActorStateDao().get()).actorId
+        val localSequence = requireNotNull(
+            remoteDatabase.listSourceSequenceDao().get(localActor, firstCollectionId),
+        ).sourceSequence
+        val checkpoints = snapshot.checkpoints.associate {
+            it.actorId to it.highestContiguousSourceSequence
+        }
+        assertEquals(snapshot.checkpoints.size, checkpoints.size)
+        assertEquals(1L, checkpoints["peer"])
+        assertEquals(localSequence, checkpoints[localActor])
 
         repository.importSnapshot(snapshot)
 
         assertEquals(
             1L,
             database.listCheckpointDao().get(firstCollectionId, "peer")?.highestContiguousSourceSequence,
+        )
+        assertEquals(
+            localSequence,
+            database.listCheckpointDao().get(firstCollectionId, localActor)?.highestContiguousSourceSequence,
         )
         assertNull(database.listCheckpointDao().get(otherCollectionId, "peer"))
     }

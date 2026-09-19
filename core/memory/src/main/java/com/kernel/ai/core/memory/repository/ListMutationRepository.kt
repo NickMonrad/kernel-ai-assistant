@@ -22,6 +22,7 @@ import com.kernel.ai.core.memory.lists.HierarchyItem
 import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListChangePayload
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListPackageException
 import com.kernel.ai.core.memory.lists.ListPackageFailure
@@ -619,10 +620,26 @@ class ListMutationRepository @Inject constructor(
             items = listItemDao.getAllByListAnyLifecycle(listId)
                 .sortedBy { it.itemId }
                 .map { it.toSnapshot() },
-            checkpoints = checkpointDao.getAllForCollection(list.collectionId)
-                .sortedBy { it.actorId }
-                .map { SharedCheckpointSnapshot(it.actorId, it.highestContiguousSourceSequence) },
+            checkpoints = exportCheckpoints(list.collectionId),
         )
+    }
+
+    /** Merges persisted delivery checkpoints with this device's current local source sequence. */
+    private suspend fun exportCheckpoints(collectionId: String): List<SharedCheckpointSnapshot> {
+        val checkpoints = checkpointDao.getAllForCollection(collectionId)
+            .associate { it.actorId to it.highestContiguousSourceSequence }
+            .toMutableMap()
+        val localActor = actorDao.get()
+        val localSequence = localActor?.let { sourceDao.get(it.actorId, collectionId) }
+        if (localActor != null && localSequence != null) {
+            checkpoints[localActor.actorId] = maxOf(
+                checkpoints[localActor.actorId] ?: 0L,
+                localSequence.sourceSequence,
+            )
+        }
+        return checkpoints.entries
+            .sortedBy { it.key }
+            .map { SharedCheckpointSnapshot(it.key, it.value) }
     }
 
     /**
@@ -660,6 +677,7 @@ class ListMutationRepository @Inject constructor(
 
             val existing = listNameDao.getByCollectionId(snapshot.collectionId)
             val collectionCreated = existing == null
+            val wasCollectionActive = existing?.lifecycle == ListLifecycle.ACTIVE.name
             val list = if (existing == null) {
                 insertImportedCollection(snapshot)
             } else {
@@ -668,8 +686,10 @@ class ListMutationRepository @Inject constructor(
                 merged
             }
 
-            val checkedBefore = listItemDao.getAllByListAnyLifecycle(list.id).associate { it.itemId to it.checked }
-            val parentsBefore = deriveHierarchy(listItemDao.getAllByListAnyLifecycle(list.id))
+            val rowsBefore = listItemDao.getAllByListAnyLifecycle(list.id)
+            val checkedBefore = rowsBefore.associate { it.itemId to it.checked }
+            val lifecycleBefore = rowsBefore.associateBy { it.itemId }
+            val parentsBefore = deriveHierarchy(rowsBefore)
                 .parentByChild.values.toSet()
 
             var itemsCreated = 0
@@ -693,18 +713,39 @@ class ListMutationRepository @Inject constructor(
                     itemsUpdated += 1
                 }
             }
-
             val changed = itemsCreated > 0 || itemsUpdated > 0
+            val rowsAfterMerge = listItemDao.getAllByListAnyLifecycle(list.id)
             if (changed) {
                 // A merge can complete or reopen a parent, and it can move a child between groups:
                 // reconcile both the groups that had children before and those that have them now.
-                val parentsAfter = deriveHierarchy(listItemDao.getAllByListAnyLifecycle(list.id))
+                val parentsAfter = deriveHierarchy(rowsAfterMerge)
                     .parentByChild.values.toSet()
                 (parentsBefore + parentsAfter)
                     .mapNotNull { listItemDao.getByItemId(it) }
                     .forEach { recomputeParentCompletionInternal(it) }
                 refreshLegacyDisplayOrders(list.id)
                 touchList(list.id)
+            }
+            val rowsAfter = listItemDao.getAllByListAnyLifecycle(list.id)
+
+            val lifecycleTransitions = if (existing == null) {
+                emptyList()
+            } else {
+                rowsAfter.mapNotNull { row ->
+                    val before = lifecycleBefore[row.itemId] ?: return@mapNotNull null
+                    val wasActive = wasCollectionActive && before.lifecycle == ListLifecycle.ACTIVE.name
+                    val isActive = list.lifecycle == ListLifecycle.ACTIVE.name &&
+                        row.lifecycle == ListLifecycle.ACTIVE.name
+                    if (wasActive == isActive) {
+                        null
+                    } else {
+                        ListItemLifecycleTransition(
+                            itemId = row.id,
+                            wasActive = wasActive,
+                            isActive = isActive,
+                        )
+                    }
+                }
             }
 
             snapshot.checkpoints.forEach { incoming ->
@@ -723,7 +764,7 @@ class ListMutationRepository @Inject constructor(
 
             val checkedIds = mutableSetOf<Long>()
             val uncheckedIds = mutableSetOf<Long>()
-            listItemDao.getAllByListAnyLifecycle(list.id).forEach { row ->
+            rowsAfter.forEach { row ->
                 val was = checkedBefore[row.itemId] ?: return@forEach
                 if (was == row.checked) return@forEach
                 if (row.checked) checkedIds += row.id else uncheckedIds += row.id
@@ -735,6 +776,7 @@ class ListMutationRepository @Inject constructor(
                 itemsCreated = itemsCreated,
                 itemsUpdated = itemsUpdated,
                 checkedStateMutation = CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds),
+                lifecycleTransitions = lifecycleTransitions,
             )
         }
 

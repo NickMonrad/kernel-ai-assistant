@@ -332,6 +332,14 @@ data class ListPackageImportResult(
     val itemsCreated: Int,
     val itemsUpdated: Int,
     val checkedStateMutation: CheckedStateMutation = CheckedStateMutation(),
+    val lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
+)
+
+/** Effective active-state transition for an existing local row after a shared import. */
+data class ListItemLifecycleTransition(
+    val itemId: Long,
+    val wasActive: Boolean,
+    val isActive: Boolean,
 )
 
 private fun SharedCollectionSnapshot.validate() {
