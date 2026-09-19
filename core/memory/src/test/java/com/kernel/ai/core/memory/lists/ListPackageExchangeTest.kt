@@ -47,7 +47,7 @@ class ListPackageExchangeTest {
     @Test
     fun `a tampered ciphertext fails authentication`() {
         val tampered = reencode { file ->
-            file.copy(envelope = file.envelope.copy(ciphertext = flipLastCharacter(file.envelope.ciphertext)))
+            file.copy(envelope = file.envelope.copy(ciphertext = flipFirstCharacter(file.envelope.ciphertext)))
         }
 
         assertEquals(
@@ -132,10 +132,9 @@ class ListPackageExchangeTest {
         }
     }
 
-    private fun flipLastCharacter(value: String): String {
-        val last = value.last()
-        val replacement = if (last == 'A') 'B' else 'A'
-        return value.dropLast(1) + replacement
+    private fun flipFirstCharacter(value: String): String {
+        val replacement = if (value.first() == 'A') 'B' else 'A'
+        return replacement + value.substring(1)
     }
 
     /** Re-encodes a freshly exported package with one record deliberately altered. */
