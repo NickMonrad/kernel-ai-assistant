@@ -702,6 +702,40 @@ Before mutating Room, import must validate:
 
 Corrupt, incompatible, or undecryptable packages fail without partial list mutation.
 
+### First-slice package vehicle (#1493)
+
+The first implementation exchanges packages as one user-transported text file:
+
+```text
+<file format version = 1>
+SharedCollectionInviteV1   — collection, member, role, keyId, collection key
+SharedCollectionPackageV1  — packageId, collection, keyId, nonce, ciphertext
+```
+
+- The invite travels inside the same file because the transport is the user's own file sharing.
+  Whoever holds the file can open and edit the bound list; the export confirmation says so.
+- Each export generates a fresh 256-bit AES-GCM key and a fresh 96-bit nonce, and `keyId` is a
+  truncated hash of that key, so the invite's key can be checked against the envelope before any
+  decryption work and a nonce is never reused under a key.
+- Authenticated additional data is the envelope metadata `formatVersion|packageId|collectionId|keyId`,
+  so retargeting a package at another collection, another package identity or another key fails
+  authentication rather than merging.
+- Import validates in order: file structure and versions, invite/envelope agreement, key identifier,
+  authenticated decryption, payload structure, and stable-identity consistency. Only then does one
+  Room transaction apply the snapshot, so a rejected package changes nothing.
+- Applying a snapshot uses the same stamp, lifecycle, placement and ordering rules as incremental
+  changes. Imported values are remote state rather than new local edits, so they record no local
+  change; a completion cascade the merge itself causes still records its normal explicit change.
+  Checkpoints merge per `(collectionId, actorId)` by highest contiguous sequence, and a package for
+  one collection never carries another collection's delivery positions.
+- Device-local fields keep the device's own values, and a collection created by an import uses the
+  neutral defaults above. Re-importing an unchanged package merges to no change.
+- Entry points: list detail overflow → **Export encrypted package**; Lists overview overflow →
+  **Import shared list**.
+
+Key hosting, rotation, revocation, accounts and any transport other than the user's own file
+sharing remain out of scope.
+
 ---
 
 ## Mapping to current Jandal Lists

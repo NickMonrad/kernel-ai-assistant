@@ -38,6 +38,10 @@ interface ListItemDao {
     fun observeAll(): Flow<List<ListItemEntity>> =
         observeAllUnordered().map { it.sortedWith(EFFECTIVE_GLOBAL_ORDER_COMPARATOR) }
 
+    /** Every row of one list including tombstones; used by snapshot export. */
+    @Query("SELECT * FROM list_items WHERE listId = :listId")
+    suspend fun getAllByListAnyLifecycle(listId: Long): List<ListItemEntity>
+
     @Query("SELECT * FROM list_items WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): ListItemEntity?
 
