@@ -1,9 +1,9 @@
 package com.kernel.ai.core.memory.lists
 
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.nio.charset.StandardCharsets
 import java.util.Base64
-
 /** Deterministic Lamport-style version stamp from the shared Lists contract. */
 data class VersionStamp(
     val logicalClock: Long,
@@ -84,16 +84,99 @@ data class ListChange(
     val payload: ListChangePayload = ListChangePayload(),
 )
 
+data class CheckedStateMutation(
+    val checkedIds: Set<Long> = emptySet(),
+    val uncheckedIds: Set<Long> = emptySet(),
+) {
+    /**
+     * Combines this report with one produced by a step that ran later in the same transaction.
+     *
+     * Each step reports the transitions it caused relative to the state it inherited, so two steps
+     * can name the same item in opposite sets. The later verdict describes the final row, which is
+     * what reminder scheduling needs, so it wins.
+     */
+    operator fun plus(later: CheckedStateMutation): CheckedStateMutation = CheckedStateMutation(
+        checkedIds = (checkedIds + later.checkedIds) - later.uncheckedIds,
+        uncheckedIds = (uncheckedIds + later.uncheckedIds) - later.checkedIds,
+    )
+}
+
 object OrderKey {
     fun canonical(value: String): String = BigDecimal(value).stripTrailingZeros().toPlainString().let { if (it == "-0") "0" else it }
     fun compare(left: String, right: String): Int = BigDecimal(left).compareTo(BigDecimal(right))
     fun forIndex(index: Int): String = index.toString()
+
+    /** Returns an exact decimal key strictly between the supplied sibling keys. */
+    fun between(lower: String?, upper: String?): String {
+        val lowerValue = lower?.let(::BigDecimal)
+        val upperValue = upper?.let(::BigDecimal)
+        val value = when {
+            lowerValue == null && upperValue == null -> BigDecimal.ZERO
+            lowerValue == null -> upperValue!! - BigDecimal.ONE
+            upperValue == null -> lowerValue + BigDecimal.ONE
+            else -> (lowerValue + upperValue).divide(
+                BigDecimal(2),
+                maxOf(lowerValue.scale(), upperValue.scale()) + 1,
+                RoundingMode.UNNECESSARY,
+            )
+        }
+        return canonical(value.toPlainString())
+    }
 }
 
 data class EffectiveHierarchy(
     val parentByChild: Map<String, String>,
     val topLevelItemIds: List<String>,
+    val childrenByParent: Map<String, List<String>> = emptyMap(),
 )
+
+data class EffectiveHierarchyGroup<T>(
+    val parent: T,
+    val children: List<T>,
+)
+
+object EffectiveHierarchyProjection {
+    fun <T> derive(
+        items: Collection<T>,
+        itemId: (T) -> String,
+        parentItemId: (T) -> String?,
+        orderKey: (T) -> String,
+        placementStamp: (T) -> VersionStamp,
+        active: (T) -> Boolean = { true },
+        topLevelComparator: Comparator<T> = Comparator { left, right ->
+            OrderKey.compare(orderKey(left), orderKey(right))
+                .takeIf { it != 0 }
+                ?: itemId(left).compareTo(itemId(right))
+        },
+    ): List<EffectiveHierarchyGroup<T>> {
+        val byId = items.filter(active).associateBy(itemId)
+        val normalized = EffectiveHierarchyNormalizer.derive(
+            byId.values.map {
+                HierarchyItem(
+                    itemId = itemId(it),
+                    parentItemId = parentItemId(it),
+                    orderKey = orderKey(it),
+                    placementStamp = placementStamp(it),
+                )
+            },
+        )
+        val childrenByParent = normalized.parentByChild.entries
+            .groupBy({ it.value }, { byId.getValue(it.key) })
+            .mapValues { (_, children) ->
+                children.sortedWith(
+                    Comparator { left, right ->
+                        OrderKey.compare(orderKey(left), orderKey(right))
+                            .takeIf { it != 0 }
+                            ?: itemId(left).compareTo(itemId(right))
+                    },
+                )
+            }
+        return normalized.topLevelItemIds
+            .map { byId.getValue(it) }
+            .sortedWith(topLevelComparator)
+            .map { EffectiveHierarchyGroup(it, childrenByParent[itemId(it)].orEmpty()) }
+    }
+}
 
 data class HierarchyItem(
     val itemId: String,

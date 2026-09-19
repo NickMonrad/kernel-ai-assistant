@@ -1,32 +1,43 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
+import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -47,12 +58,19 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
@@ -60,11 +78,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
@@ -72,23 +87,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListItemEntity
@@ -98,6 +125,9 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -170,20 +200,18 @@ fun ListItemsScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
-    val displayedItems by viewModel.observeDisplayedItems(listId).collectAsStateWithLifecycle()
+    val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
 
+    // Restores this list's saved sort so reopening never falls back to the default.
+    LaunchedEffect(listId) { viewModel.bindItemList(listId) }
+
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
-
-    // Apply text search on top of sorted/filtered results from the ViewModel
-    val (sortedActive, sortedCompleted) = displayedItems
-    val filteredActive = if (searchQuery.isBlank()) sortedActive
-    else sortedActive.filter { it.text.contains(searchQuery, ignoreCase = true) }
-    val filteredCompleted = if (searchQuery.isBlank()) sortedCompleted
-    else sortedCompleted.filter { it.text.contains(searchQuery, ignoreCase = true) }
-
-    val allItems = sortedActive + sortedCompleted  // for empty-state check
+    val (activeGroups, completedGroups) = displayedGroups
+    val sortedActive = activeGroups.flatMap { listOf(it.parent) + it.children }
+    val sortedCompleted = completedGroups.flatMap { listOf(it.parent) + it.children }
+    val allItems = sortedActive + sortedCompleted
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -195,27 +223,53 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+    val hierarchyEditingEnabled = isHierarchyEditingEnabled(
+        itemFilter = viewModel.itemFilter,
+        searchQuery = searchQuery,
+        isMultiSelectMode = isItemMultiSelectMode,
+    )
+
     var showSelectAllMenu by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // ── Drag-to-reorder state (#917) ─────────────────────────────────────────────────────────────
-    var localActiveItems by remember { mutableStateOf(filteredActive) }
+    // ── Hierarchy editing state (#928) ───────────────────────────────────────────────────────────
+    var localActiveItems by remember { mutableStateOf(sortedActive) }
     var itemDragInProgress by remember { mutableStateOf(false) }
-    LaunchedEffect(filteredActive) { if (!itemDragInProgress) localActiveItems = filteredActive }
+    var dragSourceId by remember { mutableStateOf<Long?>(null) }
+    var dragDestinationGroupId by remember { mutableStateOf<Long?>(null) }
+    var dragStartOrder by remember { mutableStateOf<List<Long>>(emptyList()) }
+    // While a hierarchy interaction is materialising the visible order, the optimistic projection
+    // stays authoritative so the list cannot flash the previous persisted order.
+    LaunchedEffect(activeGroups, viewModel.isHierarchyTransitionPending) {
+        if (!itemDragInProgress && !viewModel.isHierarchyTransitionPending) {
+            localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
+        }
+    }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        // Only reorder Long-keyed items (active items); String keys are completed/header keys
+        if (!hierarchyEditingEnabled) return@rememberReorderableLazyListState
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
         val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
-        val fi = localActiveItems.indexOfFirst { it.id == fromKey }
-        val ti = localActiveItems.indexOfFirst { it.id == toKey }
-        if (fi < 0 || ti < 0) return@rememberReorderableLazyListState
-        localActiveItems = localActiveItems.toMutableList().apply { add(ti, removeAt(fi)) }
+        if (localActiveItems.none { it.id == fromKey } || localActiveItems.none { it.id == toKey }) {
+            return@rememberReorderableLazyListState
+        }
+        val moved = moveHierarchyRows(
+            current = localActiveItems,
+            groups = activeGroups,
+            draggedId = fromKey,
+            targetId = toKey,
+        )
+        localActiveItems = moved
+        dragDestinationGroupId = crossGroupDestinationRowId(activeGroups, moved, fromKey)
+        // The library draws the dragged item at the reported target's slot until the reordered
+        // layout is published, which assumes a plain adjacent swap. A top-level row or block lands
+        // on a group boundary instead, so let the layout catch up before returning: that window is
+        // the one-frame jump the displaced rows used to snap through.
+        awaitLayoutChange(lazyListState)
     }
 
     LaunchedEffect(Unit) {
@@ -303,8 +357,11 @@ fun ListItemsScreen(
                                     onClick = {
                                         showSelectAllMenu = false
                                         viewModel.selectAllItems(
-                                            (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
-                                                .map { it.id }
+                                            visibleSelectableItemIds(
+                                                activeRows = sortedActive,
+                                                completedRows = sortedCompleted,
+                                                completedExpanded = completedExpanded,
+                                            ),
                                         )
                                     },
                                 )
@@ -341,6 +398,17 @@ fun ListItemsScreen(
                                 expanded = showSortMenu,
                                 onDismissRequest = { showSortMenu = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Reorder & group") },
+                                    onClick = {
+                                        viewModel.enterManualHierarchyEditing()
+                                        showSortMenu = false
+                                    },
+                                    trailingIcon = if (viewModel.itemSort == ItemSort.MANUAL) {
+                                        { Icon(Icons.Default.Check, contentDescription = null) }
+                                    } else null,
+                                )
+                                HorizontalDivider()
                                 // ── Sort section ──────────────────────────────────────────
                                 DropdownMenuItem(
                                     text = {
@@ -357,7 +425,7 @@ fun ListItemsScreen(
                                     DropdownMenuItem(
                                         text = { Text(sort.label()) },
                                         onClick = {
-                                            viewModel.itemSort = sort
+                                            viewModel.selectItemSort(sort)
                                             showSortMenu = false
                                         },
                                         trailingIcon = if (viewModel.itemSort == sort) {
@@ -488,39 +556,129 @@ fun ListItemsScreen(
                     )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize(), state = lazyListState) {
-                    // Active items — wrapped in ReorderableItem for drag-to-reorder (#917)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = lazyListState,
+                ) {
                     items(localActiveItems, key = { it.id }) { item ->
-                        ReorderableItem(reorderState, key = item.id) { isDragging ->
+                        ReorderableItem(
+                            reorderState,
+                            key = item.id,
+                            enabled = !isInsideDraggedBlock(activeGroups, dragSourceId, item.id),
+                            // Rows displaced by a hierarchy drag travel several slots at once. The
+                            // library's default placement spring covers ~a quarter of that distance
+                            // in its first frame, which reads as a lurch; an eased short tween glides
+                            // instead, while the dragged row still follows the pointer directly.
+                            animateItemModifier = Modifier.animateItem(
+                                placementSpec = tween(
+                                    durationMillis = 250,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                            ),
+                        ) { isDragging ->
                             val elevation by animateDpAsState(
                                 if (isDragging) 6.dp else 0.dp,
                                 label = "item_drag_elevation",
                             )
-                            Surface(shadowElevation = elevation) {
-                                val isSelected = item.id in selectedItemIds
-                                ListItemRow(
-                                    item = item,
-                                    isMultiSelectMode = isItemMultiSelectMode,
-                                    isSelected = isSelected,
-                                    showDragHandle = !isItemMultiSelectMode,
-                                    dragHandleModifier = if (!isItemMultiSelectMode) {
-                                        Modifier.longPressDraggableHandle(
-                                            onDragStarted = { itemDragInProgress = true },
-                                            onDragStopped = {
-                                                itemDragInProgress = false
-                                                viewModel.reorderItems(localActiveItems.map { it.id })
-                                            },
-                                        )
-                                    } else Modifier,
-                                    onToggle = { viewModel.toggleChecked(item) },
-                                    onDelete = { viewModel.deleteItem(item) },
-                                    onEdit = { editingItem = item },
-                                    onToggleFavourite = { viewModel.toggleFavourite(item) },
-                                    onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                                    onSelectToggle = { viewModel.toggleItemSelection(item.id) },
-                                )
+                            // Crossing a group boundary or starting a drag changes the row colour.
+                            // Animating it keeps the placement feedback continuous instead of
+                            // snapping the highlight on at the exact crossing frame.
+                            val rowColor by animateColorAsState(
+                                when {
+                                    item.id == dragDestinationGroupId ->
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    isDragging -> MaterialTheme.colorScheme.surfaceVariant
+                                    else -> MaterialTheme.colorScheme.surface
+                                },
+                                label = "item_drag_color",
+                            )
+                            val owningId = owningRowId(activeGroups, item.id)
+                            val isChild = owningId != null && owningId != item.id
+                            val rowIndex = localActiveItems.indexOfFirst { it.id == item.id }
+                            val precedingRow = localActiveItems.getOrNull(rowIndex - 1)
+                            val depthGesturesEnabled = hierarchyEditingEnabled && !itemDragInProgress
+                            Surface(
+                                color = rowColor,
+                                shadowElevation = elevation,
+                            ) {
+                                // The child indent is part of the row's painted surface, so the
+                                // indented strip shows the row colour instead of the layer behind
+                                // it, and it still sits outside the swipe box so the reveal hint
+                                // only covers the row content.
+                                Box(
+                                    modifier = Modifier
+                                        .background(rowColor)
+                                        .then(
+                                            if (isChild) Modifier.padding(start = 24.dp) else Modifier,
+                                        ),
+                                ) {
+                                    SwipeToChangeDepthRow(
+                                        handleGesturesEnabled = depthGesturesEnabled,
+                                        canMakeSubItem = depthGesturesEnabled &&
+                                            canMakeSubItemRow(localActiveItems, activeGroups, item.id),
+                                        canMoveToTopLevel = depthGesturesEnabled &&
+                                            canMoveToTopLevelRow(activeGroups, item.id),
+                                        onMakeSubItem = {
+                                            precedingRow?.let {
+                                                viewModel.makeSubItem(
+                                                    visibleRowIds = localActiveItems.map(ListItemEntity::id),
+                                                    item = item,
+                                                    precedingRow = it,
+                                                )
+                                            }
+                                        },
+                                        onMoveToTopLevel = {
+                                            viewModel.moveToTopLevel(
+                                                visibleRowIds = localActiveItems.map(ListItemEntity::id),
+                                                item = item,
+                                            )
+                                        },
+                                    ) { handleGestureModifier ->
+                                        ListItemRow(
+                                            item = item,
+                                            isMultiSelectMode = isItemMultiSelectMode,
+                                            isSelected = item.id in selectedItemIds,
+                                            showDragHandle = hierarchyEditingEnabled,
+                                            containerColor = rowColor,
+                                        dragHandleModifier = if (hierarchyEditingEnabled) {
+                                            // The axis detector is outer, so it sees the gesture
+                                            // first and can consume a horizontal one before the
+                                            // reorderable drag handle claims it.
+                                            handleGestureModifier.draggableHandle(
+                                                onDragStarted = {
+                                                    itemDragInProgress = true
+                                                    dragSourceId = item.id
+                                                    dragDestinationGroupId = null
+                                                    dragStartOrder = localActiveItems.map { it.id }
+                                                },
+                                                onDragStopped = {
+                                                    itemDragInProgress = false
+                                                    val source = dragSourceId
+                                                    val ordered = localActiveItems.map { it.id }
+                                                    // A drag that ends where it started must not write
+                                                    // placements or switch the list to Manual.
+                                                    if (source != null && ordered != dragStartOrder) {
+                                                        viewModel.moveItemFromDrag(
+                                                            orderedRowIds = ordered,
+                                                            draggedId = source,
+                                                        )
+                                                    }
+                                                    dragSourceId = null
+                                                    dragDestinationGroupId = null
+                                                    dragStartOrder = emptyList()
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onToggle = { viewModel.toggleChecked(item) },
+                                        onEdit = { editingItem = item },
+                                        onToggleFavourite = { viewModel.toggleFavourite(item) },
+                                        onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                                        onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                    )
+                                }
+                                }
                             }
-                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 88.dp else 64.dp))
                         }
                     }
 
@@ -542,8 +700,7 @@ fun ListItemsScreen(
                                     Icon(
                                         if (completedExpanded) Icons.Default.ExpandLess
                                         else Icons.Default.ExpandMore,
-                                        contentDescription = if (completedExpanded) "Collapse"
-                                        else "Expand",
+                                        contentDescription = if (completedExpanded) "Collapse" else "Expand",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
@@ -552,22 +709,41 @@ fun ListItemsScreen(
                         }
                     }
 
-                    // Completed items (collapsible) — no drag handle for completed items
+                    // Completed groups (collapsible); child rows retain their parent context.
                     if (completedExpanded) {
-                        items(filteredCompleted, key = { "done_${it.id}" }) { item ->
-                            val isSelected = item.id in selectedItemIds
+                        items(completedGroups, key = { "done_group_${it.parent.id}" }) { group ->
                             ListItemRow(
-                                item = item,
+                                item = group.parent,
                                 isMultiSelectMode = isItemMultiSelectMode,
-                                isSelected = isSelected,
+                                isSelected = group.parent.id in selectedItemIds,
                                 showDragHandle = false,
-                                onToggle = { viewModel.toggleChecked(item) },
-                                onDelete = { viewModel.deleteItem(item) },
-                                onEdit = { editingItem = item },
-                                onToggleFavourite = { viewModel.toggleFavourite(item) },
-                                onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                                onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                onToggle = { viewModel.toggleChecked(group.parent) },
+                                onEdit = { editingItem = group.parent },
+                                onToggleFavourite = { viewModel.toggleFavourite(group.parent) },
+                                onLongClick = { viewModel.enterItemMultiSelect(group.parent.id) },
+                                onSelectToggle = { viewModel.toggleItemSelection(group.parent.id) },
                             )
+                            group.children.forEach { child ->
+                                // Same shape as the active list: the indent is painted with the
+                                // row colour so it cannot expose the background behind the row.
+                                Box(
+                                    modifier = Modifier
+                                        .background(ListItemDefaults.containerColor)
+                                        .padding(start = 24.dp),
+                                ) {
+                                    ListItemRow(
+                                        item = child,
+                                        isMultiSelectMode = isItemMultiSelectMode,
+                                        isSelected = child.id in selectedItemIds,
+                                        showDragHandle = false,
+                                        onToggle = { viewModel.toggleChecked(child) },
+                                        onEdit = { editingItem = child },
+                                        onToggleFavourite = { viewModel.toggleFavourite(child) },
+                                        onLongClick = { viewModel.enterItemMultiSelect(child.id) },
+                                        onSelectToggle = { viewModel.toggleItemSelection(child.id) },
+                                    )
+                                }
+                            }
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                         }
                     }
@@ -614,7 +790,6 @@ fun ListItemsScreen(
             onDismiss = { showAddDialog = false },
         )
     }
-
     // ── Bulk delete dialog ───────────────────────────────────────────────────────────────────────
     if (showItemBulkDeleteDialog) {
         val count = selectedItemIds.size
@@ -635,6 +810,197 @@ fun ListItemsScreen(
             },
         )
     }
+
+}
+
+/**
+ * The reveal behind a hierarchy depth gesture. It names the depth change and uses the neutral
+ * secondary hierarchy treatment, so it cannot be mistaken for the archive/dismiss gesture.
+ */
+@Composable
+internal fun HierarchySwipeReveal(indenting: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 20.dp)
+            .testTag(if (indenting) "hierarchy_make_sub_item_reveal" else "hierarchy_move_to_top_level_reveal"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (indenting) Arrangement.Start else Arrangement.End,
+    ) {
+        Icon(
+            imageVector = if (indenting) Icons.AutoMirrored.Filled.FormatIndentIncrease
+            else Icons.AutoMirrored.Filled.FormatIndentDecrease,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = if (indenting) "Make sub-item" else "Move to top level",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/** Horizontal distance a move-handle gesture must cover before it commits to a depth change. */
+private val HANDLE_DEPTH_COMMIT_DISTANCE = 48.dp
+
+/**
+ * Owns every horizontal depth gesture for one row, whichever surface started it.
+ *
+ * The row body uses the Material [SwipeToDismissBox]; the leading move handle drives the same reveal
+ * through [rememberDepthHandleGesture], so a gesture only ever has one owner and the feedback words
+ * are identical.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToChangeDepthRow(
+    handleGesturesEnabled: Boolean,
+    canMakeSubItem: Boolean,
+    canMoveToTopLevel: Boolean,
+    onMakeSubItem: () -> Unit,
+    onMoveToTopLevel: () -> Unit,
+    content: @Composable (handleGestureModifier: Modifier) -> Unit,
+) {
+    // The dismiss state is remembered for the row's lifetime, so the callbacks it captures would
+    // otherwise stay frozen at first composition and a row could never change direction again.
+    val makeSubItemAction by rememberUpdatedState(onMakeSubItem)
+    val moveToTopLevelAction by rememberUpdatedState(onMoveToTopLevel)
+    val makeSubItemEnabled by rememberUpdatedState(canMakeSubItem)
+    val moveToTopLevelEnabled by rememberUpdatedState(canMoveToTopLevel)
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> if (makeSubItemEnabled) makeSubItemAction()
+                SwipeToDismissBoxValue.EndToStart -> if (moveToTopLevelEnabled) moveToTopLevelAction()
+                else -> Unit
+            }
+            false
+        },
+        // A hierarchy gesture is a nudge, not a full-width dismissal swipe.
+        positionalThreshold = { distance -> distance * DEPTH_GESTURE_COMMIT_FRACTION },
+    )
+
+    // Live horizontal offset of a move-handle gesture, so the handle shows the same reveal while
+    // the finger is still down instead of acting invisibly.
+    var handleDragX by remember { mutableFloatStateOf(0f) }
+    // A handle sits near the leading edge, so a fraction-of-row threshold is unreachable leftward.
+    // The commit distance is a fixed nudge instead; the axis lock already stops accidental intent.
+    val commitDistancePx = with(LocalDensity.current) { HANDLE_DEPTH_COMMIT_DISTANCE.toPx() }
+
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = canMakeSubItem,
+        enableDismissFromEndToStart = canMoveToTopLevel,
+        backgroundContent = {
+            HierarchySwipeReveal(
+                indenting = handleDragX > 0f ||
+                    state.dismissDirection == SwipeToDismissBoxValue.StartToEnd,
+            )
+        },
+        content = {
+            Box(
+                modifier = Modifier.offset { IntOffset(handleDragX.roundToInt(), 0) },
+            ) {
+                val handleGesture = rememberDepthHandleGesture(
+                    enabled = handleGesturesEnabled,
+                    canMakeSubItem = canMakeSubItem,
+                    canMoveToTopLevel = canMoveToTopLevel,
+                    onDelta = { delta -> handleDragX += delta },
+                    onCommit = { permitted ->
+                        handleDragX = 0f
+                        when {
+                            permitted > 0f && isDepthCommitReached(permitted, commitDistancePx) &&
+                                makeSubItemEnabled -> makeSubItemAction()
+                            permitted < 0f && isDepthCommitReached(permitted, commitDistancePx) &&
+                                moveToTopLevelEnabled -> moveToTopLevelAction()
+                        }
+                    },
+                )
+                content(handleGesture)
+            }
+        },
+    )
+}
+
+/**
+ * Suspends until [state] publishes a new layout, so a reorder callback cannot return while the
+ * reorderable library is still compensating against the pre-move layout.
+ */
+private suspend fun awaitLayoutChange(state: LazyListState) {
+    val before = state.layoutInfo
+    withTimeoutOrNull(250) {
+        snapshotFlow { state.layoutInfo }.first { it !== before }
+    }
+}
+
+/**
+ * Classifies a move-handle gesture by its dominant axis and takes ownership of it when the axis is
+ * horizontal.
+ *
+ * Touch slop decides the intent, and it is locked for the rest of the gesture. A vertical intent
+ * consumes nothing, so the reorderable drag handle underneath still receives the same events and
+ * performs the vertical reorder.
+ *
+ * The modifier itself never changes once composed. Enabling and disabling, and the callbacks, are
+ * read through [rememberUpdatedState] so a drag that is already in flight cannot have its handle
+ * removed from the modifier chain — that would cancel the reorder mid-gesture.
+ */
+@Composable
+private fun rememberDepthHandleGesture(
+    enabled: Boolean,
+    canMakeSubItem: Boolean,
+    canMoveToTopLevel: Boolean,
+    onDelta: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
+): Modifier {
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentCanMakeSubItem by rememberUpdatedState(canMakeSubItem)
+    val currentCanMoveToTopLevel by rememberUpdatedState(canMoveToTopLevel)
+    val currentOnDelta by rememberUpdatedState(onDelta)
+    val currentOnCommit by rememberUpdatedState(onCommit)
+    return remember {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var totalX = 0f
+                var totalY = 0f
+                // Cumulative displacement this row is permitted to show, so a reversal retracts.
+                var depthX = 0f
+                var axis = MoveAxis.Undecided
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null || !change.pressed) break
+                    val delta = change.position - change.previousPosition
+                    totalX += delta.x
+                    totalY += delta.y
+                    if (axis == MoveAxis.Undecided) {
+                        if (!currentEnabled) break
+                        axis = moveAxisFor(totalX, totalY, viewConfiguration.touchSlop)
+                    }
+                    when (axis) {
+                        MoveAxis.Horizontal -> {
+                            val permitted = permittedDepthDisplacement(
+                                totalX,
+                                currentCanMakeSubItem,
+                                currentCanMoveToTopLevel,
+                            )
+                            if (permitted != depthX) {
+                                currentOnDelta(permitted - depthX)
+                                depthX = permitted
+                            }
+                            change.consume()
+                        }
+                        MoveAxis.Vertical -> break
+                        MoveAxis.Undecided -> Unit
+                    }
+                }
+                if (axis == MoveAxis.Horizontal && depthX != 0f) currentOnCommit(depthX)
+            }
+        }
+    }
 }
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
@@ -643,20 +1009,31 @@ fun ListItemsScreen(
 @Composable
 private fun ListItemRow(
     item: ListItemEntity,
+    dragHandleModifier: Modifier = Modifier,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
-    dragHandleModifier: Modifier = Modifier,
+    /** Colour the row paints itself with. The caller passes the animated row colour so a drag or
+     *  destination highlight stays visible. */
+    containerColor: Color = ListItemDefaults.containerColor,
     onToggle: () -> Unit,
-    onDelete: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
     onLongClick: () -> Unit = {},
     onSelectToggle: () -> Unit = {},
 ) {
-    ListItem(
+    // An explicit Row rather than M3 ListItem: the ListItem slots add fixed 16.dp start, leading
+    // and trailing padding on top of the mandatory 48.dp handle, checkbox and star targets, and
+    // that reservation was squeezing the item text. Spacing here is one 8.dp step, all three
+    // targets are untouched, and the text column takes every remaining pixel.
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            // The row paints itself, edge to edge, exactly as M3 ListItem did before this row was
+            // laid out explicitly. Without it the always-composed SwipeToDismissBox background
+            // (the "Make sub-item" / "Move to top level" reveal) shows through every idle row, and
+            // a child indent applied outside the row would expose a strip of it too.
+            .background(containerColor)
             .combinedClickable(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
@@ -664,62 +1041,34 @@ private fun ListItemRow(
                 onLongClick = {
                     if (!isMultiSelectMode) onLongClick()
                 },
-            ),
-        headlineContent = {
-            Text(
-                text = item.text,
-                style = if (item.checked) {
-                    MaterialTheme.typography.bodyLarge.copy(
-                        textDecoration = TextDecoration.LineThrough,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    MaterialTheme.typography.bodyLarge
-                },
             )
-        },
-        supportingContent = {
-            Column {
-                val dueAtMs = item.dueAt
-                if (dueAtMs != null) {
-                    val overdue = isOverdue(dueAtMs, item.checked)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.Event,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 2.dp),
-                            tint = if (overdue) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = formatDueDate(dueAtMs),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (overdue) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                        if (item.notificationTime != null) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                Icons.Default.Notifications,
-                                contentDescription = "Notification set",
-                                modifier = Modifier.padding(end = 2.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showDragHandle) {
+            // The handle owns its whole gesture surface, and it carries vertical reorder plus both
+            // horizontal depth gestures, so it keeps a 48.dp target around the 24.dp icon.
+            // Absorbing the long press stops the row's multi-select click from winning on it.
+            Box(
+                modifier = dragHandleModifier
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { /* absorb */ })
                     }
-                }
-                Text(
-                    text = formatTimestamp(item),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    .size(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    // A four-way icon, because the handle owns vertical reorder and the
+                    // horizontal make-sub-item / move-to-top-level gestures.
+                    Icons.Default.OpenWith,
+                    contentDescription = "Move item",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        },
-        leadingContent = {
+        }
+        // The checkbox keeps its full 48.dp target: the tick stays a comfortable tap away from
+        // the handle and from the text.
+        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             if (isMultiSelectMode) {
                 Checkbox(
                     checked = isSelected,
@@ -731,50 +1080,90 @@ private fun ListItemRow(
                     onCheckedChange = { onToggle() },
                 )
             }
-        },
-        trailingContent = if (isMultiSelectMode) {
-            if (item.isFavourite) {
-                {
-                    IconButton(onClick = {}) {
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp),
+        ) {
+            Text(
+                text = item.text,
+                style = if (item.checked) {
+                    MaterialTheme.typography.bodyLarge.copy(
+                        textDecoration = TextDecoration.LineThrough,
+                    )
+                } else {
+                    MaterialTheme.typography.bodyLarge
+                },
+                color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            val dueAtMs = item.dueAt
+            if (dueAtMs != null) {
+                val overdue = isOverdue(dueAtMs, item.checked)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Event,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 2.dp),
+                        tint = if (overdue) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = formatDueDate(dueAtMs),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (overdue) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    if (item.notificationTime != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Icon(
-                            Icons.Default.Star,
-                            contentDescription = "Favourited",
-                            tint = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-                }
-            } else null
-        } else {
-            {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (showDragHandle) {
-                        Icon(
-                            Icons.Default.DragHandle,
-                            contentDescription = "Drag to reorder",
-                            modifier = dragHandleModifier.padding(8.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = onToggleFavourite) {
-                        Icon(
-                            imageVector = if (item.isFavourite) Icons.Default.Star
-                            else Icons.Default.StarBorder,
-                            contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
-                            tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete item",
-                            tint = MaterialTheme.colorScheme.error,
+                            Icons.Default.Notifications,
+                            contentDescription = "Notification set",
+                            modifier = Modifier.padding(end = 2.dp),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
             }
-        },
-    )
+            Text(
+                text = formatTimestamp(item),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        // The star is the entire trailing column, so the text keeps every remaining pixel and the
+        // star never moves with the text length. Deletion stays in the long-press multi-select
+        // toolbar. The 8.dp gap keeps the text about 20.dp clear of the star glyph while the star
+        // itself keeps its full 48.dp target.
+        if (isMultiSelectMode) {
+            if (item.isFavourite) {
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = {}) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = "Favourited",
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onToggleFavourite) {
+                Icon(
+                    imageVector = if (item.isFavourite) Icons.Default.Star
+                    else Icons.Default.StarBorder,
+                    contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
+                    tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 // ── Edit bottom sheet ─────────────────────────────────────────────────────────────────────────────
