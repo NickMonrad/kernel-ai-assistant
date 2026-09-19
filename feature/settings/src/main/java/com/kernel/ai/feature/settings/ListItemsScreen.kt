@@ -103,6 +103,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -600,12 +601,16 @@ fun ListItemsScreen(
                                 color = rowColor,
                                 shadowElevation = elevation,
                             ) {
-                                // The child indent sits outside the swipe surface so the row keeps
-                                // its full background and the swipe hint never shows through.
+                                // The child indent is part of the row's painted surface, so the
+                                // indented strip shows the row colour instead of the layer behind
+                                // it, and it still sits outside the swipe box so the reveal hint
+                                // only covers the row content.
                                 Box(
-                                    modifier = Modifier.then(
-                                        if (isChild) Modifier.padding(start = 24.dp) else Modifier,
-                                    ),
+                                    modifier = Modifier
+                                        .background(rowColor)
+                                        .then(
+                                            if (isChild) Modifier.padding(start = 24.dp) else Modifier,
+                                        ),
                                 ) {
                                     SwipeToChangeDepthRow(
                                         handleGesturesEnabled = depthGesturesEnabled,
@@ -634,6 +639,7 @@ fun ListItemsScreen(
                                             isMultiSelectMode = isItemMultiSelectMode,
                                             isSelected = item.id in selectedItemIds,
                                             showDragHandle = hierarchyEditingEnabled,
+                                            containerColor = rowColor,
                                         dragHandleModifier = if (hierarchyEditingEnabled) {
                                             // The axis detector is outer, so it sees the gesture
                                             // first and can consume a horizontal one before the
@@ -718,7 +724,13 @@ fun ListItemsScreen(
                                 onSelectToggle = { viewModel.toggleItemSelection(group.parent.id) },
                             )
                             group.children.forEach { child ->
-                                Box(modifier = Modifier.padding(start = 24.dp)) {
+                                // Same shape as the active list: the indent is painted with the
+                                // row colour so it cannot expose the background behind the row.
+                                Box(
+                                    modifier = Modifier
+                                        .background(ListItemDefaults.containerColor)
+                                        .padding(start = 24.dp),
+                                ) {
                                     ListItemRow(
                                         item = child,
                                         isMultiSelectMode = isItemMultiSelectMode,
@@ -1001,6 +1013,9 @@ private fun ListItemRow(
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
     showDragHandle: Boolean = false,
+    /** Colour the row paints itself with. The caller passes the animated row colour so a drag or
+     *  destination highlight stays visible. */
+    containerColor: Color = ListItemDefaults.containerColor,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
@@ -1014,11 +1029,11 @@ private fun ListItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // The row paints the list-item container colour itself. M3 ListItem did this for us
-            // before this row was laid out explicitly, and without it the always-composed
-            // SwipeToDismissBox background (the "Make sub-item" / "Move to top level" reveal)
-            // shows through every idle row.
-            .background(ListItemDefaults.containerColor)
+            // The row paints itself, edge to edge, exactly as M3 ListItem did before this row was
+            // laid out explicitly. Without it the always-composed SwipeToDismissBox background
+            // (the "Make sub-item" / "Move to top level" reveal) shows through every idle row, and
+            // a child indent applied outside the row would expose a strip of it too.
+            .background(containerColor)
             .combinedClickable(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
