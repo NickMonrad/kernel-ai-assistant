@@ -59,8 +59,14 @@ class NextcloudSyncAdapter @Inject constructor(
         NextcloudCalDavClient(credentials, transport).discover()
     }
 
+    suspend fun testConnection(credentials: NextcloudAccountCredentials): Result<NextcloudDiscovery> =
+        runCatching { NextcloudCalDavClient(credentials, transport).discover() }
+
     suspend fun discoverCollections(): Result<List<NextcloudCalendarCollection>> =
         testConnection().map { it.collections }
+
+    suspend fun discoverCollections(credentials: NextcloudAccountCredentials): Result<List<NextcloudCalendarCollection>> =
+        testConnection(credentials).map { it.collections }
 
     suspend fun importCollection(collection: NextcloudCalendarCollection): Result<Long> = guarded {
         val existingBinding = collectionBindings.getByRemoteHref(collection.href)

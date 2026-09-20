@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.nextcloud.NextcloudAccount
+import com.kernel.ai.core.memory.nextcloud.NextcloudAccountCredentials
 import com.kernel.ai.core.memory.nextcloud.NextcloudCalendarCollection
 import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
@@ -49,20 +51,41 @@ class NextcloudSettingsViewModel @Inject constructor(
     fun connect() {
         val current = _state.value
         val stored = adapter.account()
+        val normalizedServerUrl = current.serverUrl.trim().removeSuffix("/")
+        val normalizedUsername = current.username.trim()
         val canUseStoredCredentials = current.appPassword.isBlank() &&
-            stored?.serverUrl == current.serverUrl.trim().removeSuffix("/") &&
-            stored.username == current.username.trim()
+            stored?.serverUrl == normalizedServerUrl &&
+            stored.username == normalizedUsername
         if (current.serverUrl.isBlank() || current.username.isBlank() ||
             (current.appPassword.isBlank() && !canUseStoredCredentials)
         ) {
             _state.value = current.copy(message = "Enter the server URL, username, and app password.")
             return
         }
+        val transientCredentials = if (canUseStoredCredentials) {
+            null
+        } else {
+            NextcloudAccountCredentials(
+                account = NextcloudAccount(normalizedServerUrl, normalizedUsername),
+                appPassword = current.appPassword,
+            )
+        }
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, message = null)
-            if (!canUseStoredCredentials) adapter.saveAccount(current.serverUrl, current.username, current.appPassword)
-            adapter.discoverCollections().fold(
+            val discovery = if (transientCredentials == null) {
+                adapter.discoverCollections()
+            } else {
+                adapter.discoverCollections(transientCredentials)
+            }
+            discovery.fold(
                 onSuccess = { collections ->
+                    transientCredentials?.let { credentials ->
+                        adapter.saveAccount(
+                            credentials.account.serverUrl,
+                            credentials.account.username,
+                            credentials.appPassword,
+                        )
+                    }
                     _state.value = _state.value.copy(
                         collections = collections,
                         appPassword = "",
