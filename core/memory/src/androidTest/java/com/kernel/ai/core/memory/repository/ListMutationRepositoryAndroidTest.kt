@@ -972,6 +972,42 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `restoring an unchecked child reopens its checked parent and records the transition`() = runBlocking {
+        val listId = repository.createCollection("Restore completion")
+        val parentId = repository.addItem(listId, "Parent")
+        val doneId = repository.addItem(listId, "Done child")
+        val openId = repository.addItem(listId, "Open child")
+        val parent = database.listItemDao().getById(parentId)!!
+        val open = database.listItemDao().getById(openId)!!
+        repository.setItemPlacement(doneId, parent.itemId, "1")
+        repository.setItemPlacement(openId, parent.itemId, "2")
+        repository.setItemChecked(doneId, true)
+        assertFalse(database.listItemDao().getById(parentId)!!.checked)
+
+        val deleteMutation = repository.deleteItem(openId)
+
+        assertEquals(setOf(parentId), deleteMutation.checkedIds)
+        assertTrue(database.listItemDao().getById(parentId)!!.checked)
+        val changesBeforeRestore = repository.pendingChanges().size
+
+        val restoreMutation = repository.restoreItem(openId)
+        val restored = database.listItemDao().getById(openId)!!
+        val restoredParent = database.listItemDao().getById(parentId)!!
+
+        assertEquals(open.itemId, restored.itemId)
+        assertEquals(ListLifecycle.ACTIVE.name, restored.lifecycle)
+        assertFalse(restored.checked)
+        assertFalse(restoredParent.checked)
+        assertEquals(setOf(parentId), restoreMutation.uncheckedIds)
+        val emitted = repository.pendingChanges().drop(changesBeforeRestore)
+        assertEquals(2, emitted.size)
+        assertEquals(ListChangeOperation.RESTORE_ITEM, emitted.first().operation)
+        assertEquals(ListChangeOperation.SET_ITEM_CHECKED, emitted.last().operation)
+        assertEquals(parent.itemId, emitted.last().targetId)
+        assertEquals(false, emitted.last().payload.checked)
+    }
+
+    @Test
     fun `moving an item under an existing child is rejected atomically`() = runBlocking {
         val listId = repository.createCollection("Validation")
         val parentId = repository.addItem(listId, "Parent")
