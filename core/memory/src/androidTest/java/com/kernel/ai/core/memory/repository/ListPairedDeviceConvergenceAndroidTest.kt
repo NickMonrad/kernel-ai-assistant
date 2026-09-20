@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListPackageExchange
+import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -169,6 +170,7 @@ class ListPairedDeviceConvergenceAndroidTest {
 
         first.repository.moveItem(firstChildId, parentStableId, "1")
         first.repository.moveItem(secondChildId, parentStableId, "2")
+        first.repository.moveItem(survivingChildId, parentStableId, "3")
         sendChanges(first, second, first.repository.pendingChanges())
         assertEquals(
             effectiveHierarchy(first, firstListId),
@@ -177,7 +179,7 @@ class ListPairedDeviceConvergenceAndroidTest {
         second.repository.moveItem(
             requireNotNull(second.database.listItemDao().getByItemId(secondChildStableId)).id,
             parentStableId,
-            "3",
+            "4",
         )
         sendChanges(second, first, second.repository.pendingChanges())
         assertEquals(
@@ -195,16 +197,26 @@ class ListPairedDeviceConvergenceAndroidTest {
         first.repository.moveToTopLevel(firstChildId)
         sendChanges(first, second, first.repository.pendingChanges())
 
-        // Delete the parent; the remaining child must be promoted rather than deleted.
+        // Delete the parent while the surviving child is still its active child.
         first.repository.deleteItem(parentId)
         sendChanges(first, second, first.repository.pendingChanges())
 
         val firstHierarchy = effectiveHierarchy(first, firstListId)
         val secondHierarchy = effectiveHierarchy(second, secondListId)
+        val firstSurvivor = requireNotNull(first.database.listItemDao().getByItemId(survivingChildStableId))
+        val secondSurvivor = requireNotNull(second.database.listItemDao().getByItemId(survivingChildStableId))
+        val firstDestination = requireNotNull(first.database.listItemDao().getByItemId(destinationStableId))
+        val firstOrder = orderedActiveItemIds(first, firstListId)
+        val secondOrder = orderedActiveItemIds(second, secondListId)
+
         assertEquals(firstHierarchy, secondHierarchy)
         assertFalse(firstHierarchy.containsKey(firstChildStableId))
         assertEquals(destinationStableId, firstHierarchy[secondChildStableId])
         assertFalse(firstHierarchy.containsKey(survivingChildStableId))
+        assertEquals(null, firstSurvivor.parentItemId)
+        assertEquals(null, secondSurvivor.parentItemId)
+        assertTrue(OrderKey.compare(firstSurvivor.orderKey, firstDestination.orderKey) < 0)
+        assertEquals(firstOrder, secondOrder)
         assertEquals(sharedState(first, firstListId), sharedState(second, secondListId))
     }
 
@@ -335,6 +347,35 @@ class ListPairedDeviceConvergenceAndroidTest {
         )
     }
 
+    private suspend fun orderedActiveItemIds(peer: Peer, listId: Long): List<String> {
+        val active = peer.database.listItemDao().getAllByListAnyLifecycle(listId)
+            .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val hierarchy = EffectiveHierarchyNormalizer.derive(
+            active.map {
+                HierarchyItem(
+                    itemId = it.itemId,
+                    parentItemId = it.parentItemId,
+                    orderKey = it.orderKey,
+                    placementStamp = VersionStamp(it.placementLogicalClock, it.placementStampActorId),
+                )
+            },
+        )
+        val childrenByParent = hierarchy.parentByChild.entries.groupBy(
+            keySelector = { it.value },
+            valueTransform = { it.key },
+        ).mapValues { (_, children) ->
+            children.sortedWith { left, right ->
+                val leftItem = active.first { it.itemId == left }
+                val rightItem = active.first { it.itemId == right }
+                OrderKey.compare(leftItem.orderKey, rightItem.orderKey)
+                    .takeIf { it != 0 }
+                    ?: left.compareTo(right)
+            }
+        }
+        return hierarchy.topLevelItemIds.flatMap { parent ->
+            listOf(parent) + childrenByParent[parent].orEmpty()
+        }
+    }
     private suspend fun effectiveHierarchy(peer: Peer, listId: Long): Map<String, String> =
         EffectiveHierarchyNormalizer.derive(
             peer.database.listItemDao().getAllByListAnyLifecycle(listId).map {
