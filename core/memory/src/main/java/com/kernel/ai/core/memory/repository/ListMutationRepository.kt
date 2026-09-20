@@ -501,6 +501,22 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteItem(itemId: Long): CheckedStateMutation = deleteItems(listOf(itemId))
+    /** Explicitly restores a tombstoned item without changing its stable identity. */
+    suspend fun restoreItem(itemId: Long) = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle != ListLifecycle.DELETED.name) return@withTransaction
+        val stamp = nextStamp(item.collectionId)
+        listItemDao.upsert(
+            item.copy(
+                lifecycle = ListLifecycle.ACTIVE.name,
+                updatedAt = System.currentTimeMillis(),
+                lifecycleLogicalClock = stamp.logicalClock,
+                lifecycleStampActorId = stamp.actorId,
+            ),
+        )
+        touchList(item.listId)
+        recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.RESTORE_ITEM)
+    }
 
     /**
      * Deletes [itemIds], promoting surviving children of a deleted parent.
