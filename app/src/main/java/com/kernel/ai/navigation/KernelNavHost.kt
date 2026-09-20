@@ -72,6 +72,7 @@ import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
+import com.kernel.ai.feature.settings.NextcloudSettingsScreen
 import com.kernel.ai.feature.settings.MealPlansScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
@@ -106,6 +107,7 @@ internal const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 internal const val ROUTE_SIDE_PANEL = "settings/side_panel"
 internal const val ROUTE_CLOCK_SETTINGS = "settings/clock_settings"
+private const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
 internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
@@ -645,11 +647,19 @@ fun KernelNavHost(
                         onNavigateToAppPermissions = {
                             navController.navigate(ROUTE_APP_PERMISSIONS)
                         },
+                        onNavigateToNextcloud = {
+                            navController.navigate(ROUTE_NEXTCLOUD_SETTINGS)
+                        },
                         onNavigateToClockSettings = {
                             navController.navigate(ROUTE_CLOCK_SETTINGS) {
                                 launchSingleTop = true
                             }
                         },
+                    )
+                }
+                composable(ROUTE_NEXTCLOUD_SETTINGS) {
+                    NextcloudSettingsScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 

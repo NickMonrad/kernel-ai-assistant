@@ -15,6 +15,8 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
+import com.kernel.ai.core.memory.dao.NextcloudItemBindingDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
 import com.kernel.ai.core.memory.dao.ListActorStateDao
@@ -35,6 +37,10 @@ import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.dao.NoteDao
+import com.kernel.ai.core.memory.nextcloud.CalDavTransport
+import com.kernel.ai.core.memory.nextcloud.NextcloudCredentialStore
+import com.kernel.ai.core.memory.nextcloud.NextcloudAccountStore
+import com.kernel.ai.core.memory.nextcloud.OkHttpCalDavTransport
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
@@ -67,6 +73,14 @@ abstract class MemoryModule {
     @Binds
     @Singleton
     abstract fun bindClockRepository(impl: ClockRepositoryImpl): ClockRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudTransport(impl: OkHttpCalDavTransport): CalDavTransport
+
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudCredentialStore(impl: NextcloudAccountStore): NextcloudCredentialStore
 
     @Binds
     @Singleton
@@ -127,6 +141,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_49_50,
                     KernelDatabase.MIGRATION_50_51,
                     KernelDatabase.MIGRATION_51_52,
+                    KernelDatabase.MIGRATION_52_53,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default; enable it per connection.
@@ -182,6 +197,13 @@ abstract class MemoryModule {
 
         @Provides
         fun provideListNameDao(db: KernelDatabase): ListNameDao = db.listNameDao()
+        @Provides
+        fun provideNextcloudCollectionBindingDao(db: KernelDatabase): NextcloudCollectionBindingDao =
+            db.nextcloudCollectionBindingDao()
+
+        @Provides
+        fun provideNextcloudItemBindingDao(db: KernelDatabase): NextcloudItemBindingDao =
+            db.nextcloudItemBindingDao()
         @Provides
         fun provideListActorStateDao(db: KernelDatabase): ListActorStateDao = db.listActorStateDao()
 

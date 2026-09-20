@@ -50,6 +50,9 @@ interface ListChangeDao {
     @Query("SELECT * FROM list_changes WHERE isPending = 1 ORDER BY logicalClock ASC")
     suspend fun getPending(): List<ListChangeEntity>
 
+    @Query("SELECT COUNT(*) FROM list_changes WHERE isPending = 1")
+    fun observePendingCount(): kotlinx.coroutines.flow.Flow<Int>
+
     @Query("SELECT * FROM list_changes WHERE changeId = :changeId LIMIT 1")
     suspend fun getById(changeId: String): ListChangeEntity?
     @Query("UPDATE list_changes SET isPending = 0 WHERE changeId IN (:changeIds)")

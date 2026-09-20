@@ -18,6 +18,7 @@ import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.worker.ArchiveCleanupWorker
 import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
 import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
+import com.kernel.ai.core.memory.worker.NextcloudSyncScheduler
 import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggable
 import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
@@ -43,6 +44,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
+    @Inject lateinit var nextcloudSyncScheduler: NextcloudSyncScheduler
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
 
     override val workManagerConfiguration: Configuration
@@ -80,10 +82,12 @@ class KernelAIApplication : Application(), Configuration.Provider {
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiresBatteryNotLow(true)
-                        .build()
+                        .build(),
                 )
                 .build(),
         )
+        nextcloudSyncScheduler.enqueuePeriodic()
+        nextcloudSyncScheduler.enqueueNow()
         // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
         // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
         // coroutine scope is intentional here (Application lifecycle = process lifetime).

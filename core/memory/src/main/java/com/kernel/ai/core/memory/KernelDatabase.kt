@@ -15,6 +15,8 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
+import com.kernel.ai.core.memory.dao.NextcloudItemBindingDao
 import com.kernel.ai.core.memory.dao.RecentShortcutDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ListCheckpointDao
@@ -46,6 +48,8 @@ import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity
+import com.kernel.ai.core.memory.entity.NextcloudItemBindingEntity
 import com.kernel.ai.core.memory.entity.ListCheckpointEntity
 import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
@@ -88,6 +92,8 @@ import java.time.ZoneId
         StopwatchStateEntity::class,
         StopwatchLapEntity::class,
         ContactAliasEntity::class,
+        NextcloudCollectionBindingEntity::class,
+        NextcloudItemBindingEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
         ListCheckpointEntity::class,
@@ -108,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 52,
+    version = 53,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -130,6 +136,8 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun importantDateDao(): ImportantDateDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
+    abstract fun nextcloudCollectionBindingDao(): NextcloudCollectionBindingDao
+    abstract fun nextcloudItemBindingDao(): NextcloudItemBindingDao
     abstract fun listCheckpointDao(): ListCheckpointDao
     abstract fun listActorStateDao(): ListActorStateDao
     abstract fun listAppliedChangeDao(): ListAppliedChangeDao
@@ -962,6 +970,47 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_changes_isPending` ON `list_changes` (`isPending`)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS `list_applied_changes` (`changeId` TEXT NOT NULL, `collectionId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `sourceSequence` INTEGER NOT NULL, PRIMARY KEY(`changeId`))")
                 db.execSQL("CREATE TABLE IF NOT EXISTS `list_source_sequences` (`actorId` TEXT NOT NULL, `collectionId` TEXT NOT NULL, `sourceSequence` INTEGER NOT NULL, PRIMARY KEY(`actorId`, `collectionId`))")
+            }
+        }
+        /** Adds provider metadata for explicit Nextcloud collection/item bindings (#1539). */
+        val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `nextcloud_collection_bindings` (
+                        `collectionId` TEXT NOT NULL PRIMARY KEY,
+                        `remoteHref` TEXT NOT NULL,
+                        `remoteTitle` TEXT NOT NULL,
+                        `remoteEtag` TEXT,
+                        `remoteLogicalClock` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_nextcloud_collection_bindings_remoteHref` ON `nextcloud_collection_bindings` (`remoteHref`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `nextcloud_item_bindings` (
+                        `itemId` TEXT NOT NULL PRIMARY KEY,
+                        `collectionId` TEXT NOT NULL,
+                        `remoteUid` TEXT NOT NULL,
+                        `remoteHref` TEXT NOT NULL,
+                        `etag` TEXT,
+                        `rawVtodo` TEXT NOT NULL,
+                        `remoteLogicalClock` INTEGER NOT NULL,
+                        `deletedRemotely` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_nextcloud_item_bindings_collectionId` ON `nextcloud_item_bindings` (`collectionId`)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_nextcloud_item_bindings_collectionId_remoteUid` ON `nextcloud_item_bindings` (`collectionId`, `remoteUid`)",
+                )
             }
         }
     }
