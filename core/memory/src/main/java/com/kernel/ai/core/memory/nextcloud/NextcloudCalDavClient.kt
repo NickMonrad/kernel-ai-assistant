@@ -1,5 +1,6 @@
 package com.kernel.ai.core.memory.nextcloud
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
@@ -10,9 +11,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 import java.io.ByteArrayInputStream
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.net.URI
+import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.SSLException
 import javax.xml.parsers.DocumentBuilderFactory
 
 private const val DAV_NS = "DAV:"
@@ -21,11 +28,29 @@ private const val CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
 sealed class NextcloudFailure(
     val code: Code,
     override val message: String,
-) : Exception(message) {
-    enum class Code { INVALID_ACCOUNT, AUTHENTICATION, DISCOVERY, MALFORMED_RESPONSE, NETWORK, CONFLICT, SERVER }
+    cause: Throwable? = null,
+) : Exception(message, cause) {
+    enum class Code {
+        INVALID_ACCOUNT,
+        INVALID_URL,
+        AUTHENTICATION,
+        DISCOVERY,
+        MALFORMED_RESPONSE,
+        DNS,
+        CONNECTION,
+        TIMEOUT,
+        TLS,
+        NETWORK,
+        CONFLICT,
+        SERVER,
+    }
 }
 
-class NextcloudConnectionException(code: NextcloudFailure.Code, message: String) : NextcloudFailure(code, message)
+class NextcloudConnectionException(
+    code: NextcloudFailure.Code,
+    message: String,
+    cause: Throwable? = null,
+) : NextcloudFailure(code, message, cause)
 class NextcloudConflictException(message: String = "Nextcloud changed this task while it was being edited") :
     NextcloudFailure(NextcloudFailure.Code.CONFLICT, message)
 
@@ -63,10 +88,18 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
 
     override suspend fun execute(method: String, url: String, headers: Map<String, String>, body: String?): CalDavResponse =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(url).method(
-                method,
-                body?.toRequestBody("application/xml; charset=utf-8".toMediaType()),
-            ).apply { headers.forEach { (key, value) -> header(key, value) } }.build()
+            val request = try {
+                Request.Builder().url(url).method(
+                    method,
+                    body?.toRequestBody("application/xml; charset=utf-8".toMediaType()),
+                ).apply { headers.forEach { (key, value) -> header(key, value) } }.build()
+            } catch (error: IllegalArgumentException) {
+                throw NextcloudConnectionException(
+                    NextcloudFailure.Code.INVALID_URL,
+                    "The Nextcloud server URL is invalid. Enter a valid URL.",
+                    error,
+                )
+            }
             try {
                 client.newCall(request).execute().use { response ->
                     CalDavResponse(
@@ -76,13 +109,41 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
                         finalUrl = response.request.url.toString(),
                     )
                 }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                throw NextcloudConnectionException(
-                    NextcloudFailure.Code.NETWORK,
-                    "Could not reach Nextcloud. Check the server URL and network connection.",
-                )
+                throw classifyTransportFailure(error)
             }
         }
+
+    internal companion object {
+        fun classifyTransportFailure(error: Exception): NextcloudConnectionException {
+            val (code, message) = when {
+                hasCause(error) { it is UnknownHostException } -> NextcloudFailure.Code.DNS to
+                    "Could not find the Nextcloud server. Check the server URL and network connection."
+                hasCause(error) { it is SocketTimeoutException } -> NextcloudFailure.Code.TIMEOUT to
+                    "The Nextcloud connection timed out. Check the server and network connection."
+                hasCause(error) {
+                    it is ConnectException || it is NoRouteToHostException || it is SocketException
+                } -> NextcloudFailure.Code.CONNECTION to
+                    "Could not connect to Nextcloud. Check that the server is reachable."
+                hasCause(error) { it is SSLException } -> NextcloudFailure.Code.TLS to
+                    "Could not establish a secure connection to Nextcloud. Check the server certificate."
+                else -> NextcloudFailure.Code.NETWORK to
+                    "Could not reach Nextcloud. Check the server URL and network connection."
+            }
+            return NextcloudConnectionException(code, message, error)
+        }
+
+        private fun hasCause(error: Throwable, predicate: (Throwable) -> Boolean): Boolean {
+            var current: Throwable? = error
+            while (current != null) {
+                if (predicate(current)) return true
+                current = current.cause
+            }
+            return false
+        }
+    }
 }
 
 /** Standard CalDAV discovery plus the VTODO operations needed by Jandal Lists. */

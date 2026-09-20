@@ -5,12 +5,15 @@ import com.kernel.ai.core.memory.nextcloud.CalDavResponse
 import com.kernel.ai.core.memory.nextcloud.CalDavTransport
 import com.kernel.ai.core.memory.nextcloud.NextcloudAccount
 import com.kernel.ai.core.memory.nextcloud.NextcloudAccountCredentials
+import com.kernel.ai.core.memory.nextcloud.NextcloudConnectionException
 import com.kernel.ai.core.memory.nextcloud.NextcloudCredentialStore
+import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import io.mockk.clearAllMocks
 import io.mockk.every
-import java.util.Base64
 import io.mockk.mockk
+import java.net.UnknownHostException
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -21,6 +24,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -76,6 +80,24 @@ class NextcloudSettingsViewModelTest {
         )
     }
 
+    @Test
+    fun `settings surfaces a safe mapped transport failure`() = runTest {
+        val store = FakeCredentialStore()
+        val failure = NextcloudConnectionException(
+            NextcloudFailure.Code.DNS,
+            "Could not find the Nextcloud server. Check the server URL and network connection.",
+            UnknownHostException("private.example"),
+        )
+        val viewModel = viewModel(store, FakeTransport(failure = failure))
+            .configured("https://cloud.example", "alice", "fixture-app-password")
+
+        viewModel.connect()
+        advanceUntilIdle()
+
+        assertEquals(NextcloudFailure.Code.DNS, failure.code)
+        assertEquals(failure.message, viewModel.state.value.message)
+        assertFalse(viewModel.state.value.message!!.contains("private.example"))
+    }
     @Test
     fun `failed replacement preserves the previous saved account`() = runTest {
         val previous = NextcloudAccountCredentials(
@@ -162,6 +184,7 @@ class NextcloudSettingsViewModelTest {
 
     private class FakeTransport(
         private val failureStatus: Int? = null,
+        private val failure: Throwable? = null,
     ) : CalDavTransport {
         var lastAuthorization: String? = null
         override suspend fun execute(
@@ -171,6 +194,7 @@ class NextcloudSettingsViewModelTest {
             body: String?,
         ): CalDavResponse {
             lastAuthorization = headers["Authorization"]
+            failure?.let { throw it }
             if (failureStatus != null) {
                 return CalDavResponse(failureStatus, emptyMap(), "", url)
             }

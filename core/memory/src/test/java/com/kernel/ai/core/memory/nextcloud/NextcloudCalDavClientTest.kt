@@ -1,7 +1,14 @@
 package com.kernel.ai.core.memory.nextcloud
 
 import kotlinx.coroutines.test.runTest
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -35,6 +42,38 @@ class NextcloudCalDavClientTest {
         assertEquals(listOf("Work"), discovery.collections.map { it.displayName })
         assertTrue(transport.requests.all { it.headers["Authorization"]?.startsWith("Basic ") == true })
     }
+
+    @Test
+    fun `transport failures map to safe categories and preserve causes`() {
+        val cases = listOf(
+            SSLHandshakeException("private.example") to NextcloudFailure.Code.TLS,
+            UnknownHostException("private.example") to NextcloudFailure.Code.DNS,
+            ConnectException("private.example") to NextcloudFailure.Code.CONNECTION,
+            SocketException("private.example") to NextcloudFailure.Code.CONNECTION,
+            SocketTimeoutException("private.example") to NextcloudFailure.Code.TIMEOUT,
+        )
+
+        cases.forEach { (cause, expectedCode) ->
+            val failure = OkHttpCalDavTransport.classifyTransportFailure(cause)
+
+            assertEquals(expectedCode, failure.code)
+            assertSame(cause, failure.cause)
+            assertFalse(failure.message.contains("private.example"))
+        }
+    }
+
+    @Test
+    fun `malformed URL is classified without exposing the invalid value`() = runTest {
+        val error = runCatching {
+            OkHttpCalDavTransport().execute("GET", "not a URL", emptyMap())
+        }.exceptionOrNull()
+
+        assertTrue(error is NextcloudConnectionException)
+        assertEquals(NextcloudFailure.Code.INVALID_URL, (error as NextcloudConnectionException).code)
+        assertTrue(error.cause is IllegalArgumentException)
+        assertFalse(error.message.contains("not a URL"))
+    }
+
 
     @Test
     fun `conditional write surfaces conflicts`() = runTest {
@@ -78,6 +117,35 @@ class NextcloudCalDavClientTest {
         assertEquals(NextcloudFailure.Code.AUTHENTICATION, (error as NextcloudConnectionException).code)
         assertTrue(!error.message.contains("secret-password"))
     }
+
+    @Test
+    fun `forbidden discovery response remains an authentication failure`() = runTest {
+        val transport = FakeTransport(
+            mapOf("GET https://cloud.example/.well-known/caldav" to CalDavResponse(403, emptyMap(), "", "")),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport).discover()
+        }.exceptionOrNull()
+
+        assertTrue(error is NextcloudConnectionException)
+        assertEquals(NextcloudFailure.Code.AUTHENTICATION, (error as NextcloudConnectionException).code)
+    }
+
+    @Test
+    fun `server discovery response remains a server failure`() = runTest {
+        val transport = FakeTransport(
+            mapOf("GET https://cloud.example/.well-known/caldav" to CalDavResponse(503, emptyMap(), "", "")),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport).discover()
+        }.exceptionOrNull()
+
+        assertTrue(error is NextcloudConnectionException)
+        assertEquals(NextcloudFailure.Code.SERVER, (error as NextcloudConnectionException).code)
+    }
+
 
     private fun credentials() = NextcloudAccountCredentials(NextcloudAccount("https://cloud.example", "alice"), "secret-password")
 

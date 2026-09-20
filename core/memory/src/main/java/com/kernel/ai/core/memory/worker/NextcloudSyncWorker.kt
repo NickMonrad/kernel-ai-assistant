@@ -42,7 +42,10 @@ class NextcloudSyncWorker @AssistedInject constructor(
         when (val result = adapter.syncAll()) {
             is NextcloudSyncResult.Success -> Result.success()
             is NextcloudSyncResult.Failure -> when (result.error.code) {
+                NextcloudFailure.Code.DNS,
                 NextcloudFailure.Code.NETWORK,
+                NextcloudFailure.Code.CONNECTION,
+                NextcloudFailure.Code.TIMEOUT,
                 NextcloudFailure.Code.SERVER,
                 NextcloudFailure.Code.CONFLICT,
                 -> Result.retry()
