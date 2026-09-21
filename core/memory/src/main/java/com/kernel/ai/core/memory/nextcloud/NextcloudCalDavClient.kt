@@ -8,8 +8,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.Node
+import org.xml.sax.SAXException
 import java.io.ByteArrayInputStream
 import java.net.ConnectException
 import java.net.NoRouteToHostException
@@ -22,6 +24,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLException
 import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.ParserConfigurationException
 
 private const val DAV_NS = "DAV:"
 private const val CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
@@ -319,15 +322,7 @@ class NextcloudCalDavClient(
     private fun parseMultistatus(response: CalDavResponse): MultiStatus {
         if (response.status !in 200..299 && response.status != 207) throw serverFailure(response.status)
         try {
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                isNamespaceAware = true
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                isXIncludeAware = false
-                isExpandEntityReferences = false
-            }
-            val document = factory.newDocumentBuilder().parse(ByteArrayInputStream(response.body.toByteArray()))
+            val document = parseSecureXml(response.body)
             val nodes = document.getElementsByTagNameNS(DAV_NS, "response")
             return MultiStatus((0 until nodes.length).map { index ->
                 val element = nodes.item(index) as Element
@@ -368,3 +363,34 @@ class NextcloudCalDavClient(
 private fun Node.elements(localName: String): List<Element> = (0 until childNodes.length)
     .mapNotNull { childNodes.item(it) as? Element }
     .filter { (it.localName ?: it.nodeName.substringAfter(':')) == localName }
+
+internal fun parseSecureXml(body: String): Document {
+    if (body.contains("<!DOCTYPE", ignoreCase = true)) {
+        throw SAXException("DOCTYPE is not permitted")
+    }
+    val factory = DocumentBuilderFactory.newInstance().apply {
+        isNamespaceAware = true
+        trySetFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        trySetFeature("http://xml.org/sax/features/external-general-entities", false)
+        trySetFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        try {
+            isXIncludeAware = false
+        } catch (_: UnsupportedOperationException) {
+            // Android's XML implementation does not expose XInclude configuration.
+        }
+        try {
+            isExpandEntityReferences = false
+        } catch (_: UnsupportedOperationException) {
+            // Android's XML implementation does not expose entity expansion configuration.
+        }
+    }
+    return factory.newDocumentBuilder().parse(ByteArrayInputStream(body.toByteArray()))
+}
+
+private fun DocumentBuilderFactory.trySetFeature(feature: String, value: Boolean) {
+    try {
+        setFeature(feature, value)
+    } catch (_: ParserConfigurationException) {
+        // Android's XML implementation rejects these JVM-oriented feature URIs.
+    }
+}
