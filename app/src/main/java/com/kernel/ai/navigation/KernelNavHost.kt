@@ -107,7 +107,7 @@ internal const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 internal const val ROUTE_SIDE_PANEL = "settings/side_panel"
 internal const val ROUTE_CLOCK_SETTINGS = "settings/clock_settings"
-private const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
+internal const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
 internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
@@ -828,6 +828,11 @@ fun KernelNavHost(
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
                                 popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onNavigateToNextcloud = {
+                            navController.navigate(ROUTE_NEXTCLOUD_SETTINGS) {
                                 launchSingleTop = true
                             }
                         },

@@ -5,6 +5,7 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.net.UnknownServiceException
 import javax.net.ssl.SSLHandshakeException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -60,6 +61,20 @@ class NextcloudCalDavClientTest {
             assertSame(cause, failure.cause)
             assertFalse(failure.message.contains("private.example"))
         }
+    }
+
+    @Test
+    fun `cleartext redirect failures use an actionable message and preserve cause`() {
+        val cause = UnknownServiceException("cleartext redirect")
+
+        val failure = OkHttpCalDavTransport.classifyTransportFailure(cause)
+
+        assertEquals(NextcloudFailure.Code.INSECURE_REDIRECT, failure.code)
+        assertEquals(
+            "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS.",
+            failure.message,
+        )
+        assertSame(cause, failure.cause)
     }
 
     @Test

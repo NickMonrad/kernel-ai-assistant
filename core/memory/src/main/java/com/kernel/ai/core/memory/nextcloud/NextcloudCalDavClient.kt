@@ -17,6 +17,7 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
+import java.net.UnknownServiceException
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLException
@@ -41,6 +42,7 @@ sealed class NextcloudFailure(
         TIMEOUT,
         TLS,
         NETWORK,
+        INSECURE_REDIRECT,
         CONFLICT,
         SERVER,
     }
@@ -127,6 +129,8 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
                     it is ConnectException || it is NoRouteToHostException || it is SocketException
                 } -> NextcloudFailure.Code.CONNECTION to
                     "Could not connect to Nextcloud. Check that the server is reachable."
+                hasCause(error) { it is UnknownServiceException } -> NextcloudFailure.Code.INSECURE_REDIRECT to
+                    "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS."
                 hasCause(error) { it is SSLException } -> NextcloudFailure.Code.TLS to
                     "Could not establish a secure connection to Nextcloud. Check the server certificate."
                 else -> NextcloudFailure.Code.NETWORK to

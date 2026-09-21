@@ -10,6 +10,10 @@ class KernelNavHostRouteTest {
     }
 
     @Test
+    fun `Lists Nextcloud entry targets existing settings destination`() {
+        assertEquals("settings/nextcloud", ROUTE_NEXTCLOUD_SETTINGS)
+    }
+    @Test
     fun `buildChatRoute encodes initial query and flags`() {
         assertEquals(
             "chat?initialQuery=plan%20meals%20%26%20snacks&minimalContext=true&speakResponse=true",

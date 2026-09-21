@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -89,6 +90,7 @@ fun ListsScreen(
     onBack: () -> Unit = {},
     onOpenList: (Long) -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    onNavigateToNextcloud: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
@@ -233,6 +235,12 @@ fun ListsScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = onNavigateToNextcloud,
+                            modifier = Modifier.testTag("lists_nextcloud_tasks"),
+                        ) {
+                            Icon(Icons.Default.Cloud, contentDescription = "Nextcloud Tasks")
+                        }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
