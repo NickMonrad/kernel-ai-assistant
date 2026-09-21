@@ -112,10 +112,10 @@ class NextcloudCalDavClientTest {
             client.putTask("https://cloud.example/tasks/1.ics", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", "etag-1")
         }.exceptionOrNull()
         assertTrue(error is NextcloudConflictException)
-        assertEquals("etag-1", transport.requests.single().headers["If-Match"])
+        assertEquals("\"etag-1\"", transport.requests.single().headers["If-Match"])
     }
     @Test
-    fun `new task uses create precondition and reads case insensitive etag`() = runTest {
+    fun `new task preserves the server etag and uses create precondition`() = runTest {
         val transport = FakeTransport(
             mapOf(
                 "PUT https://cloud.example/tasks/new.ics" to
@@ -124,7 +124,7 @@ class NextcloudCalDavClientTest {
         )
         val client = NextcloudCalDavClient(credentials(), transport)
         assertEquals(
-            "new-etag",
+            "\"new-etag\"",
             client.putTask("https://cloud.example/tasks/new.ics", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", null),
         )
         assertEquals("*", transport.requests.single().headers["If-None-Match"])
@@ -143,6 +143,25 @@ class NextcloudCalDavClientTest {
         assertTrue(error is NextcloudConnectionException)
         assertEquals(NextcloudFailure.Code.AUTHENTICATION, (error as NextcloudConnectionException).code)
         assertTrue(!error.message.contains("secret-password"))
+    }
+
+    @Test
+    fun `forbidden task write is reported as a permission failure`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "PUT https://cloud.example/tasks/1.ics" to
+                    CalDavResponse(403, emptyMap(), "private response", "https://cloud.example/tasks/1.ics"),
+            ),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport)
+                .putTask("https://cloud.example/tasks/1.ics", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", "\"etag-1\"")
+        }.exceptionOrNull()
+
+        assertTrue(error is NextcloudConnectionException)
+        assertEquals(NextcloudFailure.Code.PERMISSION, (error as NextcloudConnectionException).code)
+        assertFalse(error.message.contains("private response"))
     }
 
     @Test

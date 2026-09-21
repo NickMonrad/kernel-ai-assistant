@@ -38,6 +38,7 @@ sealed class NextcloudFailure(
         INVALID_ACCOUNT,
         INVALID_URL,
         AUTHENTICATION,
+        PERMISSION,
         DISCOVERY,
         MALFORMED_RESPONSE,
         DNS,
@@ -230,7 +231,7 @@ class NextcloudCalDavClient(
             runCatching {
                 RemoteVTodo(
                     href = resolve(collectionHref, item.href ?: error("VTODO response has no href")),
-                    etag = item.firstText("getetag")?.trim('"'),
+                    etag = item.firstText("getetag"),
                     document = VTodoDocument.parse(data),
                 )
             }.getOrElse { throw malformed("Nextcloud returned an invalid VTODO") }
@@ -243,21 +244,24 @@ class NextcloudCalDavClient(
             url = href,
             headers = authHeaders() + mapOf(
                 "Content-Type" to "text/calendar; charset=utf-8",
-                "If-Match" to etag.orEmpty(),
+                "If-Match" to etag?.let(::etagForHeader).orEmpty(),
                 "If-None-Match" to if (etag == null) "*" else "",
             ).filterValues { it.isNotEmpty() },
             body = calendarData,
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
         if (response.status == 412 || response.status == 409) throw NextcloudConflictException()
         if (response.status !in 200..299) throw serverFailure(response.status)
-        return response.headers.entries.firstOrNull { it.key.equals("etag", ignoreCase = true) }?.value?.trim('"')
+        return response.headers.entries.firstOrNull { it.key.equals("etag", ignoreCase = true) }?.value?.trim()
     }
 
     suspend fun deleteTask(href: String, etag: String?): Boolean {
         val response = request(
             method = "DELETE",
             url = href,
-            headers = authHeaders() + mapOf("If-Match" to etag.orEmpty()).filterValues { it.isNotEmpty() },
+            headers = authHeaders() + mapOf("If-Match" to etag?.let(::etagForHeader).orEmpty())
+                .filterValues { it.isNotEmpty() },
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
         if (response.status == 404) return false
         if (response.status == 412 || response.status == 409) throw NextcloudConflictException()
@@ -277,8 +281,8 @@ class NextcloudCalDavClient(
                     <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
                 </d:prop></c:mkcalendar>
             """.trimIndent(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
-        if (response.status == 401 || response.status == 403) throw authenticationFailure()
         if (response.status !in 200..299 && response.status != 201) throw serverFailure(response.status)
         return NextcloudCalendarCollection(href, title)
     }
@@ -287,9 +291,26 @@ class NextcloudCalDavClient(
         request("PROPFIND", url, authHeaders() + mapOf("Depth" to depth, "Content-Type" to "application/xml; charset=utf-8"), body),
     )
 
-    private suspend fun request(method: String, url: String, headers: Map<String, String>, body: String? = null): CalDavResponse {
+    private enum class ForbiddenResponse {
+        AUTHENTICATION,
+        PERMISSION,
+    }
+
+    private suspend fun request(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: String? = null,
+        forbiddenResponse: ForbiddenResponse = ForbiddenResponse.AUTHENTICATION,
+    ): CalDavResponse {
         val response = transport.execute(method, url, headers, body)
-        if (response.status == 401 || response.status == 403) throw authenticationFailure()
+        if (response.status == 401) throw authenticationFailure()
+        if (response.status == 403) {
+            throw when (forbiddenResponse) {
+                ForbiddenResponse.AUTHENTICATION -> authenticationFailure()
+                ForbiddenResponse.PERMISSION -> permissionFailure()
+            }
+        }
         return response
     }
 
@@ -302,6 +323,20 @@ class NextcloudCalDavClient(
         NextcloudFailure.Code.AUTHENTICATION,
         "Nextcloud rejected the credentials. Use a valid app password and username.",
     )
+
+    private fun permissionFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        "Nextcloud denied write access to this task collection. Check its permissions and try again.",
+    )
+
+    private fun etagForHeader(etag: String): String {
+        val value = etag.trim()
+        return if (value == "*" || value.startsWith("\"") || value.startsWith("W/\"")) {
+            value
+        } else {
+            "\"$value\""
+        }
+    }
 
     private fun serverFailure(status: Int) = NextcloudConnectionException(
         if (status >= 500) NextcloudFailure.Code.SERVER else NextcloudFailure.Code.DISCOVERY,

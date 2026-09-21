@@ -145,10 +145,24 @@ class NextcloudSyncAdapter @Inject constructor(
     suspend fun syncAll(): NextcloudSyncResult = guardedResult {
         val client = client()
         var changed = false
+        var failure: NextcloudFailure? = null
         collectionBindings.getAll().forEach { binding ->
-            changed = syncBoundCollection(client, binding) || changed
+            try {
+                changed = syncBoundCollection(client, binding) || changed
+            } catch (error: NextcloudFailure) {
+                if (failure == null) failure = error
+            } catch (error: Exception) {
+                if (failure == null) {
+                    failure = NextcloudConnectionException(
+                        NextcloudFailure.Code.NETWORK,
+                        "Nextcloud sync could not complete. Try again when the server is reachable.",
+                        error,
+                    )
+                }
+            }
         }
-        NextcloudSyncResult.Success(changed)
+        val firstFailure = failure
+        if (firstFailure != null) NextcloudSyncResult.Failure(firstFailure) else NextcloudSyncResult.Success(changed)
     }
 
     suspend fun syncCollection(collectionId: String): NextcloudSyncResult = guardedResult {
@@ -163,6 +177,13 @@ class NextcloudSyncAdapter @Inject constructor(
             } catch (_: NextcloudConflictException) {
                 pullCollection(client, original)
                 pushCollection(client, original.collectionId, original)
+            } catch (error: NextcloudConnectionException) {
+                if (error.code != NextcloudFailure.Code.PERMISSION) throw error
+                // A read-only collection must still pull remote changes. Keep the original
+                // permission failure so the caller reports it and pending local changes remain
+                // retryable after the server-side permission is restored.
+                pullCollection(client, original)
+                throw error
             }
             val pulled = pullCollection(client, collectionBindings.get(original.collectionId) ?: original)
             val latest = collectionBindings.get(original.collectionId) ?: original
