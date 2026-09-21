@@ -16,6 +16,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -61,6 +62,37 @@ class NextcloudSyncAdapterTest {
             fixture.mutations.acknowledgePushed(listOf("writable-change"))
         }
         assertTrue("writable" in transport.reportedCollections)
+    }
+
+    @Test
+    fun `syncAll propagates cancellation and skips later bindings`() = runTest {
+        val first = binding("writable")
+        val later = binding("readonly")
+        val bindings = linkedMapOf(first.collectionId to first, later.collectionId to later)
+        val itemBindings = linkedMapOf(
+            first.collectionId to itemBinding(first.collectionId, "writable-item"),
+            later.collectionId to itemBinding(later.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(
+            first.collectionId to list(first.collectionId),
+            later.collectionId to list(later.collectionId),
+        )
+        val rows = mapOf(
+            first.collectionId to listItem(first.collectionId, "writable-item"),
+            later.collectionId to listItem(later.collectionId, "readonly-item"),
+        )
+        val transport = RecordingTransport(cancelOnReportCollection = first.collectionId)
+        val fixture = adapter(bindings, itemBindings, lists, rows, emptyList(), transport)
+
+        var cancellation: CancellationException? = null
+        try {
+            fixture.adapter.syncAll()
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+
+        assertEquals("cancelled", cancellation?.message)
+        assertEquals(setOf(first.collectionId), transport.reportedCollections)
     }
 
     private data class Fixture(
@@ -169,7 +201,9 @@ class NextcloudSyncAdapterTest {
         itemId = "$collectionId-item",
         collectionId = collectionId,
     )
-    private class RecordingTransport : CalDavTransport {
+    private class RecordingTransport(
+        private val cancelOnReportCollection: String? = null,
+    ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
 
         override suspend fun execute(
@@ -204,6 +238,9 @@ class NextcloudSyncAdapterTest {
                     )
                 method == "REPORT" -> {
                     reportedCollections += collection
+                    if (collection == cancelOnReportCollection) {
+                        throw CancellationException("cancelled")
+                    }
                     val uid = "$collection-item"
                     response(
                         """

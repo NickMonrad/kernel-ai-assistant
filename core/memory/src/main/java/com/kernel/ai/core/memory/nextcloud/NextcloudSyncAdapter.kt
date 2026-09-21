@@ -13,6 +13,7 @@ import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.lists.SharedItemSnapshot
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.URI
@@ -149,6 +150,8 @@ class NextcloudSyncAdapter @Inject constructor(
         collectionBindings.getAll().forEach { binding ->
             try {
                 changed = syncBoundCollection(client, binding) || changed
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: NextcloudFailure) {
                 if (failure == null) failure = error
             } catch (error: Exception) {
@@ -333,7 +336,11 @@ class NextcloudSyncAdapter @Inject constructor(
     private suspend fun <T> guarded(block: suspend () -> T): Result<T> = runCatching { block() }
 
     private suspend fun guardedResult(block: suspend () -> NextcloudSyncResult): NextcloudSyncResult =
-        runCatching { block() }.getOrElse { error ->
+        try {
+            block()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             NextcloudSyncResult.Failure(
                 error as? NextcloudFailure ?: NextcloudConnectionException(
                     NextcloudFailure.Code.NETWORK,
