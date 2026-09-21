@@ -129,7 +129,10 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
                     it is ConnectException || it is NoRouteToHostException || it is SocketException
                 } -> NextcloudFailure.Code.CONNECTION to
                     "Could not connect to Nextcloud. Check that the server is reachable."
-                hasCause(error) { it is UnknownServiceException } -> NextcloudFailure.Code.INSECURE_REDIRECT to
+                hasCause(error) {
+                    it is UnknownServiceException &&
+                        it.message?.contains("CLEARTEXT", ignoreCase = true) == true
+                } -> NextcloudFailure.Code.INSECURE_REDIRECT to
                     "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS."
                 hasCause(error) { it is SSLException } -> NextcloudFailure.Code.TLS to
                     "Could not establish a secure connection to Nextcloud. Check the server certificate."

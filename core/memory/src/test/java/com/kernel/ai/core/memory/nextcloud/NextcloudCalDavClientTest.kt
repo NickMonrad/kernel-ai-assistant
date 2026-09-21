@@ -65,7 +65,9 @@ class NextcloudCalDavClientTest {
 
     @Test
     fun `cleartext redirect failures use an actionable message and preserve cause`() {
-        val cause = UnknownServiceException("cleartext redirect")
+        val cause = UnknownServiceException(
+            "CLEARTEXT communication to redirect target not permitted by network security policy",
+        )
 
         val failure = OkHttpCalDavTransport.classifyTransportFailure(cause)
 
@@ -74,6 +76,16 @@ class NextcloudCalDavClientTest {
             "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS.",
             failure.message,
         )
+        assertSame(cause, failure.cause)
+    }
+
+    @Test
+    fun `other unknown service failures remain generic network failures`() {
+        val cause = UnknownServiceException("unsupported protocol")
+
+        val failure = OkHttpCalDavTransport.classifyTransportFailure(cause)
+
+        assertEquals(NextcloudFailure.Code.NETWORK, failure.code)
         assertSame(cause, failure.cause)
     }
 
