@@ -198,16 +198,37 @@ fun ListItemsScreen(
     listId: Long,
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> },
+    externalMessage: String? = null,
+    onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
+    val nextcloudStates by viewModel.nextcloudStates.collectAsStateWithLifecycle()
+    val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
 
     // Restores this list's saved sort so reopening never falls back to the default.
     LaunchedEffect(listId) { viewModel.bindItemList(listId) }
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
+    val collectionId = listEntities.firstOrNull { it.id == listId }?.collectionId
+    val nextcloudState = collectionId?.let { nextcloudStates[it] }
+    val nextcloudActions = NextcloudRowActions(
+        state = nextcloudState,
+        onSyncWithNextcloud = {
+            if (nextcloudAccountConfigured) {
+                viewModel.syncListWithNextcloud(listId)
+            } else {
+                onNavigateToNextcloudList(listId, displayName)
+            }
+        },
+        onStopSync = { collectionId?.let(viewModel::stopListNextcloudSync) },
+        onResumeSync = { collectionId?.let(viewModel::resumeListNextcloudSync) },
+        // Opening the bound-list state must never look like a new contextual setup.
+        onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
+    )
     val (activeGroups, completedGroups) = displayedGroups
     val sortedActive = activeGroups.flatMap { listOf(it.parent) + it.children }
     val sortedCompleted = completedGroups.flatMap { listOf(it.parent) + it.children }
@@ -236,6 +257,15 @@ fun ListItemsScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel.nextcloudMessage, externalMessage) {
+        val message = viewModel.nextcloudMessage ?: externalMessage
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearNextcloudMessage()
+            onExternalMessageShown()
+        }
+    }
     // ── Hierarchy editing state (#928) ───────────────────────────────────────────────────────────
     var localActiveItems by remember { mutableStateOf(sortedActive) }
     var itemDragInProgress by remember { mutableStateOf(false) }
@@ -462,7 +492,7 @@ fun ListItemsScreen(
                                 HorizontalDivider()
                                 // ── Share / Copy section ──────────────────────────────────
                                 DropdownMenuItem(
-                                    text = { Text("Share") },
+                                    text = { Text("Share as text") },
                                     onClick = {
                                         showSortMenu = false
                                         coroutineScope.launch {
@@ -488,11 +518,17 @@ fun ListItemsScreen(
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Export encrypted package") },
+                                    text = { Text("Export Jandal file") },
                                     onClick = {
                                         showSortMenu = false
                                         showExportDialog = true
                                     },
+                                    modifier = Modifier.testTag("list_detail_export"),
+                                )
+                                NextcloudOverflowItems(
+                                    actions = nextcloudActions,
+                                    onDismiss = { showSortMenu = false },
+                                    testTagPrefix = "list_detail",
                                 )
                             }
                         }
@@ -823,7 +859,7 @@ fun ListItemsScreen(
     if (showExportDialog) {
         AlertDialog(
             onDismissRequest = { showExportDialog = false },
-            title = { Text("Export encrypted package?") },
+            title = { Text("Export Jandal file?") },
             text = {
                 Text(
                     "Jandal writes an encrypted package for this list that another Jandal app can " +
@@ -838,7 +874,7 @@ fun ListItemsScreen(
                         coroutineScope.launch {
                             runCatching { viewModel.exportPackageIntent(listId) }
                                 .onSuccess {
-                                    context.startActivity(Intent.createChooser(it, "Export shared list"))
+                                    context.startActivity(Intent.createChooser(it, "Export Jandal file"))
                                 }
                                 .onFailure {
                                     snackbarHostState.showSnackbar("Could not export this list")

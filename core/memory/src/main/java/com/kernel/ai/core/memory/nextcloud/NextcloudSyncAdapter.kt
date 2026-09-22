@@ -14,6 +14,10 @@ import com.kernel.ai.core.memory.lists.SharedItemSnapshot
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.URI
@@ -45,12 +49,49 @@ class NextcloudSyncAdapter @Inject constructor(
 ) {
     private val syncMutex = Mutex()
 
+    /** Collection ids with a synchronization in flight, so the UI can show `Syncing…` (#1551). */
+    private val activeSyncs = MutableStateFlow<Set<String>>(emptySet())
+
+    private val accountConfigured = MutableStateFlow(accountStore.read() != null)
+
+    /**
+     * Per-list Nextcloud state, combining persisted binding metadata with the transient in-flight
+     * overlay. Stopped lists keep their binding and report [NextcloudListState.SYNC_OFF]; a recorded
+     * failure reports [NextcloudListState.NEEDS_ATTENTION] until the next successful synchronization.
+     */
+    fun observeListBindings(): Flow<List<NextcloudListBinding>> =
+        combine(collectionBindings.observeSyncSummaries(), activeSyncs) { summaries, active ->
+            summaries.map { summary ->
+                NextcloudListBinding(
+                    collectionId = summary.collectionId,
+                    remoteHref = summary.remoteHref,
+                    state = summary.state(summary.collectionId in active),
+                )
+            }
+        }
+
     fun account(): NextcloudAccount? = accountStore.read()?.account
 
-    fun saveAccount(serverUrl: String, username: String, appPassword: String) =
-        accountStore.save(serverUrl, username, appPassword)
+    /**
+     * Observable "an account is stored" signal. The Lists surfaces use it to decide whether a
+     * per-list sync action can run immediately or must first route through Nextcloud setup.
+     */
+    fun observeAccountConfigured(): StateFlow<Boolean> = accountConfigured
 
-    fun clearAccount() = accountStore.clear()
+    fun saveAccount(
+        serverUrl: String,
+        username: String,
+        appPassword: String,
+        allowInsecureHttp: Boolean = false,
+    ) {
+        accountStore.save(serverUrl, username, appPassword, allowInsecureHttp)
+        accountConfigured.value = true
+    }
+
+    fun clearAccount() {
+        accountStore.clear()
+        accountConfigured.value = false
+    }
 
     suspend fun testConnection(): Result<NextcloudDiscovery> = runCatching {
         val credentials = accountStore.read() ?: throw NextcloudConnectionException(
@@ -126,42 +167,53 @@ class NextcloudSyncAdapter @Inject constructor(
 
     suspend fun publishCollection(listId: Long): Result<Unit> = guarded {
         val list = requireNotNull(listNameDao.getById(listId)) { "Unknown list" }
-        val existingBinding = collectionBindings.get(list.collectionId)
-        val client = client()
-        val binding = existingBinding ?: run {
-            val discovery = client.discover()
-            val collection = client.createCollection(list.canonicalTitle, discovery.calendarHomeHref)
-            NextcloudCollectionBindingEntity(
-                collectionId = list.collectionId,
-                remoteHref = collection.href,
-                remoteTitle = collection.displayName,
-                remoteEtag = null,
-                remoteLogicalClock = 0L,
-                updatedAt = System.currentTimeMillis(),
-            ).also { collectionBindings.upsert(it) }
+        try {
+            val existingBinding = collectionBindings.get(list.collectionId)
+            val client = client()
+            val binding = existingBinding ?: run {
+                val discovery = client.discover()
+                val collection = client.createCollection(list.canonicalTitle, discovery.calendarHomeHref)
+                NextcloudCollectionBindingEntity(
+                    collectionId = list.collectionId,
+                    remoteHref = collection.href,
+                    remoteTitle = collection.displayName,
+                    remoteEtag = null,
+                    remoteLogicalClock = 0L,
+                    updatedAt = System.currentTimeMillis(),
+                    // A list that was just connected participates in automatic synchronization.
+                    syncEnabled = true,
+                ).also { collectionBindings.upsert(it) }
+            }
+            withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
+            recordSuccess(list.collectionId)
+        } catch (error: Exception) {
+            (error as? NextcloudFailure)?.let { recordFailure(list.collectionId, it) }
+            throw error
         }
-        pushCollection(client, list.collectionId, binding)
     }
 
     suspend fun syncAll(): NextcloudSyncResult = guardedResult {
         val client = client()
         var changed = false
         var failure: NextcloudFailure? = null
-        collectionBindings.getAll().forEach { binding ->
+        // A list whose sync was stopped keeps its binding and remote collection but is skipped here.
+        collectionBindings.getAll().filter { it.syncEnabled }.forEach { binding ->
             try {
-                changed = syncBoundCollection(client, binding) || changed
+                changed = withActiveSync(binding.collectionId) { syncBoundCollection(client, binding) } || changed
+                recordSuccess(binding.collectionId)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: NextcloudFailure) {
+                recordFailure(binding.collectionId, error)
                 if (failure == null) failure = error
             } catch (error: Exception) {
-                if (failure == null) {
-                    failure = NextcloudConnectionException(
-                        NextcloudFailure.Code.NETWORK,
-                        "Nextcloud sync could not complete. Try again when the server is reachable.",
-                        error,
-                    )
-                }
+                val mapped = NextcloudConnectionException(
+                    NextcloudFailure.Code.NETWORK,
+                    "Nextcloud sync could not complete. Try again when the server is reachable.",
+                    error,
+                )
+                recordFailure(binding.collectionId, mapped)
+                if (failure == null) failure = mapped
             }
         }
         val firstFailure = failure
@@ -170,7 +222,48 @@ class NextcloudSyncAdapter @Inject constructor(
 
     suspend fun syncCollection(collectionId: String): NextcloudSyncResult = guardedResult {
         val binding = collectionBindings.get(collectionId) ?: return@guardedResult NextcloudSyncResult.Success()
-        NextcloudSyncResult.Success(syncBoundCollection(client(), binding))
+        if (!binding.syncEnabled) return@guardedResult NextcloudSyncResult.Success()
+        try {
+            val changed = withActiveSync(collectionId) { syncBoundCollection(client(), binding) }
+            recordSuccess(collectionId)
+            NextcloudSyncResult.Success(changed)
+        } catch (error: Exception) {
+            (error as? NextcloudFailure)?.let { recordFailure(collectionId, it) }
+            throw error
+        }
+    }
+
+    /**
+     * Stops Nextcloud synchronization for one list only (#1551).
+     *
+     * The local list, its items and the existing remote collection are all preserved; only the
+     * binding's [NextcloudCollectionBindingEntity.syncEnabled] flag changes, so a later
+     * [resumeSync] reuses the same association instead of creating a second remote collection.
+     */
+    suspend fun stopSync(collectionId: String): Boolean {
+        val binding = collectionBindings.get(collectionId) ?: return false
+        if (binding.syncEnabled) {
+            collectionBindings.setSyncEnabled(collectionId, false, System.currentTimeMillis())
+        }
+        return true
+    }
+
+    /**
+     * Resumes synchronization through the retained provider association and reconciles once so the
+     * local and remote copies converge immediately.
+     */
+    suspend fun resumeSync(collectionId: String): NextcloudSyncResult {
+        val binding = collectionBindings.get(collectionId)
+            ?: return NextcloudSyncResult.Failure(
+                NextcloudConnectionException(
+                    NextcloudFailure.Code.INVALID_ACCOUNT,
+                    "This list is no longer connected to Nextcloud.",
+                ),
+            )
+        if (!binding.syncEnabled) {
+            collectionBindings.setSyncEnabled(collectionId, true, System.currentTimeMillis())
+        }
+        return syncCollection(collectionId)
     }
 
     private suspend fun syncBoundCollection(client: NextcloudCalDavClient, original: NextcloudCollectionBindingEntity): Boolean {
@@ -323,6 +416,26 @@ class NextcloudSyncAdapter @Inject constructor(
         updates.forEach { itemBindings.upsert(it) }
         collectionBindings.upsert(binding.copy(remoteTitle = remoteTitle, remoteLogicalClock = revision, updatedAt = System.currentTimeMillis()))
         return snapshots.isNotEmpty()
+    }
+
+    /** Marks a collection as actively synchronizing so the UI can show `Syncing…` (#1551). */
+    private suspend fun <T> withActiveSync(collectionId: String, block: suspend () -> T): T {
+        activeSyncs.value = activeSyncs.value + collectionId
+        return try {
+            block()
+        } finally {
+            activeSyncs.value = activeSyncs.value - collectionId
+        }
+    }
+
+    private suspend fun recordSuccess(collectionId: String) {
+        if (collectionBindings.get(collectionId)?.lastFailureCode != null) {
+            collectionBindings.recordSyncOutcome(collectionId, null, null)
+        }
+    }
+
+    private suspend fun recordFailure(collectionId: String, failure: NextcloudFailure) {
+        collectionBindings.recordSyncOutcome(collectionId, failure.code.name, System.currentTimeMillis())
     }
 
     private suspend fun client(): NextcloudCalDavClient = NextcloudCalDavClient(

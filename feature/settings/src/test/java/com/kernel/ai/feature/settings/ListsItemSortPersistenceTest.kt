@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -117,6 +119,12 @@ class ListsItemSortPersistenceTest {
     @AfterEach
     fun tearDown() = Dispatchers.resetMain()
 
+    /** Nextcloud binding state the Lists surfaces read; inert unless a test overrides it. */
+    private val nextcloudAdapter = mockk<NextcloudSyncAdapter>(relaxed = true).apply {
+        every { observeListBindings() } returns flowOf(emptyList())
+        every { observeAccountConfigured() } returns MutableStateFlow(false)
+    }
+
     private fun viewModelOn(store: DataStore<Preferences>) = ListsViewModel(
         dao,
         listNameDao,
@@ -124,6 +132,7 @@ class ListsItemSortPersistenceTest {
         context,
         listMutations,
         testListsUiPreferences(dispatcher, store),
+        nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
 
     /** Opens [listId] the way the drill-in screen does: a fresh ViewModel bound to that list. */

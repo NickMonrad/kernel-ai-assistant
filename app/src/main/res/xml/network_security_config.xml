@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    #1551: Nextcloud Lists supports an explicit per-account "Use insecure HTTP" opt-in for
+    self-hosted servers that cannot serve HTTPS.
+
+    Android evaluates cleartext policy per host at connect time from this file, and the Nextcloud
+    server host is user-supplied, so there is no static domain list to exempt. Permitting cleartext
+    in the base config is therefore the minimum change that makes the opt-in possible; the account
+    policy itself is enforced in the Nextcloud client, which only ever builds an http:// URL, or
+    follows an HTTPS -> HTTP redirect, for an account whose stored opt-in flag is set.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -7,12 +7,15 @@ import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -44,9 +47,15 @@ class ListsViewModelBroadcastTest {
     @AfterEach
     fun tearDown() { Dispatchers.resetMain() }
 
+    /** Nextcloud binding state the Lists surfaces read; inert unless a test overrides it. */
+    private val nextcloudAdapter = mockk<NextcloudSyncAdapter>(relaxed = true).apply {
+        every { observeListBindings() } returns flowOf(emptyList())
+        every { observeAccountConfigured() } returns MutableStateFlow(false)
+    }
+
     @Test
     fun `broadcasts on item and name mutations, never on initial replay`() {
-        ListsViewModel(dao, listNameDao, scheduler, context, listMutations, testListsUiPreferences(UnconfinedTestDispatcher()))
+        ListsViewModel(dao, listNameDao, scheduler, context, listMutations, testListsUiPreferences(UnconfinedTestDispatcher()), nextcloudAdapter)
             .apply { ioDispatcher = UnconfinedTestDispatcher() }
 
         itemFlow.tryEmit(emptyList())

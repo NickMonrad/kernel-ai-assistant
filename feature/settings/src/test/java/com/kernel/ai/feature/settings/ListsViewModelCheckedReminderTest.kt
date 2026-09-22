@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListPackageImportResult
 import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
 import io.mockk.every
@@ -19,6 +20,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -52,6 +54,12 @@ class ListsViewModelCheckedReminderTest {
      * repository. Binding the test dispatcher keeps that hop inside the test instead of resuming on
      * `Dispatchers.Main` after `resetMain`.
      */
+    /** Nextcloud binding state the Lists surfaces read; inert unless a test overrides it. */
+    private val nextcloudAdapter = mockk<NextcloudSyncAdapter>(relaxed = true).apply {
+        every { observeListBindings() } returns flowOf(emptyList())
+        every { observeAccountConfigured() } returns MutableStateFlow(false)
+    }
+
     private fun testViewModel(preferences: ListsUiPreferences) = ListsViewModel(
         dao,
         listNameDao,
@@ -59,6 +67,7 @@ class ListsViewModelCheckedReminderTest {
         context,
         listMutations,
         preferences,
+        nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
 
     @Test

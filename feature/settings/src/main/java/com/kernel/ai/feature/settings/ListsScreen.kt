@@ -91,11 +91,16 @@ fun ListsScreen(
     onOpenList: (Long) -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     onNavigateToNextcloud: () -> Unit = {},
+    onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> onNavigateToNextcloud() },
+    externalMessage: String? = null,
+    onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val archivedLists by viewModel.archivedLists.collectAsStateWithLifecycle()
+    val nextcloudStates by viewModel.nextcloudStates.collectAsStateWithLifecycle()
+    val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
     val showArchived = viewModel.showArchived
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
@@ -127,6 +132,43 @@ fun ListsScreen(
                         "Home-screen shortcuts aren't supported on this device"
                 }
             )
+        }
+    }
+
+    // ── Per-list Nextcloud lifecycle (#1551) ────────────────────────────────────────────────────
+    // `Sync with Nextcloud` stays available with no account configured: the action opens Nextcloud
+    // setup carrying this list, and setup continues the binding once it succeeds.
+    val handleExportJandalFile: (ListNameEntity) -> Unit = { entity ->
+        scope.launch {
+            runCatching { viewModel.exportPackageIntent(entity.id) }
+                .onSuccess { context.startActivity(Intent.createChooser(it, "Export Jandal file")) }
+                .onFailure { snackbarHostState.showSnackbar("Could not export this list") }
+        }
+    }
+    val nextcloudActionsFor: (ListNameEntity) -> NextcloudRowActions = { entity ->
+        val state = nextcloudStates[entity.collectionId]
+        NextcloudRowActions(
+            state = state,
+            onSyncWithNextcloud = {
+                if (nextcloudAccountConfigured) {
+                    viewModel.syncListWithNextcloud(entity.id)
+                } else {
+                    onNavigateToNextcloudList(entity.id, entity.name)
+                }
+            },
+            onStopSync = { viewModel.stopListNextcloudSync(entity.collectionId) },
+            onResumeSync = { viewModel.resumeListNextcloudSync(entity.collectionId) },
+            // Opening the bound-list state must never look like a new contextual setup.
+            onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
+        )
+    }
+
+    LaunchedEffect(viewModel.nextcloudMessage, externalMessage) {
+        val message = viewModel.nextcloudMessage ?: externalMessage
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearNextcloudMessage()
+            onExternalMessageShown()
         }
     }
 
@@ -256,6 +298,7 @@ fun ListsScreen(
                                 onDismiss = { showSortMenu = false },
                                 onAddShortcut = { handleAddShortcut() },
                                 onImportSharedList = { importPackageLauncher.launch(arrayOf("*/*")) },
+                                onOpenNextcloudLists = { onNavigateToNextcloud() },
                             )
                         }
                     },
@@ -401,6 +444,8 @@ fun ListsScreen(
                                                 snackbarHostState.showSnackbar("List copied to clipboard")
                                             }
                                         },
+                                        onExport = { handleExportJandalFile(entity) },
+                                        nextcloud = nextcloudActionsFor(entity),
                                     )
                                 }
                             }
@@ -467,6 +512,8 @@ fun ListsScreen(
                                                 snackbarHostState.showSnackbar("List copied to clipboard")
                                             }
                                         },
+                                        onExport = { handleExportJandalFile(entity) },
+                                        nextcloud = nextcloudActionsFor(entity),
                                     )
                                 }
                             }
@@ -648,13 +695,14 @@ private fun ListSectionHeader(label: String) {
 /** A single row in the lists overview. Supports multi-select and drag-and-drop. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ListOverviewRow(
+internal fun ListOverviewRow(
     entity: ListNameEntity,
     counts: ListItemCounts,
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
     isArchivedView: Boolean,
     dragHandleModifier: Modifier,
+    nextcloud: NextcloudRowActions,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onPin: () -> Unit,
@@ -664,6 +712,7 @@ private fun ListOverviewRow(
     onRestore: () -> Unit,
     onShare: () -> Unit,
     onCopy: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var showOverflow by remember { mutableStateOf(false) }
 
@@ -685,7 +734,11 @@ private fun ListOverviewRow(
                 counts.completed == 0 -> "${counts.active} active"
                 else -> "${counts.active} active · ${counts.completed} done"
             }
-            Text(label)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label)
+                // Subtle, accessible Nextcloud state; a local-only list renders nothing.
+                NextcloudListIndicator(nextcloud.state)
+            }
         },
         leadingContent = {
             if (isMultiSelectMode) {
@@ -724,38 +777,19 @@ private fun ListOverviewRow(
                         IconButton(onClick = { showOverflow = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More options")
                         }
-                        DropdownMenu(
+                        ListRowOverflowMenu(
                             expanded = showOverflow,
-                            onDismissRequest = { showOverflow = false },
-                        ) {
-                            if (!isArchivedView) {
-                                DropdownMenuItem(
-                                    text = { Text("Rename") },
-                                    onClick = { showOverflow = false; onRename() },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Archive") },
-                                    onClick = { showOverflow = false; onArchive() },
-                                )
-                            } else {
-                                DropdownMenuItem(
-                                    text = { Text("Restore") },
-                                    onClick = { showOverflow = false; onRestore() },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Share") },
-                                onClick = { showOverflow = false; onShare() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Copy to clipboard") },
-                                onClick = { showOverflow = false; onCopy() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                onClick = { showOverflow = false; onDelete() },
-                            )
-                        }
+                            isArchivedView = isArchivedView,
+                            nextcloud = nextcloud,
+                            onRename = onRename,
+                            onArchive = onArchive,
+                            onRestore = onRestore,
+                            onShare = onShare,
+                            onCopy = onCopy,
+                            onExport = onExport,
+                            onDelete = onDelete,
+                            onDismiss = { showOverflow = false },
+                        )
                     }
                 }
                 // Drag handle — only in active view, hidden in archived/multi-select
@@ -790,6 +824,7 @@ private fun SortFilterMenu(
     onDismiss: () -> Unit,
     onAddShortcut: () -> Unit,
     onImportSharedList: () -> Unit,
+    onOpenNextcloudLists: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // ── Archive toggle ──────────────────────────────────────────────────
@@ -882,10 +917,16 @@ private fun SortFilterMenu(
             modifier = Modifier.testTag("lists_add_home_shortcut"),
         )
         DropdownMenuItem(
-            text = { Text("Import shared list") },
+            text = { Text("Import Jandal file") },
             leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
             onClick = { onDismiss(); onImportSharedList() },
             modifier = Modifier.testTag("lists_import_shared_list"),
+        )
+        DropdownMenuItem(
+            text = { Text("Nextcloud lists") },
+            leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+            onClick = { onDismiss(); onOpenNextcloudLists() },
+            modifier = Modifier.testTag("lists_nextcloud_lists"),
         )
     }
 }

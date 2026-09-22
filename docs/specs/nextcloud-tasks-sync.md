@@ -4,24 +4,47 @@ Jandal Lists supports one explicit Nextcloud account through standard CalDAV and
 
 ## Account and discovery
 
-The Settings screen stores the server URL, username, and Nextcloud app password in one
-Keystore-backed encrypted preference record. The password is not logged or included in
-provider metadata. Discovery follows `/.well-known/caldav`, then DAV
-`current-user-principal`, `calendar-home-set`, and calendar collections that advertise
-VTODO support. A connection failure is surfaced as an actionable authentication,
-network, discovery, or malformed-response message.
+The Settings screen stores the server URL, username, Nextcloud app password and the per-account
+insecure-HTTP opt-in in one Keystore-backed encrypted preference record. The password is not logged
+or included in provider metadata, and it is never read back into UI state, so a saved password is
+never redisplayed; credential fields appear only for initial connection or an explicit
+edit/reconnect. An expired credential surfaces an account-level `Reconnect` while local Lists stay
+usable.
+
+The connection form takes a **Nextcloud address**: a bare host, a host plus base path, a host plus
+port, or an explicit URL. HTTPS is always the default and is applied when no scheme is supplied. An
+explicit `http://` address is rejected inline while the unchecked **Use insecure HTTP** option is
+off, and an HTTPS endpoint is never silently downgraded to HTTP without that opt-in; ports and base
+paths survive normalization.
+
+Discovery follows `/.well-known/caldav`, then DAV `current-user-principal`, `calendar-home-set`, and
+calendar collections that advertise VTODO support. A connection failure is surfaced as an actionable
+authentication, network, discovery, or malformed-response message.
 
 ## Bindings and identifiers
 
-Import and publish are explicit, one-to-one operations. Room stores provider metadata
-separately from the stable Jandal collection/item IDs:
+Binding is an explicit, one-to-one operation. Room stores provider metadata separately from the
+stable Jandal collection/item IDs:
 
-- collection href, title, ETag/logical clock;
+- collection href, title, ETag/logical clock, and per-list sync state;
 - item UID, href, ETag, raw VTODO, and remote deletion state.
 
-Importing the same remote collection is idempotent. Imported local names use a
-`(Nextcloud)` display alias while the remote collection title remains canonical. Local
-aliases and other local-only list fields are never sent to Nextcloud.
+Adding an existing remote collection is idempotent. Local names stay the canonical title unless a
+collision with another local list forces a generated alias. A remote collection created by Jandal
+carries the Jandal list title as its visible `displayname`; only the internal href uses a generated
+unique slug, so no implementation identifier can appear in a user-visible list name. Local aliases
+and other local-only list fields are never sent to Nextcloud.
+
+## Per-list sync lifecycle
+
+Synchronization is automatic: local-change triggers, active-app refresh and a WorkManager periodic
+job. The user-facing states for a bound list are `Up to date`, `Syncing…`, `Sync off` and
+`Needs attention`, and a failed list keeps a per-row retry.
+
+**Stop Nextcloud sync** disables synchronization for one list only. The local list, its items, the
+remote collection and the provider association are all retained, so **Resume Nextcloud sync** reuses
+the same association and never creates a second remote collection. Deleting the remote collection is
+not part of stopping sync.
 
 ## VTODO mapping
 
@@ -39,14 +62,14 @@ change-log, and outbox path. Provider writes use ETag `If-Match`; new resources 
 reconciles it through the normal import path, and retries once. Conflicts that remain
 are reported without overwriting either side.
 
-Sync can be started manually from Settings, immediately after pending shared-list
-changes, or by a connected WorkManager periodic job (15 minutes). No hosted relay,
-background production internet service, account system, or billing integration is part
-of this feature.
+Sync can be started manually from the Nextcloud lists screen, immediately after pending shared-list
+changes, or by a connected WorkManager periodic job (15 minutes). No hosted relay, background
+production internet service, account system, or billing integration is part of this feature.
 
 ## Verification
 
 The JVM tests cover VTODO preservation/escaping, CalDAV discovery, authentication
-errors, duplicate-safe response handling, conditional writes, and ETag parsing. A real
-Nextcloud instance with an app password remains an environment-owned interoperability
-gate; CI does not contain provider credentials.
+errors, duplicate-safe response handling, conditional writes, ETag parsing, address
+normalization, the HTTPS-only redirect policy, clean remote display naming, and per-list
+stop/resume. A real Nextcloud instance with an app password remains an environment-owned
+interoperability gate; CI does not contain provider credentials.
