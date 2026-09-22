@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 53,
+    version = 54,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1011,6 +1011,14 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_nextcloud_item_bindings_collectionId_remoteUid` ON `nextcloud_item_bindings` (`collectionId`, `remoteUid`)",
                 )
+            }
+        }
+        /** Adds per-list sync lifecycle state to Nextcloud bindings (#1551). */
+        val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `syncEnabled` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureCode` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureAt` INTEGER DEFAULT NULL")
             }
         }
     }

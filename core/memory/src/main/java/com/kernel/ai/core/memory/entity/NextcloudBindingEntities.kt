@@ -15,6 +15,14 @@ data class NextcloudCollectionBindingEntity(
     val remoteEtag: String?,
     val remoteLogicalClock: Long,
     val updatedAt: Long,
+    /**
+     * Per-list "Stop Nextcloud sync" state (#1551). False keeps the binding, the local list and the
+     * remote collection, and only suspends synchronization for this list.
+     */
+    val syncEnabled: Boolean = true,
+    /** Last sync failure category for this list, or null when the last synchronization succeeded. */
+    val lastFailureCode: String? = null,
+    val lastFailureAt: Long? = null,
 )
 
 /** Provider metadata for one item; local itemId remains the authoritative identity. */

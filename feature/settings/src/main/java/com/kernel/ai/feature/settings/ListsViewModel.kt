@@ -28,6 +28,10 @@ import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
+import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
+import com.kernel.ai.core.memory.nextcloud.NextcloudListState
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +98,7 @@ class ListsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val listMutations: ListMutationRepository,
     private val listsUiPreferences: ListsUiPreferences,
+    private val nextcloud: NextcloudSyncAdapter,
 ) : ViewModel() {
     init {
         // Keep the Lists home-screen widget in sync with in-app list mutations. A single combined
@@ -899,6 +904,11 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    private fun Throwable.safeNextcloudMessage(): String = when (this) {
+        is NextcloudFailure -> message
+        else -> "Sync failed"
+    }
+
     /**
      * Builds a plain-text representation of the list for sharing/copying.
      * Active items (unchecked) appear first with "• " prefix; completed with "✓ ".
@@ -916,6 +926,58 @@ class ListsViewModel @Inject constructor(
             }
         }
         return lines.joinToString("\n")
+    }
+
+    // ── Nextcloud per-list state and lifecycle (#1551) ───────────────────────────────────────────
+
+    /** Nextcloud state per local collection id; a missing entry means never connected. */
+    val nextcloudStates: StateFlow<Map<String, NextcloudListState>> = nextcloud.observeListBindings()
+        .map { bindings -> bindings.associate { it.collectionId to it.state } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** True when a Nextcloud account is stored, so a list can be bound without routing to setup. */
+    val nextcloudAccountConfigured: StateFlow<Boolean> = nextcloud.observeAccountConfigured()
+
+    /** One-shot result text for the Lists snackbar from a Nextcloud list action. */
+    var nextcloudMessage by mutableStateOf<String?>(null)
+        private set
+
+    fun clearNextcloudMessage() {
+        nextcloudMessage = null
+    }
+
+    /**
+     * Binds one local list through the existing publish seam. The caller only reaches this when an
+     * account is configured; otherwise it routes through Nextcloud setup with this list pending.
+     */
+    fun syncListWithNextcloud(listId: Long) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.publishCollection(listId).fold(
+                onSuccess = { "List synced with Nextcloud" },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /** Stops synchronization for one list; the local list and remote collection both remain. */
+    fun stopListNextcloudSync(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = if (nextcloud.stopSync(collectionId)) {
+                "Nextcloud sync stopped for this list"
+            } else {
+                "This list is no longer connected to Nextcloud"
+            }
+        }
+    }
+
+    /** Resumes synchronization through the retained provider association. */
+    fun resumeListNextcloudSync(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = when (val result = nextcloud.resumeSync(collectionId)) {
+                is NextcloudSyncResult.Success -> "List synced with Nextcloud"
+                is NextcloudSyncResult.Failure -> result.error.safeNextcloudMessage()
+            }
+        }
     }
 
     // ── Encrypted shared-list package exchange (#1493) ───────────────────────────────────────────

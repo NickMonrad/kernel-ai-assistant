@@ -730,8 +730,9 @@ SharedCollectionPackageV1  — packageId, collection, keyId, nonce, ciphertext
   one collection never carries another collection's delivery positions.
 - Device-local fields keep the device's own values, and a collection created by an import uses the
   neutral defaults above. Re-importing an unchanged package merges to no change.
-- Entry points: list detail overflow → **Export encrypted package**; Lists overview overflow →
-  **Import shared list**.
+- Entry points: **Export Jandal file** from either the Lists overview row overflow or the list detail
+  overflow (the same encrypted package implementation); **Import Jandal file** from the Lists
+  overview overflow.
 
 Key hosting, rotation, revocation, accounts and any transport other than the user's own file
 sharing remain out of scope.

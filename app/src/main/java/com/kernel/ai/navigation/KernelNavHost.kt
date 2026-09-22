@@ -1,5 +1,6 @@
 package com.kernel.ai.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -108,6 +109,14 @@ private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 internal const val ROUTE_SIDE_PANEL = "settings/side_panel"
 internal const val ROUTE_CLOCK_SETTINGS = "settings/clock_settings"
 internal const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
+private const val ARG_PENDING_LIST_ID = "pendingListId"
+private const val ARG_PENDING_LIST_NAME = "pendingListName"
+/** Nextcloud lists, optionally carrying the list whose contextual setup started this visit. */
+private const val ROUTE_NEXTCLOUD_LISTS =
+    "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID={$ARG_PENDING_LIST_ID}&$ARG_PENDING_LIST_NAME={$ARG_PENDING_LIST_NAME}"
+
+/** Result key for the message a completed contextual Nextcloud setup leaves for its origin. */
+internal const val KEY_LISTS_EXTERNAL_MESSAGE = "listsExternalMessage"
 internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
@@ -217,6 +226,14 @@ internal fun shouldNavigateForShortcut(
         else -> currentTab != targetTab
     }
 }
+
+/**
+ * Route for the Nextcloud lists screen, carrying the list whose contextual setup started the visit.
+ * Plain `settings/nextcloud` still matches, because both arguments have defaults.
+ */
+private fun nextcloudListsRoute(listId: Long?, name: String?): String =
+    "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID=${listId ?: -1L}" +
+        "&$ARG_PENDING_LIST_NAME=${Uri.encode(name.orEmpty())}"
 
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -648,7 +665,8 @@ fun KernelNavHost(
                             navController.navigate(ROUTE_APP_PERMISSIONS)
                         },
                         onNavigateToNextcloud = {
-                            navController.navigate(ROUTE_NEXTCLOUD_SETTINGS)
+                            // Always carry the route's optional arguments explicitly.
+                            navController.navigate(nextcloudListsRoute(null, null))
                         },
                         onNavigateToClockSettings = {
                             navController.navigate(ROUTE_CLOCK_SETTINGS) {
@@ -657,9 +675,33 @@ fun KernelNavHost(
                         },
                     )
                 }
-                composable(ROUTE_NEXTCLOUD_SETTINGS) {
+                composable(
+                    route = ROUTE_NEXTCLOUD_LISTS,
+                    arguments = listOf(
+                        navArgument(ARG_PENDING_LIST_ID) {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        },
+                        navArgument(ARG_PENDING_LIST_NAME) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        },
+                    ),
+                ) { backStackEntry ->
+                    val pendingListId = backStackEntry.arguments?.getLong(ARG_PENDING_LIST_ID)
+                        ?.takeIf { it > 0L }
+                    val pendingListName = backStackEntry.arguments?.getString(ARG_PENDING_LIST_NAME)
+                        ?.takeIf { it.isNotBlank() }
                     NextcloudSettingsScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        pendingListId = pendingListId,
+                        pendingListName = pendingListName,
+                        onSetupCompleted = {
+                            // Hand the originating list screen the concise result, then return to it.
+                            navController.previousBackStackEntry?.savedStateHandle
+                                ?.set(KEY_LISTS_EXTERNAL_MESSAGE, "List synced with Nextcloud")
+                            navController.popBackStack()
+                        },
                     )
                 }
 
@@ -819,7 +861,10 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_LISTS) {
+                composable(ROUTE_LISTS) { backStackEntry ->
+                    val externalMessage by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
+                        .collectAsState()
                     ListsScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onOpenList = { listId ->
@@ -832,9 +877,16 @@ fun KernelNavHost(
                             }
                         },
                         onNavigateToNextcloud = {
-                            navController.navigate(ROUTE_NEXTCLOUD_SETTINGS) {
+                            navController.navigate(nextcloudListsRoute(null, null)) {
                                 launchSingleTop = true
                             }
+                        },
+                        onNavigateToNextcloudList = { listId, name ->
+                            navController.navigate(nextcloudListsRoute(listId, name))
+                        },
+                        externalMessage = externalMessage,
+                        onExternalMessageShown = {
+                            backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
                         },
                     )
                 }
@@ -845,6 +897,9 @@ fun KernelNavHost(
                 ) { backStackEntry ->
                     val listId = backStackEntry.arguments?.getLong(ARG_LIST_ID)
                         ?: return@composable
+                    val externalMessage by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
+                        .collectAsState()
                     ListItemsScreen(
                         listId = listId,
                         onBack = { navController.popBackOrNavigateHome() },
@@ -853,6 +908,13 @@ fun KernelNavHost(
                                 popUpTo(ROUTE_LIST) { saveState = true }
                                 launchSingleTop = true
                             }
+                        },
+                        onNavigateToNextcloudList = { pendingId, name ->
+                            navController.navigate(nextcloudListsRoute(pendingId, name))
+                        },
+                        externalMessage = externalMessage,
+                        onExternalMessageShown = {
+                            backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
                         },
                     )
                 }

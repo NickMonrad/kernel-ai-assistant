@@ -17,8 +17,14 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -95,9 +101,348 @@ class NextcloudSyncAdapterTest {
         assertEquals(setOf(first.collectionId), transport.reportedCollections)
     }
 
+    // ── Per-list sync lifecycle (#1551) ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `stopping sync affects only the selected list and keeps its remote association`() = runTest {
+        val stopped = binding("writable")
+        val other = binding("readonly")
+        val bindings = linkedMapOf(stopped.collectionId to stopped, other.collectionId to other)
+        val fixture = adapter(bindings, linkedMapOf(), emptyMap(), emptyMap(), emptyList(), RecordingTransport())
+
+        assertTrue(fixture.adapter.stopSync(stopped.collectionId))
+
+        assertFalse(bindings.getValue(stopped.collectionId).syncEnabled)
+        assertEquals(stopped.remoteHref, bindings.getValue(stopped.collectionId).remoteHref)
+        assertTrue(bindings.getValue(other.collectionId).syncEnabled, "another list keeps syncing")
+    }
+
+    @Test
+    fun `a stopped list is skipped while other bound lists continue syncing`() = runTest {
+        val stopped = binding("readonly").copy(syncEnabled = false)
+        val active = binding("writable")
+        val bindings = linkedMapOf(stopped.collectionId to stopped, active.collectionId to active)
+        val itemBindings = linkedMapOf(
+            stopped.collectionId to itemBinding(stopped.collectionId, "readonly-item"),
+            active.collectionId to itemBinding(active.collectionId, "writable-item"),
+        )
+        val lists = mapOf(
+            stopped.collectionId to list(stopped.collectionId),
+            active.collectionId to list(active.collectionId),
+        )
+        val rows = mapOf(
+            stopped.collectionId to listItem(stopped.collectionId, "readonly-item"),
+            active.collectionId to listItem(active.collectionId, "writable-item"),
+        )
+        val pending = listOf(
+            change("readonly", "readonly-change"),
+            change("writable", "writable-change"),
+        )
+        val transport = RecordingTransport()
+        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertEquals(setOf("writable"), transport.reportedCollections, "only the enabled list is synchronized")
+        coVerify(exactly = 0) { fixture.mutations.acknowledgePushed(listOf("readonly-change")) }
+        coVerify { fixture.mutations.acknowledgePushed(listOf("writable-change")) }
+    }
+
+    @Test
+    fun `a stopped list ignores a targeted sync`() = runTest {
+        val stopped = binding("writable").copy(syncEnabled = false)
+        val bindings = linkedMapOf(stopped.collectionId to stopped)
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(stopped.collectionId to itemBinding(stopped.collectionId, "writable-item")),
+            mapOf(stopped.collectionId to list(stopped.collectionId)),
+            mapOf(stopped.collectionId to listItem(stopped.collectionId, "writable-item")),
+            listOf(change("writable", "writable-change")),
+            transport,
+        )
+
+        val result = fixture.adapter.syncCollection(stopped.collectionId)
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(transport.reportedCollections.isEmpty())
+    }
+
+    @Test
+    fun `resuming sync reuses the retained association and creates no second collection`() = runTest {
+        val stopped = binding("writable").copy(syncEnabled = false)
+        val originalHref = stopped.remoteHref
+        val bindings = linkedMapOf(stopped.collectionId to stopped)
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(stopped.collectionId to itemBinding(stopped.collectionId, "writable-item")),
+            mapOf(stopped.collectionId to list(stopped.collectionId)),
+            mapOf(stopped.collectionId to listItem(stopped.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.resumeSync(stopped.collectionId)
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(bindings.getValue(stopped.collectionId).syncEnabled)
+        assertEquals(originalHref, bindings.getValue(stopped.collectionId).remoteHref)
+        assertEquals(setOf("writable"), transport.reportedCollections)
+        assertTrue(transport.mkcalendarCalls.isEmpty(), "resume must not create a remote collection")
+    }
+
+    @Test
+    fun `repeated stop and resume operations are idempotent`() = runTest {
+        val binding = binding("writable")
+        val bindings = linkedMapOf(binding.collectionId to binding)
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        fixture.adapter.stopSync(binding.collectionId)
+        val firstStop = bindings.getValue(binding.collectionId)
+        fixture.adapter.stopSync(binding.collectionId)
+
+        assertEquals(firstStop, bindings.getValue(binding.collectionId), "a second stop changes nothing")
+        assertEquals(false, firstStop.syncEnabled)
+
+        fixture.adapter.resumeSync(binding.collectionId)
+        fixture.adapter.resumeSync(binding.collectionId)
+
+        assertEquals(true, bindings.getValue(binding.collectionId).syncEnabled)
+        assertEquals(binding.remoteHref, bindings.getValue(binding.collectionId).remoteHref)
+        assertTrue(transport.mkcalendarCalls.isEmpty())
+    }
+
+    @Test
+    fun `a successful sync clears a recorded failure`() = runTest {
+        val binding = binding("writable").copy(
+            lastFailureCode = NextcloudFailure.Code.NETWORK.name,
+            lastFailureAt = 1L,
+        )
+        val bindings = linkedMapOf(binding.collectionId to binding)
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        fixture.adapter.syncAll()
+
+        assertNull(bindings.getValue(binding.collectionId).lastFailureCode)
+    }
+
+    @Test
+    fun `a failed sync records the failure for that list only`() = runTest {
+        val failing = binding("readonly")
+        val healthy = binding("writable")
+        val bindings = linkedMapOf(failing.collectionId to failing, healthy.collectionId to healthy)
+        val itemBindings = linkedMapOf(
+            failing.collectionId to itemBinding(failing.collectionId, "readonly-item"),
+            healthy.collectionId to itemBinding(healthy.collectionId, "writable-item"),
+        )
+        val lists = mapOf(
+            failing.collectionId to list(failing.collectionId),
+            healthy.collectionId to list(healthy.collectionId),
+        )
+        val rows = mapOf(
+            failing.collectionId to listItem(failing.collectionId, "readonly-item"),
+            healthy.collectionId to listItem(healthy.collectionId, "writable-item"),
+        )
+        val transport = RecordingTransport()
+        val fixture = adapter(bindings, itemBindings, lists, rows, emptyList(), transport)
+
+        fixture.adapter.syncAll()
+
+        assertEquals(
+            NextcloudFailure.Code.PERMISSION.name,
+            bindings.getValue(failing.collectionId).lastFailureCode,
+        )
+        assertNull(bindings.getValue(healthy.collectionId).lastFailureCode)
+    }
+
+    @Test
+    fun `a stop that lands during an in-flight sync survives the reconciliation`() = runTest {
+        val binding = binding("writable")
+        val bindings = linkedMapOf(binding.collectionId to binding)
+        val gate = CompletableDeferred<Unit>()
+        val transport = RecordingTransport(reportGate = gate)
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        val sync = launch { fixture.adapter.syncAll() }
+        transport.reportStarted.await()   // the reconciliation is now in flight and holds the lock
+
+        val stop = launch { fixture.adapter.stopSync(binding.collectionId) }
+        advanceUntilIdle()
+        assertFalse(stop.isCompleted, "Stop waits for the in-flight reconciliation instead of racing it")
+
+        gate.complete(Unit)               // let the reconciliation finish
+        sync.join()
+        stop.join()
+
+        assertTrue(stop.isCompleted)
+        assertFalse(
+            bindings.getValue(binding.collectionId).syncEnabled,
+            "the durable binding stays stopped after the in-flight reconciliation persists",
+        )
+        assertEquals(binding.remoteHref, bindings.getValue(binding.collectionId).remoteHref)
+
+        // A later trigger must skip the stopped list entirely.
+        val reportsBefore = transport.reportedCollections.size
+        val result = fixture.adapter.syncAll()
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertEquals(reportsBefore, transport.reportedCollections.size)
+    }
+
+    @Test
+    fun `a reconciliation that starts after a stop leaves the stopped binding alone`() = runTest {
+        val binding = binding("writable")
+        val bindings = linkedMapOf(binding.collectionId to binding)
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            bindings,
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        fixture.adapter.stopSync(binding.collectionId)
+        // A caller that snapshotted the enabled binding before the stop must still not sync it.
+        val result = fixture.adapter.syncCollection(binding.collectionId)
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(transport.reportedCollections.isEmpty())
+        assertFalse(bindings.getValue(binding.collectionId).syncEnabled)
+    }
+
+    // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
+
+    @Test
+    fun `a failed first push leaves no partial binding for a newly created collection`() = runTest {
+        val target = list("writable")
+        val bindings = linkedMapOf<String, NextcloudCollectionBindingEntity>()
+        val itemBindings = linkedMapOf<String, NextcloudItemBindingEntity>()
+        val transport = RecordingTransport(failPut = true)
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(target.collectionId to target),
+            mapOf(target.collectionId to listItem(target.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listNameDao.getById(any()) } returns target
+
+        val result = fixture.adapter.publishCollection(target.id)
+
+        assertTrue(result.isFailure)
+        assertEquals(NextcloudFailure.Code.SERVER, (result.exceptionOrNull() as NextcloudConnectionException).code)
+        assertEquals(1, transport.mkcalendarCalls.size, "the remote collection really was created first")
+        assertTrue(bindings.isEmpty(), "no collection binding may remain after a failed first push")
+        assertTrue(itemBindings.isEmpty(), "no item bindings may remain after a failed first push")
+    }
+
+    @Test
+    fun `a failed push for an already bound list keeps its binding`() = runTest {
+        val target = list("writable")
+        val existing = binding(target.collectionId)
+        val bindings = linkedMapOf(existing.collectionId to existing)
+        val itemBindings = linkedMapOf(
+            // A stale remote copy so this sync really pushes and then fails.
+            existing.collectionId to itemBinding(existing.collectionId, "writable-item")
+                .copy(rawVtodo = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
+        )
+        val transport = RecordingTransport(failPut = true)
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(target.collectionId to target),
+            mapOf(target.collectionId to listItem(target.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listNameDao.getById(any()) } returns target
+
+        val result = fixture.adapter.publishCollection(target.id)
+
+        assertTrue(result.isFailure)
+        assertEquals(existing, bindings.getValue(existing.collectionId), "a pre-existing binding is never rolled back")
+        assertEquals(1, itemBindings.size)
+        assertTrue(transport.mkcalendarCalls.isEmpty(), "an existing association never creates another collection")
+    }
+
+    @Test
+    fun `a concurrent sync cannot observe or resurrect a provisional first-time binding`() = runTest {
+        val target = list("writable")
+        val bindings = linkedMapOf<String, NextcloudCollectionBindingEntity>()
+        val itemBindings = linkedMapOf<String, NextcloudItemBindingEntity>()
+        val putGate = CompletableDeferred<Unit>()
+        val transport = RecordingTransport(failPut = true, putGate = putGate)
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(target.collectionId to target),
+            mapOf(target.collectionId to listItem(target.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listNameDao.getById(any()) } returns target
+
+        val publish = async { fixture.adapter.publishCollection(target.id) }
+        transport.putStarted.await()   // discovery and MKCALENDAR succeeded, the initial PUT is in flight
+
+        assertTrue(
+            bindings.isEmpty(),
+            "a first-time association must not be durable before its initial push succeeds",
+        )
+
+        // The background path runs while the publish is still in flight; it has nothing to observe.
+        val background = launch { fixture.adapter.syncAll() }
+        advanceUntilIdle()
+        assertTrue(
+            transport.reportedCollections.isEmpty(),
+            "the background sync must not reconcile the provisional collection",
+        )
+
+        putGate.complete(Unit)         // now let the initial PUT fail
+        val published = publish.await()
+        background.join()
+
+        assertTrue(published.isFailure)
+        assertEquals(NextcloudFailure.Code.SERVER, (published.exceptionOrNull() as NextcloudConnectionException).code)
+        assertEquals(1, transport.mkcalendarCalls.size)
+        assertTrue(bindings.isEmpty(), "no collection binding may survive a failed first-time publish")
+        assertTrue(itemBindings.isEmpty(), "no item binding from the failed attempt may survive")
+        assertEquals(1, transport.putCalls.size, "only the initial push attempted a write")
+        assertTrue(transport.reportedCollections.isEmpty(), "no REPORT was ever issued for that collection")
+        coVerify(exactly = 0) { fixture.listNameDao.upsert(any()) }
+    }
+
     private data class Fixture(
         val adapter: NextcloudSyncAdapter,
         val mutations: ListMutationRepository,
+        val listNameDao: ListNameDao,
     )
 
     private fun adapter(
@@ -117,10 +462,24 @@ class NextcloudSyncAdapterTest {
         coEvery { collectionDao.getAll() } returns bindings.values.toList()
         coEvery { collectionDao.get(any()) } answers { bindings[firstArg()] }
         coEvery { collectionDao.upsert(any()) } answers { bindings[firstArg<NextcloudCollectionBindingEntity>().collectionId] = firstArg() }
+        coEvery { collectionDao.recordSyncOutcome(any(), any(), any()) } answers {
+            val binding = bindings[firstArg<String>()]
+            if (binding != null) {
+                bindings[firstArg()] = binding.copy(lastFailureCode = secondArg<String?>())
+            }
+        }
+        coEvery { collectionDao.setSyncEnabled(any(), any(), any()) } answers {
+            val binding = bindings[firstArg<String>()]
+            if (binding != null) {
+                bindings[firstArg()] = binding.copy(syncEnabled = secondArg<Boolean>())
+            }
+        }
+        coEvery { collectionDao.delete(any()) } answers { bindings.remove(firstArg<String>()) }
 
         val itemDao = mockk<NextcloudItemBindingDao>()
         coEvery { itemDao.getAll(any()) } answers { itemBindings.values.filter { it.collectionId == firstArg() } }
         coEvery { itemDao.upsert(any()) } answers { itemBindings[firstArg<NextcloudItemBindingEntity>().collectionId] = firstArg() }
+        coEvery { itemDao.delete(any()) } answers { itemBindings.remove(firstArg<String>()) }
 
         val listItemDao = mockk<ListItemDao>()
         coEvery { listItemDao.getByItemId(any()) } returns null
@@ -145,6 +504,7 @@ class NextcloudSyncAdapterTest {
                 mutations,
             ),
             mutations = mutations,
+            listNameDao = listNameDao,
         )
     }
 
@@ -203,8 +563,21 @@ class NextcloudSyncAdapterTest {
     )
     private class RecordingTransport(
         private val cancelOnReportCollection: String? = null,
+        private val failPut: Boolean = false,
+        /** Held open by the test to suspend a reconciliation while it is in flight. */
+        private val reportGate: CompletableDeferred<Unit>? = null,
+        /** Held open by the test to suspend an initial push while it is in flight. */
+        private val putGate: CompletableDeferred<Unit>? = null,
     ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
+        val mkcalendarCalls = mutableListOf<String>()
+        val putCalls = mutableListOf<String>()
+
+        /** Completes once a REPORT is in flight, so the test never has to sleep. */
+        val reportStarted = CompletableDeferred<String>()
+
+        /** Completes once a PUT is in flight, so the test never has to sleep. */
+        val putStarted = CompletableDeferred<String>()
 
         override suspend fun execute(
             method: String,
@@ -214,8 +587,16 @@ class NextcloudSyncAdapterTest {
         ): CalDavResponse {
             val collection = url.substringAfter("/calendars/").substringBefore('/')
             return when {
-                method == "PUT" && collection == "readonly" ->
-                    CalDavResponse(403, emptyMap(), "", url)
+                method == "PUT" -> {
+                    putCalls += url
+                    putStarted.complete(url)
+                    putGate?.await()
+                    when {
+                        failPut -> CalDavResponse(500, emptyMap(), "", url)
+                        collection == "readonly" -> CalDavResponse(403, emptyMap(), "", url)
+                        else -> error("Unexpected CalDAV request: $method $url")
+                    }
+                }
                 method == "GET" ->
                     CalDavResponse(200, emptyMap(), "", "https://cloud.example/remote.php/dav")
                 method == "PROPFIND" && url.endsWith("/remote.php/dav") ->
@@ -236,8 +617,14 @@ class NextcloudSyncAdapterTest {
                         <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/readonly/</d:href><d:propstat><d:prop><d:displayname>readonly</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:propstat></d:response><d:response><d:href>/calendars/writable/</d:href><d:propstat><d:prop><d:displayname>writable</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:propstat></d:response></d:multistatus>
                         """,
                     )
+                method == "MKCALENDAR" -> {
+                    mkcalendarCalls += url
+                    CalDavResponse(201, emptyMap(), "", url)
+                }
                 method == "REPORT" -> {
                     reportedCollections += collection
+                    reportStarted.complete(collection)
+                    reportGate?.await()
                     if (collection == cancelOnReportCollection) {
                         throw CancellationException("cancelled")
                     }

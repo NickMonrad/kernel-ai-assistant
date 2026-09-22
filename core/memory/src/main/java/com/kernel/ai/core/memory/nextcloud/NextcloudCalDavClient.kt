@@ -18,8 +18,10 @@ import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.UnknownHostException
 import java.net.UnknownServiceException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLException
@@ -28,6 +30,8 @@ import javax.xml.parsers.ParserConfigurationException
 
 private const val DAV_NS = "DAV:"
 private const val CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
+private const val MAX_REDIRECT_HOPS = 5
+private val REDIRECT_STATUSES = setOf(301, 302, 303, 307, 308)
 
 sealed class NextcloudFailure(
     val code: Code,
@@ -47,6 +51,7 @@ sealed class NextcloudFailure(
         TLS,
         NETWORK,
         INSECURE_REDIRECT,
+        CROSS_ORIGIN_REDIRECT,
         CONFLICT,
         SERVER,
     }
@@ -90,7 +95,15 @@ data class CalDavResponse(
 
 @Singleton
 class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
-    private val client = OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
+    /**
+     * Redirects are deliberately not followed here. [NextcloudCalDavClient] evaluates every hop so
+     * that an HTTPS → HTTP downgrade can be refused for accounts that did not opt in to insecure
+     * HTTP (#1551); a client-level policy cannot be expressed with OkHttp's follow flags alone.
+     */
+    private val client = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
 
     override suspend fun execute(method: String, url: String, headers: Map<String, String>, body: String?): CalDavResponse =
         withContext(Dispatchers.IO) {
@@ -164,16 +177,16 @@ class NextcloudCalDavClient(
 ) {
     suspend fun discover(): NextcloudDiscovery {
         val server = normalizeServer(account.account.serverUrl)
-        val wellKnown = transport.execute(
+        val wellKnown = send(
             method = "GET",
             url = "$server/.well-known/caldav",
             headers = authHeaders(),
         )
         val endpoint = when {
-            wellKnown.status in 200..399 -> wellKnown.finalUrl
-            wellKnown.status == 401 || wellKnown.status == 403 -> throw authenticationFailure()
-            wellKnown.status == 404 -> "$server/remote.php/dav"
-            else -> throw serverFailure(wellKnown.status)
+            wellKnown.response.status in 200..399 -> wellKnown.url
+            wellKnown.response.status == 401 || wellKnown.response.status == 403 -> throw authenticationFailure()
+            wellKnown.response.status == 404 -> "$server/remote.php/dav"
+            else -> throw serverFailure(wellKnown.response.status)
         }
         val principal = propfind(
             endpoint,
@@ -226,7 +239,7 @@ class NextcloudCalDavClient(
                 </c:calendar-query>
             """.trimIndent(),
         )
-        return parseMultistatus(response).responses.mapNotNull { item ->
+        return parseMultistatus(response.response).responses.mapNotNull { item ->
             val data = item.firstText("calendar-data") ?: return@mapNotNull null
             runCatching {
                 RemoteVTodo(
@@ -250,9 +263,9 @@ class NextcloudCalDavClient(
             body = calendarData,
             forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
-        if (response.status == 412 || response.status == 409) throw NextcloudConflictException()
-        if (response.status !in 200..299) throw serverFailure(response.status)
-        return response.headers.entries.firstOrNull { it.key.equals("etag", ignoreCase = true) }?.value?.trim()
+        if (response.response.status == 412 || response.response.status == 409) throw NextcloudConflictException()
+        if (response.response.status !in 200..299) throw serverFailure(response.response.status)
+        return response.response.headers.entries.firstOrNull { it.key.equals("etag", ignoreCase = true) }?.value?.trim()
     }
 
     suspend fun deleteTask(href: String, etag: String?): Boolean {
@@ -263,32 +276,44 @@ class NextcloudCalDavClient(
                 .filterValues { it.isNotEmpty() },
             forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
-        if (response.status == 404) return false
-        if (response.status == 412 || response.status == 409) throw NextcloudConflictException()
-        if (response.status !in 200..299) throw serverFailure(response.status)
+        if (response.response.status == 404) return false
+        if (response.response.status == 412 || response.response.status == 409) throw NextcloudConflictException()
+        if (response.response.status !in 200..299) throw serverFailure(response.response.status)
         return true
     }
 
+    /**
+     * Creates a VTODO collection whose user-visible display name is exactly [title].
+     *
+     * RFC 4791 requires the property values inside `<d:set><d:prop>`; without that wrapper CalDAV
+     * servers (including Nextcloud/sabre) ignore `<d:displayname>` and fall back to the collection
+     * URI, which is why the remote list previously appeared as a generated slug (#1551). The
+     * generated href stays unique and internal and is never used as the visible name.
+     */
     suspend fun createCollection(title: String, calendarHomeHref: String): NextcloudCalendarCollection {
-        val href = resolve(calendarHomeHref, "${slug(title)}-${System.currentTimeMillis()}/")
+        val href = resolve(calendarHomeHref, "${slug(title)}-${UUID.randomUUID()}/")
         val response = request(
             method = "MKCALENDAR",
             url = href,
             headers = authHeaders() + mapOf("Content-Type" to "application/xml; charset=utf-8"),
             body = """
-                <c:mkcalendar xmlns:c="$CALDAV_NS" xmlns:d="$DAV_NS"><d:prop>
-                    <d:displayname>${xmlEscape(title)}</d:displayname>
-                    <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
-                </d:prop></c:mkcalendar>
+                <c:mkcalendar xmlns:c="$CALDAV_NS" xmlns:d="$DAV_NS">
+                    <d:set><d:prop>
+                        <d:displayname>${xmlEscape(title)}</d:displayname>
+                        <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
+                    </d:prop></d:set>
+                </c:mkcalendar>
             """.trimIndent(),
             forbiddenResponse = ForbiddenResponse.PERMISSION,
         )
-        if (response.status !in 200..299 && response.status != 201) throw serverFailure(response.status)
+        if (response.response.status !in 200..299 && response.response.status != 201) {
+            throw serverFailure(response.response.status)
+        }
         return NextcloudCalendarCollection(href, title)
     }
 
     private suspend fun propfind(url: String, depth: String, body: String): MultiStatus = parseMultistatus(
-        request("PROPFIND", url, authHeaders() + mapOf("Depth" to depth, "Content-Type" to "application/xml; charset=utf-8"), body),
+        request("PROPFIND", url, authHeaders() + mapOf("Depth" to depth, "Content-Type" to "application/xml; charset=utf-8"), body).response,
     )
 
     private enum class ForbiddenResponse {
@@ -296,23 +321,125 @@ class NextcloudCalDavClient(
         PERMISSION,
     }
 
+    /** A completed request plus the URL whose response was actually read. */
+    private data class Exchange(val response: CalDavResponse, val url: String)
+
     private suspend fun request(
         method: String,
         url: String,
         headers: Map<String, String>,
         body: String? = null,
         forbiddenResponse: ForbiddenResponse = ForbiddenResponse.AUTHENTICATION,
-    ): CalDavResponse {
-        val response = transport.execute(method, url, headers, body)
-        if (response.status == 401) throw authenticationFailure()
-        if (response.status == 403) {
+    ): Exchange {
+        val exchange = send(method, url, headers, body)
+        if (exchange.response.status == 401) throw authenticationFailure()
+        if (exchange.response.status == 403) {
             throw when (forbiddenResponse) {
                 ForbiddenResponse.AUTHENTICATION -> authenticationFailure()
                 ForbiddenResponse.PERMISSION -> permissionFailure()
             }
         }
-        return response
+        return exchange
     }
+
+    /**
+     * Sends one CalDAV request and resolves redirects under this account's origin and scheme policy.
+     *
+     * The `Authorization` header is reused for every hop, so a redirect is only followed within the
+     * same origin — the same host and effective port. A cross-origin redirect is refused rather than
+     * forwarded, which is what keeps the Nextcloud Basic credentials from reaching another server.
+     * Within that origin, same-scheme hops and HTTP → HTTPS upgrades are followed, and an
+     * HTTPS → HTTP downgrade is refused unless the account explicitly enabled insecure HTTP (#1551).
+     */
+    private suspend fun send(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: String? = null,
+    ): Exchange {
+        var current = url
+        var hops = 0
+        while (true) {
+            val response = transport.execute(method, current, headers, body)
+            if (response.status !in REDIRECT_STATUSES) {
+                return Exchange(response, response.finalUrl.ifBlank { current })
+            }
+            val location = response.headers.entries
+                .firstOrNull { it.key.equals("location", ignoreCase = true) }
+                ?.value
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return Exchange(response, current)
+            val target = runCatching { URI(current).resolve(location).toString() }.getOrNull()
+                ?: return Exchange(response, current)
+            if (!permitsRedirect(current, target)) throw crossOriginRedirectFailure()
+            if (isDowngrade(current, target) && !account.account.allowInsecureHttp) throw insecureRedirectFailure()
+            hops += 1
+            if (hops > MAX_REDIRECT_HOPS) {
+                throw NextcloudConnectionException(
+                    NextcloudFailure.Code.DISCOVERY,
+                    "Nextcloud redirected this request too many times. Check the server URL.",
+                )
+            }
+            current = target
+        }
+    }
+
+    /**
+     * The part of a URL that may keep receiving this account's credentials.
+     *
+     * [port] is the effective port and [explicitPort] is the port as written, so a redirect can be
+     * judged both on where it really points and on whether it silently changed the port.
+     */
+    private data class RedirectOrigin(
+        val host: String,
+        val scheme: String,
+        val port: Int,
+        val explicitPort: Int,
+    )
+
+    /**
+     * Whether [from] → [to] may keep this account's `Authorization` header.
+     *
+     * Another host is never acceptable, and neither is a port change: both would send the Nextcloud
+     * app password to a different service. A scheme-only change on the same host stays inside the
+     * credential scope and is decided by the downgrade/upgrade policy instead — an HTTP → HTTPS
+     * upgrade is always followed, and an HTTPS → HTTP downgrade only for an account that explicitly
+     * opted in to insecure HTTP (#1551). A scheme change that also moves the port is refused here.
+     */
+    private fun permitsRedirect(from: String, to: String): Boolean {
+        val origin = redirectOrigin(from) ?: return false
+        val target = redirectOrigin(to) ?: return false
+        if (origin.host != target.host) return false
+        if (origin.scheme == target.scheme) return origin.port == target.port
+        return origin.explicitPort == target.explicitPort
+    }
+
+    private fun redirectOrigin(url: String): RedirectOrigin? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        val port = when {
+            uri.port != -1 -> uri.port
+            scheme == "https" -> 443
+            scheme == "http" -> 80
+            else -> return null
+        }
+        return RedirectOrigin(host, scheme, port, uri.port)
+    }
+
+    private fun isDowngrade(from: String, to: String): Boolean =
+        from.startsWith("https://", ignoreCase = true) && to.startsWith("http://", ignoreCase = true)
+
+    private fun crossOriginRedirectFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT,
+        "Nextcloud redirected the request to a different server. Check the Nextcloud address and CalDAV configuration.",
+    )
+
+    private fun insecureRedirectFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.INSECURE_REDIRECT,
+        "Nextcloud redirected CalDAV to insecure HTTP. Keep CalDAV on HTTPS, or enable \"Use insecure HTTP\" for this account.",
+    )
 
     private fun authHeaders(): Map<String, String> = mapOf(
         "Authorization" to Credentials.basic(account.account.username, account.appPassword),
