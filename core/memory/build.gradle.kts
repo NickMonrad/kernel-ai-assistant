@@ -63,6 +63,8 @@ dependencies {
 
     // DataStore (for verbose logging preference)
     implementation(libs.datastore.preferences)
+    implementation(libs.okhttp)
+    implementation(libs.security.crypto)
 
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)

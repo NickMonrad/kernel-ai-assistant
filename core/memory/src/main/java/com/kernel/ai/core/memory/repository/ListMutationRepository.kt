@@ -692,7 +692,10 @@ class ListMutationRepository @Inject constructor(
      *
      * Everything runs in one transaction: a rejection or failure leaves no partial import behind.
      */
-    suspend fun importSnapshot(snapshot: SharedCollectionSnapshot): ListPackageImportResult =
+    suspend fun importSnapshot(
+        snapshot: SharedCollectionSnapshot,
+        displayAliasLabel: String? = null,
+    ): ListPackageImportResult =
         database.withTransaction {
             require(snapshot.items.map { it.itemId }.toSet().size == snapshot.items.size) {
                 "Snapshot repeats an item identity"
@@ -715,9 +718,9 @@ class ListMutationRepository @Inject constructor(
             val collectionCreated = existing == null
             val wasCollectionActive = existing?.lifecycle == ListLifecycle.ACTIVE.name
             val list = if (existing == null) {
-                insertImportedCollection(snapshot)
+                insertImportedCollection(snapshot, displayAliasLabel)
             } else {
-                val merged = mergeImportedCollection(existing, snapshot)
+                val merged = mergeImportedCollection(existing, snapshot, displayAliasLabel)
                 if (merged != existing) listNameDao.upsert(merged)
                 merged
             }
@@ -817,8 +820,14 @@ class ListMutationRepository @Inject constructor(
         }
 
     /** Creates an imported collection with the contract's neutral device-local defaults. */
-    private suspend fun insertImportedCollection(snapshot: SharedCollectionSnapshot): ListNameEntity {
-        val name = uniqueDisplayName(snapshot.canonicalTitle, stableLabel = snapshot.collectionId.take(8))
+    private suspend fun insertImportedCollection(
+        snapshot: SharedCollectionSnapshot,
+        displayAliasLabel: String? = null,
+    ): ListNameEntity {
+        val name = uniqueDisplayName(
+            snapshot.canonicalTitle,
+            stableLabel = displayAliasLabel ?: snapshot.collectionId.take(8),
+        )
         val displayOrder = (listNameDao.getAll().maxOfOrNull { it.displayOrder } ?: -1) + 1
         listNameDao.insert(
             ListNameEntity(
@@ -846,10 +855,15 @@ class ListMutationRepository @Inject constructor(
     private suspend fun mergeImportedCollection(
         existing: ListNameEntity,
         snapshot: SharedCollectionSnapshot,
+        displayAliasLabel: String? = null,
     ): ListNameEntity {
         var merged = existing
         if (snapshot.titleStamp > VersionStamp(existing.titleLogicalClock, existing.titleStampActorId)) {
-            val name = uniqueDisplayName(snapshot.canonicalTitle, existing.id, snapshot.collectionId.take(8))
+            val name = uniqueDisplayName(
+                snapshot.canonicalTitle,
+                existing.id,
+                displayAliasLabel ?: snapshot.collectionId.take(8),
+            )
             merged = merged.copy(
                 name = name,
                 canonicalTitle = snapshot.canonicalTitle,
