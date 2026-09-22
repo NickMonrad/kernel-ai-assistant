@@ -612,11 +612,6 @@ class NextcloudSettingsViewModelTest {
                     if (it.collectionId == key) it.copy(lastFailureCode = secondArg()) else it
                 }
             }
-            coEvery { collectionBindings.delete(any()) } answers {
-                val key = firstArg<String>()
-                bindings.remove(key)
-                summaries.value = summaries.value.filterNot { it.collectionId == key }
-            }
         }
         private val adapter = NextcloudSyncAdapter(
             accountStore = store,

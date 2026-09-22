@@ -5,6 +5,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
 import com.kernel.ai.core.memory.dao.NextcloudItemBindingDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity
 import com.kernel.ai.core.memory.entity.NextcloudItemBindingEntity
 import com.kernel.ai.core.memory.lists.ListLifecycle
@@ -167,59 +168,88 @@ class NextcloudSyncAdapter @Inject constructor(
 
     suspend fun publishCollection(listId: Long): Result<Unit> = guarded {
         val list = requireNotNull(listNameDao.getById(listId)) { "Unknown list" }
-        // Set only when this call created the provider binding, so a later failure can undo exactly
-        // that and never removes an association the list already had (#1551).
-        var createdBinding = false
-        var itemIdsBeforePush = emptySet<String>()
+        val existingBinding = collectionBindings.get(list.collectionId)
+        if (existingBinding == null) {
+            publishNewBinding(list)
+        } else {
+            publishToExistingBinding(list, existingBinding)
+        }
+    }
+
+    /**
+     * Pushes to an association that is already durable.
+     *
+     * The binding is never removed here: a failed push is recorded on the row and reported, so the
+     * list keeps its association and stays retryable.
+     */
+    private suspend fun publishToExistingBinding(
+        list: ListNameEntity,
+        binding: NextcloudCollectionBindingEntity,
+    ) {
         try {
-            val existingBinding = collectionBindings.get(list.collectionId)
             val client = client()
-            val binding = existingBinding ?: run {
-                val discovery = client.discover()
-                val collection = client.createCollection(list.canonicalTitle, discovery.calendarHomeHref)
-                NextcloudCollectionBindingEntity(
-                    collectionId = list.collectionId,
-                    remoteHref = collection.href,
-                    remoteTitle = collection.displayName,
-                    remoteEtag = null,
-                    remoteLogicalClock = 0L,
-                    updatedAt = System.currentTimeMillis(),
-                    // A list that was just connected participates in automatic synchronization.
-                    syncEnabled = true,
-                ).also {
-                    collectionBindings.upsert(it)
-                    createdBinding = true
-                }
-            }
-            itemIdsBeforePush = itemBindings.getAll(list.collectionId).mapTo(HashSet()) { it.itemId }
-            // Serialized with the sync mutex so the rollback below cannot race a reconciliation.
             syncMutex.withLock {
                 withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
             }
             recordSuccess(list.collectionId)
         } catch (error: Exception) {
-            if (createdBinding) {
-                rollbackCreatedBinding(list.collectionId, itemIdsBeforePush)
-            } else {
-                (error as? NextcloudFailure)?.let { recordFailure(list.collectionId, it) }
-            }
+            (error as? NextcloudFailure)?.let { recordFailure(list.collectionId, it) }
             throw error
         }
     }
 
     /**
-     * Undoes provider metadata written by a failed first-time binding (#1551).
+     * Creates the first association for a list (#1551).
      *
-     * A failed initial push must leave the initiating list local-only, so the collection binding
-     * created by this attempt and any item bindings it wrote are removed. The local list and its
-     * items are untouched, and the remote collection is deliberately left in place; it simply shows
-     * up as a Nextcloud-only list that can be adopted later.
+     * The collection binding is deliberately **not** persisted until the initial push has succeeded.
+     * A provisional row would be visible to [syncAll] — which snapshots bindings and runs
+     * concurrently — so a worker could reconcile, or a later `pullCollection()` could re-create, an
+     * association whose first-time setup actually failed. Keeping the row in memory until the push
+     * succeeds means there is nothing for the background path to observe, and the push plus the
+     * cleanup of anything it wrote stay inside [syncMutex].
+     *
+     * The remote collection is left in place on failure; it simply appears as a Nextcloud-only list.
      */
-    private suspend fun rollbackCreatedBinding(collectionId: String, itemIdsBefore: Set<String>) {
+    private suspend fun publishNewBinding(list: ListNameEntity) {
+        val client = client()
+        val discovery = client.discover()
+        val collection = client.createCollection(list.canonicalTitle, discovery.calendarHomeHref)
+        val binding = NextcloudCollectionBindingEntity(
+            collectionId = list.collectionId,
+            remoteHref = collection.href,
+            remoteTitle = collection.displayName,
+            remoteEtag = null,
+            remoteLogicalClock = 0L,
+            updatedAt = System.currentTimeMillis(),
+            // A list that was just connected participates in automatic synchronization.
+            syncEnabled = true,
+        )
+        val itemIdsBeforePush = itemBindings.getAll(list.collectionId).mapTo(HashSet()) { it.itemId }
+        try {
+            syncMutex.withLock {
+                withActiveSync(list.collectionId) {
+                    pushCollection(client, list.collectionId, binding)
+                    // Durable only now, so a failed initial push leaves no association at all.
+                    collectionBindings.upsert(binding)
+                }
+            }
+            recordSuccess(list.collectionId)
+        } catch (error: Exception) {
+            rollbackNewItemBindings(list.collectionId, itemIdsBeforePush)
+            throw error
+        }
+    }
+
+    /**
+     * Removes item bindings written by a failed first-time push.
+     *
+     * Only rows this attempt added are deleted, so a pre-existing association can never lose its
+     * item metadata. The local list and its items are untouched.
+     */
+    private suspend fun rollbackNewItemBindings(collectionId: String, itemIdsBefore: Set<String>) {
         itemBindings.getAll(collectionId)
             .filter { it.itemId !in itemIdsBefore }
             .forEach { itemBindings.delete(it.itemId) }
-        collectionBindings.delete(collectionId)
     }
 
     suspend fun syncAll(): NextcloudSyncResult = guardedResult {

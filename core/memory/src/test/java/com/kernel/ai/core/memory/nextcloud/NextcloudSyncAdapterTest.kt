@@ -19,6 +19,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -391,6 +392,53 @@ class NextcloudSyncAdapterTest {
         assertTrue(transport.mkcalendarCalls.isEmpty(), "an existing association never creates another collection")
     }
 
+    @Test
+    fun `a concurrent sync cannot observe or resurrect a provisional first-time binding`() = runTest {
+        val target = list("writable")
+        val bindings = linkedMapOf<String, NextcloudCollectionBindingEntity>()
+        val itemBindings = linkedMapOf<String, NextcloudItemBindingEntity>()
+        val putGate = CompletableDeferred<Unit>()
+        val transport = RecordingTransport(failPut = true, putGate = putGate)
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(target.collectionId to target),
+            mapOf(target.collectionId to listItem(target.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listNameDao.getById(any()) } returns target
+
+        val publish = async { fixture.adapter.publishCollection(target.id) }
+        transport.putStarted.await()   // discovery and MKCALENDAR succeeded, the initial PUT is in flight
+
+        assertTrue(
+            bindings.isEmpty(),
+            "a first-time association must not be durable before its initial push succeeds",
+        )
+
+        // The background path runs while the publish is still in flight; it has nothing to observe.
+        val background = launch { fixture.adapter.syncAll() }
+        advanceUntilIdle()
+        assertTrue(
+            transport.reportedCollections.isEmpty(),
+            "the background sync must not reconcile the provisional collection",
+        )
+
+        putGate.complete(Unit)         // now let the initial PUT fail
+        val published = publish.await()
+        background.join()
+
+        assertTrue(published.isFailure)
+        assertEquals(NextcloudFailure.Code.SERVER, (published.exceptionOrNull() as NextcloudConnectionException).code)
+        assertEquals(1, transport.mkcalendarCalls.size)
+        assertTrue(bindings.isEmpty(), "no collection binding may survive a failed first-time publish")
+        assertTrue(itemBindings.isEmpty(), "no item binding from the failed attempt may survive")
+        assertEquals(1, transport.putCalls.size, "only the initial push attempted a write")
+        assertTrue(transport.reportedCollections.isEmpty(), "no REPORT was ever issued for that collection")
+        coVerify(exactly = 0) { fixture.listNameDao.upsert(any()) }
+    }
+
     private data class Fixture(
         val adapter: NextcloudSyncAdapter,
         val mutations: ListMutationRepository,
@@ -518,12 +566,18 @@ class NextcloudSyncAdapterTest {
         private val failPut: Boolean = false,
         /** Held open by the test to suspend a reconciliation while it is in flight. */
         private val reportGate: CompletableDeferred<Unit>? = null,
+        /** Held open by the test to suspend an initial push while it is in flight. */
+        private val putGate: CompletableDeferred<Unit>? = null,
     ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
         val mkcalendarCalls = mutableListOf<String>()
+        val putCalls = mutableListOf<String>()
 
         /** Completes once a REPORT is in flight, so the test never has to sleep. */
         val reportStarted = CompletableDeferred<String>()
+
+        /** Completes once a PUT is in flight, so the test never has to sleep. */
+        val putStarted = CompletableDeferred<String>()
 
         override suspend fun execute(
             method: String,
@@ -533,10 +587,16 @@ class NextcloudSyncAdapterTest {
         ): CalDavResponse {
             val collection = url.substringAfter("/calendars/").substringBefore('/')
             return when {
-                method == "PUT" && failPut ->
-                    CalDavResponse(500, emptyMap(), "", url)
-                method == "PUT" && collection == "readonly" ->
-                    CalDavResponse(403, emptyMap(), "", url)
+                method == "PUT" -> {
+                    putCalls += url
+                    putStarted.complete(url)
+                    putGate?.await()
+                    when {
+                        failPut -> CalDavResponse(500, emptyMap(), "", url)
+                        collection == "readonly" -> CalDavResponse(403, emptyMap(), "", url)
+                        else -> error("Unexpected CalDAV request: $method $url")
+                    }
+                }
                 method == "GET" ->
                     CalDavResponse(200, emptyMap(), "", "https://cloud.example/remote.php/dav")
                 method == "PROPFIND" && url.endsWith("/remote.php/dav") ->
