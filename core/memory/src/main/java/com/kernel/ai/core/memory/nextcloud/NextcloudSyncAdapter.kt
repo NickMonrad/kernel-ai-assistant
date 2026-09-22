@@ -167,6 +167,10 @@ class NextcloudSyncAdapter @Inject constructor(
 
     suspend fun publishCollection(listId: Long): Result<Unit> = guarded {
         val list = requireNotNull(listNameDao.getById(listId)) { "Unknown list" }
+        // Set only when this call created the provider binding, so a later failure can undo exactly
+        // that and never removes an association the list already had (#1551).
+        var createdBinding = false
+        var itemIdsBeforePush = emptySet<String>()
         try {
             val existingBinding = collectionBindings.get(list.collectionId)
             val client = client()
@@ -182,14 +186,40 @@ class NextcloudSyncAdapter @Inject constructor(
                     updatedAt = System.currentTimeMillis(),
                     // A list that was just connected participates in automatic synchronization.
                     syncEnabled = true,
-                ).also { collectionBindings.upsert(it) }
+                ).also {
+                    collectionBindings.upsert(it)
+                    createdBinding = true
+                }
             }
-            withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
+            itemIdsBeforePush = itemBindings.getAll(list.collectionId).mapTo(HashSet()) { it.itemId }
+            // Serialized with the sync mutex so the rollback below cannot race a reconciliation.
+            syncMutex.withLock {
+                withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
+            }
             recordSuccess(list.collectionId)
         } catch (error: Exception) {
-            (error as? NextcloudFailure)?.let { recordFailure(list.collectionId, it) }
+            if (createdBinding) {
+                rollbackCreatedBinding(list.collectionId, itemIdsBeforePush)
+            } else {
+                (error as? NextcloudFailure)?.let { recordFailure(list.collectionId, it) }
+            }
             throw error
         }
+    }
+
+    /**
+     * Undoes provider metadata written by a failed first-time binding (#1551).
+     *
+     * A failed initial push must leave the initiating list local-only, so the collection binding
+     * created by this attempt and any item bindings it wrote are removed. The local list and its
+     * items are untouched, and the remote collection is deliberately left in place; it simply shows
+     * up as a Nextcloud-only list that can be adopted later.
+     */
+    private suspend fun rollbackCreatedBinding(collectionId: String, itemIdsBefore: Set<String>) {
+        itemBindings.getAll(collectionId)
+            .filter { it.itemId !in itemIdsBefore }
+            .forEach { itemBindings.delete(it.itemId) }
+        collectionBindings.delete(collectionId)
     }
 
     suspend fun syncAll(): NextcloudSyncResult = guardedResult {
@@ -239,13 +269,16 @@ class NextcloudSyncAdapter @Inject constructor(
      * The local list, its items and the existing remote collection are all preserved; only the
      * binding's [NextcloudCollectionBindingEntity.syncEnabled] flag changes, so a later
      * [resumeSync] reuses the same association instead of creating a second remote collection.
+     *
+     * Serialized with [syncMutex] so an in-flight reconciliation cannot write the binding back as
+     * enabled after Stop returns: whichever order they take the lock, the flag ends up false.
      */
-    suspend fun stopSync(collectionId: String): Boolean {
-        val binding = collectionBindings.get(collectionId) ?: return false
+    suspend fun stopSync(collectionId: String): Boolean = syncMutex.withLock {
+        val binding = collectionBindings.get(collectionId) ?: return@withLock false
         if (binding.syncEnabled) {
             collectionBindings.setSyncEnabled(collectionId, false, System.currentTimeMillis())
         }
-        return true
+        true
     }
 
     /**
@@ -268,22 +301,26 @@ class NextcloudSyncAdapter @Inject constructor(
 
     private suspend fun syncBoundCollection(client: NextcloudCalDavClient, original: NextcloudCollectionBindingEntity): Boolean {
         return syncMutex.withLock {
+            // Re-read under the lock: a Stop may have landed since the caller snapshotted bindings,
+            // in which case this list must not be synchronized at all.
+            val binding = collectionBindings.get(original.collectionId) ?: original
+            if (!binding.syncEnabled) return@withLock false
             try {
-                pushCollection(client, original.collectionId, original)
+                pushCollection(client, binding.collectionId, binding)
             } catch (_: NextcloudConflictException) {
-                pullCollection(client, original)
-                pushCollection(client, original.collectionId, original)
+                pullCollection(client, binding)
+                pushCollection(client, binding.collectionId, binding)
             } catch (error: NextcloudConnectionException) {
                 if (error.code != NextcloudFailure.Code.PERMISSION) throw error
                 // A read-only collection must still pull remote changes. Keep the original
                 // permission failure so the caller reports it and pending local changes remain
                 // retryable after the server-side permission is restored.
-                pullCollection(client, original)
+                pullCollection(client, binding)
                 throw error
             }
-            val pulled = pullCollection(client, collectionBindings.get(original.collectionId) ?: original)
-            val latest = collectionBindings.get(original.collectionId) ?: original
-            pushCollection(client, original.collectionId, latest)
+            val pulled = pullCollection(client, collectionBindings.get(binding.collectionId) ?: binding)
+            val latest = collectionBindings.get(binding.collectionId) ?: binding
+            pushCollection(client, binding.collectionId, latest)
             pulled
         }
     }

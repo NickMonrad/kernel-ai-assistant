@@ -226,6 +226,112 @@ class NextcloudCalDavClientTest {
     // ── Scheme policy (#1551) ───────────────────────────────────────────────────────────────────
 
     @Test
+    fun `a cross-origin redirect is refused and never receives the credentials`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "GET https://cloud.example/.well-known/caldav" to CalDavResponse(
+                    status = 302,
+                    headers = mapOf("Location" to "https://attacker.example/remote.php/dav"),
+                    body = "",
+                    finalUrl = "https://cloud.example/.well-known/caldav",
+                ),
+            ),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport).discover()
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT, (error as NextcloudConnectionException).code)
+        assertTrue(
+            transport.requests.none { it.url.contains("attacker.example") },
+            "the redirected host must never be requested",
+        )
+        assertTrue(
+            transport.requests.all { it.headers["Authorization"] == null || it.url.startsWith("https://cloud.example") },
+            "credentials may only ever accompany a request to the account's own origin",
+        )
+        assertFalse(error.message.contains("attacker.example"), "the refusal must not echo the redirect target")
+    }
+
+    @Test
+    fun `a redirect to another port on the same host is refused`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "GET https://cloud.example/.well-known/caldav" to CalDavResponse(
+                    status = 302,
+                    headers = mapOf("Location" to "https://cloud.example:8443/remote.php/dav"),
+                    body = "",
+                    finalUrl = "https://cloud.example/.well-known/caldav",
+                ),
+            ),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport).discover()
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT, (error as NextcloudConnectionException).code)
+        assertTrue(transport.requests.none { it.url.contains(":8443") })
+    }
+
+    @Test
+    fun `a same-origin redirect keeps working and keeps the credentials`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "GET https://cloud.example/.well-known/caldav" to CalDavResponse(
+                    status = 301,
+                    headers = mapOf("Location" to "https://cloud.example/remote.php/dav"),
+                    body = "",
+                    finalUrl = "https://cloud.example/.well-known/caldav",
+                ),
+                "GET https://cloud.example/remote.php/dav" to CalDavResponse(
+                    status = 200,
+                    headers = emptyMap(),
+                    body = "",
+                    finalUrl = "https://cloud.example/remote.php/dav",
+                ),
+                "PROPFIND https://cloud.example/remote.php/dav" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav</d:href><d:propstat><d:prop>
+                    <d:current-user-principal><d:href>/remote.php/dav/principals/users/alice/</d:href></d:current-user-principal>
+                    </d:prop></d:propstat></d:response></d:multistatus>
+                    """,
+                ),
+                "PROPFIND https://cloud.example/remote.php/dav/principals/users/alice/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
+                    <d:href>/remote.php/dav/principals/users/alice/</d:href><d:propstat><d:prop>
+                    <c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set>
+                    </d:prop></d:propstat></d:response></d:multistatus>
+                    """,
+                ),
+                "PROPFIND https://cloud.example/remote.php/dav/calendars/alice/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
+                    <d:href>/remote.php/dav/calendars/alice/tasks/</d:href><d:propstat><d:prop>
+                    <d:displayname>Tasks</d:displayname>
+                    <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+                    <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
+                    </d:prop></d:propstat></d:response></d:multistatus>
+                    """,
+                ),
+            ),
+        )
+
+        val discovery = NextcloudCalDavClient(credentials(), transport).discover()
+
+        assertEquals(listOf("Tasks"), discovery.collections.map { it.displayName })
+        val followed = transport.requests.single {
+            it.method == "GET" && it.url == "https://cloud.example/remote.php/dav"
+        }
+        assertTrue(
+            followed.headers["Authorization"]?.startsWith("Basic ") == true,
+            "a same-origin hop keeps the credentials",
+        )
+    }
+
+    @Test
     fun `discovery refuses an https to http downgrade and never calls the plaintext url`() = runTest {
         val transport = FakeTransport(
             mapOf(

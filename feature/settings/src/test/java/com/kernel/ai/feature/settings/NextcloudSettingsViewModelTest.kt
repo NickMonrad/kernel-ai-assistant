@@ -451,6 +451,44 @@ class NextcloudSettingsViewModelTest {
         coVerify { fixture.collectionBindings.recordSyncOutcome("collection-shopping", null, null) }
     }
 
+    @Test
+    fun `a failed list stops to sync off and resumes into normal reconciliation`() = runTest {
+        val unreachable = NextcloudConnectionException(
+            NextcloudFailure.Code.DNS,
+            "Could not find the Nextcloud server. Check the server URL and network connection.",
+        )
+        val fixture = Fixture(
+            store = FakeCredentialStore(connectedAccount()),
+            transport = FakeTransport(failure = unreachable),
+            lists = MutableStateFlow(listOf(list(1L, "Shopping", "collection-shopping"))),
+            summaries = MutableStateFlow(listOf(summary("collection-shopping", REMOTE_TASKS_HREF))),
+            bindings = linkedMapOf("collection-shopping" to binding("collection-shopping")),
+        )
+        val viewModel = fixture.viewModel()
+        val sections = fixture.observeSections(viewModel, this)
+        advanceUntilIdle()   // the initial reconciliation fails and records the failure
+
+        assertEquals(NextcloudListState.NEEDS_ATTENTION, sections().connected.single().syncState)
+
+        viewModel.stopSync(sections().connected.single())
+        advanceUntilIdle()
+
+        // Stop must win over the recorded failure, otherwise Resume stays unreachable.
+        assertEquals(NextcloudListState.SYNC_OFF, sections().connected.single().syncState)
+
+        fixture.transport.failure = null   // the server is reachable again
+        viewModel.resumeSync(sections().connected.single())
+        advanceUntilIdle()
+
+        coVerify { fixture.collectionBindings.setSyncEnabled("collection-shopping", true, any()) }
+        assertEquals("List synced with Nextcloud", viewModel.state.value.feedback)
+        assertEquals(
+            NextcloudListState.UP_TO_DATE,
+            sections().connected.single().syncState,
+            "a successful resume reconciles the list back to a normal state",
+        )
+    }
+
     // ── Contextual first-time setup ──────────────────────────────────────────────────────────────
 
     @Test
@@ -558,13 +596,26 @@ class NextcloudSettingsViewModelTest {
                 val binding = firstArg<NextcloudCollectionBindingEntity>()
                 bindings[binding.collectionId] = binding
             }
+            // Both stores are kept in step so the flow the UI reads reflects the durable writes,
+            // exactly as the real DAO projection would.
             coEvery { collectionBindings.setSyncEnabled(any(), any(), any()) } answers {
                 val key = firstArg<String>()
                 bindings[key]?.let { bindings[key] = it.copy(syncEnabled = secondArg()) }
+                summaries.value = summaries.value.map {
+                    if (it.collectionId == key) it.copy(syncEnabled = secondArg()) else it
+                }
             }
             coEvery { collectionBindings.recordSyncOutcome(any(), any(), any()) } answers {
                 val key = firstArg<String>()
                 bindings[key]?.let { bindings[key] = it.copy(lastFailureCode = secondArg()) }
+                summaries.value = summaries.value.map {
+                    if (it.collectionId == key) it.copy(lastFailureCode = secondArg()) else it
+                }
+            }
+            coEvery { collectionBindings.delete(any()) } answers {
+                val key = firstArg<String>()
+                bindings.remove(key)
+                summaries.value = summaries.value.filterNot { it.collectionId == key }
             }
         }
         private val adapter = NextcloudSyncAdapter(
@@ -664,7 +715,7 @@ class NextcloudSettingsViewModelTest {
 
     private class FakeTransport(
         private val failureStatus: Int? = null,
-        private val failure: Throwable? = null,
+        var failure: Throwable? = null,
         private val failMkcalendar: Boolean = false,
     ) : CalDavTransport {
         var lastAuthorization: String? = null

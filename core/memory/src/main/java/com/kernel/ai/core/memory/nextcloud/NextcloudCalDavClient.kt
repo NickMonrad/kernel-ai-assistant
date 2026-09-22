@@ -51,6 +51,7 @@ sealed class NextcloudFailure(
         TLS,
         NETWORK,
         INSECURE_REDIRECT,
+        CROSS_ORIGIN_REDIRECT,
         CONFLICT,
         SERVER,
     }
@@ -342,11 +343,13 @@ class NextcloudCalDavClient(
     }
 
     /**
-     * Sends one CalDAV request and resolves redirects under this account's scheme policy.
+     * Sends one CalDAV request and resolves redirects under this account's origin and scheme policy.
      *
-     * Same-scheme hops and HTTP → HTTPS upgrades are followed; an HTTPS → HTTP downgrade is refused
-     * unless the account explicitly enabled insecure HTTP (#1551), so a redirect can never leak the
-     * app password over cleartext for an HTTPS account.
+     * The `Authorization` header is reused for every hop, so a redirect is only followed within the
+     * same origin — the same host and effective port. A cross-origin redirect is refused rather than
+     * forwarded, which is what keeps the Nextcloud Basic credentials from reaching another server.
+     * Within that origin, same-scheme hops and HTTP → HTTPS upgrades are followed, and an
+     * HTTPS → HTTP downgrade is refused unless the account explicitly enabled insecure HTTP (#1551).
      */
     private suspend fun send(
         method: String,
@@ -369,6 +372,7 @@ class NextcloudCalDavClient(
                 ?: return Exchange(response, current)
             val target = runCatching { URI(current).resolve(location).toString() }.getOrNull()
                 ?: return Exchange(response, current)
+            if (!permitsRedirect(current, target)) throw crossOriginRedirectFailure()
             if (isDowngrade(current, target) && !account.account.allowInsecureHttp) throw insecureRedirectFailure()
             hops += 1
             if (hops > MAX_REDIRECT_HOPS) {
@@ -381,8 +385,56 @@ class NextcloudCalDavClient(
         }
     }
 
+    /**
+     * The part of a URL that may keep receiving this account's credentials.
+     *
+     * [port] is the effective port and [explicitPort] is the port as written, so a redirect can be
+     * judged both on where it really points and on whether it silently changed the port.
+     */
+    private data class RedirectOrigin(
+        val host: String,
+        val scheme: String,
+        val port: Int,
+        val explicitPort: Int,
+    )
+
+    /**
+     * Whether [from] → [to] may keep this account's `Authorization` header.
+     *
+     * Another host is never acceptable, and neither is a port change: both would send the Nextcloud
+     * app password to a different service. A scheme-only change on the same host stays inside the
+     * credential scope and is decided by the downgrade/upgrade policy instead — an HTTP → HTTPS
+     * upgrade is always followed, and an HTTPS → HTTP downgrade only for an account that explicitly
+     * opted in to insecure HTTP (#1551). A scheme change that also moves the port is refused here.
+     */
+    private fun permitsRedirect(from: String, to: String): Boolean {
+        val origin = redirectOrigin(from) ?: return false
+        val target = redirectOrigin(to) ?: return false
+        if (origin.host != target.host) return false
+        if (origin.scheme == target.scheme) return origin.port == target.port
+        return origin.explicitPort == target.explicitPort
+    }
+
+    private fun redirectOrigin(url: String): RedirectOrigin? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        val port = when {
+            uri.port != -1 -> uri.port
+            scheme == "https" -> 443
+            scheme == "http" -> 80
+            else -> return null
+        }
+        return RedirectOrigin(host, scheme, port, uri.port)
+    }
+
     private fun isDowngrade(from: String, to: String): Boolean =
         from.startsWith("https://", ignoreCase = true) && to.startsWith("http://", ignoreCase = true)
+
+    private fun crossOriginRedirectFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT,
+        "Nextcloud redirected the request to a different server. Check the Nextcloud address and CalDAV configuration.",
+    )
 
     private fun insecureRedirectFailure() = NextcloudConnectionException(
         NextcloudFailure.Code.INSECURE_REDIRECT,

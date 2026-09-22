@@ -27,11 +27,18 @@ data class NextcloudListSyncSummary(
     val syncEnabled: Boolean,
     val lastFailureCode: String?,
 ) {
-    /** Durable state, before the in-flight overlay. */
+    /**
+     * Durable state, before the in-flight overlay.
+     *
+     * An explicit Stop wins over a still-recorded failure: the user asked for this list to stop
+     * synchronizing, so the row must read `Sync off` and offer Resume instead of staying stuck on
+     * `Needs attention` with Stop as its only action (#1551). The failure history is left in place,
+     * so it is still there if the list is resumed and fails again.
+     */
     fun state(syncing: Boolean = false): NextcloudListState = when {
         syncing -> NextcloudListState.SYNCING
-        lastFailureCode != null -> NextcloudListState.NEEDS_ATTENTION
         !syncEnabled -> NextcloudListState.SYNC_OFF
+        lastFailureCode != null -> NextcloudListState.NEEDS_ATTENTION
         else -> NextcloudListState.UP_TO_DATE
     }
 }

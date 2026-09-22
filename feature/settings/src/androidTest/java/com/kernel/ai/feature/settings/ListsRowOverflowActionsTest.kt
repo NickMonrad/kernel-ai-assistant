@@ -10,7 +10,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
 import com.kernel.ai.core.memory.nextcloud.NextcloudListState
+import com.kernel.ai.core.memory.nextcloud.NextcloudListSyncSummary
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -106,6 +108,49 @@ class ListsRowOverflowActionsTest {
 
         composeTestRule.onAllNodesWithTag("lists_nextcloud_indicator").assertCountEquals(1)
         composeTestRule.onNodeWithContentDescription("Nextcloud sync stopped").assertIsDisplayed()
+    }
+
+    @Test
+    fun aStoppedFailedListOffersResumeFromBothOverflowSurfaces() {
+        // A recorded failure must not keep the row on Needs attention after Stop, otherwise Resume
+        // is unreachable from either surface (#1551).
+        val stoppedFailedState = NextcloudListSyncSummary(
+            collectionId = "collection-shopping",
+            remoteHref = "https://cloud.example/tasks/shopping/",
+            syncEnabled = false,
+            lastFailureCode = NextcloudFailure.Code.PERMISSION.name,
+        ).state()
+        assertEquals(NextcloudListState.SYNC_OFF, stoppedFailedState)
+
+        val actions = NextcloudRowActions(state = stoppedFailedState)
+        val expanded = mutableStateOf(true)
+        composeTestRule.setContent {
+            Column {
+                ListRowOverflowMenu(
+                    expanded = expanded.value,
+                    isArchivedView = false,
+                    nextcloud = actions,
+                    onRename = {},
+                    onArchive = {},
+                    onRestore = {},
+                    onShare = {},
+                    onCopy = {},
+                    onExport = {},
+                    onDelete = {},
+                    onDismiss = { expanded.value = false },
+                )
+                NextcloudOverflowItems(
+                    actions = actions,
+                    onDismiss = {},
+                    testTagPrefix = "list_detail",
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("lists_row_resume_nextcloud_sync").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("list_detail_resume_nextcloud_sync").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("lists_row_stop_nextcloud_sync").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("list_detail_stop_nextcloud_sync").assertDoesNotExist()
     }
 
     private fun showMenu(
