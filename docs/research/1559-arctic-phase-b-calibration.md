@@ -96,19 +96,19 @@ Both inference instrumentation runs completed without a crash; output norms rema
 
 Both seeded migration runs passed: the index identity advanced only after rebuild, all 147 records remained vectorized, nearest-row checks returned the canonical rows, and legacy EmbeddingGemma/tokenizer sentinel files were removed. This exercises the real migration against seeded old-index state, not an upgrade from a preserved pre-Phase-B installation/database. Interruption recovery was not induced on device; retry behavior is covered by unit tests.
 
-## Phase B physical tokenless first-run download
+## Phase B tokenless public-download revalidation
 
-`app/src/androidTest/.../ArcticPublicModelFirstRunTest.kt` deleted the Arctic model and vocabulary, confirmed the debug install had no Hugging Face access token, then initialized the real `ModelDownloadManager` and waited for both required Arctic files to finish downloading. The test verified exact byte lengths and pinned SHA-256 values.
+On 2026-09-23, `:app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.kernel.ai.ArcticPublicDownloadSmokeTest` passed on both connected devices using the final rolling release URL. The temporary production-path smoke checked that no Hugging Face token was present, downloaded both assets through `ModelDownloadManager`, verified their byte lengths and SHA-256 digests against the current release metadata, and initialized the real `LiteRtEmbeddingEngine` with a nonzero 768-dimensional query embedding. The throwaway instrumentation source was removed after validation; this records device evidence, not a permanent device-test contract.
 
-| Device | HF token present | Model bytes / SHA-256 | Vocabulary bytes / SHA-256 |
-|---|---|---|---|
-| S21 (SM-G991B) | no | 113,850,784 / `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` | 231,508 / `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` |
-| S23 Ultra (SM-S918B) | no | 113,850,784 / `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` | 231,508 / `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` |
+| Device | Android / SDK | HF token | Model bytes / SHA-256 | Vocabulary bytes / SHA-256 | Result |
+|---|---|---|---|---|---|
+| S21 (SM-G991B) | 15 / 35 | no | 113,850,784 / `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` | 231,508 / `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` | download + 768-d inference passed |
+| S23 Ultra (SM-S918B) | 16 / 36 | no | 113,850,784 / `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` | 231,508 / `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` | download + 768-d inference passed |
 
-Before manager initialization, one-byte Gemma sentinel files suppressed unrelated multi-gigabyte conversation-model auto-downloads; the test removed them afterward. This validates the Arctic first-run manager path without credentials on both devices, but not a completely empty app install or the unrelated LLM download paths. It also does not resolve the immutable-release gate below.
+The smoke used a one-byte Gemma sentinel during manager initialization to suppress the unrelated multi-gigabyte conversation-model auto-download and removed it afterward. It proves the current public Arctic download and initialization path works without a Hugging Face token on both devices; it does not test a fully empty app-data migration or the unrelated LLM download paths.
 
-## Limits and release gate
+## Limits and distribution
 
 The message/core/episodic data are small synthetic fixtures (six calibration and six held-out queries each); Kiwi and identity use only 25 labeled queries total despite the 144-document source. Cutoffs must therefore remain traceable to this evidence, and the scores must not be described as broad production validation. A larger representative user-memory dataset may change the core false-positive budget and thresholds.
 
-The exact versioned Arctic model and vocabulary assets are publicly downloadable without a token, and their downloaded bytes match the pinned hashes. The GitHub prerelease currently reports `immutable=false`; only a repository administrator can enable immutable releases. Phase B release acceptance is **held** until the asset/tag immutability gate is satisfied. Do not claim the mutable release is immutable or merge on that basis.
+The validated model and vocabulary sizes and SHA-256 digests above are the provenance for the tested conversion. Production uses the public rolling GitHub release `model-arctic-embed-m-v1.5-current`, so the existing force-update path can fetch a subsequently published compatible build without an APK update. GitHub `immutable=true` is not a #1559 acceptance requirement. Long-term publication to `litert-community` is tracked separately in #1563 and is not a blocker.

@@ -1,6 +1,6 @@
 # Arctic Embed M v1.5 Phase A spike
 
-This directory contains pinned Phase A conversion/fidelity tooling and a Phase B retrieval-calibration evaluator. The tools do not modify production code, schemas, thresholds, indexes, or model files.
+This directory is the reproducible conversion and validation source for the Arctic production artifact, plus the Phase B retrieval-calibration evaluator. The pinned conversion recipe and Python environment reproduce the validated artifact; generated `.tflite` binaries remain outside Git.
 
 ## Reproduce conversion and desktop comparison
 
@@ -23,6 +23,8 @@ The Android instrumentation benchmark in `app/src/androidTest/.../ArcticLiteRtDe
 
 Phase A's same-device EmbeddingGemma comparison is preserved in [`docs/research/1559-arctic-phase-a-evidence.md`](../../docs/research/1559-arctic-phase-a-evidence.md). Phase B removes the active EmbeddingGemma metadata and SentencePiece tokenizer, so the test-only EmbeddingGemma benchmark and its gated local inputs are no longer in the current instrumentation source. The Arctic candidate benchmark remains available for reference-parity and runtime measurements.
 
-## Phase B cosine retrieval calibration
+## Phase B cosine retrieval calibration and distribution
 
-The report records per-consumer cosine-distance cutoffs, held-out scores, and dataset limits. Calibration remains exploratory: message/core/episodic scores use six-query held-out sets, Kiwi uses 25 labeled queries for 144 entries, and core has substantial false positives. Production release sign-off remains held until the SHA-pinned assets are served from an immutable GitHub release.
+The report records per-consumer cosine-distance cutoffs, held-out scores, and dataset limits. Calibration remains exploratory: message/core/episodic scores use six-query held-out sets, Kiwi uses 25 labeled queries for 144 entries, and core has substantial false positives.
+
+The validated conversion is temporarily hosted from Jandal's public rolling GitHub release `model-arctic-embed-m-v1.5-current` so the existing Model Management force-update can retrieve later compatible conversions from a stable URL. Long-term publication to `litert-community` is tracked separately in #1563. GitHub `immutable=true` is not a #1559 release gate.

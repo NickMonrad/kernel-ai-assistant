@@ -16,7 +16,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * EmbeddingEngine backed by the pinned Arctic Embed M v1.5 LiteRT artifact.
+ * EmbeddingEngine backed by the Arctic Embed M v1.5 LiteRT artifact.
  *
  * Documents use uncased WordPiece without a prefix; queries use the upstream
  * retrieval instruction prefix. The model output is CLS pooled and L2-normalized.

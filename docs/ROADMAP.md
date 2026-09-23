@@ -110,7 +110,7 @@ tri-tiered memory architecture inspired by the
 
 ### Key Design Decisions
 
-- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaces the active RAG runtime with Arctic Embed M v1.5. Public versioned assets are anonymously downloadable and SHA-verified, but GitHub reports the release is mutable; release sign-off remains held until a repository admin enables immutable-release protection.
+- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaces the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
 - **Tokenizer:** Arctic's uncased WordPiece vocabulary and pure-Kotlin tokenizer are active; the former SentencePiece path is historical only.
 - **Separate databases**: Room (`kernel_db`) for relational data, native SQLite (`kernel_vectors.db`)
   for vectors — because Room doesn't support sqlite-vec's vec0 virtual tables
@@ -679,7 +679,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 |----------|-----|
 | Gemma-4 E-2B (LiteRT) | [huggingface.co/litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) |
 | Gemma-4 E-4B (LiteRT) | [huggingface.co/litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
-| Arctic Embed M v1.5 | [Snowflake/snowflake-arctic-embed-m-v1.5](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v1.5) (Apache-2.0; public versioned prerelease assets are SHA-verified; immutable-release sign-off pending repository admin) |
+| Arctic Embed M v1.5 | [Snowflake/snowflake-arctic-embed-m-v1.5](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v1.5) (Apache-2.0; temporary runtime host is the public rolling [Jandal GitHub release](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current); long-term community publication tracked in #1563) |
 | FunctionGemma-270M Mobile Actions | [huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
 | LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) |
 | sqlite-vec | [github.com/asg017/sqlite-vec](https://github.com/asg017/sqlite-vec) |

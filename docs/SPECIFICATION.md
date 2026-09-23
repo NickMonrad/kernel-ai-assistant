@@ -82,7 +82,7 @@ The shipped optional provider is a user-configured Nextcloud Tasks server using 
 |-------|------|------|---------|---------|
 | Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls (#20, PR #57) |
 | Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls |
-| Arctic Embed M v1.5 | Semantic embeddings (768-dim) | 113,850,784-byte INT8 model + 231,508-byte vocabulary | CPU | Lazy on first RAG query; public versioned prerelease assets are SHA-pinned, but repository immutable-release protection is not enabled, so release sign-off remains on hold |
+| Arctic Embed M v1.5 | Semantic embeddings (768-dim) | 113,850,784-byte INT8 model + 231,508-byte vocabulary | CPU | Lazy on first RAG query; anonymous HTTPS assets from public rolling release `model-arctic-embed-m-v1.5-current`; validated SHA-256 provenance in #1559 evidence |
 
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
 > terminate the process during Gemma-4's GPU kernel compilation peak (~4–5GB transient).

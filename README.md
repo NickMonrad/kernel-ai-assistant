@@ -66,7 +66,7 @@ Future roadmap work includes Dreaming Engine background consolidation, Wasm skil
 
 ## Models and downloads
 
-Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of the upstream model licence/terms. Arctic Embed M v1.5 is ungated, but its required versioned assets are not publicly downloadable until immutable-release protection is enabled and the pinned assets are verified; see [`docs/LEGAL_AND_ATTRIBUTION.md`](docs/LEGAL_AND_ATTRIBUTION.md).
+Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of upstream terms. Arctic Embed M v1.5 is ungated and temporarily hosted at a public rolling GitHub release; the validated artifact's SHA-256 provenance is recorded in [`docs/research/1559-arctic-phase-b-calibration.md`](docs/research/1559-arctic-phase-b-calibration.md). Long-term publication to `litert-community` is tracked separately in [#1563](https://github.com/NickMonrad/kernel-ai-assistant/issues/1563); GitHub release immutability is not a #1559 gate.
 
 See [`models/README.md`](models/README.md) for the current model file reference, approximate sizes, ADB setup notes, and device-specific guidance.
 
@@ -76,7 +76,7 @@ Key launch-relevant examples:
 |---------------|--------------|-------|
 | Gemma-4 E-2B LiteRT-LM | ~2.4 GB | Required launch-compatible chat model tier |
 | Gemma-4 E-4B LiteRT-LM | ~3.4 GB | Optional flagship-tier chat model |
-| Arctic Embed M v1.5 + WordPiece vocabulary | 114,082,292 bytes | Required for local embedding/RAG; versioned public assets blocked pending immutable hosting |
+| Arctic Embed M v1.5 + WordPiece vocabulary | 114,082,292 bytes | Required local embedding/RAG assets; downloaded from a public rolling release |
 | Sherpa STT models | ~72-220 MB each | Downloaded per selected STT engine |
 | Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; Semaine launch decision tracked in #1258 |
 

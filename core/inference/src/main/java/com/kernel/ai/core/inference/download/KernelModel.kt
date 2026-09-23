@@ -52,8 +52,6 @@ enum class KernelModel(
      * Defaults to `false` so existing entries are unaffected.
      */
     val isDeprecated: Boolean = false,
-    /** SHA-256 verified before a downloaded file is made visible to the app. */
-    val expectedSha256: String? = null,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -80,21 +78,21 @@ enum class KernelModel(
     ARCTIC_EMBED_M_V1_5(
         displayName = "Arctic Embed M v1.5",
         fileName = "arctic-embed-m-v1.5-int8.tflite",
-        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-jandal-v1/arctic-embed-m-v1.5-int8.tflite",
+        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-current/arctic-embed-m-v1.5-int8.tflite",
         approxSizeBytes = 113_850_784L,
         isRequired = true,
         preferredForTier = null,
-        expectedSha256 = "17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d",
+        isGated = false,
     ),
 
     ARCTIC_EMBED_V1_5_VOCAB(
         displayName = "Arctic Embed v1.5 vocabulary",
         fileName = "arctic-embed-m-v1.5-vocab.txt",
-        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-jandal-v1/arctic-embed-m-v1.5-vocab.txt",
+        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-current/arctic-embed-m-v1.5-vocab.txt",
         approxSizeBytes = 231_508L,
         isRequired = true,
         preferredForTier = null,
-        expectedSha256 = "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+        isGated = false,
     ),
 
     MINI_LM(

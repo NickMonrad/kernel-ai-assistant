@@ -79,7 +79,7 @@ For manual setup without a host machine:
 | `arctic-embed-m-v1.5-int8.tflite` | 113,850,784 bytes | CPU inference; converted from `Snowflake/snowflake-arctic-embed-m-v1.5` at pinned revision `e58a8f756156a1293d763f17e3aae643474e9b8a` |
 | `vocab.txt` | 231,508 bytes | Uncased WordPiece vocabulary from the same pinned upstream revision |
 
-The converted model and vocabulary have pinned SHA-256 digests in `KernelModel`. Both are ungated and require no Hugging Face account. The public versioned GitHub prerelease assets are published and anonymous downloads matched their pins. GitHub reports `immutable=false`; repository admin access is required to enable immutable-release protection, so release sign-off remains on hold.
+The validated model and vocabulary SHA-256 digests are recorded in the Phase B evidence report and release provenance; they are not compiled into the app, so Model Management's forced Update can fetch a later compatible asset from the same rolling URL. Both assets are ungated and require no Hugging Face account. The temporary public HTTPS host is the rolling GitHub release [`model-arctic-embed-m-v1.5-current`](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current). Long-term publication to `litert-community` is tracked separately in #1563 and is not a #1559 blocker.
 
 ## Speech, wake-word, and voice asset sources
 

@@ -15,15 +15,21 @@ class KernelModelTest {
     }
 
     @Test
-    fun `Arctic production assets are required public checksum-pinned artifacts`() {
+    fun `Arctic assets use a stable ungated rolling release source`() {
         val model = KernelModel.ARCTIC_EMBED_M_V1_5
         val vocab = KernelModel.ARCTIC_EMBED_V1_5_VOCAB
+        val releasePrefix =
+            "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-current/"
 
         assertTrue(model.isRequired)
         assertFalse(model.isGated)
-        assertEquals("17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d", model.expectedSha256)
+        assertEquals("arctic-embed-m-v1.5-int8.tflite", model.fileName)
+        assertEquals(113_850_784L, model.approxSizeBytes)
+        assertEquals("${releasePrefix}${model.fileName}", model.downloadUrl)
         assertTrue(vocab.isRequired)
         assertFalse(vocab.isGated)
-        assertEquals("07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", vocab.expectedSha256)
+        assertEquals("arctic-embed-m-v1.5-vocab.txt", vocab.fileName)
+        assertEquals(231_508L, vocab.approxSizeBytes)
+        assertEquals("${releasePrefix}${vocab.fileName}", vocab.downloadUrl)
     }
 }

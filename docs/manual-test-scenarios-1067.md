@@ -148,8 +148,8 @@
 **Expected:**
 - The former EmbeddingGemma model and SentencePiece tokenizer are not active catalogue entries.
 - The Arctic model and vocabulary entries require no Hugging Face token or licence acceptance.
-- Model files are not considered installed unless the worker verifies their pinned SHA-256 before atomic rename.
-- Public versioned assets download without Hugging Face auth and match pinned SHA-256 values, but release sign-off remains held until repository immutable-release protection is enabled.
+- The initial model and vocabulary downloads are anonymous HTTPS requests with no Hugging Face token or licence-acceptance flow; links use public rolling release `model-arctic-embed-m-v1.5-current`.
+- The validated Phase B artifact sizes and SHA-256 digests are recorded in the evidence report; runtime download does not pin a rolling update to those historical digests.
 
 ---
 

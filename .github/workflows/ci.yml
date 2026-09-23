@@ -149,7 +149,9 @@ jobs:
           || {
             git tag -f "$TAG"
             git push -f origin "$TAG"
-            gh release upload "$TAG" "$APK" --clobber
+            # Replace the previous preview artifact before uploading this build.
+            gh release delete-asset "$TAG" app-debug.apk --yes 2>/dev/null || true
+            gh release upload "$TAG" "$APK"
             gh release edit "$TAG" \
               --title "PR #${PR_NUMBER} debug build — ${SHORT_SHA}" \
               --notes "Debug APK for PR #${PR_NUMBER}. Commit: ${GITHUB_SHA}. Build #${BUILD_NUMBER}." \

@@ -912,7 +912,7 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 | **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "Arctic Embed M v1.5" visible. |
 | **Complexity** | Medium — requires fresh-install state |
 
-> Fresh-install tests can use the public, SHA-pinned Arctic prerelease assets without Hugging Face auth. Release sign-off remains held because GitHub reports the release mutable; immutable-release protection requires repository admin access.
+> Fresh-install tests use the anonymous public HTTPS assets from the rolling `model-arctic-embed-m-v1.5-current` release. Validated-artifact SHA-256 values are provenance evidence, not runtime pins; GitHub release immutability is not required by #1559. Long-term `litert-community` publication is tracked in #1563.
 
 #### UI-AUTO-1A-2: Optional models show "Download later"
 
