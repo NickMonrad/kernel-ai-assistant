@@ -23,7 +23,7 @@ data class CoreMemoryEntity(
     val definition: String = "",
     /** Hint describing when this truth should surface. */
     val triggerContext: String = "",
-    /** 1 (subtle/serious) → 5 (high-energy/chaotic). Controls retrieval distance threshold. */
+    /** Vibe metadata (1 subtle/serious to 5 high-energy); per-vibe cutoffs await calibration. */
     val vibeLevel: Int = 1,
     /** JSON string of metadata tags/era (e.g. {"tags":["food"],"era":"timeless"}). */
     val metadataJson: String = "{}",

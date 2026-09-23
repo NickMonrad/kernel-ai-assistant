@@ -2561,7 +2561,7 @@ class NativeIntentHandlerTest {
             coEvery { profileRepository.getStructured() } returns
                 if (name != null) UserProfileYaml(name = name) else null
             coEvery { profileRepository.getName() } returns name
-            coEvery { embeddingEngine.embed(any()) } returns floatArrayOf()
+            coEvery { embeddingEngine.embedDocument(any()) } returns floatArrayOf()
         }
 
         @Test

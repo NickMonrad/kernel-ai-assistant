@@ -2137,7 +2137,7 @@ private fun OnboardingContent(
                 )
             }
 
-            // ── Other model rows (EmbeddingGemma, SentencePiece, etc.) ──────
+            // ── Other model rows (Arctic Embed, vocabulary, etc.) ──────────
             if (otherModels.isNotEmpty()) {
                 Column(
                     modifier = Modifier

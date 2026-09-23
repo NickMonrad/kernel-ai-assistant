@@ -30,7 +30,7 @@ You are the **test-writer** for the Kernel AI Assistant project. Read `.omp/AGEN
 ## What to test
 
 - `:core:inference` — InferenceEngine interface, model manager, hardware tier detection
-- `:core:memory` — RAG pipeline, sqlite-vec queries, EmbeddingGemma interface
+- `:core:memory` — Arctic Embed query/document embeddings, cosine vec0 queries, and reindexing contracts
 - `:core:skills` — SkillRegistry, JSON schema validation, SkillExecutor dispatch
 - `:feature:chat` — ChatViewModel (mock InferenceEngine), conversation state
 - QuickIntentRouter — all 20+ intent patterns, edge cases, null classifier fallback

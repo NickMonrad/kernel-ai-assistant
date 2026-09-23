@@ -21,6 +21,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 private const val TAG = "ModelDownloadWorker"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_model_download"
@@ -39,9 +40,10 @@ const val KEY_ERROR = "error"
 const val KEY_ERROR_CODE = "error_code"
 /** Optional HuggingFace Bearer token — present when downloading a gated model. */
 const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
+const val KEY_SHA256 = "sha256"
 
 /**
- * WorkManager [CoroutineWorker] that downloads a single `.litertlm` model file.
+ * WorkManager [CoroutineWorker] that downloads one model or tokenizer asset.
  *
  * Features:
  * - Foreground service with a progress notification (required for long-running downloads)
@@ -72,6 +74,7 @@ class ModelDownloadWorker(
             ?: return@withContext Result.failure(errorData("Missing file name"))
         val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME) ?: fileName
         val totalBytes = inputData.getLong(KEY_TOTAL_BYTES, 0L)
+        val expectedSha256 = inputData.getString(KEY_SHA256)
         val hfAccessToken = inputData.getString(KEY_HF_ACCESS_TOKEN)
 
         val modelsDir = (applicationContext.getExternalFilesDir("models")
@@ -91,6 +94,7 @@ class ModelDownloadWorker(
                 totalBytes = totalBytes,
                 displayName = displayName,
                 hfAccessToken = hfAccessToken,
+                expectedSha256 = expectedSha256,
             )
             Log.i(TAG, "Download complete: ${outputFile.absolutePath}")
             Result.success()
@@ -110,6 +114,7 @@ class ModelDownloadWorker(
         totalBytes: Long,
         displayName: String,
         hfAccessToken: String? = null,
+        expectedSha256: String? = null,
     ) {
         val connection = URL(url).openConnection() as HttpURLConnection
 
@@ -136,7 +141,8 @@ class ModelDownloadWorker(
             throw IOException("HTTP $responseCode for $url")
         }
 
-        val startedAt = resumeFrom
+        val resumed = responseCode == HttpURLConnection.HTTP_PARTIAL
+        val startedAt = if (resumed) resumeFrom else 0L
         var downloadedBytes = startedAt
 
         // Sliding window for rate calculation (last 5 intervals of ~200ms each)
@@ -148,7 +154,7 @@ class ModelDownloadWorker(
         var deltaBytes = 0L
 
         connection.inputStream.use { input ->
-            FileOutputStream(tmpFile, /* append */ true).use { output ->
+            FileOutputStream(tmpFile, /* append */ resumed).use { output ->
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
@@ -188,6 +194,11 @@ class ModelDownloadWorker(
                     }
                 }
             }
+        }
+
+        if (!expectedSha256.isNullOrBlank() && !matchesSha256(tmpFile, expectedSha256)) {
+            tmpFile.delete()
+            throw IOException("SHA-256 mismatch for ${tmpFile.name}")
         }
 
         // Rename tmp → final file atomically
@@ -251,6 +262,20 @@ class ModelDownloadWorker(
 
     private fun errorData(message: String): Data =
         Data.Builder().putString(KEY_ERROR_MESSAGE, message).build()
+}
+
+internal fun matchesSha256(file: File, expectedSha256: String): Boolean {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().buffered().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+    return actualSha256.equals(expectedSha256, ignoreCase = true)
 }
 
 /** Thrown when the server returns 401 or 403 — model licence must be accepted first. */

@@ -508,14 +508,10 @@ def preflight_model_readiness(
         evidence.download_triggered = True
 
     # ── Phase 2: Handle HF sign-in dialog ────────────────────────────
-    # On S21, the conversation model (E-2B) auto-queues immediately, giving
-    # initial_state "Preparing". But the embedding models (isGated=true) show
-    # a HF sign-in dialog listing each gated model with a "Sign in" button.
-    # We tap the dialog header to trigger the OAuth flow (opens browser in
-    # background), then dismiss the dialog with Back so the device is in a
-    # clean state. If the device is already signed into HuggingFace (cached
-    # browser session), the OAuth completes silently and the gated models
-    # will auto-queue on next app check.
+    # The catalogue may include gated models. When it does, the sign-in dialog
+    # lists each gated entry with a "Sign in" button. Tapping the dialog header
+    # starts OAuth; dismissing it leaves the device ready for the rest of this
+    # preflight. A cached browser session can complete OAuth without prompting.
     #
     # The main download/engine polling loop handles the rest; its timeout
     # mechanisms (MODEL_NOT_READY, MODEL_DOWNLOAD_TIMEOUT, ENGINE_NOT_READY)

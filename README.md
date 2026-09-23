@@ -9,7 +9,7 @@ Jandal AI is a local-first Android assistant. It combines on-device chat, long-t
 Jandal is built around a **Brain-Memory-Action** model:
 
 - **Brain** - Gemma-4 E-2B / E-4B runs locally through Google AI Edge LiteRT / LiteRT-LM. A lightweight `QuickIntentRouter` handles deterministic fast paths for common device actions.
-- **Memory** - local Room storage plus sqlite-vec / EmbeddingGemma support semantic recall, conversation history, core memories, and episodic summaries.
+- **Memory** - local Room storage plus sqlite-vec / Arctic Embed M v1.5 support semantic recall, conversation history, core memories, and episodic summaries.
 - **Action** - native Kotlin skills execute Android actions such as alarms, timers, lists, notes, weather, media controls, messages, email, calendar, navigation, Wikipedia, and unit/currency conversion.
 
 ## Current launch status
@@ -55,7 +55,7 @@ Future roadmap work includes Dreaming Engine background consolidation, Wasm skil
 | Background work | WorkManager |
 | Local inference | Google AI Edge LiteRT / LiteRT-LM |
 | Chat models | Gemma-4 E-2B / E-4B LiteRT-LM packages |
-| Embeddings / RAG | EmbeddingGemma-300M, sqlite-vec |
+| Embeddings / RAG | Arctic Embed M v1.5 (768-dim), sqlite-vec cosine indexes |
 | Quick actions | Kotlin `QuickIntentRouter` with deterministic routing and slot filling |
 | Tool calling | LiteRT-LM native `@Tool` annotations and app-owned native skills |
 | STT | Android native STT, Vosk, Sherpa-ONNX Zipformer / SenseVoice / Whisper tiny.en / Paraformer |
@@ -66,7 +66,7 @@ Future roadmap work includes Dreaming Engine background consolidation, Wasm skil
 
 ## Models and downloads
 
-Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of the upstream model licence/terms before the app can download or use them.
+Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of the upstream model licence/terms. Arctic Embed M v1.5 is ungated, but its required versioned assets are not publicly downloadable until immutable-release protection is enabled and the pinned assets are verified; see [`docs/LEGAL_AND_ATTRIBUTION.md`](docs/LEGAL_AND_ATTRIBUTION.md).
 
 See [`models/README.md`](models/README.md) for the current model file reference, approximate sizes, ADB setup notes, and device-specific guidance.
 
@@ -76,7 +76,7 @@ Key launch-relevant examples:
 |---------------|--------------|-------|
 | Gemma-4 E-2B LiteRT-LM | ~2.4 GB | Required launch-compatible chat model tier |
 | Gemma-4 E-4B LiteRT-LM | ~3.4 GB | Optional flagship-tier chat model |
-| EmbeddingGemma 300M | varies by file | Required for local embedding/RAG paths where enabled |
+| Arctic Embed M v1.5 + WordPiece vocabulary | 114,082,292 bytes | Required for local embedding/RAG; versioned public assets blocked pending immutable hosting |
 | Sherpa STT models | ~72-220 MB each | Downloaded per selected STT engine |
 | Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; Semaine launch decision tracked in #1258 |
 

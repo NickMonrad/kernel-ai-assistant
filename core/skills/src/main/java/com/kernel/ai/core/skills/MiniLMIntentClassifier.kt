@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.kernel.ai.core.inference.WordPieceTokenizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,9 +41,6 @@ class MiniLMIntentClassifier @Inject constructor(
         private const val MAX_SEQ_LEN = 64
         private const val CONFIDENCE_THRESHOLD = 0.50f  // must be ≤ SOFT_FALLBACK_THRESHOLD (0.55) so orchestrator sees low-confidence guesses
         private const val AMBIGUITY_MARGIN = 0.05f
-        private const val UNK = "[UNK]"
-        private const val CLS = "[CLS]"
-        private const val SEP = "[SEP]"
     }
 
     // All mutable state is set exactly once from the init coroutine and then read-only.
@@ -173,69 +171,12 @@ class MiniLMIntentClassifier @Inject constructor(
 
     // ── Tokenisation (BERT WordPiece) ────────────────────────────────────────
 
-    private fun tokenize(text: String, vocab: Map<String, Int>): Pair<IntArray, IntArray> {
-        val basicTokens = basicTokenize(text)
-        val wpTokens = mutableListOf<String>()
-        for (token in basicTokens) wpTokens.addAll(wordPiece(token, vocab))
-
-        val maxTokens = MAX_SEQ_LEN - 2
-        val truncated = if (wpTokens.size > maxTokens) wpTokens.subList(0, maxTokens) else wpTokens
-
-        val tokens = buildList {
-            add(CLS)
-            addAll(truncated)
-            add(SEP)
-        }
-
-        val inputIds = IntArray(MAX_SEQ_LEN)
-        val attentionMask = IntArray(MAX_SEQ_LEN)
-        for (i in tokens.indices) {
-            inputIds[i] = vocab[tokens[i]] ?: vocab[UNK] ?: 0
-            attentionMask[i] = 1
-        }
-        return inputIds to attentionMask
-    }
-
-    private fun basicTokenize(text: String): List<String> {
-        val tokens = mutableListOf<String>()
-        val buf = StringBuilder()
-        for (ch in text) {
-            when {
-                ch.isWhitespace() -> { if (buf.isNotEmpty()) { tokens += buf.toString(); buf.clear() } }
-                isPunct(ch) -> { if (buf.isNotEmpty()) { tokens += buf.toString(); buf.clear() }; tokens += ch.toString() }
-                else -> buf.append(ch)
-            }
-        }
-        if (buf.isNotEmpty()) tokens += buf.toString()
-        return tokens
-    }
-
-    private fun wordPiece(word: String, vocab: Map<String, Int>): List<String> {
-        if (word.length > 200) return listOf(UNK)
-        val result = mutableListOf<String>()
-        var start = 0
-        while (start < word.length) {
-            var end = word.length
-            var found: String? = null
-            while (start < end) {
-                val substr = if (start == 0) word.substring(start, end) else "##${word.substring(start, end)}"
-                if (substr in vocab) { found = substr; break }
-                end--
-            }
-            if (found == null) return listOf(UNK)
-            result += found
-            start = end
-        }
-        return result
-    }
-
-    private fun isPunct(ch: Char) = ch in "!\"#\$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
     // ── Embedding ────────────────────────────────────────────────────────────
 
     private fun embed(text: String, vocab: Map<String, Int>, interp: Interpreter): FloatArray? {
         return try {
-            val (inputIds, mask) = tokenize(text, vocab)
+            val (inputIds, mask) = WordPieceTokenizer.encode(text, vocab, MAX_SEQ_LEN)
 
             val inputIdsBatch = Array(1) { inputIds }
             val maskBatch = Array(1) { mask }

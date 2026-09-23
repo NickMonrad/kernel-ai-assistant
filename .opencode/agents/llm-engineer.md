@@ -13,7 +13,7 @@ You are the **llm-engineer** for the Kernel AI Assistant project. Read `.omp/AGE
 - LiteRT-LM engine wrapper and model loading logic
 - Three-tier agent architecture (QuickIntentRouter → Gemma-4 E4B/E2B)
 - Hardware tier detection and backend fallback (NPU → GPU → CPU)
-- RAG pipeline: EmbeddingGemma-300M + sqlite-vec cosine search
+- RAG pipeline: Arctic Embed M v1.5 + sqlite-vec cosine search
 - Prompt engineering: system prompts, tool calling schemas, context management
 - KV cache management and recursive summarisation
 - MiniLM zero-shot intent classifier (Tier 2 Phase 2+)
@@ -21,7 +21,7 @@ You are the **llm-engineer** for the Kernel AI Assistant project. Read `.omp/AGE
 ## RAG pipeline detail
 
 - Every user query → `vec_distance_cosine()`, top 3–5 fragments prepended to system prompt
-- EmbeddingGemma: 768-dim vectors (Matryoshka-reducible to 256-dim on 8GB tier)
+- Arctic Embed M v1.5: normalized 768-dim vectors; Matryoshka reduction to 256-dim is deferred
 - Memory stored in Room + sqlite-vec compiled via NDK for arm64-v8a
 
 ## Tool calling detail

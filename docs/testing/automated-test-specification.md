@@ -909,8 +909,10 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 | **Pre-condition** | Fresh install (`adb shell pm clear com.kernel.ai.debug`) |
 | **Screen** | Onboarding / Model Download |
 | **Actions** | 1. Launch app. 2. Wait for onboarding screen. |
-| **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "EmbeddingGemma 300M" visible. |
+| **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "Arctic Embed M v1.5" visible. |
 | **Complexity** | Medium — requires fresh-install state |
+
+> Fresh-install tests can use the public, SHA-pinned Arctic prerelease assets without Hugging Face auth. Release sign-off remains held because GitHub reports the release mutable; immutable-release protection requires repository admin access.
 
 #### UI-AUTO-1A-2: Optional models show "Download later"
 

@@ -11,7 +11,7 @@ You are an expert in on-device AI/ML for Android, specialising in LiteRT, LLM in
 
 - **Inference:** LiteRT-LM engine configuration, backend selection (NPU/GPU/CPU), model loading/unloading
 - **Model cascade:** E4B native tool calling (intent/tool routing) → Gemma-4 (reasoning) escalation logic, confidence thresholds
-- **RAG:** EmbeddingGemma vector generation, sqlite-vec similarity search, memory fragment retrieval, prompt augmentation
+- **RAG:** Arctic Embed M v1.5 query/document embeddings, sqlite-vec cosine search, memory-fragment retrieval, prompt augmentation
 - **Context management:** KV cache tracking, recursive summarization at capacity thresholds
 - **Prompt engineering:** System prompts, persona definition
 - **Function calling:** Parsing E4B native JSON tool call output, validating against skill schemas, dispatching via SkillExecutor
@@ -23,7 +23,7 @@ You are an expert in on-device AI/ML for Android, specialising in LiteRT, LLM in
 | FunctionGemma-270M-FT-Mobile-Actions | `litert-community/functiongemma-270m-ft-mobile-actions` | LiteRT (dynamic_int8) | ~~Intent router~~ **Deprecated** — class retained pending cleanup; not loaded at startup |
 | Gemma-4 E-4B | `litert-community/gemma-4-E4B-it-litert-lm` | LiteRT (INT4) | Reasoning (Performance tier, 12GB+) |
 | Gemma-4 E-2B | `litert-community/gemma-4-E2B-it-litert-lm` | LiteRT (INT4) | Reasoning (Compatibility tier, 8GB) |
-| EmbeddingGemma-300M | `google/embeddinggemma-300m` | Needs conversion | 768-dim embeddings for RAG |
+| Arctic Embed M v1.5 | `Snowflake/snowflake-arctic-embed-m-v1.5` (pinned revision; GitHub release assets not yet published) | LiteRT INT8 + WordPiece | 768-dim RAG embeddings; query-prefixed |
 
 ## Critical patterns
 
@@ -33,8 +33,8 @@ IDLE → LOADING → READY → GENERATING → COOLDOWN → UNLOADING → IDLE
 ```
 - FunctionGemma: **deprecated** — not loaded at startup
 - Gemma-4: lazy load, unload after 60s idle
-- EmbeddingGemma: load when RAG activates, unload when Gemma-4 needs RAM (8GB devices)
-- **Never hold EmbeddingGemma + Gemma-4 simultaneously on 8GB devices**
+- Arctic Embed M v1.5: load when RAG activates; unload when Gemma-4 needs RAM on 8GB devices.
+- **Never hold Arctic Embed + Gemma-4 simultaneously on 8GB devices.**
 
 ### Hallucination guardrails
 1. E4B outputs a JSON tool call
@@ -65,7 +65,7 @@ val backend = try {
 - All inference runs on a dedicated `LLMDispatcher` (custom thread pool), never main thread
 - Verify quantization with LiteRT Metadata Extractor after loading any model
 - Use Kotlin `Flow<String>` for streaming token output
-- EmbeddingGemma output: 768-dim on 12GB+, 256-dim (Matryoshka) on 8GB
+- Arctic Embed M v1.5 output: normalized 768-dim vectors; 256-dim Matryoshka path remains deferred
 - sqlite-vec cosine similarity via `vec_distance_cosine()` — lower = more similar
 
 ## Quality checklist

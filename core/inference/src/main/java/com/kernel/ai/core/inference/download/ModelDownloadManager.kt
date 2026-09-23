@@ -188,6 +188,7 @@ class ModelDownloadManager @Inject constructor(
                     .putString(KEY_FILE_NAME, model.fileName)
                     .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
                     .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
+                model.expectedSha256?.let { dataBuilder.putString(KEY_SHA256, it) }
 
                 // Attach HF access token for gated models so the worker can authenticate
                 if (model.isGated) {
@@ -264,18 +265,8 @@ class ModelDownloadManager @Inject constructor(
                 KernelModel.GEMMA_4_E2B.isDownloaded(context)
             else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
         }
-        // All other required models must be present (e.g. SentencePiece tokenizer).
-        // Explicit allowlist of gated required models known to be non-conversation
-        // dependencies (RAG/vector search only). Only these may be skipped when
-        // HuggingFace authentication is missing.
-        val gatedNonConversationModels = setOf(
-            KernelModel.EMBEDDING_GEMMA_300M,   // RAG embeddings
-            KernelModel.EMBEDDING_GEMMA_SP_MODEL, // SentencePiece tokenizer
-        )
-        val isHfAuthenticated = authRepository.isAuthenticated.value
         val otherRequiredReady = KernelModel.entries
             .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
-            .filterNot { it in gatedNonConversationModels && !isHfAuthenticated }
             .all { it.isDownloaded(context) }
         return conversationModelReady && otherRequiredReady
     }

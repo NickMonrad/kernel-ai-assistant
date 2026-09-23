@@ -26,6 +26,7 @@ open class ModelPreferences @Inject constructor(
 ) {
     private val preferredModelKey = stringPreferencesKey("preferred_conversation_model")
     private val suppressedOptionalModelIdsKey = stringSetPreferencesKey("suppressed_optional_model_ids")
+    private val embeddingIndexIdentityKey = stringPreferencesKey("embedding_index_identity")
 
     /**
      * The DataStore instance. Exposed as an internal property so test subclasses
@@ -108,4 +109,11 @@ open class ModelPreferences @Inject constructor(
             throw e  // re-throw so caller can surface feedback to the user
         }
     }
+    suspend fun getEmbeddingIndexIdentity(): String? =
+        dataStore.data.first()[embeddingIndexIdentityKey]
+
+    suspend fun setEmbeddingIndexIdentity(identity: String) {
+        dataStore.edit { preferences -> preferences[embeddingIndexIdentityKey] = identity }
+    }
+
 }
