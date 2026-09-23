@@ -24,19 +24,55 @@
 
 Each Kiwi/identity aggregate covers three calibration queries and two held-out queries per vibe (15/10 total), with one relevant target per query. Message, core and episodic each used six calibration and six held-out queries over a 12-document synthetic fixture.
 
+### Ranked retrieval on calibration and held-out queries
+
+The bundles below are `MRR / R@1 / R@3 / R@5`; these ranking metrics are independent of the selected output cutoff. Both models rank the same query/document pairs within each consumer.
+
+| Consumer | Split | EmbeddingGemma L2 | Arctic cosine |
+|---|---|---|---|
+| Message history | Calibration | `1.000 / 1.000 / 1.000 / 1.000` | `1.000 / 1.000 / 1.000 / 1.000` |
+| Message history | Held-out | `1.000 / 1.000 / 1.000 / 1.000` | `1.000 / 1.000 / 1.000 / 1.000` |
+| User core | Calibration | `.7778 / .6667 / .8333 / .8333` | `.8056 / .6667 / 1.000 / 1.000` |
+| User core | Held-out | `.7738 / .6667 / .8333 / .8333` | `1.000 / 1.000 / 1.000 / 1.000` |
+| Episodic | Calibration | `1.000 / 1.000 / 1.000 / 1.000` | `1.000 / 1.000 / 1.000 / 1.000` |
+| Episodic | Held-out | `1.000 / 1.000 / 1.000 / 1.000` | `1.000 / 1.000 / 1.000 / 1.000` |
+| Kiwi | Calibration | `.7116 / .6000 / .8000 / .8000` | `.9417 / .9333 / .9333 / .9333` |
+| Kiwi | Held-out | `.5932 / .5000 / .6000 / .6000` | `.9333 / .9000 / 1.000 / 1.000` |
+| Identity | Calibration | `.7116 / .6000 / .8000 / .8000` | `.9417 / .9333 / .9333 / .9333` |
+| Identity | Held-out | `.5932 / .5000 / .6000 / .6000` | `.9333 / .9000 / 1.000 / 1.000` |
+
+### Threshold precision and suppressed pairs
+
+Precision/FPR are `TP / (TP + FP)` and `FP / all labeled negatives`; suppressed positives are relevant pairs not returned at the threshold, and unretrieved negatives are labeled negatives not returned. Counts are `EmbeddingGemma → Arctic`.
+
+| Consumer | Split | Precision | FPR | Suppressed positives | Unretrieved negatives |
+|---|---|---|---|---:|---:|
+| Message history | Calibration | `1.000 → 1.000` | `.0000 → .0000` | `3 → 0 / 6` | `66 → 66 / 66` |
+| Message history | Held-out | `1.000 → 1.000` | `.0000 → .0000` | `2 → 1 / 6` | `66 → 66 / 66` |
+| User core | Calibration | `.0923 → .0923` | `.8939 → .8939` | `0 → 0 / 6` | `7 → 7 / 66` |
+| User core | Held-out | `.0909 → .0909` | `.9091 → .9091` | `0 → 0 / 6` | `6 → 6 / 66` |
+| Episodic | Calibration | `.4000 → .4000` | `.1364 → .1364` | `0 → 0 / 6` | `57 → 57 / 66` |
+| Episodic | Held-out | `.5000 → .5455` | `.0909 → .0758` | `0 → 0 / 6` | `60 → 61 / 66` |
+| Kiwi | Calibration | `.4000 → .5000` | `.0084 → .0065` | `3 → 1 / 15` | `2127 → 2131 / 2145` |
+| Kiwi | Held-out | `.3000 → .5625` | `.0098 → .0049` | `4 → 1 / 10` | `1416 → 1423 / 1430` |
+| Identity | Calibration | `.0788 → .0943` | `.0709 → .0671` | `2 → 0 / 15` | `1993 → 2001 / 2145` |
+| Identity | Held-out | `.0741 → .0962` | `.0699 → .0657` | `2 → 0 / 10` | `1330 → 1336 / 1430` |
+
 The Kiwi and identity results use 144 actual NZ truth documents and 25 labeled queries. The Kiwi evaluator uses K=2 (the HALF persona retrieval path); identity uses K=11 because it searches the shared core table with six user-core plus five identity candidates. Over the full labeled set, Arctic threshold recall was message 11/12, core 12/12, episodic 12/12, Kiwi 23/25, and identity 25/25. The user-core synthetic corpus produced many false positives for both models; Arctic matches that count and improves held-out ranking, but this does not establish acceptable precision on a production-size user-memory corpus.
 
 ## Phase A misses at the former shared `0.55` cutoff
 
-The 18-document / 14-query cross-consumer fixture returned 9/14 positives and 0/238 negatives at Arctic `0.55`; the EmbeddingGemma L2 `0.90` baseline returned 4/14 and 0/238. Arctic ranking was MRR `.9643`, R@1 `13/14`, R@5 `14/14`; EmbeddingGemma was MRR `.8381`, R@1 `11/14`, R@5 `12/14`. Five positive query-target pairs were below `.55`:
+The 18-document / 14-query cross-consumer fixture returned 9/14 positives and 0/238 negatives at Arctic `0.55`; the EmbeddingGemma L2 `0.90` baseline returned 4/14 and 0/238. Arctic ranking was MRR `.9643`, R@1 `13/14`, R@3 `14/14`, R@5 `14/14`; EmbeddingGemma was MRR `.8381`, R@1 `11/14`, R@3 `12/14`, R@5 `12/14`. The evaluator records each positive target's rank and distance in both model rankings:
 
-- `Where is home now?` → `home_near` (`0.619387`)
-- `What city did I move to?` → `home_near` (`0.579141`)
-- `What do I build for work?` → `work_near` (`0.695591`)
-- `Tell me about the trip I am planning.` → `travel` (`0.640778`)
-- `Why was I tired yesterday?` → `conversation` (`0.572079`)
+| Query → labeled target | EmbeddingGemma rank / L2 distance | Arctic rank / cosine distance | Diagnosis at old Arctic `0.55` |
+|---|---:|---:|---|
+| `Where is home now?` → `home_near` | `#2 / 1.080001` | `#1 / 0.619387` | Threshold-only; Arctic target is rank 1 but above `0.55` |
+| `What city did I move to?` → `home_near` | `#1 / 0.960442` | `#1 / 0.579141` | Threshold-only; Arctic target is rank 1 but above `0.55` |
+| `What do I build for work?` → `work_near` | `#11 / 1.152336` | `#2 / 0.695591` | Ranking and threshold; `kiwi_work` ranks first at `.634617` |
+| `Tell me about the trip I am planning.` → `travel` | `#1 / 1.025671` | `#1 / 0.640778` | Threshold-only; Arctic target is rank 1 but above `0.55` |
+| `Why was I tired yesterday?` → `conversation` | `#1 / 0.854026` | `#1 / 0.572079` | Threshold-only; Arctic target is rank 1 but above `0.55` |
 
-These are five query-target misses across four unique documents, not five unique memories. Phase B assigns separate message/core/episodic/identity/Kiwi limits; do not reuse the old shared `0.55` scorecard as the Phase B per-consumer evaluation.
+Four Arctic positives are ranked first and suppressed only by the old cutoff; the work query is also a rank-2 result behind a competing labeled negative. Each target is present in the fixture; these five cases show no label mismatch. The five misses are query-target pairs across four unique documents, not five unique memories. Phase B assigns separate message/core/episodic/identity/Kiwi limits; do not reuse the old shared `0.55` scorecard as the Phase B per-consumer evaluation.
 
 ## Phase B physical inference smoke
 

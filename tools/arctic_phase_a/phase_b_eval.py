@@ -407,12 +407,32 @@ def main() -> None:
             eg_rows = calc_distances(gemma, consumer, False)
             arctic_rows = calc_distances(arctic, consumer, True)
             misses = []
-            for q, row in zip(consumer["queries"], arctic_rows):
+            for i, (q, row) in enumerate(zip(consumer["queries"], arctic_rows)):
                 top = row["ranked"][:top_k]
                 target = q["relevant"][0]
                 if not any(item["id"] == target and item["distance"] <= 0.55 for item in top):
-                    misses.append({"query": q["text"], "relevant": target,
-                                   "top3": [{"id": x["id"], "distance": round(x["distance"], 6)} for x in top]})
+                    eg_target = next(
+                        ({"rank": rank + 1, "distance": round(item["distance"], 6)}
+                         for rank, item in enumerate(eg_rows[i]["ranked"])
+                         if item["id"] == target),
+                        None,
+                    )
+                    arctic_target = next(
+                        ({"rank": rank + 1, "distance": round(item["distance"], 6)}
+                         for rank, item in enumerate(row["ranked"])
+                         if item["id"] == target),
+                        None,
+                    )
+                    misses.append({
+                        "query": q["text"],
+                        "relevant": target,
+                        "embeddinggemma": eg_target,
+                        "arctic": arctic_target,
+                        "arctic_top3": [
+                            {"id": x["id"], "distance": round(x["distance"], 6)}
+                            for x in top
+                        ],
+                    })
             results["consumers"][name] = {
                 "baseline": subset_metrics(eg_rows, top_k, {None: 0.90}),
                 "arctic_at_0_55": subset_metrics(arctic_rows, top_k, {None: 0.55}),
