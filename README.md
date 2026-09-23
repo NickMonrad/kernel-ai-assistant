@@ -36,12 +36,13 @@ Jandal currently includes:
 - local chat with markdown rendering, multi-conversation management, streaming generation, and model/runtime status;
 - local memory with core memories, episodic summaries, semantic search, and memory management screens;
 - deterministic Android skills for lists, notes, alarms, timers, date arithmetic, media controls, unit/currency conversion, weather, messaging/email flows, navigation, and Wikipedia;
+- local-first Lists with optional bidirectional sync for explicitly selected Lists to a user-configured Nextcloud Tasks server over CalDAV/VTODO; Room-backed local state remains authoritative and usable offline;
 - drawer-accessible tools such as Lists, Alarms, Notes, Meal plans, and Settings;
 - deterministic meal-planning sessions with plan approval, recipe persistence, favourites, replacement/regeneration, and ingredient export to lists;
 - push-to-talk voice input, optional spoken chat replies, per-message speaker playback, configurable TTS voices, and wake-word/default-assistant infrastructure;
 - local model management and model availability states for required, optional, preparing, gated, and unavailable model paths.
 
-Future roadmap work includes Lists home-screen visibility and local-first shared-list foundations, Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
+Future roadmap work includes Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
 
 ## Tech stack
 
@@ -85,7 +86,8 @@ Jandal is designed as a local-first assistant:
 
 - chat, memories, notes, lists, and model execution are local by default;
 - production builds should not include telemetry;
-- external network calls are limited to explicit web-backed skills or model/voice downloads where configured;
+- external network exchange occurs only for explicit web-backed skills, configured model/voice downloads, or user-enabled integrations, and is limited to the data needed for that integration;
+- explicitly selected Lists may synchronise with a user-configured Nextcloud server while unsynchronised Lists remain local-only;
 - Hugging Face sign-in is used only for gated model access.
 
 ## Documentation

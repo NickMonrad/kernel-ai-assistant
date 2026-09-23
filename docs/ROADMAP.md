@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-08-29 (reconciled with #1014 launch state and the current public backlog)
+> **Last updated:** 2026-09-23 (reconciled shipped Lists/Nextcloud capability and current public follow-ups)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -432,16 +432,21 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 | Actions tab FallThrough → LLM bridge | ✅ Done | #373/#405 — FallThrough queries correctly navigate to Chat with query intact (PR #410) |
 | MiniLM-L6-v2 INT8 classifier ([#353](https://github.com/NickMonrad/kernel-ai-assistant/issues/353)) | ✅ Done | Phase 2 complete — 30+ intents, 10-12 phrases each, bundled TFLite model (PRs #406 #408 #409) |
 
-### Lists: current public roadmap ([#1141](https://github.com/NickMonrad/kernel-ai-assistant/issues/1141))
+### Lists and Nextcloud ([#1141](https://github.com/NickMonrad/kernel-ai-assistant/issues/1141))
 
-Existing Room-backed Lists remain the source of truth for the UI, skills, sharing, and future widget/sync consumers.
+Room-backed Lists remain the authoritative local state consumed by the UI, skills and widgets. The shared-data foundation and the first self-managed provider integration are now delivered.
 
-- [#1489](https://github.com/NickMonrad/kernel-ai-assistant/issues/1489) is a high-priority post-launch visibility feature: a local-data home-screen list widget and Lists shortcut. It is independently implementable and does not depend on cross-device sync.
-- [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) is the public local-first shared Lists umbrella.
-- The shared-data sequence is [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494): contract, sync-ready persistence, encrypted package exchange, then bounded local paired-device convergence proof.
-- [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) remains non-blocking for the first shared-list sync MVP. [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) remains the hierarchy authority and completed [#908](https://github.com/NickMonrad/kernel-ai-assistant/issues/908) remains the plain-text Share/Copy path.
+**Delivered:**
+- [#1489](https://github.com/NickMonrad/kernel-ai-assistant/issues/1489) — local-data home-screen Lists widget and shortcut.
+- [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494) — transport-independent shared-data contract, sync-ready atomic Room mutation/change-recording seam, two-level hierarchy, encrypted package exchange, and paired-device convergence proof.
+- [#1539](https://github.com/NickMonrad/kernel-ai-assistant/issues/1539) plus [#1551](https://github.com/NickMonrad/kernel-ai-assistant/issues/1551) — optional bidirectional sync for explicitly selected Lists with a user-configured Nextcloud Tasks server over CalDAV/VTODO. Room stays authoritative and offline-capable; provider bindings are separate from Jandal stable identities, and per-list stop/resume retains both local and remote copies.
 
-This public roadmap intentionally stops at transport-independent/local client foundations and local/nearby convergence proof; production internet transport is not part of #1490–#1494.
+**Separate follow-up work:**
+- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — browser-based Nextcloud Login Flow v2 authentication.
+- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing/ACL management.
+- [#1552](https://github.com/NickMonrad/kernel-ai-assistant/issues/1552) — explicit selected-note sync with Nextcloud Notes.
+
+These follow-ups are not prerequisites for the already-shipped Lists sync capability. Other Lists enhancements such as [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) remain independently tracked. [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) remains open until this documentation reconciliation is reviewed/merged and its remaining acceptance state is checked.
 
 ### Known Issues / Decisions
 

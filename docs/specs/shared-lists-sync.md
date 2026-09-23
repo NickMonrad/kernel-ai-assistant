@@ -2,9 +2,11 @@
 
 > **Purpose:** Canonical transport-independent data and reconciliation contract for shared Jandal Lists.
 >
-> **Status:** Authoritative subsystem behaviour spec for issue #1491.
+> **Status:** Authoritative transport-independent subsystem behaviour spec for the shipped shared Lists foundation.
 >
-> **Applies to:** #1492 sync-ready persistence, #928 two-level hierarchy, #1493 encrypted package exchange, #1494 paired-device convergence, and provider integrations such as #1539.
+> **Applies to:** #1491/#1492 sync-ready identity and persistence, #928 two-level hierarchy, #1493 encrypted package exchange, #1494 paired-device convergence, and provider integrations layered on this contract.
+>
+> **Provider-specific contract:** shipped #1539/#1551 Nextcloud Tasks behaviour is defined in [`nextcloud-tasks-sync.md`](./nextcloud-tasks-sync.md).
 >
 > **Does not define:** any hosted service, production network transport, provider account model, billing, deployment, or commercial packaging.
 
@@ -621,7 +623,7 @@ This spec does not require a permanent event log.
 
 ## Encrypted shared-package boundary
 
-#1493 will implement package UX. This spec defines only the interoperable client-side boundary.
+#1493 implements the package UX. This spec defines only the interoperable client-side boundary.
 
 ### Envelope
 
@@ -873,11 +875,13 @@ Does not roll back an already committed local mutation. Pending work remains loc
 
 ---
 
-## Required validation for downstream issues
+## Delivered validation expectations
 
-### #1492 persistence
+The completed #1492/#928/#1493/#1494 sequence was validated against these requirements. They remain regression expectations for later transports.
 
-Must prove:
+### #1492 persistence (delivered)
+
+Delivered validation covers:
 
 - stable ID migration/persistence;
 - actor-global Lamport clock plus per-collection source-sequence persistence;
@@ -887,9 +891,9 @@ Must prove:
 - local alias persistence;
 - sync-safe requested-placement storage and deterministic effective-hierarchy derivation.
 
-### #928 hierarchy
+### #928 hierarchy (delivered)
 
-Must prove:
+Delivered validation covers:
 
 - two-level constraint;
 - placement/reparent/unparent behaviour;
@@ -897,9 +901,9 @@ Must prove:
 - parent delete/capture preserves children;
 - hierarchy changes use the authoritative mutation seam.
 
-### #1493 encrypted package exchange
+### #1493 encrypted package exchange (delivered)
 
-Must prove:
+Delivered validation covers:
 
 - authenticated package round-trip;
 - hierarchy/order preservation;
@@ -909,9 +913,9 @@ Must prove:
 - local-only neutral defaults;
 - collection-scoped checkpoints do not depend on changes from other collections.
 
-### #1494 paired-device convergence
+### #1494 paired-device convergence (delivered)
 
-Must prove:
+Delivered validation covers:
 
 - independent additions;
 - independent field edits;
@@ -926,9 +930,9 @@ Must prove:
 - concurrent placements that would otherwise create depth greater than two converge to the same effective hierarchy;
 - the same conflicting placement set applied in different delivery orders produces identical effective hierarchy and normalized list state.
 
-### Provider integrations such as #1539
+### #1539 Nextcloud provider (delivered)
 
-Must translate provider state into this contract and back without creating a second identity/conflict model.
+The Nextcloud provider translates provider state into this contract and back without creating a second identity/conflict model. Its provider-specific behaviour is defined in [`nextcloud-tasks-sync.md`](./nextcloud-tasks-sync.md).
 
 Provider metadata such as remote UID, href, ETag, account identity, or collection URL belongs in provider-binding state, not in Jandal stable IDs.
 
@@ -959,7 +963,8 @@ This contract does not define:
 - `docs/SPEC_INDEX.md` — spec authority and update rules.
 - `docs/SPECIFICATION.md` — app-wide local-first technical architecture.
 - `docs/UX_PATTERNS.md` — app-wide UX rules.
-- GitHub #1490 — active Lists sync/Nextcloud delivery roadmap.
+- `docs/specs/nextcloud-tasks-sync.md` — authoritative provider-specific Nextcloud Tasks contract layered on this transport-independent contract.
+- GitHub #1490 — parent Lists sync/Nextcloud delivery epic.
 - GitHub #1491 — source issue for this contract.
 - GitHub #1492 — sync-ready Room persistence implementation.
 - GitHub #928 — two-level hierarchy behaviour.

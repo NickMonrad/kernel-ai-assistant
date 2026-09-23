@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-06-08 (PR #1111 merged: hardened llm_tools assertions; PR #1108: llm_tools E2E harness; PR #1106: orchestration eval framework; PR #1095: Intent Recovery Orchestrator; PR #1089: Exynos S21 GPU fixes; PR #1082: AGP 9/Gradle 9/Kotlin 2.3.21 toolchain upgrade; PR #1070: STT transcript normaliser; PR #1067: Model Availability UX overhaul)
+> **Last updated:** 2026-09-23 (#1558 documentation reconciliation for shipped Lists/Nextcloud sync)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -9,13 +9,14 @@
 
 ## 1. Executive Summary
 
-Jandal AI is a privacy-centric, on-device mobile assistant for Android. All inference runs
-entirely on-device via Google AI Edge (LiteRT) — no cloud APIs, no telemetry, no data
-leaving the device. The system uses a **Resident Agent Architecture** with three tiers of
+Jandal AI is a privacy-centric, local-first mobile assistant for Android. Inference runs
+entirely on-device via Google AI Edge (LiteRT), and normal app data is local by default.
+Explicit user-enabled integrations may exchange only the narrowly scoped data required for
+that integration. The system uses a **Resident Agent Architecture** with three tiers of
 intent routing, a local RAG memory pipeline, and a modular skill framework for extensibility.
 
 **Design principles:**
-- Local-first: all inference, memory, and skill execution on-device
+- Local-first: inference and core processing stay on-device; app data is local by default, with explicit integrations opt-in
 - Resident model: Gemma-4 stays loaded on GPU — no cold-start per query
 - Deterministic fast path: simple device actions handled by regex (<5ms), not ML
 - Context-window managed: recursive summarisation, never truncate history
@@ -64,6 +65,16 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 :feature:settings     Memory management, model settings, persona config
 :feature:onboarding   First-launch model download flow
 ```
+
+### Lists synchronisation seam
+
+Lists synchronisation follows the existing local-first path:
+
+`Room-backed Lists → authoritative atomic mutation/change-recording seam → optional transport adapter → provider`
+
+Room remains the authoritative state consumed by Lists UI, skills and widgets. Local mutations commit through the atomic Room/change-recording seam before any transport attempt, so Lists remain usable offline. Only explicitly bound Lists are passed to a transport, and provider bindings remain metadata separate from Jandal stable list/item identities.
+
+The shipped optional provider is a user-configured Nextcloud Tasks server using CalDAV/VTODO. Conditional writes use provider ETags (including `If-Match`) to avoid blind overwrites. See the transport-independent [Shared Lists sync contract](./specs/shared-lists-sync.md) and the provider-specific [Nextcloud Tasks sync contract](./specs/nextcloud-tasks-sync.md) for detailed behaviour.
 
 ### 2.2 Model Inventory
 
@@ -955,6 +966,9 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Prompt injection** | All tool call output validated against `SkillRegistry` schema before execution; `run_intent` params validated before OS dispatch |
 | **Sideloaded skills** | Wasm import section audited; user must acknowledge "Accept Risk" |
 | **LeakCanary** | Integrated from day one — model weight leaks caught early |
+| **Nextcloud credentials** | Credentials use the existing Android-backed encrypted credential store and are never emitted to logs or public evidence. |
+| **Nextcloud transport** | HTTPS is the default; insecure HTTP requires explicit opt-in. Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Private integration identifiers** | Private server identifiers and credentials are excluded from logs and public validation evidence. |
 
 ---
 
