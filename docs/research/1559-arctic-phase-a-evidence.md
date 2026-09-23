@@ -29,29 +29,53 @@ The reproducible runner in `tools/arctic_phase_a/run.py` evaluates the pinned Se
 
 These results establish close conversion parity on this fixture set; they do not establish general retrieval quality or calibrated production thresholds.
 
-## Physical-device measurements
+## Physical-device comparison
 
-The test-only `ArcticLiteRtDeviceBenchmarkTest` ran the candidate through the app's TFLite Interpreter 2.17.0, CPU, four threads. Five reference fixtures were used, with 20 steady-state timings. Both instrumentation runs passed (1 test, 0 failures each). Timings below are observed values, not pass/fail thresholds.
+The generic baseline is the current production `KernelModel.EMBEDDING_GEMMA_300M` artifact, not the deprecated SM8550-specific variant. It was downloaded from `litert-community/embeddinggemma-300m` at immutable revision `29888fcee3216acadc7e844906e5fe0d79a61875`: `embeddinggemma-300M_seq512_mixed-precision.tflite` (179,132,472 bytes; SHA-256 `ad09e81557203cb0e177abf9bf8727dfe138a7d394aa0f70f0b2ed16432e121a`) and `sentencepiece.model` (4,683,319 bytes; SHA-256 `d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7`). Both files remained local/device-test inputs and are not committed.
 
-| Metric | S23 Ultra (SM-S918B, API 36) | S21 (SM-G991B, API 35) |
-|---|---:|---:|
-| Load + allocate | 248.17 ms | 258.42 ms |
-| First embedding | 779.52 ms | 741.17 ms |
-| Steady median | 794.90 ms | 851.16 ms |
-| Steady p90 | 800.96 ms | 1,009.68 ms |
-| PSS baseline / loaded / peak | 137.57 / 338.73 / 347.00 MiB | 162.28 / 365.54 / 374.59 MiB |
-| RSS high-water baseline / loaded / peak | 312.79 / 515.18 / 525.02 MiB | 340.88 / 546.80 / 557.48 MiB |
-| Device/reference cosine mean / minimum | 0.99591 / 0.99512 | 0.99585 / 0.99476 |
-| Output norm min–max | 0.99999955–1.00000063 | 0.99999935–1.00000004 |
-| Crash / test result | none / passed | none / passed |
+The Arctic candidate is 113,850,784 bytes (SHA-256 `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d`); its WordPiece vocabulary is 231,508 bytes. Model plus tokenizer assets are 114,082,292 bytes for Arctic versus 183,815,791 bytes for EmbeddingGemma: Arctic is 69,733,499 bytes (37.9%) smaller.
 
-PSS is sampled via `Debug.MemoryInfo`; RSS values are `/proc/self/status` `VmHWM` high-water marks. The S21 p90 is higher than S23 Ultra; the observed S21 maximum was about 1.01 s. The candidate ran successfully on both devices.
+All four device invocations passed (one candidate test and one baseline test on each phone). Both used the same five text cases, TFLite Interpreter 2.17.0, CPU, four threads, one cold/first inference, and 20 steady timings. The production `SentencePieceTokenizer` generated EmbeddingGemma's input IDs before timing; Arctic's existing fixture contains its pretokenized WordPiece inputs. Input preparation is excluded from latency in both. The baseline uses one `int32 [1,512]` token-ID input and a `float32 [1,768]` output; the existing candidate uses two inputs and the same output shape. The baseline benchmark also performs the production Kotlin L2 normalization after inference.
+
+### S23 Ultra (SM-S918B, API 36)
+
+| Metric | Arctic candidate | EmbeddingGemma | Arctic − EmbeddingGemma |
+|---|---:|---:|---:|
+| TFLite model bytes | 113,850,784 | 179,132,472 | −65,281,688 |
+| Model + tokenizer bytes | 114,082,292 | 183,815,791 | −69,733,499 (−37.9%) |
+| Load + allocate | 287.03 ms | 226.68 ms | +60.35 ms |
+| First embedding | 796.03 ms | 1,245.67 ms | −449.65 ms |
+| Steady median | 756.18 ms | 1,168.31 ms | −412.13 ms (35.3% faster) |
+| Steady p90 | 781.50 ms | 1,198.07 ms | −416.57 ms (34.8% faster) |
+| PSS baseline / loaded / peak | 137.78 / 336.79 / 346.90 MiB | 223.36 / 399.60 / 406.06 MiB | Raw totals are not directly comparable |
+| PSS added over each process baseline, loaded / peak | 199.01 / 209.12 MiB | 176.24 / 182.70 MiB | +22.77 / +26.42 MiB |
+| RSS high-water baseline / loaded / peak | 311.59 / 511.98 / 524.31 MiB | 399.13 / 579.30 / 590.53 MiB | Raw totals are not directly comparable |
+| RSS high-water added over each process baseline, loaded / peak | 200.39 / 212.72 MiB | 180.18 / 191.40 MiB | +20.21 / +21.32 MiB |
+| Crash / instrumentation result | none / passed | none / passed | — |
+
+### S21 (SM-G991B, API 35)
+
+| Metric | Arctic candidate | EmbeddingGemma | Arctic − EmbeddingGemma |
+|---|---:|---:|---:|
+| TFLite model bytes | 113,850,784 | 179,132,472 | −65,281,688 |
+| Model + tokenizer bytes | 114,082,292 | 183,815,791 | −69,733,499 (−37.9%) |
+| Load + allocate | 294.03 ms | 389.22 ms | −95.19 ms |
+| First embedding | 1,029.15 ms | 1,243.33 ms | −214.18 ms |
+| Steady median | 863.71 ms | 1,173.90 ms | −310.20 ms (26.4% faster) |
+| Steady p90 | 1,023.23 ms | 1,497.08 ms | −473.85 ms (31.7% faster) |
+| PSS baseline / loaded / peak | 165.84 / 342.68 / 352.61 MiB | 222.98 / 408.09 / 408.09 MiB | Raw totals are not directly comparable |
+| PSS added over each process baseline, loaded / peak | 176.84 / 186.77 MiB | 185.11 / 185.11 MiB | −8.26 / +1.66 MiB |
+| RSS high-water baseline / loaded / peak | 339.00 / 517.46 / 530.65 MiB | 403.28 / 588.88 / 624.95 MiB | Raw totals are not directly comparable |
+| RSS high-water added over each process baseline, loaded / peak | 178.45 / 191.64 MiB | 185.60 / 221.67 MiB | −7.14 / −30.02 MiB |
+| Crash / instrumentation result | none / passed | none / passed | — |
+
+PSS is sampled with `Debug.MemoryInfo`; RSS values are `/proc/self/status` `VmHWM` high-water marks. Each model was run in a separate instrumentation invocation/process. The EmbeddingGemma baseline process includes its actual SentencePiece tokenizer in the baseline/loaded/peak snapshots; the candidate fixture process has pretokenized WordPiece inputs and does not instantiate the future candidate tokenizer. Therefore raw absolute process totals are shown but not used as a cross-model total-app comparison. “Added over baseline” isolates each test process's model/interpreter growth; it is the comparable runtime-memory signal for this Phase A harness.
 
 ## Phase A gate status and limits
 
-Conversion compatibility, reference-vector parity, retrieval-ranking parity, and candidate-only S23 Ultra/S21 runtime measurements are now evidenced. The current EmbeddingGemma model and tokenizer were not present in the isolated debug test installations, so these runs do **not** provide a same-device EmbeddingGemma latency or memory baseline. Consequently, the measurements cannot establish a comparative “no material memory/reliability regression” claim. No threshold was invented to turn these candidate-only numbers into a pass.
+**Phase A verdict: PASS.** The converted candidate retains its previously measured reference fidelity and retrieval-ranking parity, runs without crashes on both target phones, and is 26.4–35.3% faster at steady median inference and 31.7–34.8% faster at p90 on these matched five-text runs. Its model-plus-tokenizer artifact bundle is 37.9% smaller. The largest observed runtime-memory increase is on S23 Ultra: +26.42 MiB peak PSS and +21.32 MiB RSS high-water over EmbeddingGemma's per-process increase. S21 peak PSS is +1.66 MiB and peak RSS is 30.02 MiB lower. These measured differences do not indicate a material reliability or target-device memory regression for the S23 Ultra or the 8-GB S21 profile; this is a profile-level assessment, not a newly invented numeric gate.
 
-**Recommendation:** stop at Phase A as issue #1559 requires. Keep production unchanged. Treat conversion and fidelity as supported by the evidence above, but leave the cross-model device-regression gate explicitly unresolved until an authorized EmbeddingGemma baseline or an owner decision is available. No Phase B work or #1329 validation was started.
+This closes the comparative Phase A evidence gap only. No production model path, index, schema, thresholds, UX, or stored data changed. Do not start Phase B or #1329 validation as part of this remediation. The device comparison does not measure a full production Arctic tokenizer integration, batch re-index time, or upgrade/re-index behavior; those remain outside Phase A and this task.
 
 ## Reproduction
 

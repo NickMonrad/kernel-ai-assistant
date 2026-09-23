@@ -3,6 +3,7 @@ package com.kernel.ai
 import android.os.Debug
 import android.os.SystemClock
 import android.util.Log
+import com.kernel.ai.core.inference.SentencePieceTokenizer
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -117,6 +118,101 @@ class ArcticLiteRtDeviceBenchmarkTest {
             .put("no_crash", true)
         Log.i(TAG, "PHASE_A_RESULT ${evidence}")
         assertTrue("All reference comparisons must be finite", parity.all { it.isFinite() })
+    }
+
+    @Test
+    fun benchmarkGenericProductionEmbeddingGemmaAgainstSameTextInputs() {
+        val modelFile = File("/data/local/tmp/embeddinggemma-300M_seq512_mixed-precision.tflite")
+        val tokenizerFile = File("/data/local/tmp/sentencepiece.model")
+        val fixturesFile = File("/data/local/tmp/arctic_phase_a_inputs.json")
+        assertTrue("Push the generic production EmbeddingGemma model", modelFile.isFile)
+        assertTrue("Push the matching production SentencePiece model", tokenizerFile.isFile)
+        assertTrue("Push the shared Arctic text fixtures", fixturesFile.isFile)
+
+        val cases = JSONObject(fixturesFile.readText()).getJSONArray("cases")
+        assertTrue("Expected the same five text cases used for Arctic", cases.length() >= 5)
+        val tokenizer = SentencePieceTokenizer(tokenizerFile)
+        data class PreparedInput(val ids: Array<IntArray>, val tokenCount: Int)
+        val inputs = (0 until cases.length()).map { caseIndex ->
+            val text = cases.getJSONObject(caseIndex).getString("text")
+            val tokenIds = tokenizer.encode(text, maxLen = 512)
+            PreparedInput(
+                ids = Array(1) { IntArray(512) { i -> tokenIds.getOrElse(i) { 0 } } },
+                tokenCount = tokenIds.size,
+            )
+        }
+
+        val baselinePssMiB = pssMiB()
+        val baselineRssMiB = rssMiB()
+        val initStart = SystemClock.elapsedRealtimeNanos()
+        val interpreter = Interpreter(mapModelFile(modelFile), Interpreter.Options().apply { numThreads = 4 })
+        interpreter.allocateTensors()
+        val loadAndAllocateMs = elapsedMs(initStart)
+        val loadedPssMiB = pssMiB()
+        val loadedRssMiB = rssMiB()
+
+        assertEquals("One token-id input in the pinned generic model", 1, interpreter.inputTensorCount)
+        assertEquals("One pooled embedding output", 1, interpreter.outputTensorCount)
+        val inputShape = interpreter.getInputTensor(0).shape()
+        assertEquals(1, inputShape[0])
+        assertEquals(512, inputShape[1])
+        val outputShape = interpreter.getOutputTensor(0).shape()
+        assertEquals(1, outputShape[0])
+        assertEquals(768, outputShape[1])
+
+        val output = Array(1) { FloatArray(768) }
+        val latenciesMs = mutableListOf<Double>()
+        var peakPssMiB = loadedPssMiB
+        var peakRssMiB = loadedRssMiB
+        var firstEmbeddingMs: Double? = null
+
+        inputs.forEachIndexed { caseIndex, input ->
+            val repeats = if (caseIndex == 0) 9 else 3
+            repeat(repeats) { repeatIndex ->
+                val start = SystemClock.elapsedRealtimeNanos()
+                interpreter.run(input.ids, output)
+                val outputNorm = sqrt(output[0].sumOf { (it * it).toDouble() })
+                assertTrue("Non-finite or zero EmbeddingGemma output", outputNorm.isFinite() && outputNorm > 0.0)
+                for (i in output[0].indices) output[0][i] = (output[0][i] / outputNorm).toFloat()
+                val duration = elapsedMs(start)
+                if (caseIndex == 0 && repeatIndex == 0) firstEmbeddingMs = duration
+                if (repeatIndex > 0 || caseIndex > 0) latenciesMs += duration
+                assertTrue("Non-finite normalized output", output[0].all { it.isFinite() })
+                peakPssMiB = maxOf(peakPssMiB, pssMiB())
+                peakRssMiB = maxOf(peakRssMiB, rssMiB())
+            }
+        }
+        interpreter.close()
+
+        val sorted = latenciesMs.sorted()
+        val evidence = JSONObject()
+            .put("device", android.os.Build.MODEL)
+            .put("build", android.os.Build.DISPLAY)
+            .put("sdk", android.os.Build.VERSION.SDK_INT)
+            .put("runtime", "org.tensorflow.lite.Interpreter 2.17.0; 4 threads; CPU")
+            .put("model", "EmbeddingGemma 300M generic mixed-precision")
+            .put("model_bytes", modelFile.length())
+            .put("tokenizer", "production SentencePieceTokenizer; input preparation excluded from timing")
+            .put("fixture_count", inputs.size)
+            .put("token_count_min", inputs.minOf { it.tokenCount })
+            .put("token_count_max", inputs.maxOf { it.tokenCount })
+            .put("load_and_allocate_ms", loadAndAllocateMs)
+            .put("first_embedding_ms", firstEmbeddingMs)
+            .put("steady_embedding_count", sorted.size)
+            .put("steady_median_ms", percentile(sorted, 0.5))
+            .put("steady_p90_ms", percentile(sorted, 0.9))
+            .put("baseline_pss_mib", baselinePssMiB)
+            .put("loaded_pss_mib", loadedPssMiB)
+            .put("peak_pss_mib", peakPssMiB)
+            .put("loaded_model_pss_delta_mib", loadedPssMiB - baselinePssMiB)
+            .put("peak_model_pss_delta_mib", peakPssMiB - baselinePssMiB)
+            .put("baseline_rss_mib", baselineRssMiB)
+            .put("loaded_rss_mib", loadedRssMiB)
+            .put("peak_rss_mib", peakRssMiB)
+            .put("loaded_model_rss_delta_mib", loadedRssMiB - baselineRssMiB)
+            .put("peak_model_rss_delta_mib", peakRssMiB - baselineRssMiB)
+            .put("no_crash", true)
+        Log.i(TAG, "EMBEDDING_GEMMA_BASELINE_RESULT ${evidence}")
     }
 
     private fun mapModelFile(file: File): MappedByteBuffer = FileInputStream(file).use { input ->
