@@ -19,7 +19,7 @@
 | **Persistence** | Room + sqlite-vec (NDK) |
 | **Inference** | LiteRT + LiteRT-LM |
 | **Chat model** | Gemma-4 E-4B / E-2B |
-| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; Phase B release gate in #1559) |
+| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; shipped via #1559) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
 | **Intent recovery** | `IntentRecoveryOrchestrator` (deterministic slot extraction, risk-gated execution) |
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
@@ -110,7 +110,7 @@ tri-tiered memory architecture inspired by the
 
 ### Key Design Decisions
 
-- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaces the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
+- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaced the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
 - **Tokenizer:** Arctic's uncased WordPiece vocabulary and pure-Kotlin tokenizer are active; the former SentencePiece path is historical only.
 - **Separate databases**: Room (`kernel_db`) for relational data, native SQLite (`kernel_vectors.db`)
   for vectors — because Room doesn't support sqlite-vec's vec0 virtual tables
