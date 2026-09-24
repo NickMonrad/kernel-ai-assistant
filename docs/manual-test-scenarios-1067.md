@@ -1,5 +1,7 @@
 # Manual Device Test Scenarios — PR #1067
 
+> **Historical PR-specific scenario:** This document preserves the model-availability test context for PR #1067. Issue #1559 / PR #1562 subsequently superseded EmbeddingGemma as the required embedding path. The active required embedding model is Arctic Embed M v1.5, which is publicly downloadable without Hugging Face authentication; EmbeddingGemma and SentencePiece examples below are historical context only.
+
 ## Prerequisites
 - Device connected via ADB (S23 Ultra or equivalent with GPU inference)
 - Fresh install recommended for baseline, then incremental tests
