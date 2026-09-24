@@ -101,7 +101,7 @@ litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-and
 # MediaPipe Tasks Text (TextEmbedder — USE fallback)
 mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
 
-# TFLite Interpreter (for EmbeddingGemma / MiniLM raw .tflite models)
+# TFLite Interpreter (for Arctic Embed / MiniLM raw .tflite models)
 tflite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
 tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tflite" }
 
