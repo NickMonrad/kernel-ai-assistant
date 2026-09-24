@@ -909,8 +909,10 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 | **Pre-condition** | Fresh install (`adb shell pm clear com.kernel.ai.debug`) |
 | **Screen** | Onboarding / Model Download |
 | **Actions** | 1. Launch app. 2. Wait for onboarding screen. |
-| **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "EmbeddingGemma 300M" visible. |
+| **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "Arctic Embed M v1.5" visible. |
 | **Complexity** | Medium — requires fresh-install state |
+
+> Fresh-install tests use the anonymous public HTTPS assets from the rolling `model-arctic-embed-m-v1.5-current` release. Validated-artifact SHA-256 values are provenance evidence, not runtime pins; GitHub release immutability is not required by #1559. Long-term `litert-community` publication is tracked in #1563.
 
 #### UI-AUTO-1A-2: Optional models show "Download later"
 

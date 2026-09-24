@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemorySearchResult
+import com.kernel.ai.core.memory.vector.EmbeddingIndexMigration
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,6 +39,7 @@ class RagRepository @Inject constructor(
     private val embeddingDao: MessageEmbeddingDao,
     private val memoryRepository: MemoryRepository,
     private val episodicMemoryDao: EpisodicMemoryDao,
+    private val indexMigration: EmbeddingIndexMigration,
     private val jandalPersona: JandalPersona,
 ) {
     companion object {
@@ -61,12 +63,8 @@ class RagRepository @Inject constructor(
          *  from polluting search_memory responses. */
         private const val MIN_MESSAGE_CONTENT_LENGTH = 20
 
-        /** Maximum L2 distance to include a result (0 = identical, sqrt(2) ≈ 1.41 = opposite for unit vectors).
-         *  0.90 ≈ cos_sim ≥ 0.595 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
-         *  Tighter than core/episodic thresholds (1.10) because message history retrieval uses
-         *  verbatim text that is lexically closer to queries — a tighter floor filters low-relevance
-         *  historical messages and reduces token cost without losing genuinely relevant context. */
-        private const val MAX_DISTANCE = 0.90f
+        /** Message-history cosine-distance cutoff selected on separate calibration/held-out queries. */
+        private const val MESSAGE_MAX_DISTANCE = 0.65f
 
         /** Sibling expansion caps for searchCoreAndEpisodic. */
         private const val SIBLING_MAX_PER_CONVERSATION = 3
@@ -96,10 +94,11 @@ class RagRepository @Inject constructor(
         conversationId: String,
         content: String,
     ) = withContext(Dispatchers.IO) {
+        if (!ensureIndexCurrent()) return@withContext
         if (content.isBlank()) return@withContext
         if (embeddingDao.getRowIdForMessage(messageId) != null) return@withContext
 
-        val vector = embeddingEngine.embed(content)
+        val vector = embeddingEngine.embedDocument(content)
         if (vector.isEmpty()) {
             Log.w(TAG, "Embedding engine not ready for message $messageId — skipping index")
             return@withContext
@@ -136,7 +135,8 @@ class RagRepository @Inject constructor(
         excludeMessageIds: Set<String> = emptySet(),
         maxTokens: Int = ContextWindowManager.episodicBudget(4096),
     ): String = withContext(Dispatchers.IO) {
-        val queryVector = embeddingEngine.embed(query)
+        if (!ensureIndexCurrent()) return@withContext ""
+        val queryVector = embeddingEngine.embedQuery(query)
         if (queryVector.isEmpty()) return@withContext ""
 
         val charsPerToken = 3
@@ -245,7 +245,7 @@ class RagRepository @Inject constructor(
                 val results = vectorStore.search(TABLE, queryVector, topK + excludeMessageIds.size)
                 Log.d(TAG, "Message vec search: ${results.size} raw results, distances=${results.map { "%.4f".format(it.distance) }}")
                 val candidates = results
-                    .filter { it.distance <= MAX_DISTANCE }
+                    .filter { it.distance <= MESSAGE_MAX_DISTANCE }
                     .map { it.rowId }
 
                 if (candidates.isNotEmpty()) {
@@ -316,7 +316,8 @@ class RagRepository @Inject constructor(
         maxTokens: Int = 220,
     ): String = withContext(Dispatchers.IO) {
         if (jandalPersona.currentPersonaMode == PersonaMode.BORING) return@withContext ""
-        val queryVector = embeddingEngine.embed(query)
+        if (!ensureIndexCurrent()) return@withContext ""
+        val queryVector = embeddingEngine.embedQuery(query)
         if (queryVector.isEmpty()) return@withContext ""
 
         val kiwiResults = runCatching {
@@ -377,13 +378,14 @@ class RagRepository @Inject constructor(
         conversationId: String? = null,
         topK: Int = DEFAULT_TOP_K,
     ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
-        val queryVector = embeddingEngine.embed(query)
+        if (!ensureIndexCurrent()) return@withContext emptyList()
+        val queryVector = embeddingEngine.embedQuery(query)
         if (queryVector.isEmpty()) return@withContext emptyList()
         if (!tableCreated) return@withContext emptyList()
 
         runCatching {
             val matches = vectorStore.search(TABLE, queryVector, topK * 2)
-                .filter { it.distance <= MAX_DISTANCE }
+                .filter { it.distance <= MESSAGE_MAX_DISTANCE }
             val rawResults = matches.map { it.rowId }
             if (rawResults.isEmpty()) return@runCatching emptyList()
             val distanceMap = matches.associate { it.rowId to it.distance }
@@ -462,7 +464,8 @@ class RagRepository @Inject constructor(
         topK: Int = DEFAULT_TOP_K,
         includeSiblingContext: Boolean = false,
     ): List<MemorySearchResult> = withContext(Dispatchers.IO) {
-        val queryVector = embeddingEngine.embed(query)
+        if (!ensureIndexCurrent()) return@withContext emptyList()
+        val queryVector = embeddingEngine.embedQuery(query)
         if (queryVector.isEmpty()) return@withContext emptyList()
         runCatching {
             val initialResults = memoryRepository.searchMemories(
@@ -506,6 +509,11 @@ class RagRepository @Inject constructor(
         }
     }
 
+    private suspend fun ensureIndexCurrent(): Boolean {
+        val current = indexMigration.ensureCurrent()
+        if (current) tableCreated = true
+        return current
+    }
     private fun ensureTable(dimensions: Int) {
         if (!tableCreated) {
             vectorStore.createTable(TABLE, dimensions)

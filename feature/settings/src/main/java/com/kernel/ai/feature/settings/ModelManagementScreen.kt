@@ -121,7 +121,6 @@ fun ModelManagementScreen(
             }
 
 
-            // Skip EMBEDDING_GEMMA_300M_SM8550 (already filtered by isDeprecated in VM)
             val visibleModels = uiState.models
             items(visibleModels) { rowState ->
                 val availabilityState = rowState.downloadState.toAvailability(

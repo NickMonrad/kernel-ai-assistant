@@ -1044,8 +1044,8 @@ class ChatViewModel @Inject constructor(
      * conversation model with a visible loading screen ([ChatUiState.Loading]).
      *
      * Protected by [gemma4InitMutex] — the same lock used by [initGemma4] — so a concurrent
-     * [sendMessage] call during the ~20s GPU init cannot race here, double-close
-     * EmbeddingGemma, or orphan the GPU engine allocation.
+     * [sendMessage] call during the ~20s GPU init cannot race here, double-close the
+     * embedding engine, or orphan the GPU engine allocation.
      */
     private suspend fun initEngineWhenReady() {
         downloadManager.downloadStates
@@ -1088,7 +1088,7 @@ class ChatViewModel @Inject constructor(
 
                 val modelPath = downloadManager.getModelPath(preferred) ?: return
                 val settings = hydrateActiveModelState(preferred)
-                // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
+                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
@@ -1150,7 +1150,7 @@ class ChatViewModel @Inject constructor(
                 val preferred = downloadManager.preferredConversationModel()
                 val modelPath = downloadManager.getModelPath(preferred) ?: return
                 val settings = hydrateActiveModelState(preferred)
-                // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
+                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
                 Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
                 inferenceEngine.initialize(ModelConfig(

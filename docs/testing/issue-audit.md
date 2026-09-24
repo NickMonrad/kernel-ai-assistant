@@ -84,7 +84,7 @@ These issues have been resolved by merged Sprint work but are still open.
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | Hey Jandal feature (wake word) | enhancement | **Medium** | Backlog | Significant UX unlock; high effort |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability | enhancement | **Medium** | Backlog | Users don't know what skills exist |
 | [#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222) | E4B baseline skills + rich tool result UI (supersedes #214) | enhancement | **Medium** | Backlog | Flagship model UX improvements |
-| [#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430) | Dynamic model loading state machine — never hold Gemma-4 + EmbeddingGemma simultaneously on low RAM | type:spike | **Medium** | Backlog | Core reliability on 8GB devices |
+| [#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430) | Dynamic model loading state machine — never hold Gemma-4 + Arctic Embed simultaneously on low RAM | type:spike | **Medium** | Backlog | Core reliability on 8GB devices |
 | [#432](https://github.com/NickMonrad/kernel-ai-assistant/issues/432) | Compatibility tier model swap — auto-select E-2B on 8GB devices | type:spike | **Medium** | Backlog | User experience on non-flagship hardware |
 
 ### Low Priority — Backlog / Long-term

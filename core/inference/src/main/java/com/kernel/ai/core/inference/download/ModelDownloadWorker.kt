@@ -41,7 +41,7 @@ const val KEY_ERROR_CODE = "error_code"
 const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
 
 /**
- * WorkManager [CoroutineWorker] that downloads a single `.litertlm` model file.
+ * WorkManager [CoroutineWorker] that downloads one model or tokenizer asset.
  *
  * Features:
  * - Foreground service with a progress notification (required for long-running downloads)
@@ -136,7 +136,8 @@ class ModelDownloadWorker(
             throw IOException("HTTP $responseCode for $url")
         }
 
-        val startedAt = resumeFrom
+        val resumed = responseCode == HttpURLConnection.HTTP_PARTIAL
+        val startedAt = if (resumed) resumeFrom else 0L
         var downloadedBytes = startedAt
 
         // Sliding window for rate calculation (last 5 intervals of ~200ms each)
@@ -148,7 +149,7 @@ class ModelDownloadWorker(
         var deltaBytes = 0L
 
         connection.inputStream.use { input ->
-            FileOutputStream(tmpFile, /* append */ true).use { output ->
+            FileOutputStream(tmpFile, /* append */ resumed).use { output ->
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
@@ -189,6 +190,7 @@ class ModelDownloadWorker(
                 }
             }
         }
+
 
         // Rename tmp → final file atomically
         if (outputFile.exists()) outputFile.delete()
@@ -252,6 +254,7 @@ class ModelDownloadWorker(
     private fun errorData(message: String): Data =
         Data.Builder().putString(KEY_ERROR_MESSAGE, message).build()
 }
+
 
 /** Thrown when the server returns 401 or 403 — model licence must be accepted first. */
 private class LicenceRequiredException(val responseCode: Int) : IOException("HTTP $responseCode — licence required")

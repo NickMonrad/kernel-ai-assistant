@@ -139,16 +139,17 @@
 
 ---
 
-### 10. Deprecated model — SM8550 hidden
+### 10. Arctic embedding model manifest
 **Steps:**
-1. Navigate to Model Management
-2. Search for "SM8550" in the list
+1. Inspect Model Management and the `KernelModel` catalogue.
+2. Verify both Arctic files are required, public, and SHA-256 pinned.
+3. Attempt a download with no Hugging Face session.
 
 **Expected:**
-- `EMBEDDING_GEMMA_300M_SM8550` is not shown in Model Management
-- Model is marked `isDeprecated = true` in code
-- Existing download is not deleted (must be manually removed via storage settings)
-- Deprecated model is excluded from `preferredForTier` matching
+- The former EmbeddingGemma model and SentencePiece tokenizer are not active catalogue entries.
+- The Arctic model and vocabulary entries require no Hugging Face token or licence acceptance.
+- The initial model and vocabulary downloads are anonymous HTTPS requests with no Hugging Face token or licence-acceptance flow; links use public rolling release `model-arctic-embed-m-v1.5-current`.
+- The validated Phase B artifact sizes and SHA-256 digests are recorded in the evidence report; runtime download does not pin a rolling update to those historical digests.
 
 ---
 

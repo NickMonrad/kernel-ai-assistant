@@ -72,15 +72,14 @@ For manual setup without a host machine:
 | `gemma-4-E4B-it.litertlm` | ~3.4 GB | Optional flagship tier | [litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
 | `mobile_actions_q8_ekv1024.litertlm` | ~289 MB | Optional / experimental | [litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
 
-### EmbeddingGemma models (`.tflite`)
+### Arctic Embed M v1.5 (`.tflite` + `vocab.txt`)
 
-| File | Devices | Source |
-|------|---------|--------|
-| `embeddinggemma-300M_seq512_mixed-precision.tflite` | Generic GPU fallback / most devices | [litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
-| `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite` | Samsung S23 Ultra / Snapdragon 8 Gen 2 NPU path | Same repo |
-| `sentencepiece.model` | Tokeniser required with any EmbeddingGemma file | Same repo |
+| File | Size | Device/source |
+|------|------|---------------|
+| `arctic-embed-m-v1.5-int8.tflite` | 113,850,784 bytes | CPU inference; converted from `Snowflake/snowflake-arctic-embed-m-v1.5` at pinned revision `e58a8f756156a1293d763f17e3aae643474e9b8a` |
+| `vocab.txt` | 231,508 bytes | Uncased WordPiece vocabulary from the same pinned upstream revision |
 
-The app tries the Qualcomm-optimised EmbeddingGemma variant first when the device is detected as SM8550, then falls back to the generic file when needed.
+The validated model and vocabulary SHA-256 digests are recorded in the Phase B evidence report and release provenance; they are not compiled into the app, so Model Management's forced Update can fetch a later compatible asset from the same rolling URL. Both assets are ungated and require no Hugging Face account. The temporary public HTTPS host is the rolling GitHub release [`model-arctic-embed-m-v1.5-current`](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current). Long-term publication to `litert-community` is tracked separately in #1563 and is not a #1559 blocker.
 
 ## Speech, wake-word, and voice asset sources
 
@@ -108,7 +107,7 @@ These assets are downloaded or bundled by the app rather than manually placed in
 ### Samsung Galaxy S23 Ultra (SM8550 / Snapdragon 8 Gen 2)
 
 - Larger comparison tier: Gemma-4 E-4B where available.
-- Recommended EmbeddingGemma: `qualcomm.sm8550.tflite` variant for the NPU path, generic as fallback.
+- Arctic Embed M v1.5 uses the same CPU inference path on S21 and S23 Ultra; the old EmbeddingGemma Qualcomm NPU variant is no longer active.
 - ADB path: `/sdcard/Android/data/com.kernel.ai.debug/files/models/`.
 
 ## Launch/legal notes

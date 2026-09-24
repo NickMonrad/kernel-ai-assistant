@@ -56,7 +56,7 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 ```
 :app                  Entry point, Hilt DI, navigation, splash screen
 :core:inference       LiteRtInferenceEngine, ModelConfig, LlmDispatcher, hardware tier detection
-:core:memory          sqlite-vec JNI bridge, EmbeddingGemma, RAG pipeline, Room entities
+:core:memory          Room-canonical memory, sqlite-vec cosine indexes, Arctic Embed M v1.5 RAG
 :core:skills          SkillRegistry, SkillExecutor, QuickIntentRouter, native Kotlin skills
 :core:wasm            Chicory Wasm host runtime, bridge functions, resource limiting
 :core:ui              Shared Compose components, Material 3 theme
@@ -82,7 +82,7 @@ The shipped optional provider is a user-configured Nextcloud Tasks server using 
 |-------|------|------|---------|---------|
 | Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls (#20, PR #57) |
 | Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls |
-| EmbeddingGemma-300M | Semantic embeddings (768-dim) | <200MB | CPU | Lazy on first RAG query |
+| Arctic Embed M v1.5 | Semantic embeddings (768-dim) | 113,850,784-byte INT8 model + 231,508-byte vocabulary | CPU | Lazy on first RAG query; anonymous HTTPS assets from public rolling release `model-arctic-embed-m-v1.5-current`; validated SHA-256 provenance in #1559 evidence |
 
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
 > terminate the process during Gemma-4's GPU kernel compilation peak (~4–5GB transient).
@@ -94,10 +94,10 @@ The shipped optional provider is a user-configured Nextcloud Tasks server using 
 | Component | Performance Tier (12GB+ RAM) | Compatibility Tier (8GB RAM) |
 |-----------|------------------------------|------------------------------|
 | Reasoning | Gemma-4 E-4B | Gemma-4 E-2B |
-| Embeddings | EmbeddingGemma-300M (768-dim) | EmbeddingGemma-300M (256-dim Matryoshka) |
+| Embeddings | Arctic Embed M v1.5 (768-dim) | Arctic Embed M v1.5 (768-dim; 256-dim Matryoshka deferred to #429) |
 | GPU backend | OpenCL (Adreno 740) | OpenCL |
 | Context window | 4,000 tokens | 2,000 tokens |
-| RAM (resident) | ~3.4GB (E4B) + ~200MB (EG) | ~1.5GB (E2B) + ~200MB (EG) |
+| RAM (resident) | ~3.4GB (E4B) plus Arctic process increase measured separately | ~1.5GB (E2B) plus Arctic process increase measured separately |
 
 > **Token alignment guard:** Exact powers of 2 (4096, 8192) are avoided for `maxNumTokens`.
 > `safeTokenCount()` nudges values down by ~2.4% (e.g. 4096→4000) to prevent a LiteRT GPU
@@ -139,9 +139,11 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
                             user (coreTopK=10), agent_identity (identityTopK=5)
-                           CORE_MAX_DISTANCE=1.25; NZ truths further filtered by vibe level
-[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
-[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
+                            USER CORE cutoff: cosine distance ≤ 0.789
+                            IDENTITY cutoffs: vibes 1–5 ≤ 0.759 / 0.764 / 0.737 / 0.720 / 0.691
+                            KIWI cutoffs: vibes 1–5 ≤ 0.564 / 0.731 / 0.667 / 0.620 / 0.500
+                            EPISODIC cutoff: cosine distance ≤ 0.666 (episodicTopK=3)
+                            MESSAGE cutoff: cosine distance ≤ 0.650 (topK=3)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended; tool instructions prepended only for tool-like turns
 ```
@@ -176,13 +178,15 @@ All sections are conditionally included — omitted entirely if no results meet 
 ### 3.3 Long-Term (Semantic) Memory
 
 - **Vector store:** sqlite-vec (compiled via NDK for arm64-v8a), bundled as `libkernelvec.so`
-- **Embedding model:** EmbeddingGemma-300M — 768-dim vectors (256-dim on 8GB via Matryoshka)
-- **Three vec0 tables:**
+- **Embedding model:** Arctic Embed M v1.5 — normalized 768-dim vectors; query-only retrieval prefix; document vectors are unprefixed.
+- **Four cosine vec0 tables:**
   - `core_memories_vec` — permanent facts about the user and NZ cultural truths (Settings → Core Memories)
   - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (Settings → Episodic Memories)
+  - `kiwi_memories_vec` — Jandal/NZ cultural corpus
   - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (Settings → Message History (RAG))
-- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance ≈ `sqrt(2 * (1 - cos_sim))` — core threshold 1.25 ≈ cos_sim ≥ 0.22; episodic threshold 1.10 ≈ cos_sim ≥ 0.40.
-- **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
+- **Retrieval:** cosine distance `1 - cosine_similarity`; lower values are more similar and score is `1 - distance`. Phase B uses separately calibrated message (`0.650`), user-core (`0.789`), episodic (`0.666`), identity-by-vibe (`0.759` / `0.764` / `0.737` / `0.720` / `0.691`) and Kiwi-by-vibe (`0.564` / `0.731` / `0.667` / `0.620` / `0.500`) limits. Calibration and held-out evidence, fixture hashes and limitations: [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md).
+- **Index identity and migration:** a persisted Arctic model SHA, vocabulary SHA, 768-dimension and cosine-version identity prevents querying stale vectors. On mismatch, the app recreates all four derived indexes and re-embeds canonical Room content; failed rebuilds remain retryable and do not delete Room data.
+- **Separate databases:** Room (`kernel_db.db`) remains canonical relational storage; native SQLite (`kernel_vectors.db`) stores derived vectors (Room doesn't support vec0 virtual tables).
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
   1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL.
   2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction.
@@ -244,15 +248,9 @@ User prefers dark mode
 [End of core memories]
 ```
 
-#### 3.3.3 NZ Truth Vibe-Level Filtering
+#### 3.3.3 NZ Truth Vibe Metadata
 
-NZ truth memories have a `vibe_level` (1–5) that controls how closely a query must match before the truth surfaces. This prevents high-energy or niche content (e.g. rugby trash-talk, crude slang) from appearing in unrelated serious conversations.
-
-| Vibe Level | Character | L2 Distance Threshold | Cos-sim Equivalent |
-|------------|-----------|----------------------|--------------------|
-| 1–2 | Subtle, informational, serious | ≤ 1.25 (`CORE_MAX_DISTANCE`) | ≥ 0.22 |
-| 3 | Moderate, general interest | ≤ 1.20 | ≥ 0.28 |
-| 4–5 | High-energy, niche, chaotic | ≤ 1.20 | ≥ 0.28 |
+NZ truth entries retain `vibe_level` (1–5) as canonical metadata. Kiwi retrieval uses independent Arctic cosine-distance cutoffs by vibe: `0.564`, `0.731`, `0.667`, `0.620`, and `0.500` for levels 1–5. Agent identity entries use their own independently calibrated limits (`0.759`, `0.764`, `0.737`, `0.720`, `0.691`); they are not filtered through the user-core cutoff. See [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md) for per-consumer held-out results and sample limits.
 
 **Examples by vibe level:**
 - **Vibe 1** — `"Kate Sheppard"` (women's suffrage leader, face of the $10 note) — surfaces for any NZ history or feminism query
@@ -261,7 +259,7 @@ NZ truth memories have a `vibe_level` (1–5) that controls how closely a query 
 - **Vibe 4** — `"Karl Urban"` (Billy Butcher in The Boys) — only surfaces when the query closely matches The Boys, sci-fi franchises, or Kiwi actors
 - **Vibe 5** — `"Antony Starr"` (Homelander) — tight match required; won't intrude into unrelated conversations
 
-The filter runs in `MemoryRepositoryImpl.searchMemories()` after the initial L2 vec search, as a post-filter on `identity` (agent_identity) results.
+The shared cosine cutoff runs in `MemoryRepositoryImpl.searchMemories()` after the vec search; per-vibe thresholds are not currently applied.
 
 #### 3.3.4 Memory Management UI
 
@@ -826,11 +824,13 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 
 > **search_memory:** Exposed to the model via `KernelAIToolSet.searchMemory()` and backed by
 > `SearchMemorySkill`. It merges explicit memories (`MemoryRepository.searchMemories()`) with
-> raw message-history retrieval (`RagRepository.searchMessages()`). Message-history lookups use
-> sqlite-vec L2 distance on `message_embeddings` at `MAX_DISTANCE=0.90`, while core/episodic
-> memory retrieval uses the wider calibrated thresholds in `MemoryRepositoryImpl`
-> (`CORE_MAX_DISTANCE=1.25`, `EPISODIC_MAX_DISTANCE=1.10`). Results are returned as a numbered
-> direct reply with dates and conversation prefixes, bypassing LLM rephrasing to preserve detail.
+> raw message-history retrieval (`RagRepository.searchMessages()`).
+> Arctic retrieval uses cosine distance with separately calibrated limits:
+> message `0.650`, user core `0.789`, episodic `0.666`, identity and Kiwi by
+> vibe. See [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md)
+> for exact vibe cutoffs and the separate calibration/held-out evidence.
+> Results are returned as a numbered direct reply with dates and conversation
+> prefixes, bypassing LLM rephrasing to preserve detail.
 
 **Per-turn `[Tool Use]` rules (injected only for tool-like turns by `ChatViewModel`):**
 - Injection gate: `QuickIntentRouter` fall-through with non-null `bestGuess`, or `looksLikeToolQuery(...)`

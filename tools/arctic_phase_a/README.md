@@ -1,6 +1,6 @@
 # Arctic Embed M v1.5 Phase A spike
 
-This directory contains conversion and fidelity tooling only. It does not alter the production embedding engine, model catalogue, vector schema, retrieval thresholds, or stored vectors.
+This directory is the reproducible conversion and validation source for the Arctic production artifact, plus the Phase B retrieval-calibration evaluator. The pinned conversion recipe and Python environment reproduce the validated artifact; generated `.tflite` binaries remain outside Git.
 
 ## Reproduce conversion and desktop comparison
 
@@ -19,15 +19,12 @@ The runner resolves `Snowflake/snowflake-arctic-embed-m-v1.5` at commit `e58a8f7
 
 The Android instrumentation benchmark in `app/src/androidTest/.../ArcticLiteRtDeviceBenchmarkTest.kt` consumes the generated model and fixture JSON from `/data/local/tmp`. It runs through Jandal's existing TensorFlow Lite Interpreter dependency; it is test-only and does not wire into production DI or model distribution.
 
-## Compare the current gated production baseline on-device
+## Historical on-device EmbeddingGemma comparison
 
-The test-only `benchmarkGenericProductionEmbeddingGemmaAgainstSameTextInputs` case benchmarks the generic mixed-precision model listed as `KernelModel.EMBEDDING_GEMMA_300M`, not the deprecated SM8550-specific variant. It uses the matching `sentencepiece.model` and the same five text cases as the Arctic device fixture; tokenization and input preparation occur before timing. Each run uses TFLite Interpreter 2.17.0, CPU, four threads, and reports load/allocation, first and steady inference, loaded/peak PSS, RSS high-water, and model-only memory deltas. The instrumentation test does not modify production DI or model files.
+Phase A's same-device EmbeddingGemma comparison is preserved in [`docs/research/1559-arctic-phase-a-evidence.md`](../../docs/research/1559-arctic-phase-a-evidence.md). Phase B removes the active EmbeddingGemma metadata and SentencePiece tokenizer, so the test-only EmbeddingGemma benchmark and its gated local inputs are no longer in the current instrumentation source. The Arctic candidate benchmark remains available for reference-parity and runtime measurements.
 
-After authenticating locally to the gated Hugging Face repository, retrieve both files at the exact revision recorded in the evidence report. Do not place a token in commands, files, or logs. Push the downloaded model and tokenizer, plus the generated candidate and shared fixture JSON, to `/data/local/tmp` on each device. Run the baseline and candidate test methods in separate instrumentation invocations on S23 Ultra and S21 so each process has an independent RSS high-water baseline:
+## Phase B cosine retrieval calibration and distribution
 
-```sh
-ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.kernel.ai.ArcticLiteRtDeviceBenchmarkTest#benchmarkGenericProductionEmbeddingGemmaAgainstSameTextInputs
-ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.kernel.ai.ArcticLiteRtDeviceBenchmarkTest#benchmarkPinnedCandidateAgainstReferenceInputs
-```
+The report records per-consumer cosine-distance cutoffs, held-out scores, and dataset limits. Calibration remains exploratory: message/core/episodic scores use six-query held-out sets, Kiwi uses 25 labeled queries for 144 entries, and core has substantial false positives.
+
+The validated conversion is temporarily hosted from Jandal's public rolling GitHub release `model-arctic-embed-m-v1.5-current` so the existing Model Management force-update can retrieve later compatible conversions from a stable URL. Long-term publication to `litert-community` is tracked separately in #1563. GitHub `immutable=true` is not a #1559 release gate.

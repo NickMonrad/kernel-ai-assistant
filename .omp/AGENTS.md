@@ -16,7 +16,7 @@ User input → Tier 2: QuickIntentRouter (regex + MiniLM, <5ms, 20+ intents)
 | Model | Role | Loading |
 |-------|------|---------|
 | Gemma-4 E-4B / E-2B | Reasoning + tool calling (~3.4GB) | Eager — E4B first |
-| EmbeddingGemma-300M | 768-dim semantic RAG embeddings | Lazy on first RAG query |
+| Arctic Embed M v1.5 | 768-dim semantic RAG embeddings; query-prefixed WordPiece + cosine indexes | Lazy on first RAG query |
 | all-MiniLM-L6-v2 int8 | Zero-shot intent classifier (~15MB) | Lazy, null fallback |
 | FunctionGemma-270M | ~~Intent router~~ **Deprecated** | Not loaded |
 
@@ -25,7 +25,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 ## Memory
 
 - **Short-term:** LiteRT KV cache. At 80% capacity → recursive summarisation into prompt, not truncation.
-- **Long-term:** sqlite-vec + Room. `vec_distance_cosine()`, top 3-5 fragments prepended to system prompt. EmbeddingGemma 768-dim (256-dim on 8GB via Matryoshka).
+- **Long-term:** Room is canonical; sqlite-vec cosine indexes provide top 3-5 fragments. Arctic Embed M v1.5 outputs 768-dim normalized vectors; 256-dim MRL remains deferred.
 
 ## Module structure
 
@@ -34,7 +34,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 | `:app` | Entry point, Hilt DI, navigation, splash |
 | `:core:inference` | LiteRT-LM engine, model manager, HW tier detection |
 | `:core:voice` | STT, TTS, voice mode, push-to-talk |
-| `:core:memory` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
+| `:core:memory` | Room-canonical memory, sqlite-vec cosine indexes, Arctic Embed M v1.5 RAG pipeline |
 | `:core:wasm` | Chicory Wasm host, bridge functions, resource limits |
 | `:core:model-availability` | ModelAvailabilityState, StateBadge, ModelCard, GatedModelStatusRepo |
 | `:core:ui` | Shared Compose components, Material 3 theme |

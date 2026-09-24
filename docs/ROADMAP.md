@@ -19,7 +19,7 @@
 | **Persistence** | Room + sqlite-vec (NDK) |
 | **Inference** | LiteRT + LiteRT-LM |
 | **Chat model** | Gemma-4 E-4B / E-2B |
-| **Embeddings** | EmbeddingGemma-300M (SentencePiece + TFLite) |
+| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; Phase B release gate in #1559) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
 | **Intent recovery** | `IntentRecoveryOrchestrator` (deterministic slot extraction, risk-gated execution) |
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
@@ -104,15 +104,14 @@ tri-tiered memory architecture inspired by the
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ✅ Done | — | Multi-select + delete in the core memories list in Memory UI |
 | Conversation search ([#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151)) | ✅ Done | #156 | Search bar on conversations list, filters by title with NULL guard and LIKE wildcard escaping. |
 | RAG context framing | ✅ Done | #159 | Added framing instruction header, updated section labels to `[Core Memories — permanent facts about the user]` and `[Episodic Memories — recalled from a past conversation]`. |
-| Core memory RAG-only ([#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160)) | ✅ Done | #162 | Removed core memories from system prompt. Core memories now retrieved only via RAG (CORE_MAX_DISTANCE=0.55, topK=10, sorted by similarity then lastAccessedAt). User Profile framing instruction added. |
+| Core memory RAG-only ([#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160)) | ✅ Done | #162 | Removed core memories from system prompt. Core memories are retrieved by semantic RAG; current Phase B Arctic limits and separate identity/Kiwi vibe thresholds are documented in [the #1559 calibration report](research/1559-arctic-phase-b-calibration.md). |
 | Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ✅ Done | — | Folded into Jandal visual identity (#226) |
-| SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
+| SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⏭️ Superseded | — | #1559 replaces the EmbeddingGemma runtime with Arctic Embed M v1.5; the old SM8550-specific EmbeddingGemma delegate task no longer applies. |
 
 ### Key Design Decisions
 
-- **EmbeddingGemma-300M** over Universal Sentence Encoder — much higher quality embeddings,
-  hardware-optimised variants for Qualcomm chipsets
-- **SentencePiece tokenizer** implemented in pure Kotlin (no protobuf library dependency)
+- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaces the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
+- **Tokenizer:** Arctic's uncased WordPiece vocabulary and pure-Kotlin tokenizer are active; the former SentencePiece path is historical only.
 - **Separate databases**: Room (`kernel_db`) for relational data, native SQLite (`kernel_vectors.db`)
   for vectors — because Room doesn't support sqlite-vec's vec0 virtual tables
 - **Graceful degradation**: embedding engine returns empty arrays if models aren't loaded,
@@ -515,7 +514,7 @@ Dynamic weight loading/unloading so the app runs smoothly on 8GB RAM devices.
 | Task | Status | Notes |
 |------|--------|-------|
 | Memory profiling ([#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428)) | ⬜ Pending | Peak RAM states, concurrent model usage |
-| Dynamic model loading state machine ([#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430)) | ⬜ Pending | Never hold Gemma-4 + EmbeddingGemma simultaneously on low RAM |
+| Dynamic model loading state machine ([#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430)) | ⬜ Pending | Never hold Gemma-4 + Arctic Embed simultaneously on low RAM |
 | Embedding dimension reduction ([#429](https://github.com/NickMonrad/kernel-ai-assistant/issues/429)) | ⬜ Pending | Matryoshka reduction to 256-dim on 8GB devices |
 | Compatibility tier model swap ([#432](https://github.com/NickMonrad/kernel-ai-assistant/issues/432)) | ⬜ Pending | Auto-select E-2B on 8GB, smaller KV cache |
 | Battery optimization ([#431](https://github.com/NickMonrad/kernel-ai-assistant/issues/431)) | ⬜ Pending | Defer background work in low battery |
@@ -680,7 +679,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 |----------|-----|
 | Gemma-4 E-2B (LiteRT) | [huggingface.co/litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) |
 | Gemma-4 E-4B (LiteRT) | [huggingface.co/litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
-| EmbeddingGemma-300M | [huggingface.co/litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
+| Arctic Embed M v1.5 | [Snowflake/snowflake-arctic-embed-m-v1.5](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v1.5) (Apache-2.0; temporary runtime host is the public rolling [Jandal GitHub release](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current); long-term community publication tracked in #1563) |
 | FunctionGemma-270M Mobile Actions | [huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
 | LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) |
 | sqlite-vec | [github.com/asg017/sqlite-vec](https://github.com/asg017/sqlite-vec) |

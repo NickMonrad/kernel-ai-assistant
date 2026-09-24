@@ -7,8 +7,8 @@ import java.io.File
 /**
  * Catalogue of all on-device models that Kernel AI can download and use.
  *
- * URLs point to the HuggingFace `resolve/main/` endpoint which follows LFS redirects
- * automatically when fetched with [java.net.HttpURLConnection].
+ * Download URLs may use upstream model hosting or versioned project release assets.
+ * Entries with a pinned SHA-256 are verified before the downloaded file is installed.
  */
 enum class KernelModel(
     val displayName: String,
@@ -75,38 +75,24 @@ enum class KernelModel(
         licenceUrl = null,
     ),
 
-    EMBEDDING_GEMMA_300M(
-        displayName = "EmbeddingGemma 300M",
-        fileName = "embeddinggemma-300M_seq512_mixed-precision.tflite",
-        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite",
-        approxSizeBytes = 171_000_000L,
+    ARCTIC_EMBED_M_V1_5(
+        displayName = "Arctic Embed M v1.5",
+        fileName = "arctic-embed-m-v1.5-int8.tflite",
+        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-current/arctic-embed-m-v1.5-int8.tflite",
+        approxSizeBytes = 113_850_784L,
         isRequired = true,
         preferredForTier = null,
-        isGated = true,
-        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
+        isGated = false,
     ),
 
-    EMBEDDING_GEMMA_300M_SM8550(
-        displayName = "EmbeddingGemma 300M (SM8550)",
-        fileName = "embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
-        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
-        approxSizeBytes = 350_000_000L,
-        isRequired = false,
-        preferredForTier = null,
-        isGated = true,
-        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
-        isDeprecated = true,
-    ),
-
-    EMBEDDING_GEMMA_SP_MODEL(
-        displayName = "EmbeddingGemma SentencePiece model",
-        fileName = "sentencepiece.model",
-        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model",
-        approxSizeBytes = 4_500_000L,
+    ARCTIC_EMBED_V1_5_VOCAB(
+        displayName = "Arctic Embed v1.5 vocabulary",
+        fileName = "arctic-embed-m-v1.5-vocab.txt",
+        downloadUrl = "https://github.com/NickMonrad/kernel-ai-assistant/releases/download/model-arctic-embed-m-v1.5-current/arctic-embed-m-v1.5-vocab.txt",
+        approxSizeBytes = 231_508L,
         isRequired = true,
         preferredForTier = null,
-        isGated = true,
-        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
+        isGated = false,
     ),
 
     MINI_LM(

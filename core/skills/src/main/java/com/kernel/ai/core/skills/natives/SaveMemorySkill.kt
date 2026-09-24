@@ -93,7 +93,7 @@ bulk_add_to_list (two or more items) for that instead.
                 if (content != rawContent) {
                     Log.d(TAG, "SaveMemorySkill: normalised content from \"${rawContent.take(60)}\" to \"${content.take(60)}\"")
                 }
-                val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
+                val vector = embeddingEngine.embedDocument(content).takeIf { it.isNotEmpty() }
                 if (vector == null) {
                     Log.w(TAG, "SaveMemorySkill: embedding engine not ready — saving without vector")
                 }

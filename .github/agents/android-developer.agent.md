@@ -17,7 +17,7 @@ You are an expert Android/Kotlin developer for the **Kernel AI Assistant** proje
 ```
 :app                  Entry point, Hilt DI, navigation, splash screen
 :core:inference       LiteRT-LM engine wrapper, model manager, tier detection
-:core:memory          sqlite-vec, EmbeddingGemma, RAG pipeline
+:core:memory          sqlite-vec cosine, Arctic Embed M v1.5, Room-canonical memory and RAG
 :core:wasm            Chicory Wasm runtime, bridge functions, resource limiting
 :core:ui              Shared Compose components, Material 3 theme
 :core:skills          Skill interface, SkillRegistry, JSON schema generation

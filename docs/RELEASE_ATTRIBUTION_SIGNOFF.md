@@ -33,8 +33,7 @@ This is still a **pre-release-candidate attribution snapshot** — Play Console 
 |---|---|---|---|
 | Gemma 4 E-2B LiteRT-LM | Required launch-compatible chat tier. | `litert-community/gemma-4-E2B-it-litert-lm`, repository page records Apache-2.0 in current docs. | OK for release inventory; verify exact model card in final sign-off notes. |
 | Gemma 4 E-4B LiteRT-LM | Optional flagship chat tier. | `litert-community/gemma-4-E4B-it-litert-lm`, repository page records Apache-2.0 in current docs. | OK as optional release-exposed download. |
-| EmbeddingGemma 300M + SentencePiece | Required embedding/RAG dependency when authenticated. | `litert-community/embeddinggemma-300m`, gated Gemma terms. | Keep gated-model language; do not describe as Apache-only. |
-| EmbeddingGemma SM8550 variant | Deprecated/hidden in generic model management; may remain on existing devices. | Same gated Gemma terms as generic EmbeddingGemma. | Treat as deprecated / not promoted in release. |
+| Arctic Embed M v1.5 + WordPiece vocabulary | Required embedding/RAG model and tokenizer. | `Snowflake/snowflake-arctic-embed-m-v1.5`, source revision `e58a8f756156a1293d763f17e3aae643474e9b8a`, Apache-2.0. | Public rolling GitHub release `model-arctic-embed-m-v1.5-current`; validated asset sizes and SHA-256 digests are recorded in the Phase B report. Anonymous download is supported. GitHub release immutability is not a #1559 gate; #1563 tracks non-blocking litert-community publication. |
 | MiniLM-L6 intent classifier | Bundled/fallback classifier. | `sentence-transformers/all-MiniLM-L6-v2`, documented as Apache-2.0. | Confirm bundle presence during #1259 artefact audit. |
 | FunctionGemma mobile actions | Optional/experimental if surfaced. | Gated Gemma terms. | Keep optional/experimental; do not promote in store copy unless current release UI exposes it intentionally. |
 

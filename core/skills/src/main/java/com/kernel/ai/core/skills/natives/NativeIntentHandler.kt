@@ -2890,7 +2890,7 @@ class NativeIntentHandler @Inject constructor(
                     return@runBlocking SkillResult.DirectReply(prompt)
                 }
                 val content = normaliseSaveContent(raw, userName)
-                val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
+                val vector = embeddingEngine.embedDocument(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",

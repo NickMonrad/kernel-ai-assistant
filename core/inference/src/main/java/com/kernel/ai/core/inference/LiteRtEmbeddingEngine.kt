@@ -3,13 +3,9 @@ package com.kernel.ai.core.inference
 import android.content.Context
 import android.util.Log
 import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.inference.download.isDownloaded
 import com.kernel.ai.core.inference.download.localFile
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import java.io.File
@@ -20,15 +16,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * EmbeddingEngine backed by EmbeddingGemma-300M running via the TFLite Interpreter.
+ * EmbeddingEngine backed by the Arctic Embed M v1.5 LiteRT artifact.
  *
- * Model selection: generic mixed-precision model (GPU delegate, all devices).
- * The SM8550-optimised variant was disabled due to LiteRT format incompatibility
- * (DISPATCH_OP custom op requires Qualcomm AI Engine delegate which is not bundled).
- *
- * Tokenisation: pure-Kotlin [SentencePieceTokenizer] parsing the bundled `sentencepiece.model`.
- *
- * Returns [FloatArray] of length 0 gracefully while models are not yet on-device.
+ * Documents use uncased WordPiece without a prefix; queries use the upstream
+ * retrieval instruction prefix. The model output is CLS pooled and L2-normalized.
+ * Returns an empty vector while either required public model asset is unavailable.
+
  */
 @Singleton
 class LiteRtEmbeddingEngine @Inject constructor(
@@ -37,109 +30,83 @@ class LiteRtEmbeddingEngine @Inject constructor(
 
     private data class State(
         val interpreter: Interpreter,
-        val tokenizer: SentencePieceTokenizer,
-        val seqLen: Int,
-        override val dimensions: Int,
-    ) : EmbeddingEngine {
-        override suspend fun embed(text: String) = throw UnsupportedOperationException()
-        override fun close() = throw UnsupportedOperationException()
-    }
+        val tokenizer: ArcticEmbeddingTokenizer,
+        val dimensions: Int,
+    )
 
     private var _state: State? = null
     private val lock = Any()
 
-    init {
-        // Clean up the SM8550 variant on a background thread — disabled due to LiteRT format
-        // incompatibility. Remove once the upstream issue is resolved and model is re-enabled.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            val f = KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context)
-            if (f.exists()) {
-                f.delete()
-                Log.i(TAG, "Deleted broken SM8550 embedding variant: ${f.name}")
-            }
-        }
-    }
 
     override val dimensions: Int get() = synchronized(lock) { _state?.dimensions ?: 0 }
 
     private fun ensureState(): State? {
         synchronized(lock) {
             _state?.let { return it }
-
-            val spFile = KernelModel.EMBEDDING_GEMMA_SP_MODEL.localFile(context)
-            if (!spFile.exists()) {
-                Log.w(TAG, "sentencepiece.model not found at ${spFile.absolutePath}")
+            val modelFile = KernelModel.ARCTIC_EMBED_M_V1_5.localFile(context)
+            val vocabFile = KernelModel.ARCTIC_EMBED_V1_5_VOCAB.localFile(context)
+            if (!modelFile.isFile || !vocabFile.isFile) {
+                Log.w(TAG, "Arctic Embed model or vocabulary is not downloaded")
                 return null
             }
-
-            return buildInterpreter(spFile, candidates = modelFileCandidates())
+            return buildInterpreter(modelFile, vocabFile)
         }
     }
 
-    /** Only the generic model is used — the SM8550 variant was disabled (LiteRT format incompatibility). */
-    private fun modelFileCandidates(): List<File> = listOf(
-        KernelModel.EMBEDDING_GEMMA_300M.localFile(context)
-    ).filter { it.exists() }
+    private fun buildInterpreter(modelFile: File, vocabFile: File): State? {
+        var interpreter: Interpreter? = null
+        return try {
+            val vocab = HashMap<String, Int>(30_522)
+            vocabFile.bufferedReader().useLines { lines ->
+                lines.forEachIndexed { index, token -> vocab[token] = index }
+            }
+            require(vocab["[PAD]"] == 0 && vocab["[UNK]"] != null && vocab["[CLS]"] != null && vocab["[SEP]"] != null) {
+                "Arctic vocabulary is missing required BERT special tokens"
+            }
 
-    /**
-     * Try each candidate in order, returning the first that initialises successfully.
-     * The SM8550 model uses DISPATCH_OP (Qualcomm custom op) which fails without the
-     * Qualcomm AI Engine delegate — we catch that and fall back to the generic model.
-     */
-    private fun buildInterpreter(spFile: File, candidates: List<File>): State? {
-        if (candidates.isEmpty()) {
-            Log.w(TAG, "No EmbeddingGemma model files found")
-            return null
-        }
-        val tokenizer = try {
-            SentencePieceTokenizer(spFile)
+            val loaded = Interpreter(
+                mapModelFile(modelFile),
+                Interpreter.Options().apply { numThreads = 4 },
+            )
+            interpreter = loaded
+            val inputShape = loaded.getInputTensor(0).shape()
+            val maskShape = loaded.getInputTensor(1).shape()
+            val outputShape = loaded.getOutputTensor(0).shape()
+            require(loaded.inputTensorCount == 2 && inputShape.contentEquals(intArrayOf(1, 512)) &&
+                maskShape.contentEquals(intArrayOf(1, 512)) && outputShape.contentEquals(intArrayOf(1, 768))) {
+                "Unexpected Arctic tensor contract: inputs=${inputShape.contentToString()}, " +
+                    "${maskShape.contentToString()}, output=${outputShape.contentToString()}"
+            }
+            Log.i(TAG, "Arctic Embed M v1.5 ready: model=${modelFile.name}, dim=768, seq=512")
+            State(loaded, ArcticEmbeddingTokenizer(vocab), dimensions = 768).also { _state = it }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load SentencePiece tokenizer", e)
-            return null
+            interpreter?.close()
+            Log.e(TAG, "Failed to initialise Arctic Embed M v1.5", e)
+            null
         }
-        val options = Interpreter.Options().apply { numThreads = 4 }
-        for (modelFile in candidates) {
-            try {
-                val interpreter = Interpreter(mapModelFile(modelFile), options)
-                val seqLen = interpreter.getInputTensor(0).shape().getOrElse(1) { 512 }
-                val dim = interpreter.getOutputTensor(0).shape().last()
-                Log.i(TAG, "EmbeddingGemma ready: model=${modelFile.name}, dim=$dim, seq=$seqLen")
-                return State(interpreter, tokenizer, seqLen, dim).also { _state = it }
-            } catch (e: Exception) {
-                Log.w(TAG, "Model ${modelFile.name} failed to load (${e.message}), trying next")
-            }
-        }
-        Log.e(TAG, "All EmbeddingGemma model candidates failed")
-        return null
     }
 
-    override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.IO) {
+    override suspend fun embedQuery(text: String): FloatArray = embed(text, isQuery = true)
+
+    override suspend fun embedDocument(text: String): FloatArray = embed(text, isQuery = false)
+
+    private suspend fun embed(text: String, isQuery: Boolean): FloatArray = withContext(Dispatchers.IO) {
         val state = ensureState() ?: return@withContext FloatArray(0)
-
+        val (tokenIds, maskValues) = if (isQuery) {
+            state.tokenizer.encodeQuery(text)
+        } else {
+            state.tokenizer.encodeDocument(text)
+        }
         synchronized(lock) {
-            val tokenIds = state.tokenizer.encode(text, maxLen = state.seqLen)
-            val seqLen = state.seqLen
-
-            // Input 0: token IDs padded to seqLen
-            val inputIds = Array(1) { IntArray(seqLen) { i -> tokenIds.getOrElse(i) { 0 } } }
-            // Input 1 (optional): attention mask — 1 for real tokens, 0 for padding
-            val mask = Array(1) { IntArray(seqLen) { i -> if (i < tokenIds.size) 1 else 0 } }
-
-            // Output: embedding vector [1, dim]
             val output = Array(1) { FloatArray(state.dimensions) }
-
-            if (state.interpreter.inputTensorCount >= 2) {
-                state.interpreter.runForMultipleInputsOutputs(
-                    arrayOf<Any>(inputIds, mask),
-                    mapOf(0 to output),
-                )
-            } else {
-                state.interpreter.run(inputIds, output)
-            }
-
+            state.interpreter.runForMultipleInputsOutputs(
+                arrayOf<Any>(arrayOf(tokenIds), arrayOf(maskValues)),
+                mapOf(0 to output),
+            )
             output[0].l2Normalize()
         }
     }
+
 
     override fun close() {
         // Log at WARN so any unexpected call (e.g. accidental close during Gemma-4 init,
