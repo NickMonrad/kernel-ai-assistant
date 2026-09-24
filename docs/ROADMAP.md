@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-23 (reconciled shipped Lists/Nextcloud capability and current public follow-ups)
+> **Last updated:** 2026-09-24 (reconciled shipped Lists/Nextcloud capability and #1559 Arctic embedding migration)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -87,7 +87,7 @@ tri-tiered memory architecture inspired by the
 | Task | Status | PR | Notes |
 |------|--------|----|-------|
 | sqlite-vec NDK integration | ✅ Done | #11 | Bundled SQLite + sqlite-vec as `libkernelvec.so` |
-| EmbeddingGemma-300M integration | ✅ Done | #12 | LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model |
+| EmbeddingGemma-300M integration | ✅ Done | #12 | Historical Phase 2 delivery: LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model. Superseded by #1559 / Arctic Embed M v1.5 + cosine retrieval. |
 | RAG pipeline (basic) | ✅ Done | #13 | `RagRepository`: index + retrieve + inject context. Cross-conversation recall working! |
 | User profile (Tier 3 foundation) | ✅ Done | #23 | Singleton profile entity, injected into every prompt, manually editable |
 | Cancel generation fix | ✅ Done | #28 | Clears stuck spinner + resets LiteRT conversation state |
