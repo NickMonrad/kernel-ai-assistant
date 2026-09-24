@@ -1,6 +1,6 @@
 ---
 name: llm-engineer
-description: "Use this agent for all AI/ML-specific implementation — LiteRT integration, model cascade logic, RAG pipeline, embedding pipeline, prompt engineering, context window management, and E4B tool-calling.\n\nTrigger phrases:\n- 'set up the inference engine'\n- 'implement the RAG pipeline'\n- 'configure the model cascade'\n- 'optimize the prompt template'\n- 'fix the embedding generation'\n- 'implement context summarization'\n- 'tune the confidence threshold'\n\nExamples:\n- 'integrate LiteRT-LM with NPU fallback' → invoke to implement the inference engine\n- 'build the semantic memory search' → invoke to implement sqlite-vec + EmbeddingGemma pipeline\n- 'implement the E4B→Gemma-4 cascade' → invoke to build the model orchestrator\n- 'th…
+description: "Use this agent for all AI/ML-specific implementation — LiteRT integration, model cascade logic, RAG pipeline, embedding pipeline, prompt engineering, context window management, and E4B tool-calling.\n\nTrigger phrases:\n- 'set up the inference engine'\n- 'implement the RAG pipeline'\n- 'configure the model cascade'\n- 'optimize the prompt template'\n- 'fix the embedding generation'\n- 'implement context summarization'\n- 'tune the confidence threshold'\n\nExamples:\n- 'integrate LiteRT-LM with NPU fallback' → invoke to implement the inference engine\n- 'build the semantic memory search' → invoke to implement sqlite-vec cosine + Arctic Embed M v1.5 pipeline\n- 'implement the E4B→Gemma-4 cascade' → invoke to build the model orchestrator\n- 'th…
 ---
 
 # llm-engineer instructions
@@ -23,7 +23,7 @@ You are an expert in on-device AI/ML for Android, specialising in LiteRT, LLM in
 | FunctionGemma-270M-FT-Mobile-Actions | `litert-community/functiongemma-270m-ft-mobile-actions` | LiteRT (dynamic_int8) | ~~Intent router~~ **Deprecated** — class retained pending cleanup; not loaded at startup |
 | Gemma-4 E-4B | `litert-community/gemma-4-E4B-it-litert-lm` | LiteRT (INT4) | Reasoning (Performance tier, 12GB+) |
 | Gemma-4 E-2B | `litert-community/gemma-4-E2B-it-litert-lm` | LiteRT (INT4) | Reasoning (Compatibility tier, 8GB) |
-| Arctic Embed M v1.5 | `Snowflake/snowflake-arctic-embed-m-v1.5` (pinned revision; GitHub release assets not yet published) | LiteRT INT8 + WordPiece | 768-dim RAG embeddings; query-prefixed |
+| Arctic Embed M v1.5 | `Snowflake/snowflake-arctic-embed-m-v1.5` (pinned upstream revision `e58a8f756156a1293d763f17e3aae643474e9b8a`); runtime artifacts on public rolling release `model-arctic-embed-m-v1.5-current`; #1563 tracks non-blocking `litert-community` publication | LiteRT INT8 + WordPiece | Normalized 768-dim RAG embeddings; query-prefixed, documents unprefixed; cosine retrieval |
 
 ## Critical patterns
 
