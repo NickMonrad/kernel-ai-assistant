@@ -1,5 +1,7 @@
 # Release AAB Audit — v0.1.0 (versionCode 1)
 
+> **Historical audit snapshot:** This file records the AAB built from commit `059122dc`. The build metadata, hashes, sizes, and inspected contents below are intentionally preserved as audited. The embedding-model release architecture was subsequently superseded by #1559 / PR #1562; no replacement AAB audit has been performed in this documentation reconciliation.
+
 ## Build Metadata
 
 | Property | Value |
@@ -42,7 +44,19 @@
 | Vosk STT model | ✅ bundled (~73 MB) | ✅ | Offline STT engine |
 | `DebugProbesKt.bin` | ✅ (1.7 KB) | ❌ — Kotlin stdlib artifact | Harmless, present in all Kotlin Android apps |
 
-**Assessment**: No accidental model bundling. All intentionally bundled assets serve runtime requirements (intent classification, wakeword detection, offline STT).
+### Current embedding release architecture (post-#1559 / PR #1562)
+
+The EmbeddingGemma row above is retained because it accurately describes the historical AAB audited at `059122dc`; it is **not** the current `main` release architecture. Current source uses **Arctic Embed M v1.5** for RAG embeddings:
+
+- Arctic Embed M v1.5 is not bundled in the AAB; it is downloaded on demand from the public rolling release `model-arctic-embed-m-v1.5-current`.
+- The uncased WordPiece vocabulary is downloaded alongside the model.
+- Arctic is public/ungated, so normal download does not require Hugging Face authentication or licence acceptance.
+- EmbeddingGemma and its SentencePiece tokenizer are no longer active release dependencies; legacy files are retained only for migration cleanup/evidence where explicitly referenced.
+- Long-term `litert-community` publication is tracked separately in #1563 and is non-blocking.
+
+A new AAB build/audit is required before replacing the historical build SHA, AAB size, SHA-256, or inspected-content facts in this file.
+
+**Assessment**: For the historical audited AAB, no accidental model bundling was found. All intentionally bundled assets served that build's runtime requirements (intent classification, wakeword detection, offline STT).
 
 ### Debug / Test Artifacts
 

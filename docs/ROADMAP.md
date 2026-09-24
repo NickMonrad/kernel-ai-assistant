@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-23 (reconciled shipped Lists/Nextcloud capability and current public follow-ups)
+> **Last updated:** 2026-09-24 (reconciled shipped Lists/Nextcloud capability and #1559 Arctic embedding migration)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -19,7 +19,7 @@
 | **Persistence** | Room + sqlite-vec (NDK) |
 | **Inference** | LiteRT + LiteRT-LM |
 | **Chat model** | Gemma-4 E-4B / E-2B |
-| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; Phase B release gate in #1559) |
+| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; shipped via #1559) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
 | **Intent recovery** | `IntentRecoveryOrchestrator` (deterministic slot extraction, risk-gated execution) |
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
@@ -87,7 +87,7 @@ tri-tiered memory architecture inspired by the
 | Task | Status | PR | Notes |
 |------|--------|----|-------|
 | sqlite-vec NDK integration | ✅ Done | #11 | Bundled SQLite + sqlite-vec as `libkernelvec.so` |
-| EmbeddingGemma-300M integration | ✅ Done | #12 | LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model |
+| EmbeddingGemma-300M integration | ✅ Done | #12 | Historical Phase 2 delivery: LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model. Superseded by #1559 / Arctic Embed M v1.5 + cosine retrieval. |
 | RAG pipeline (basic) | ✅ Done | #13 | `RagRepository`: index + retrieve + inject context. Cross-conversation recall working! |
 | User profile (Tier 3 foundation) | ✅ Done | #23 | Singleton profile entity, injected into every prompt, manually editable |
 | Cancel generation fix | ✅ Done | #28 | Clears stuck spinner + resets LiteRT conversation state |
@@ -110,7 +110,7 @@ tri-tiered memory architecture inspired by the
 
 ### Key Design Decisions
 
-- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaces the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
+- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaced the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
 - **Tokenizer:** Arctic's uncased WordPiece vocabulary and pure-Kotlin tokenizer are active; the former SentencePiece path is historical only.
 - **Separate databases**: Room (`kernel_db`) for relational data, native SQLite (`kernel_vectors.db`)
   for vectors — because Room doesn't support sqlite-vec's vec0 virtual tables
