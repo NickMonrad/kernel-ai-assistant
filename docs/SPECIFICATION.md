@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-09-23 (#1558 documentation reconciliation for shipped Lists/Nextcloud sync)
+> **Last updated:** 2026-09-24 (#1559 Arctic Embed M v1.5 / cosine documentation reconciliation)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -1551,7 +1551,7 @@ for the larger planned coverage matrix.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
-| 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
+| 2 | sqlite-vec cosine RAG + Arctic Embed M v1.5 + episodic distillation + memory UI | ✅ Complete |
 | 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT family: Zipformer / SenseVoice / Whisper tiny.en / Paraformer, offline VAD, transcription normalisation, wake-word isolation), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
