@@ -94,7 +94,7 @@ Both inference instrumentation runs completed without a crash; output norms rema
 | S21 (SM-G991B) | 147 | 182.262 s | 148.16 / 363.58 / 215.42 | `0.000` | yes |
 | S23 Ultra (SM-S918B) | 147 | 114.154 s | 140.90 / 362.11 / 221.21 | `0.000` | yes |
 
-Both seeded migration runs passed: the index identity advanced only after rebuild, all 147 records remained vectorized, nearest-row checks returned the canonical rows, and legacy EmbeddingGemma/tokenizer sentinel files were removed. This exercises the real migration against seeded old-index state, not an upgrade from a preserved pre-Phase-B installation/database. Interruption recovery was not induced on device; retry behavior is covered by unit tests.
+Both seeded migration runs passed: the index identity advanced only after rebuild, all 147 records remained vectorized, nearest-row checks returned the canonical rows, and legacy EmbeddingGemma/tokenizer sentinel files were removed. This earlier seeded exercise was not a preserved-install upgrade; the real S21 and S23 Ultra upgrades are documented below and in the S21 report in issue #1559. Interruption recovery was not induced on device; retry behavior is covered by unit tests.
 
 ## Phase B tokenless public-download revalidation
 
@@ -106,6 +106,22 @@ On 2026-09-23, `:app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunn
 | S23 Ultra (SM-S918B) | 16 / 36 | no | 113,850,784 / `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` | 231,508 / `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` | download + 768-d inference passed |
 
 The smoke used a one-byte Gemma sentinel during manager initialization to suppress the unrelated multi-gigabyte conversation-model auto-download and removed it afterward. It proves the current public Arctic download and initialization path works without a Hugging Face token on both devices; it does not test a fully empty app-data migration or the unrelated LLM download paths.
+
+## Phase B physical preserved-install upgrade — S23 Ultra
+
+On 2026-09-24, the S23 Ultra (SM-S918B, Android 16/API 36) was upgraded in place from the pre-Phase-B debug app at `39aefd09755e6648ef570363341b28fb13acc611` to the Phase B APK. The old app data was preserved with `adb install -r`; there was no uninstall or app-data clear. The baseline had 4 conversations, 9 messages, 2 core memories, 4 episodic memories and 144 Kiwi memories. Its 768-dimensional vec0 tables used L2 distance, and the baseline code had no Arctic index identity or `EmbeddingIndexMigration`.
+
+The production `ModelDownloadManager` downloaded the public rolling Arctic model and vocabulary without a Hugging Face token. Migration safely deferred while the model was unavailable, then logged one successful `Rebuilt all Arctic cosine indexes from Room canonical content`. Immediately after that rebuild, Room held 5 conversations, 11 messages, 2 core memories, 4 episodic memories and 144 Kiwi memories; all message and memory records had matching vector rows. The four vec0 row counts were 11 message, 2 core, 4 episodic and 144 Kiwi. Existing core, episodic and Kiwi row IDs were retained while every compared vector changed from its legacy value (2/2, 4/4 and 144/144).
+
+All four database definitions were `embedding float[768] distance_metric=cosine`. The persisted index identity was `arctic-embed-m-v1.5:768:17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d:07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3:cosine-v1`. After successful indexing, the old EmbeddingGemma TFLite asset and `sentencepiece.model` were absent from the app model directory; Gemma E4B remained.
+
+A production RAG query for `coastal map` returned the saved core and episodic facts and answered that the preferred map was a printed topographic paper map in a waterproof sleeve. After force-stop/relaunch, a fresh query for the same preference returned that fact again; logs showed core/episodic candidates and message-index cosine distances.
+
+The persisted identity remained unchanged, and no second migration rebuild was logged. The post-restart Room snapshot had 8 conversations and 15 messages (including validation exchanges), with all 2 core, 4 episodic and 144 Kiwi records intact; vector counts were 15/2/4/144.
+
+Read-only exact-row KNN probes returned a hit from each of the four persistent vec0 tables, including Kiwi, and no Room message lacked its embedding.
+
+This is the S23 preserved-install migration/restart result; it does not replace the separate #1329 golden-journey gate. Device-level interruption was not induced.
 
 ## Limits and distribution
 
