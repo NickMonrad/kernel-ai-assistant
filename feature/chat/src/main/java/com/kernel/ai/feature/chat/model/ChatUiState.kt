@@ -10,6 +10,8 @@ import com.kernel.ai.core.inference.download.KernelModel
 
 sealed interface ChatUiState {
     data object Loading : ChatUiState
+    /** Model files are present, but LiteRT failed to initialize the conversation engine. */
+    data class ModelInitializationFailed(val message: String) : ChatUiState
 
     data class Ready(
         val conversationId: String,

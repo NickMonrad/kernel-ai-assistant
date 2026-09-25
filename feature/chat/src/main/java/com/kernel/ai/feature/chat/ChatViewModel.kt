@@ -261,6 +261,7 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
+    private val _modelInitializationError = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
@@ -498,7 +499,7 @@ class ChatViewModel @Inject constructor(
             gatedModels.zip(array.asList()) { model, status -> model to status }
                 .toMap()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-    /** Base uiState without visual prefs (9-input combine). */
+    /** Base uiState without visual prefs (10-input combine). */
     private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
@@ -509,6 +510,7 @@ class ChatViewModel @Inject constructor(
         isArchived,
         authRepository.isAuthenticated,
         gatedStatuses,
+        _modelInitializationError,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val engine = array[0] as EngineState
@@ -524,6 +526,7 @@ class ChatViewModel @Inject constructor(
         val hfAuth = array[7] as Boolean
         @Suppress("UNCHECKED_CAST")
         val gatedStatusesMap = array[8] as Map<KernelModel, GatedModelStatus>
+        val modelInitializationError = array[9] as String?
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -556,7 +559,9 @@ class ChatViewModel @Inject constructor(
                     ),
                 )
             }
-            // Archived conversations are read-only — no engine needed. Skip the isReady gate.
+            !archived && modelInitializationError != null &&
+                (!engine.isReady || !engine.conversationInitialized) ->
+                ChatUiState.ModelInitializationFailed(modelInitializationError)
             !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
             !engine.conversationInitialized -> ChatUiState.Loading
             else -> ChatUiState.Ready(
@@ -1053,6 +1058,7 @@ class ChatViewModel @Inject constructor(
             .first()
 
         gemma4InitMutex.withLock {
+            _modelInitializationError.value = null
             try {
                 if (inferenceEngine.isReady.value) {
                     // The singleton engine is already warm — hydrate from the model it is
@@ -1113,8 +1119,7 @@ class ChatViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "initEngineWhenReady failed", e)
-                _error.value = "Failed to load AI model: ${e.message}"
+                reportModelInitializationFailure("initEngineWhenReady", e)
             }
         }
     }
@@ -1135,6 +1140,7 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun initGemma4() {
         gemma4InitMutex.withLock {
+            _modelInitializationError.value = null
             try {
                 if (inferenceEngine.isReady.value) {
                     // Same already-ready hydration as [initEngineWhenReady] (#1459): hydrate
@@ -1176,9 +1182,18 @@ class ChatViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "initGemma4 failed", e)
-                _error.value = "Failed to load AI model: ${e.message}"
+                reportModelInitializationFailure("initGemma4", e)
             }
+        }
+    }
+
+    private fun reportModelInitializationFailure(operation: String, error: Exception) {
+        Log.e(TAG, "$operation failed", error)
+        val message = "Failed to load AI model: ${error.message ?: "Unknown error"}"
+        if (inferenceEngine.isReady.value) {
+            _error.value = message
+        } else {
+            _modelInitializationError.value = message
         }
     }
 
@@ -1342,6 +1357,11 @@ class ChatViewModel @Inject constructor(
 
     fun retryDownload(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
+    }
+
+    fun retryModelInitialization() {
+        _modelInitializationError.value = null
+        viewModelScope.launch { initEngineWhenReady() }
     }
 
     fun startAuth() {
