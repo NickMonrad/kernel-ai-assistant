@@ -202,6 +202,7 @@ internal fun shouldKeepChatScreenAwake(
     plannerActivity: MealPlannerActivity? = null,
 ): Boolean = when (uiState) {
     ChatUiState.Loading -> true
+    is ChatUiState.ModelInitializationFailed -> false
     is ChatUiState.ModelsNotReady -> false
     is ChatUiState.Ready ->
         uiState.isLoadingModel ||
@@ -279,6 +280,10 @@ fun ChatScreen(
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
+        is ChatUiState.ModelInitializationFailed -> ModelInitializationFailedContent(
+            message = state.message,
+            onRetry = viewModel::retryModelInitialization,
+        )
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
@@ -1980,6 +1985,38 @@ private fun LoadingContent() {
                 modifier = Modifier.padding(top = 24.dp),
             )
         }
+        }
+    }
+}
+
+@Composable
+internal fun ModelInitializationFailedContent(
+    message: String,
+    onRetry: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+        ) {
+            Text(
+                text = "Couldn't start the on-device model",
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Button(
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 16.dp),
+            ) {
+                Text("Retry model loading")
+            }
         }
     }
 }

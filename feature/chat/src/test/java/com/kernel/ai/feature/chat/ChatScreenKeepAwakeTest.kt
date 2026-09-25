@@ -172,6 +172,18 @@ class ChatScreenKeepAwakeTest {
         )
     }
 
+    @Test
+    fun `does not keep screen awake after model initialization failure`() {
+        assertFalse(
+            shouldKeepChatScreenAwake(
+                uiState = ChatUiState.ModelInitializationFailed("load failed"),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Idle,
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = null,
+            ),
+        )
+    }
+
     private fun readyState(
         isGenerating: Boolean = false,
         isLoadingModel: Boolean = false,
