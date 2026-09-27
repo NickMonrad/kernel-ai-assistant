@@ -95,6 +95,18 @@ class VoiceViewModelTest {
         )
     private lateinit var viewModel: VoiceViewModel
 
+    private fun newViewModel() = VoiceViewModel(
+        androidNativeRecognitionSupport,
+        voiceInputPreferences,
+        voiceOutputPreferences,
+        sherpaVoicePackDownloadManager,
+        wakeWordPreferences,
+        wakeWordDetector,
+        modelDownloadManager,
+        hardwareProfileDetector,
+        context,
+    )
+
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
@@ -134,6 +146,10 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
         every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
+        coEvery { wakeWordPreferences.setConfidenceThreshold(any()) } coAnswers {
+            delay(1)
+            wakeWordThreshold.value = firstArg()
+        }
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
@@ -150,17 +166,7 @@ class VoiceViewModelTest {
         every { context.applicationInfo } returns ApplicationInfo().apply {
             flags = ApplicationInfo.FLAG_DEBUGGABLE
         }
-        viewModel = VoiceViewModel(
-            androidNativeRecognitionSupport,
-            voiceInputPreferences,
-            voiceOutputPreferences,
-            sherpaVoicePackDownloadManager,
-            wakeWordPreferences,
-            wakeWordDetector,
-            modelDownloadManager,
-            hardwareProfileDetector,
-            context,
-        )
+        viewModel = newViewModel()
     }
 
     @AfterEach
@@ -971,23 +977,24 @@ class VoiceViewModelTest {
 
     @Test
     fun `threshold persistence completes after view model cancellation`() = runTest {
-        coEvery { wakeWordPreferences.setConfidenceThreshold(0.75f) } coAnswers {
-            delay(1)
-        }
 
         viewModel.setWakeWordThreshold(0.75f)
         viewModel.viewModelScope.cancel()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { wakeWordPreferences.setConfidenceThreshold(0.75f) }
+        assertEquals(0.75f, wakeWordThreshold.value, 0.0001f)
     }
 
     @Test
-    fun `new voice consumer observes persisted threshold`() = runTest {
-        wakeWordThreshold.value = 0.75f
+    fun `persisted threshold is observed by a fresh voice consumer`() = runTest {
+        viewModel.setWakeWordThreshold(0.75f)
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(0.75f, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
 
+        assertEquals(0.75f, wakeWordThreshold.value, 0.0001f)
+        val recreatedViewModel = newViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, recreatedViewModel.uiState.value.wakeWordThreshold, 0.0001f)
     }
 
     @Test
