@@ -55,6 +55,7 @@ import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -67,6 +68,7 @@ import io.mockk.runs
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.clearMocks
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1254,6 +1256,52 @@ class ChatViewModelInitTest {
             lastSystemPrompt!!.contains("set a timer for 2 hours"),
             "Independent command history replay must not leak previous commands into system prompt",
         )
+    }
+
+    @Test
+    fun `failed model initialization exposes retry and reuses installed model`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val initializedPaths = mutableListOf<String>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initializedPaths += firstArg<ModelConfig>().modelPath
+            if (initializedPaths.size == 1) {
+                throw IllegalStateException("GPU context lost")
+            }
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        advanceUntilIdle()
+
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertEquals("Failed to load AI model: GPU context lost", failure.message)
+
+        viewModel.retryModelInitialization()
+        advanceUntilIdle()
+
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        assertEquals(listOf(modelPath, modelPath), initializedPaths)
+        verify(exactly = 0) { downloadManager.startDownload(any(), any(), any()) }
+        collector.cancel()
     }
 
     @Test

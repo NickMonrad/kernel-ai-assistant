@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
@@ -986,12 +988,16 @@ class LiteRtInferenceEngine @Inject constructor(
                     )
 
                     val (eng, backendType) = createEngineWithFallback(resolvedConfig)
-                    engine = eng
-                    try {
-                        conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                    val createdConversation = try {
+                        eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                    } catch (e: Throwable) {
+                        safeClose(eng, "engine")
+                        throw e
                     } finally {
                         resetExperimentalFlags()
                     }
+                    engine = eng
+                    conversation = createdConversation
                     currentConfig = resolvedConfig
                     _activeBackend.value = backendType
                     _resolvedMaxTokens.value = resolvedConfig.maxTokens
@@ -1667,24 +1673,32 @@ class LiteRtInferenceEngine @Inject constructor(
                 // is advisory only (native JNI blocking calls may not be interrupted).
                 var engine: Engine? = null
                 try {
-                    engine = withTimeout(GPU_INIT_TIMEOUT_MS) {
+                    val initializedEngine = withTimeout(GPU_INIT_TIMEOUT_MS) {
                         withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                            val e = Engine(engineConfig)
-                            e.initialize()
-                            e
+                            Engine(engineConfig).also { engine = it }.also { it.initialize() }
                         }
                     }
                     Log.i(TAG, "Backend $backendType initialized successfully")
-                    return Pair(engine, backendType)
+                    return Pair(initializedEngine, backendType)
                 } catch (e: TimeoutCancellationException) {
+                    safeClose(engine, "engine candidate")
+                    currentCoroutineContext().ensureActive()
                     Log.w(TAG, "Backend $backendType timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
-                    engine?.close()
+                    lastException = e
+                } catch (e: CancellationException) {
+                    safeClose(engine, "engine candidate")
+                    currentCoroutineContext().ensureActive()
+                    Log.w(TAG, "Backend $backendType cancelled: ${e.message}")
                     lastException = e
                 } catch (e: Exception) {
+                    safeClose(engine, "engine candidate")
                     Log.w(TAG, "Backend $backendType failed: ${e.message}")
-                    engine?.close()
                     lastException = e
                 }
+            } catch (e: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                Log.w(TAG, "Backend $backendType cancelled: ${e.message}")
+                lastException = e
             } catch (e: Exception) {
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
