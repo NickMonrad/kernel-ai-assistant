@@ -108,9 +108,13 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
     override suspend fun execute(method: String, url: String, headers: Map<String, String>, body: String?): CalDavResponse =
         withContext(Dispatchers.IO) {
             val request = try {
+                val bodyMediaType = headers.entries
+                    .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+                    ?.value
+                    ?.toMediaType()
                 Request.Builder().url(url).method(
                     method,
-                    body?.toRequestBody("application/xml; charset=utf-8".toMediaType()),
+                    body?.toRequestBody(bodyMediaType),
                 ).apply { headers.forEach { (key, value) -> header(key, value) } }.build()
             } catch (error: IllegalArgumentException) {
                 throw NextcloudConnectionException(

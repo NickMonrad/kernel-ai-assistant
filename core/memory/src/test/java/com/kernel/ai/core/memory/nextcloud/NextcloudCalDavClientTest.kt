@@ -15,6 +15,10 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import java.util.concurrent.TimeUnit
+
 class NextcloudCalDavClientTest {
     @Test
     fun `discovery follows well-known principal and calendar home`() = runTest {
@@ -102,6 +106,36 @@ class NextcloudCalDavClientTest {
         assertFalse(error.message.contains("not a URL"))
     }
 
+
+    @Test
+    fun `transport sends request-specific media types on the wire`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(MockResponse().setResponseCode(207))
+            val transport = OkHttpCalDavTransport()
+
+            transport.execute(
+                method = "PUT",
+                url = server.url("/tasks/1.ics").toString(),
+                headers = mapOf("Content-Type" to "text/calendar; charset=utf-8"),
+                body = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+            )
+            transport.execute(
+                method = "REPORT",
+                url = server.url("/tasks/").toString(),
+                headers = mapOf("Content-Type" to "application/xml; charset=utf-8"),
+                body = "<c:calendar-query/>",
+            )
+
+            val put = server.takeRequest(5, TimeUnit.SECONDS)
+                ?: error("Timed out waiting for VTODO PUT")
+            val report = server.takeRequest(5, TimeUnit.SECONDS)
+                ?: error("Timed out waiting for CalDAV REPORT")
+
+            assertEquals("text/calendar; charset=utf-8", put.getHeader("Content-Type"))
+            assertEquals("application/xml; charset=utf-8", report.getHeader("Content-Type"))
+        }
+    }
 
     @Test
     fun `conditional write surfaces conflicts`() = runTest {
