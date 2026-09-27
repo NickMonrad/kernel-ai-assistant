@@ -8,6 +8,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
@@ -30,8 +31,11 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -59,7 +63,7 @@ class VoiceViewModelTest {
     private val hardwareProfileDetector: HardwareProfileDetector = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
-    private val wakeWordThreshold = MutableStateFlow(0.80f)
+    private val wakeWordThreshold = MutableStateFlow(WAKE_WORD_DEFAULT_THRESHOLD)
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val spokenResponsesEnabled = MutableStateFlow(true)
@@ -129,6 +133,7 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
         coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
+        every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
@@ -954,6 +959,51 @@ class VoiceViewModelTest {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DECODE)
         }
     }
+
+    @Test
+    fun `setWakeWordThreshold persists selected value`() = runTest {
+        viewModel.setWakeWordThreshold(0.75f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
+        coVerify(exactly = 1) { wakeWordPreferences.setConfidenceThreshold(0.75f) }
+    }
+
+    @Test
+    fun `threshold persistence completes after view model cancellation`() = runTest {
+        coEvery { wakeWordPreferences.setConfidenceThreshold(0.75f) } coAnswers {
+            delay(1)
+        }
+
+        viewModel.setWakeWordThreshold(0.75f)
+        viewModel.viewModelScope.cancel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { wakeWordPreferences.setConfidenceThreshold(0.75f) }
+    }
+
+    @Test
+    fun `new voice consumer observes persisted threshold`() = runTest {
+        wakeWordThreshold.value = 0.75f
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0.75f, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
+
+    }
+
+    @Test
+    fun `missing persisted threshold keeps 65 percent default`() = runTest {
+        wakeWordThreshold.value = WAKE_WORD_DEFAULT_THRESHOLD
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(WAKE_WORD_DEFAULT_THRESHOLD, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
+    }
+
+    @Test
+    fun `initially unfocused slider field does not commit its default`() {
+        assertFalse(shouldCommitTextOnFocusLost(wasFocused = false, isFocused = false))
+        assertTrue(shouldCommitTextOnFocusLost(wasFocused = true, isFocused = false))
+    }
+
     @Test
     fun `setHeyJandalEnabled true updates state and persists`() = runTest {
         viewModel.setHeyJandalEnabled(true)

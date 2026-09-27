@@ -1650,6 +1650,9 @@ private fun VoiceOutputSelectionCard(
  * A labelled slider row with an editable text field for precise input.
  * Duplicated locally from [ModelSettingsScreen] to avoid cross-module coupling.
  */
+internal fun shouldCommitTextOnFocusLost(wasFocused: Boolean, isFocused: Boolean): Boolean =
+    wasFocused && !isFocused
+
 @Composable
 private fun SliderRow(
     label: String,
@@ -1662,7 +1665,7 @@ private fun SliderRow(
     val focusManager = LocalFocusManager.current
     var sliderValue by remember(value) { mutableFloatStateOf(value) }
     var textValue by remember(value) { mutableStateOf("%.2f".format(value)) }
-
+    var textFieldWasFocused by remember { mutableStateOf(false) }
     fun commitText(raw: String) {
         val parsed = raw.trim().toFloatOrNull()
         if (parsed != null) {
@@ -1713,7 +1716,12 @@ private fun SliderRow(
                 modifier = Modifier
                     .width(76.dp)
                     .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) commitText(textValue)
+                        val lostFocus = shouldCommitTextOnFocusLost(
+                            wasFocused = textFieldWasFocused,
+                            isFocused = focusState.isFocused,
+                        )
+                        textFieldWasFocused = focusState.isFocused
+                        if (lostFocus) commitText(textValue)
                     },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
