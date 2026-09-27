@@ -31,7 +31,7 @@ import java.io.File
  */
 class LiteRtInferenceRecoveryDeviceTest {
     @Test
-    fun nativeInitFailureCanRecoverUsingExistingE4B() = runBlocking {
+    fun nativeInitFailureCanRecoverUsingExistingE4B(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         assertEquals(
             "This evidence test must target the debug app that owns the installed model",
