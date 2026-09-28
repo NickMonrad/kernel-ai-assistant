@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-28 (added #1495 Lists long-item/URL usability launch gate)
+> **Last updated:** 2026-09-28 (added Lists/Nextcloud usability and sharing launch gates)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -39,6 +39,8 @@ Current release gates are deliberately narrow:
 - [#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447) — ship one higher-quality local TTS option, with current candidate safety/evidence in #1449 and #1485;
 - [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
 - [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) — Lists long-item and hyperlink usability: bounded URL presentation, tappable links, practical long-item editing, and unchanged local/Nextcloud text.
+- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2: browser-based account authorization as the preferred setup path, with manual app-password entry retained as fallback.
+- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing management from Jandal for bound Lists, using Nextcloud's existing user/group ACL model.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
 
@@ -441,10 +443,10 @@ Room-backed Lists remain the authoritative local state consumed by the UI, skill
 - [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494) — transport-independent shared-data contract, sync-ready atomic Room mutation/change-recording seam, two-level hierarchy, encrypted package exchange, and paired-device convergence proof.
 - [#1539](https://github.com/NickMonrad/kernel-ai-assistant/issues/1539) plus [#1551](https://github.com/NickMonrad/kernel-ai-assistant/issues/1551) — optional bidirectional sync for explicitly selected Lists with a user-configured Nextcloud Tasks server over CalDAV/VTODO. Room stays authoritative and offline-capable; provider bindings are separate from Jandal stable identities, and per-list stop/resume retains both local and remote copies.
 
-**Separate follow-up work:**
-- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — browser-based Nextcloud Login Flow v2 authentication.
-- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing/ACL management.
-- [#1552](https://github.com/NickMonrad/kernel-ai-assistant/issues/1552) — explicit selected-note sync with Nextcloud Notes.
+**Nextcloud follow-up work:**
+- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — browser-based Nextcloud Login Flow v2 authentication. **v0.1 launch gate.**
+- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing/ACL management. **v0.1 launch gate.**
+- [#1552](https://github.com/NickMonrad/kernel-ai-assistant/issues/1552) — explicit selected-note sync with Nextcloud Notes. Post-launch.
 
 These follow-ups are not prerequisites for the already-shipped Lists sync capability. [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) is independently tracked as a v0.1 usability gate for long list items and hyperlinks; it does not change the shipped plain-text/Nextcloud sync model. [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) remains open until its remaining acceptance state is checked.
 
