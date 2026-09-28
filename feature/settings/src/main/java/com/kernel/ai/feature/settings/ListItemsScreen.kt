@@ -1227,6 +1227,7 @@ private fun ListItemRow(
                 DescriptionUrlActions(
                     urls = descriptionUrls,
                     activateLinks = !isMultiSelectMode,
+                    compactMultipleLinksLabel = true,
                     onInactiveClick = onSelectToggle,
                 )
             }

@@ -121,6 +121,18 @@ class ListItemTextUiTest {
     }
 
     @Test
+    fun constrainedRowUsesCompactMultipleLinkLabel() {
+        showDescriptionLinks(
+            text = "Prose before links\nhttps://example.com/one\nhttps://example.com/two",
+            compactMultipleLinksLabel = true,
+        )
+
+        composeTestRule
+            .onNodeWithText("Links (2)")
+            .performClick()
+    }
+
+    @Test
     fun multiSelectDescriptionLinkActionSelectsWithoutOpening() {
         var selectionCount = 0
         var openedUrl: String? = null
@@ -142,6 +154,7 @@ class ListItemTextUiTest {
     private fun showDescriptionLinks(
         text: String,
         activateLinks: Boolean = true,
+        compactMultipleLinksLabel: Boolean = false,
         onClick: () -> Unit = {},
         onUriOpened: (String) -> Unit = {},
     ) {
@@ -166,6 +179,7 @@ class ListItemTextUiTest {
                         DescriptionUrlActions(
                             urls = findListItemUrls(text),
                             activateLinks = activateLinks,
+                            compactMultipleLinksLabel = compactMultipleLinksLabel,
                             onInactiveClick = onClick,
                         )
                     }
