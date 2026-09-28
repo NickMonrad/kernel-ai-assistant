@@ -393,6 +393,52 @@ class NextcloudSyncAdapterTest {
     }
 
     @Test
+    fun `existing all-day item rewrite keeps compatible date semantics`() = runTest {
+        val target = list("writable")
+        val existing = binding(target.collectionId)
+        val allDay = """
+            BEGIN:VCALENDAR
+            BEGIN:VTODO
+            UID:writable-item
+            DTSTART;VALUE=DATE:20260930
+            DUE;VALUE=DATE:20260930
+            SUMMARY:Remote title
+            STATUS:NEEDS-ACTION
+            X-NEXTCLOUD-UNKNOWN:keep-me
+            END:VTODO
+            END:VCALENDAR
+        """.trimIndent()
+        val bindings = linkedMapOf(existing.collectionId to existing)
+        val itemBindings = linkedMapOf(
+            existing.collectionId to itemBinding(existing.collectionId, "writable-item")
+                .copy(rawVtodo = allDay),
+        )
+        val transport = RecordingTransport(reportDocument = { allDay })
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(target.collectionId to target),
+            mapOf(
+                target.collectionId to listItem(target.collectionId, "writable-item")
+                    .copy(text = "Local title", dueAt = parseUtcMillis("20260930")),
+            ),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.syncCollection(existing.collectionId)
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertEquals(2, transport.putBodies.size)
+        transport.putBodies.forEach { rendered ->
+            assertTrue(rendered.contains("DTSTART;VALUE=DATE:20260930"))
+            assertTrue(rendered.contains("DUE;VALUE=DATE:20260930"))
+            assertTrue(rendered.contains("X-NEXTCLOUD-UNKNOWN:keep-me"))
+            assertTrue(!rendered.contains("DUE:20260930T000000Z"))
+        }
+    }
+
+    @Test
     fun `a concurrent sync cannot observe or resurrect a provisional first-time binding`() = runTest {
         val target = list("writable")
         val bindings = linkedMapOf<String, NextcloudCollectionBindingEntity>()
@@ -568,10 +614,12 @@ class NextcloudSyncAdapterTest {
         private val reportGate: CompletableDeferred<Unit>? = null,
         /** Held open by the test to suspend an initial push while it is in flight. */
         private val putGate: CompletableDeferred<Unit>? = null,
+        private val reportDocument: ((String) -> String)? = null,
     ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
         val mkcalendarCalls = mutableListOf<String>()
         val putCalls = mutableListOf<String>()
+        val putBodies = mutableListOf<String>()
 
         /** Completes once a REPORT is in flight, so the test never has to sleep. */
         val reportStarted = CompletableDeferred<String>()
@@ -589,12 +637,13 @@ class NextcloudSyncAdapterTest {
             return when {
                 method == "PUT" -> {
                     putCalls += url
+                    putBodies += body.orEmpty()
                     putStarted.complete(url)
                     putGate?.await()
                     when {
                         failPut -> CalDavResponse(500, emptyMap(), "", url)
                         collection == "readonly" -> CalDavResponse(403, emptyMap(), "", url)
-                        else -> error("Unexpected CalDAV request: $method $url")
+                        else -> CalDavResponse(204, emptyMap(), "", url)
                     }
                 }
                 method == "GET" ->
@@ -629,9 +678,10 @@ class NextcloudSyncAdapterTest {
                         throw CancellationException("cancelled")
                     }
                     val uid = "$collection-item"
+                    val document = reportDocument?.invoke(uid) ?: remoteDocument(uid)
                     response(
                         """
-                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>\"$uid-etag\"</d:getetag><c:calendar-data>${remoteDocument(uid).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</c:calendar-data></d:prop></d:propstat></d:response></d:multistatus>
+                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>\"$uid-etag\"</d:getetag><c:calendar-data>${document.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</c:calendar-data></d:prop></d:propstat></d:response></d:multistatus>
                         """,
                     )
                 }

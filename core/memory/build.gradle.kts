@@ -80,4 +80,5 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

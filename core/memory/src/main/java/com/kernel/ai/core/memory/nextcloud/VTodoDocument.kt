@@ -1,6 +1,7 @@
 package com.kernel.ai.core.memory.nextcloud
 
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -25,6 +26,8 @@ class VTodoDocument private constructor(
             it.substringBefore('=').equals(name, ignoreCase = true) &&
                 it.substringAfter('=', "").equals(value, ignoreCase = true)
         }
+
+        fun isDateOnly(): Boolean = hasParameter("VALUE", "DATE") || value.length == 8 && value.all(Char::isDigit)
     }
 
     fun first(name: String): VTodoProperty? = lines.asSequence()
@@ -40,12 +43,17 @@ class VTodoDocument private constructor(
 
     fun decoded(name: String): String? = first(name)?.value?.let(::unescapeText)
 
-    fun replaceSingle(name: String, value: String, escapeText: Boolean = false) {
+    fun replaceSingle(
+        name: String,
+        value: String,
+        escapeText: Boolean = false,
+        parameters: List<String> = emptyList(),
+    ) {
         val normalized = name.uppercase(Locale.US)
         lines.removeAll { it is Line.Property && it.property.name == normalized }
         val property = VTodoProperty(
             name = normalized,
-            parameters = emptyList(),
+            parameters = parameters,
             value = if (escapeText) escapeText(value) else value,
             rawLine = "",
             generated = true,
@@ -53,6 +61,35 @@ class VTodoDocument private constructor(
         val insertAt = lines.indexOfLast { it is Line.Raw && it.value.equals("END:VTODO", ignoreCase = true) }
             .takeIf { it >= 0 } ?: lines.size
         lines.add(insertAt, Line.Property(property))
+    }
+
+    fun replaceDueAt(value: Long) {
+        val existingDue = first("DUE")
+        val dateOnly = existingDue?.isDateOnly() == true || first("DTSTART")?.isDateOnly() == true
+        val parameters = if (dateOnly) {
+            existingDue?.parameters.orEmpty().filterNot {
+                val name = it.substringBefore('=')
+                name.equals("VALUE", ignoreCase = true) || name.equals("TZID", ignoreCase = true)
+            }.let { validParameters ->
+                listOf("VALUE=DATE") + validParameters
+            }
+        } else {
+            emptyList()
+        }
+        val dateValue = if (dateOnly) {
+            val unchangedImportedDate = existingDue
+                ?.value
+                ?.takeIf { it.length == 8 && it.all(Char::isDigit) }
+                ?.takeIf { parseUtcMillis(it) == value }
+            unchangedImportedDate ?: formatDateMillis(value)
+        } else {
+            formatUtcMillis(value)
+        }
+        replaceSingle(
+            name = "DUE",
+            value = dateValue,
+            parameters = parameters,
+        )
     }
 
     fun remove(name: String) {
@@ -178,4 +215,9 @@ fun parseUtcMillis(value: String?): Long? = value?.let {
 fun formatUtcMillis(value: Long): String =
     DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
         .withZone(ZoneOffset.UTC)
+        .format(Instant.ofEpochMilli(value))
+
+fun formatDateMillis(value: Long): String =
+    DateTimeFormatter.ofPattern("yyyyMMdd")
+        .withZone(ZoneId.systemDefault())
         .format(Instant.ofEpochMilli(value))
