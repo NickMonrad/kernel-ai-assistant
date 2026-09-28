@@ -37,6 +37,7 @@ import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -840,6 +841,112 @@ class NativeIntentHandlerTest {
         )
         coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
         coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `get_list_items reports an unresolved list as not-found instead of an empty list`() {
+        coEvery { listNameDao.getByName("nonexistent list") } returns null
+        coEvery { listNameDao.getByNameIgnoreCase("nonexistent list") } returns null
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "nonexistent list"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "get_list_items",
+                "I couldn't find a list called \"nonexistent list\".",
+            ),
+            result,
+        )
+        assertFalse(
+            result is SkillResult.DirectReply,
+            "a list that does not resolve must not produce the successful empty-list reply",
+        )
+        coVerify(exactly = 0) { listItemDao.getByList(any()) }
+    }
+
+    @Test
+    fun `get_list_items reports an unresolved alias using its canonical name`() {
+        coEvery { listNameDao.getByName("shopping list") } returns null
+        coEvery { listNameDao.getByNameIgnoreCase("shopping list") } returns null
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "grocery"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "get_list_items",
+                "I couldn't find a list called \"shopping list\".",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `get_list_items keeps the empty-list reply for an existing active list with no items`() {
+        coEvery { listNameDao.getByName("shopping list") } returns
+            com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 11L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+            )
+        coEvery { listItemDao.getByList(11L) } returns emptyList()
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "shopping"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Your shopping list is empty.", reply.content)
+        val preview = assertInstanceOf(ToolPresentation.ListPreview::class.java, reply.presentation)
+        assertEquals("shopping list", preview.title)
+        assertEquals(0, preview.totalCount)
+        assertEquals(emptyList<String>(), preview.items)
+        assertEquals("No items yet.", preview.emptyMessage)
+    }
+
+    @Test
+    fun `get_list_items keeps returning items for an existing populated list`() {
+        coEvery { listNameDao.getByName("meal plan") } returns
+            com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 12L, name = "Meal Plan", createdAt = 0L, updatedAt = 0L,
+            )
+        coEvery { listItemDao.getByList(12L) } returns listOf(
+            ListItemEntity(id = 1L, listId = 12L, text = "Dinner", createdAt = 10L, updatedAt = 0L),
+            ListItemEntity(id = 2L, listId = 12L, text = "Lunch", createdAt = 20L, updatedAt = 0L),
+        )
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "meal plan"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Meal Plan (2 items):\n• Dinner\n• Lunch", reply.content)
+        val preview = assertInstanceOf(ToolPresentation.ListPreview::class.java, reply.presentation)
+        assertEquals("Meal Plan", preview.title)
+        assertEquals(2, preview.totalCount)
+        assertEquals(listOf("Lunch", "Dinner"), preview.items)
+    }
+
+    @Test
+    fun `get_list_items resolves a differently-cased existing list instead of reporting it missing`() {
+        stubMixedCaseMealPlan()
+        coEvery { listItemDao.getByList(42L) } returns listOf(
+            ListItemEntity(id = 7L, listId = 42L, text = "Dinner", createdAt = 0L, updatedAt = 0L),
+        )
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "meal plan"))
+
+        assertFalse(
+            result is SkillResult.Failure,
+            "a list that resolves case-insensitively must not be reported as missing",
+        )
+        assertEquals("Meal Plan (1 item):\n• Dinner", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+    }
+
+    @Test
+    fun `get_list_items keeps a differently-cased existing empty list empty rather than missing`() {
+        stubMixedCaseMealPlan()
+        coEvery { listItemDao.getByList(42L) } returns emptyList()
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "meal plan"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Your Meal Plan is empty.", reply.content)
+        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
     }
 
     @Test
