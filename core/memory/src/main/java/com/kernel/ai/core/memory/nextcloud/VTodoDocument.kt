@@ -25,6 +25,8 @@ class VTodoDocument private constructor(
             it.substringBefore('=').equals(name, ignoreCase = true) &&
                 it.substringAfter('=', "").equals(value, ignoreCase = true)
         }
+
+        fun isDateOnly(): Boolean = hasParameter("VALUE", "DATE") || value.length == 8 && value.all(Char::isDigit)
     }
 
     fun first(name: String): VTodoProperty? = lines.asSequence()
@@ -40,12 +42,17 @@ class VTodoDocument private constructor(
 
     fun decoded(name: String): String? = first(name)?.value?.let(::unescapeText)
 
-    fun replaceSingle(name: String, value: String, escapeText: Boolean = false) {
+    fun replaceSingle(
+        name: String,
+        value: String,
+        escapeText: Boolean = false,
+        parameters: List<String> = emptyList(),
+    ) {
         val normalized = name.uppercase(Locale.US)
         lines.removeAll { it is Line.Property && it.property.name == normalized }
         val property = VTodoProperty(
             name = normalized,
-            parameters = emptyList(),
+            parameters = parameters,
             value = if (escapeText) escapeText(value) else value,
             rawLine = "",
             generated = true,
@@ -53,6 +60,23 @@ class VTodoDocument private constructor(
         val insertAt = lines.indexOfLast { it is Line.Raw && it.value.equals("END:VTODO", ignoreCase = true) }
             .takeIf { it >= 0 } ?: lines.size
         lines.add(insertAt, Line.Property(property))
+    }
+
+    fun replaceDueAt(value: Long) {
+        val existingDue = first("DUE")
+        val dateOnly = existingDue?.isDateOnly() == true || first("DTSTART")?.isDateOnly() == true
+        val parameters = if (dateOnly) {
+            listOf("VALUE=DATE") + existingDue?.parameters.orEmpty().filterNot {
+                it.substringBefore('=').equals("VALUE", ignoreCase = true)
+            }
+        } else {
+            emptyList()
+        }
+        replaceSingle(
+            name = "DUE",
+            value = if (dateOnly) formatDateMillis(value) else formatUtcMillis(value),
+            parameters = parameters,
+        )
     }
 
     fun remove(name: String) {
@@ -177,5 +201,10 @@ fun parseUtcMillis(value: String?): Long? = value?.let {
 }
 fun formatUtcMillis(value: Long): String =
     DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+        .withZone(ZoneOffset.UTC)
+        .format(Instant.ofEpochMilli(value))
+
+fun formatDateMillis(value: Long): String =
+    DateTimeFormatter.ofPattern("yyyyMMdd")
         .withZone(ZoneOffset.UTC)
         .format(Instant.ofEpochMilli(value))

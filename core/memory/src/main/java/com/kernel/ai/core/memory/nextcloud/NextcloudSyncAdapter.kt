@@ -388,7 +388,7 @@ class NextcloudSyncAdapter @Inject constructor(
                         doc.replaceSingle("STATUS", if (row.checked) "COMPLETED" else "NEEDS-ACTION")
                         if (row.checked && doc.first("COMPLETED") == null) doc.replaceSingle("COMPLETED", formatUtcMillis(row.updatedAt))
                         if (!row.checked) doc.remove("COMPLETED")
-                        if (row.dueAt == null) doc.remove("DUE") else doc.replaceSingle("DUE", formatUtcMillis(row.dueAt))
+                        if (row.dueAt == null) doc.remove("DUE") else doc.replaceDueAt(row.dueAt)
                         doc.replaceParent(row.parentItemId?.let(uidByItem::get))
                         doc.replaceSingle("X-JANDAL-ORDER", row.orderKey)
                     }
