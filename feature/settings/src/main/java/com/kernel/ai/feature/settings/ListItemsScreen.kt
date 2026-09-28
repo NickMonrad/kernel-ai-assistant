@@ -1164,7 +1164,7 @@ private fun ListItemRow(
                 .weight(1f)
                 .padding(start = 8.dp),
         ) {
-            Text(
+            ListItemText(
                 text = item.text,
                 style = if (item.checked) {
                     MaterialTheme.typography.bodyLarge.copy(
@@ -1175,6 +1175,8 @@ private fun ListItemRow(
                 },
                 color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
+                onClick = onEdit,
+                onLongClick = onLongClick,
             )
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {
@@ -1280,7 +1282,9 @@ private fun EditItemSheet(
                 onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Item") },
-                singleLine = true,
+                minLines = 3,
+                maxLines = 6,
+                singleLine = false,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1418,7 +1422,7 @@ private fun EditItemSheet(
                     onClick = {
                         onSave(
                             item.copy(
-                                text = text.trim(),
+                                text = text,
                                 dueAt = dueAt,
                                 isFavourite = isFavourite,
                                 notificationTime = if (notifyEnabled) notificationTime else null,
