@@ -1,6 +1,7 @@
 package com.kernel.ai.core.memory.nextcloud
 
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -66,15 +67,27 @@ class VTodoDocument private constructor(
         val existingDue = first("DUE")
         val dateOnly = existingDue?.isDateOnly() == true || first("DTSTART")?.isDateOnly() == true
         val parameters = if (dateOnly) {
-            listOf("VALUE=DATE") + existingDue?.parameters.orEmpty().filterNot {
-                it.substringBefore('=').equals("VALUE", ignoreCase = true)
+            existingDue?.parameters.orEmpty().filterNot {
+                val name = it.substringBefore('=')
+                name.equals("VALUE", ignoreCase = true) || name.equals("TZID", ignoreCase = true)
+            }.let { validParameters ->
+                listOf("VALUE=DATE") + validParameters
             }
         } else {
             emptyList()
         }
+        val dateValue = if (dateOnly) {
+            val unchangedImportedDate = existingDue
+                ?.value
+                ?.takeIf { it.length == 8 && it.all(Char::isDigit) }
+                ?.takeIf { parseUtcMillis(it) == value }
+            unchangedImportedDate ?: formatDateMillis(value)
+        } else {
+            formatUtcMillis(value)
+        }
         replaceSingle(
             name = "DUE",
-            value = if (dateOnly) formatDateMillis(value) else formatUtcMillis(value),
+            value = dateValue,
             parameters = parameters,
         )
     }
@@ -206,5 +219,5 @@ fun formatUtcMillis(value: Long): String =
 
 fun formatDateMillis(value: Long): String =
     DateTimeFormatter.ofPattern("yyyyMMdd")
-        .withZone(ZoneOffset.UTC)
+        .withZone(ZoneId.systemDefault())
         .format(Instant.ofEpochMilli(value))

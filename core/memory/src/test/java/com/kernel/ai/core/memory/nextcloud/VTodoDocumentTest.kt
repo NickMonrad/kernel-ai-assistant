@@ -1,5 +1,8 @@
 package com.kernel.ai.core.memory.nextcloud
 
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.TimeZone
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -37,7 +40,7 @@ class VTodoDocumentTest {
     }
 
     @Test
-    fun `replacing due preserves date-only semantics from DTSTART and existing parameters`() {
+    fun `replacing due keeps compatible date-only semantics and removes TZID`() {
         val document = VTodoDocument.parse(
             """
                 BEGIN:VCALENDAR
@@ -55,8 +58,39 @@ class VTodoDocumentTest {
         val rendered = document.render()
 
         assertTrue(rendered.contains("DTSTART;VALUE=DATE:20260930"))
-        assertTrue(rendered.contains("DUE;VALUE=DATE;TZID=Pacific/Auckland:20261001"))
+        assertTrue(rendered.contains("DUE;VALUE=DATE:20261001"))
+        assertFalse(rendered.contains("TZID="))
         assertFalse(rendered.contains("DUE:20261001T000000Z"))
+    }
+
+    @Test
+    fun `replacing due uses the local calendar date for a non-UTC local midnight`() {
+        val zone = ZoneId.of("Australia/Brisbane")
+        val previous = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(zone))
+            val localMidnight = LocalDate.of(2026, 10, 1)
+                .atStartOfDay(zone)
+                .toInstant()
+                .toEpochMilli()
+            val document = VTodoDocument.parse(
+                """
+                    BEGIN:VCALENDAR
+                    BEGIN:VTODO
+                    UID:all-day
+                    DTSTART;VALUE=DATE:20260930
+                    DUE;VALUE=DATE:20260930
+                    END:VTODO
+                    END:VCALENDAR
+                """.trimIndent(),
+            )
+
+            document.replaceDueAt(localMidnight)
+
+            assertTrue(document.render().contains("DUE;VALUE=DATE:20261001"))
+        } finally {
+            TimeZone.setDefault(previous)
+        }
     }
 
     @Test
