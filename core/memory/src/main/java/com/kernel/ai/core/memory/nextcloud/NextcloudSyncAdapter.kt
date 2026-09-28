@@ -29,6 +29,9 @@ import javax.inject.Singleton
 private const val PROVIDER_ACTOR = "nextcloud-caldav"
 private const val PROVIDER_ALIAS = "Nextcloud"
 
+private fun ListItemEntity.hasUninitializedDescription() =
+    descriptionLogicalClock == 0L && descriptionStampActorId.isEmpty()
+
 sealed interface NextcloudSyncResult {
     data class Success(val changed: Boolean = false) : NextcloudSyncResult
     data class Failure(val error: NextcloudFailure) : NextcloudSyncResult
@@ -390,8 +393,10 @@ class NextcloudSyncAdapter @Inject constructor(
                         if (row.checked && doc.first("COMPLETED") == null) doc.replaceSingle("COMPLETED", formatUtcMillis(row.updatedAt))
                         if (!row.checked) doc.remove("COMPLETED")
                         if (row.dueAt == null) doc.remove("DUE") else doc.replaceDueAt(row.dueAt)
-                        if (row.description.isEmpty()) doc.remove("DESCRIPTION")
-                        else doc.replaceSingle("DESCRIPTION", row.description, escapeText = true)
+                        if (!row.hasUninitializedDescription()) {
+                            if (row.description.isEmpty()) doc.remove("DESCRIPTION")
+                            else doc.replaceSingle("DESCRIPTION", row.description, escapeText = true)
+                        }
                         doc.replaceParent(row.parentItemId?.let(uidByItem::get))
                         doc.replaceSingle("X-JANDAL-ORDER", row.orderKey)
                     }
@@ -448,7 +453,10 @@ class NextcloudSyncAdapter @Inject constructor(
         remoteItems.forEachIndexed { index, remote ->
             val old = oldBindings[remote.uid()]
             val current = listItemDao.getByItemId(itemIds.getValue(remote.uid()))
-            val changed = old == null || old.etag != remote.etag
+            val base = old?.rawVtodo?.let(VTodoDocument::parse)
+            val descriptionNeedsBackfill = current?.hasUninitializedDescription() == true &&
+                (remote.document.first("DESCRIPTION") != null || base?.first("DESCRIPTION") != null)
+            val changed = old == null || old.etag != remote.etag || descriptionNeedsBackfill
             if (!changed && current != null) return@forEachIndexed
             revision += 1L
             snapshots += remote.toSnapshot(
@@ -457,7 +465,7 @@ class NextcloudSyncAdapter @Inject constructor(
                 revision = revision,
                 fallbackOrder = index.toString(),
                 current = current,
-                base = old?.rawVtodo?.let(VTodoDocument::parse),
+                base = base,
             )
             updates += remote.toBinding(binding.collectionId, itemIds.getValue(remote.uid()), revision, false)
         }
@@ -553,7 +561,11 @@ class NextcloudSyncAdapter @Inject constructor(
         val description = document.decoded("DESCRIPTION").orEmpty()
         val remoteOrder = document.first("X-JANDAL-ORDER")?.value?.takeIf { it.toBigDecimalOrNull() != null } ?: fallbackOrder
         val changedText = base == null || base.decoded("SUMMARY") != document.decoded("SUMMARY")
-        val changedDescription = base == null || base.decoded("DESCRIPTION").orEmpty() != description
+        val descriptionNeedsBackfill = current?.hasUninitializedDescription() == true &&
+            (document.first("DESCRIPTION") != null || base?.first("DESCRIPTION") != null)
+        val changedDescription = base == null ||
+            base.decoded("DESCRIPTION").orEmpty() != description ||
+            descriptionNeedsBackfill
         val changedChecked = base == null || !base.first("STATUS")?.value.equals(document.first("STATUS")?.value, ignoreCase = true)
         val changedDue = base == null || parseUtcMillis(base.first("DUE")?.value) != dueAt
         val changedParent = base == null || base.all("RELATED-TO").firstOrNull { it.hasParameter("RELTYPE", "PARENT") }?.value != parentUid()
