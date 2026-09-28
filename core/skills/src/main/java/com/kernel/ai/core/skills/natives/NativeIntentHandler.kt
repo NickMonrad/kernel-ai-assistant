@@ -1974,7 +1974,8 @@ class NativeIntentHandler @Inject constructor(
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val requestedName = normalizeListName(raw)
         val (name, changed) = runBlocking {
-            val existing = resolveAnyLifecycleList(requestedName)
+            val existing = resolveActiveList(requestedName)
+                ?: resolveAnyLifecycleList(requestedName)
             val resolvedName = existing?.name ?: requestedName
             val isActive = existing?.lifecycle == "ACTIVE"
             if (!isActive) {

@@ -926,6 +926,44 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `create_list prefers active case-insensitive list over exact tombstone`() {
+        val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 42L,
+            name = "Meal Plan",
+            canonicalTitle = "Meal Plan",
+            collectionId = "nextcloud-meal-plan",
+        )
+        val deletedTombstone = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 99L,
+            name = "meal plan",
+            canonicalTitle = "meal plan",
+            archivedAt = 1L,
+            collectionId = "deleted-meal-plan",
+            lifecycle = "DELETED",
+        )
+        coEvery { listNameDao.getByName("meal plan") } returns null
+        coEvery { listNameDao.getByNameIgnoreCase("meal plan") } returns activeList
+        coEvery { listNameDao.getByNameAnyLifecycle("meal plan") } returns deletedTombstone
+
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "create_list",
+            mapOf("list_name" to "meal plan"),
+        )
+
+        assertEquals(
+            "Created list \"Meal Plan\".",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+        coVerify(exactly = 0) { listNameDao.getByNameAnyLifecycle("meal plan") }
+        coVerify(exactly = 0) { listNameDao.getByNameAnyLifecycleIgnoreCase("meal plan") }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
     fun `shopping and todo aliases keep their canonical list names`() {
         coEvery { listNameDao.getByName("shopping list") } returns
             com.kernel.ai.core.memory.entity.ListNameEntity(id = 1L, name = "shopping list")
@@ -1032,7 +1070,7 @@ class NativeIntentHandlerTest {
             ),
             readResult,
         )
-        coVerify(atLeast = 1) { listNameDao.insert(match { it.name == "shopping list" }) }
+        coVerify(exactly = 0) { listNameDao.insert(match { it.name == "shopping list" }) }
         coVerify(exactly = 2) { listItemDao.getByList(1L) }
     }
 
@@ -1047,7 +1085,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `create_list does not broadcast for an existing active list`() {
-        coEvery { listNameDao.getByNameAnyLifecycle("existing list") } returns
+        coEvery { listNameDao.getByName("existing list") } returns
             com.kernel.ai.core.memory.entity.ListNameEntity(
                 id = 9L,
                 name = "existing list",
