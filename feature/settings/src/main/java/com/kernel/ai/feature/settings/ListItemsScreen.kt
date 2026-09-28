@@ -1125,6 +1125,8 @@ private fun ListItemRow(
     onLongClick: () -> Unit = {},
     onSelectToggle: () -> Unit = {},
 ) {
+    val descriptionUrls = remember(item.description) { findListItemUrls(item.description) }
+
     // An explicit Row rather than M3 ListItem: the ListItem slots add fixed 16.dp start, leading
     // and trailing padding on top of the mandatory 48.dp handle, checkbox and star targets, and
     // that reservation was squeezing the item text. Spacing here is one 8.dp step, all three
@@ -1222,6 +1224,11 @@ private fun ListItemRow(
                         if (!isMultiSelectMode) onLongClick()
                     },
                 )
+                DescriptionUrlActions(
+                    urls = descriptionUrls,
+                    activateLinks = !isMultiSelectMode,
+                    onInactiveClick = onSelectToggle,
+                )
             }
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {
@@ -1307,6 +1314,8 @@ private fun EditItemSheet(
     var isFavourite by remember(item.id) { mutableStateOf(item.isFavourite) }
     var notificationTime by remember(item.id) { mutableStateOf(item.notificationTime) }
     var notifyEnabled by remember(item.id) { mutableStateOf(item.notificationTime != null) }
+    val descriptionUrls = remember(description) { findListItemUrls(description) }
+
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
 
@@ -1342,6 +1351,10 @@ private fun EditItemSheet(
                 minLines = 3,
                 maxLines = 8,
                 singleLine = false,
+            )
+            DescriptionUrlActions(
+                urls = descriptionUrls,
+                activateLinks = true,
             )
 
             Spacer(modifier = Modifier.height(12.dp))

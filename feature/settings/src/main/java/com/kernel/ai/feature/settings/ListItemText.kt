@@ -3,7 +3,21 @@ package com.kernel.ai.feature.settings
 import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +35,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
 
 private const val ListItemUrlAnnotation = "LIST_ITEM_URL"
 private const val MaxDisplayedListItemUrlLength = 48
@@ -146,6 +161,67 @@ internal fun ListItemText(
     )
 }
 
+@Composable
+internal fun DescriptionUrlActions(
+    urls: List<ListItemUrlSpan>,
+    activateLinks: Boolean,
+    onInactiveClick: () -> Unit = {},
+) {
+    if (urls.isEmpty()) return
+
+    val uriHandler = LocalUriHandler.current
+    var menuExpanded by remember(urls) { mutableStateOf(false) }
+    val actionLabel = when {
+        !activateLinks -> if (urls.size == 1) "Select link" else "Select links (${urls.size})"
+        urls.size == 1 -> "Open link"
+        else -> "Open links (${urls.size})"
+    }
+
+    Box {
+        TextButton(
+            onClick = {
+                when {
+                    !activateLinks -> onInactiveClick()
+                    urls.size == 1 -> openListItemUrl(uriHandler, urls.single().url)
+                    else -> menuExpanded = true
+                }
+            },
+        ) {
+            Icon(Icons.Default.Link, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(actionLabel)
+        }
+        if (activateLinks && urls.size > 1) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    urls.forEachIndexed { index, urlSpan ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Link ${index + 1}: ${truncateListItemUrl(urlSpan.url)}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                openListItemUrl(uriHandler, urlSpan.url)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun trimmedUrlLength(candidate: String): Int {
     var end = candidate.length
     while (end > 0 && candidate[end - 1] in ",.!?;:") end--
@@ -165,7 +241,7 @@ private fun trimmedUrlLength(candidate: String): Int {
     return end
 }
 
-private fun openListItemUrl(uriHandler: androidx.compose.ui.platform.UriHandler, url: String) {
+internal fun openListItemUrl(uriHandler: androidx.compose.ui.platform.UriHandler, url: String) {
     val scheme = Uri.parse(url).scheme?.lowercase()
     if (scheme != "http" && scheme != "https") return
 
