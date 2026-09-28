@@ -1892,13 +1892,21 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private suspend fun resolveActiveList(normalizedName: String): ListNameEntity? =
+        listNameDao.getByName(normalizedName)
+            ?: listNameDao.getByNameIgnoreCase(normalizedName)
+
+    private suspend fun resolveAnyLifecycleList(normalizedName: String): ListNameEntity? =
+        listNameDao.getByNameAnyLifecycle(normalizedName)
+            ?: listNameDao.getByNameAnyLifecycleIgnoreCase(normalizedName)
+
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No item specified")
 
         // Guard against filler phrases like "an item", "something", "it", etc.
         if (isFillerItem(item)) {
-            val targetList = params["list_name"]?.trim()?.lowercase()
+            val targetList = params["list_name"]?.trim()
                 ?.let { normalizeListName(it) } ?: "the list"
             return SkillResult.Failure(
                 "add_to_list",
@@ -1908,17 +1916,19 @@ class NativeIntentHandler @Inject constructor(
 
         val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No list name specified")
-        val listName = normalizeListName(raw.lowercase())
+        val requestedName = normalizeListName(raw)
         val now = System.currentTimeMillis()
-        val items = runBlocking {
-            val listId = listMutations?.createCollection(listName) ?: run {
-                listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
-                listNameDao.getByName(listName)?.id ?: return@runBlocking emptyList<ListItemEntity>()
+        val (listName, items) = runBlocking {
+            val existing = resolveActiveList(requestedName)
+            val resolvedName = existing?.name ?: requestedName
+            val listId = existing?.id ?: listMutations?.createCollection(resolvedName) ?: run {
+                listNameDao.insert(ListNameEntity(name = resolvedName, createdAt = now, updatedAt = now))
+                listNameDao.getByName(resolvedName)?.id ?: return@runBlocking resolvedName to emptyList()
             }
             listMutations?.addItem(listId, item) ?: run {
                 listItemDao.insert(ListItemEntity(listId = listId, text = item, createdAt = now, updatedAt = now))
             }
-            listItemDao.getByList(listId)
+            resolvedName to listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -1928,8 +1938,7 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun bulkAddToList(params: Map<String, String>): SkillResult {
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
+        val requestedName = normalizeListName(params["list_name"] ?: "shopping list")
         val itemsParam = params["items"]
             ?: return SkillResult.Failure("bulk_add_to_list", "No items specified")
         val items: List<String> = try {
@@ -1940,15 +1949,17 @@ class NativeIntentHandler @Inject constructor(
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
         val now = System.currentTimeMillis()
-        val currentItems = runBlocking {
-            val listId = listMutations?.createCollection(listName) ?: run {
-                listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
-                listNameDao.getByName(listName)?.id ?: return@runBlocking emptyList<ListItemEntity>()
+        val (listName, currentItems) = runBlocking {
+            val existing = resolveActiveList(requestedName)
+            val resolvedName = existing?.name ?: requestedName
+            val listId = existing?.id ?: listMutations?.createCollection(resolvedName) ?: run {
+                listNameDao.insert(ListNameEntity(name = resolvedName, createdAt = now, updatedAt = now))
+                listNameDao.getByName(resolvedName)?.id ?: return@runBlocking resolvedName to emptyList()
             }
             listMutations?.addItems(listId, items) ?: items.forEach {
                 listItemDao.insert(ListItemEntity(listId = listId, text = it, createdAt = now, updatedAt = now))
             }
-            listItemDao.getByList(listId)
+            resolvedName to listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -1956,18 +1967,29 @@ class NativeIntentHandler @Inject constructor(
                 items.joinToString(", "),
             presentation = buildListPreview(listName, currentItems),
         )
+
     }
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
-        val name = normalizeListName(raw)
-        val changed = runBlocking {
-            val existing = listNameDao.getByNameAnyLifecycle(name)
-            listMutations?.createCollection(name)
-            if (listMutations == null) {
-                listNameDao.insert(ListNameEntity(name = name, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
+        val requestedName = normalizeListName(raw)
+        val (name, changed) = runBlocking {
+            val existing = resolveAnyLifecycleList(requestedName)
+            val resolvedName = existing?.name ?: requestedName
+            val isActive = existing?.lifecycle == "ACTIVE"
+            if (!isActive) {
+                listMutations?.createCollection(resolvedName)
+                if (listMutations == null) {
+                    listNameDao.insert(
+                        ListNameEntity(
+                            name = resolvedName,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
             }
-            existing == null || existing.lifecycle == "DELETED"
+            resolvedName to !isActive
         }
         if (changed) ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -1977,11 +1999,11 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun getListItems(params: Map<String, String>): SkillResult {
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
-        val items = runBlocking {
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
+        val requestedName = normalizeListName(params["list_name"] ?: "shopping list")
+        val (listName, items) = runBlocking {
+            val list = resolveActiveList(requestedName)
+            val resolvedName = list?.name ?: requestedName
+            resolvedName to (list?.let { listItemDao.getByList(it.id) } ?: emptyList())
         }
         return if (items.isEmpty()) {
             SkillResult.DirectReply(
@@ -1999,19 +2021,19 @@ class NativeIntentHandler @Inject constructor(
 
     private fun removeFromList(params: Map<String, String>): SkillResult {
         val item = params["item"] ?: return SkillResult.Failure("remove_from_list", "No item specified")
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
-        val all = runBlocking {
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
+        val requestedName = normalizeListName(params["list_name"] ?: "shopping list")
+        val (listName, listId, all) = runBlocking {
+            val list = resolveActiveList(requestedName)
+            val resolvedName = list?.name ?: requestedName
+            Triple(resolvedName, list?.id, list?.let { listItemDao.getByList(it.id) } ?: emptyList())
         }
         val match = all.firstOrNull { it.text.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.text.contains(item, ignoreCase = true) }
             ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
         val remaining = runBlocking {
+            if (listId == null) return@runBlocking emptyList()
             listMutations?.deleteItem(match.id) ?: listItemDao.deleteItem(match.id)
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
+            listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -2051,8 +2073,7 @@ class NativeIntentHandler @Inject constructor(
     private fun addReminder(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
-        val rawListName = (params["list_name"] ?: "to-do list").lowercase().trim()
-        val listName = normalizeListName(rawListName)
+        val requestedName = normalizeListName(params["list_name"] ?: "to-do list")
         val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
         val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
@@ -2071,7 +2092,8 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val result = runBlocking {
-            val existingList = listNameDao.getByName(listName)
+            val existingList = resolveActiveList(requestedName)
+            val listName = existingList?.name ?: requestedName
             val createdList = existingList == null
             val listId = if (listMutations != null && createdList) {
                 listMutations.createCollection(listName)
