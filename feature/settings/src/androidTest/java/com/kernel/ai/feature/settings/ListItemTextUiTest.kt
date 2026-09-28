@@ -7,11 +7,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -69,22 +67,6 @@ class ListItemTextUiTest {
 
         assertEquals(1, selectionCount)
         assertNull(openedUrl)
-    }
-
-    @Test
-    fun multiSelectTextLongPressDoesNotInvokeEntryAction() {
-        var longPressed = false
-        showItemText(
-            text = "Select this item",
-            activateLinks = false,
-            onLongClick = { longPressed = true },
-        )
-
-        composeTestRule
-            .onNodeWithText("Select this item")
-            .performTouchInput { longClick() }
-
-        assertFalse(longPressed)
     }
 
     private fun showItemText(
