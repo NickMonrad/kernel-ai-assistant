@@ -173,8 +173,8 @@ internal fun DescriptionUrlActions(
     val uriHandler = LocalUriHandler.current
     var menuExpanded by remember(urls) { mutableStateOf(false) }
     val actionLabel = when {
-        urls.size > 1 && compactMultipleLinksLabel -> "Links (${urls.size})"
         !activateLinks -> if (urls.size == 1) "Select link" else "Select links (${urls.size})"
+        urls.size > 1 && compactMultipleLinksLabel -> "Links (${urls.size})"
         urls.size == 1 -> "Open link"
         else -> "Open links (${urls.size})"
     }

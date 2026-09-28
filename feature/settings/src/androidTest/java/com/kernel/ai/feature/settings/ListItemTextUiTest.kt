@@ -133,6 +133,26 @@ class ListItemTextUiTest {
     }
 
     @Test
+    fun multiSelectCompactMultipleLinksLabelSelectsWithoutOpening() {
+        var selectionCount = 0
+        var openedUrl: String? = null
+        showDescriptionLinks(
+            text = "Prose before links\nhttps://example.com/one\nhttps://example.com/two",
+            activateLinks = false,
+            compactMultipleLinksLabel = true,
+            onClick = { selectionCount++ },
+            onUriOpened = { openedUrl = it },
+        )
+
+        composeTestRule
+            .onNodeWithText("Select links (2)")
+            .performClick()
+
+        assertEquals(1, selectionCount)
+        assertNull(openedUrl)
+    }
+
+    @Test
     fun multiSelectDescriptionLinkActionSelectsWithoutOpening() {
         var selectionCount = 0
         var openedUrl: String? = null
