@@ -2001,11 +2001,19 @@ class NativeIntentHandler @Inject constructor(
 
     private fun getListItems(params: Map<String, String>): SkillResult {
         val requestedName = normalizeListName(params["list_name"] ?: "shopping list")
-        val (listName, items) = runBlocking {
-            val list = resolveActiveList(requestedName)
-            val resolvedName = list?.name ?: requestedName
-            resolvedName to (list?.let { listItemDao.getByList(it.id) } ?: emptyList())
+        val (activeList, items) = runBlocking {
+            val resolved = resolveActiveList(requestedName)
+            resolved to (resolved?.let { listItemDao.getByList(it.id) } ?: emptyList())
         }
+        // A name that resolves to no ACTIVE list is a lookup failure, not an empty list.
+        // Collapsing both into an empty item list made typos, deleted lists and lists whose
+        // native lookup missed indistinguishable from a real list with no unchecked items.
+        val list = activeList
+            ?: return SkillResult.Failure(
+                "get_list_items",
+                "I couldn't find a list called \"$requestedName\".",
+            )
+        val listName = list.name
         return if (items.isEmpty()) {
             SkillResult.DirectReply(
                 "Your $listName is empty.",
