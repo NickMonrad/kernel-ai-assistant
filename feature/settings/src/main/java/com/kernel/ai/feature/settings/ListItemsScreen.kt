@@ -1175,8 +1175,13 @@ private fun ListItemRow(
                 },
                 color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
-                onClick = onEdit,
-                onLongClick = onLongClick,
+                activateLinks = !isMultiSelectMode,
+                onClick = {
+                    if (isMultiSelectMode) onSelectToggle() else onEdit()
+                },
+                onLongClick = {
+                    if (!isMultiSelectMode) onLongClick()
+                },
             )
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {

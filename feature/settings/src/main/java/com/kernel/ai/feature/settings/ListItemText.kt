@@ -104,6 +104,7 @@ internal fun ListItemText(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
+    activateLinks: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -116,7 +117,13 @@ internal fun ListItemText(
 
     BasicText(
         text = annotatedText,
-        modifier = modifier.pointerInput(annotatedText, uriHandler, onClick, onLongClick) {
+        modifier = modifier.pointerInput(
+            annotatedText,
+            uriHandler,
+            activateLinks,
+            onClick,
+            onLongClick,
+        ) {
             detectTapGestures(
                 onTap = { position ->
                     val offset = layoutResult?.getOffsetForPosition(position)
@@ -126,7 +133,7 @@ internal fun ListItemText(
                             .firstOrNull()
                             ?.item
                     }
-                    if (url != null) openListItemUrl(uriHandler, url) else onClick()
+                    if (activateLinks && url != null) openListItemUrl(uriHandler, url) else onClick()
                 },
                 onLongPress = { onLongClick() },
             )

@@ -5,11 +5,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -20,30 +24,95 @@ class ListItemTextUiTest {
     @Test
     fun tappingUrlOpensTheFullStoredUrl() {
         var openedUrl: String? = null
-        composeTestRule.setContent {
-            MaterialTheme {
-                CompositionLocalProvider(
-                    LocalUriHandler provides object : UriHandler {
-                        override fun openUri(uri: String) {
-                            openedUrl = uri
-                        }
-                    },
-                ) {
-                    ListItemText(
-                        text = "https://example.com/tasks/today",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.Black,
-                        onClick = {},
-                        onLongClick = {},
-                    )
-                }
-            }
-        }
+        showItemText(
+            text = "https://example.com/tasks/today",
+            onUriOpened = { openedUrl = it },
+        )
 
         composeTestRule
             .onNodeWithText("https://example.com/tasks/today")
             .performTouchInput { click(center) }
 
         assertEquals("https://example.com/tasks/today", openedUrl)
+    }
+
+    @Test
+    fun multiSelectPlainTextTapRoutesToSelection() {
+        var selected = false
+        showItemText(
+            text = "Select this item",
+            activateLinks = false,
+            onClick = { selected = true },
+        )
+
+        composeTestRule
+            .onNodeWithText("Select this item")
+            .performTouchInput { click(center) }
+
+        assertTrue(selected)
+    }
+
+    @Test
+    fun multiSelectUrlTapRoutesToSelectionWithoutOpeningUrl() {
+        var selectionCount = 0
+        var openedUrl: String? = null
+        showItemText(
+            text = "https://example.com/tasks/today",
+            activateLinks = false,
+            onClick = { selectionCount++ },
+            onUriOpened = { openedUrl = it },
+        )
+
+        composeTestRule
+            .onNodeWithText("https://example.com/tasks/today")
+            .performTouchInput { click(center) }
+
+        assertEquals(1, selectionCount)
+        assertNull(openedUrl)
+    }
+
+    @Test
+    fun multiSelectTextLongPressDoesNotInvokeEntryAction() {
+        var longPressed = false
+        showItemText(
+            text = "Select this item",
+            activateLinks = false,
+            onLongClick = { longPressed = true },
+        )
+
+        composeTestRule
+            .onNodeWithText("Select this item")
+            .performTouchInput { longClick() }
+
+        assertFalse(longPressed)
+    }
+
+    private fun showItemText(
+        text: String,
+        activateLinks: Boolean = true,
+        onClick: () -> Unit = {},
+        onLongClick: () -> Unit = {},
+        onUriOpened: (String) -> Unit = {},
+    ) {
+        composeTestRule.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(
+                    LocalUriHandler provides object : UriHandler {
+                        override fun openUri(uri: String) {
+                            onUriOpened(uri)
+                        }
+                    },
+                ) {
+                    ListItemText(
+                        text = text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.Black,
+                        activateLinks = activateLinks,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                }
+            }
+        }
     }
 }
