@@ -39,8 +39,15 @@ abstract class ListNameDao {
     @Query("SELECT * FROM lists WHERE lifecycle = 'ACTIVE' AND name = :name LIMIT 1")
     abstract suspend fun getByName(name: String): ListNameEntity?
 
+    /** Case-insensitive fallback for user-entered names at native action boundaries. */
+    @Query("SELECT * FROM lists WHERE lifecycle = 'ACTIVE' AND name = :name COLLATE NOCASE LIMIT 1")
+    abstract suspend fun getByNameIgnoreCase(name: String): ListNameEntity?
+
     @Query("SELECT * FROM lists WHERE name = :name LIMIT 1")
     abstract suspend fun getByNameAnyLifecycle(name: String): ListNameEntity?
+
+    @Query("SELECT * FROM lists WHERE name = :name COLLATE NOCASE LIMIT 1")
+    abstract suspend fun getByNameAnyLifecycleIgnoreCase(name: String): ListNameEntity?
 
     /** Retained for non-sync legacy callers; sync-aware paths use tombstones. */
     @Query("DELETE FROM lists WHERE name = :name")
