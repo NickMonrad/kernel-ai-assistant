@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
@@ -774,8 +776,10 @@ class VoiceViewModel @Inject constructor(
 
     fun setWakeWordThreshold(threshold: Float) {
         _uiState.update { it.copy(wakeWordThreshold = threshold) }
-        viewModelScope.launch {
-            wakeWordPreferences.setConfidenceThreshold(threshold)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) {
+                wakeWordPreferences.setConfidenceThreshold(threshold)
+            }
         }
     }
 
