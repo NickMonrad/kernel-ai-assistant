@@ -813,11 +813,18 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** Persists edits made in the edit bottom sheet (text, dueAt, isFavourite, notificationTime). */
+    /** Persists edits made in the edit bottom sheet (text, description, dueAt, isFavourite, notificationTime). */
     fun updateItem(item: ListItemEntity) {
         val listName = listEntities.value.firstOrNull { it.id == item.listId }?.name ?: ""
         viewModelScope.launch {
-            listMutations.updateItem(item.id, item.text, item.dueAt, item.isFavourite, item.notificationTime)
+            listMutations.updateItem(
+                item.id,
+                item.text,
+                item.dueAt,
+                item.isFavourite,
+                item.notificationTime,
+                item.description,
+            )
             val nt = item.notificationTime
             if (nt != null) scheduler.schedule(itemId = item.id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
             else scheduler.cancel(item.id)
@@ -914,19 +921,26 @@ class ListsViewModel @Inject constructor(
      * Active items (unchecked) appear first with "• " prefix; completed with "✓ ".
      * Both groups are ordered by creation date ascending.
      */
-    suspend fun buildShareText(listId: Long): String {
+    suspend fun buildShareText(listId: Long, selectedItemIds: Set<Long>? = null): String {
         val listName = listNameDao.getById(listId)?.name?.replaceFirstChar { it.uppercase() } ?: "List"
-        val items = dao.getAllByList(listId)
-        if (items.isEmpty()) return listName
-        val lines = buildList {
-            add(listName)
-            add("")
-            items.forEach { item ->
-                add("${if (item.checked) "✓" else "•"} ${item.text}")
-            }
+        val items = dao.getAllByList(listId).let { rows ->
+            selectedItemIds?.let { selected -> rows.filter { it.id in selected } } ?: rows
         }
-        return lines.joinToString("\n")
+        return formatListShareText(listName, items)
     }
+
+internal fun formatListItemForShare(item: ListItemEntity): String = buildString {
+    append(if (item.checked) "✓" else "•").append(' ').append(item.text)
+    if (item.description.isNotEmpty()) append('\n').append(item.description)
+}
+
+internal fun formatListShareText(listName: String, items: List<ListItemEntity>): String = buildString {
+    append(listName)
+    if (items.isNotEmpty()) {
+        append("\n\n")
+        append(items.joinToString("\n", transform = ::formatListItemForShare))
+    }
+}
 
     // ── Nextcloud per-list state and lifecycle (#1551) ───────────────────────────────────────────
 

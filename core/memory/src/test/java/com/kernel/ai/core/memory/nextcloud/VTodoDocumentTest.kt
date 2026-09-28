@@ -101,4 +101,25 @@ class VTodoDocumentTest {
         assertEquals("hello, world", document.decoded("SUMMARY"))
         assertTrue(document.render().contains("DESCRIPTION:firstsecond"))
     }
+    @Test
+    fun `description preserves multiline text and clearing leaves unrelated properties`() {
+        val description = "line one\nhttps://example.com/a?x=full\nline three"
+        val document = VTodoDocument.new(
+            uid = "item-1",
+            summary = "Item",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "0",
+            description = description,
+        )
+        document.replaceSingle("X-NEXTCLOUD-UNKNOWN", "keep")
+        val rendered = document.render()
+        assertEquals(description, VTodoDocument.parse(rendered).decoded("DESCRIPTION"))
+        assertTrue(rendered.contains("X-NEXTCLOUD-UNKNOWN:keep"))
+
+        document.remove("DESCRIPTION")
+        assertEquals(null, VTodoDocument.parse(document.render()).decoded("DESCRIPTION"))
+        assertTrue(document.render().contains("X-NEXTCLOUD-UNKNOWN:keep"))
+    }
 }

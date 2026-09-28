@@ -53,15 +53,16 @@ class ListsViewModelTextTest {
     }
 
     @Test
-    fun `updateItem forwards exact multiline text to persistence`() {
+    fun `updateItem forwards exact multiline text and description to persistence`() {
         val original = ListItemEntity(
             id = 7L,
             listId = 1L,
             text = "old text",
-            itemId = "stable-7",
+            description = "old description",
             checked = false,
         )
         val editedText = "  First line\nhttps://example.com/tasks/today\nLast line  "
+        val editedDescription = "  Notes\nhttps://example.com/description?full=true\nEnd  "
         val viewModel = ListsViewModel(
             dao = dao,
             listNameDao = listNameDao,
@@ -72,7 +73,7 @@ class ListsViewModelTextTest {
             nextcloud = nextcloudAdapter,
         ).apply { ioDispatcher = dispatcher }
 
-        viewModel.updateItem(original.copy(text = editedText))
+        viewModel.updateItem(original.copy(text = editedText, description = editedDescription))
 
         coVerify(timeout = TimeUnit.SECONDS.toMillis(2)) {
             listMutations.updateItem(
@@ -81,6 +82,7 @@ class ListsViewModelTextTest {
                 original.dueAt,
                 original.isFavourite,
                 original.notificationTime,
+                editedDescription,
             )
         }
     }
@@ -92,7 +94,7 @@ class ListsViewModelTextTest {
             id = 8L,
             listId = 1L,
             text = itemText,
-            itemId = "stable-8",
+            description = "Details\nhttps://example.com/details?full=true",
             checked = false,
         )
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
@@ -107,6 +109,33 @@ class ListsViewModelTextTest {
             nextcloud = nextcloudAdapter,
         ).apply { ioDispatcher = dispatcher }
 
-        assertEquals("Groceries\n\n• $itemText", viewModel.buildShareText(1L))
+        assertEquals("Groceries\n\n• $itemText\nDetails\nhttps://example.com/details?full=true", viewModel.buildShareText(1L))
     }
+
+    @Test
+    fun `selected sharing keeps dao order and includes only selected descriptions`() = runBlocking {
+        val first = ListItemEntity(id = 11L, listId = 1L, text = "first", description = "https://example.com/first?full=true", itemId = "first")
+        val selected = ListItemEntity(id = 12L, listId = 1L, text = "selected", description = "line one\nline two", itemId = "selected")
+        val third = ListItemEntity(id = 13L, listId = 1L, text = "third", itemId = "third")
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        coEvery { dao.getAllByList(1L) } returns listOf(first, selected, third)
+        val viewModel = ListsViewModel(
+            dao = dao,
+            listNameDao = listNameDao,
+            scheduler = scheduler,
+            appContext = context,
+            listMutations = listMutations,
+            listsUiPreferences = preferences,
+            nextcloud = nextcloudAdapter,
+        ).apply { ioDispatcher = dispatcher }
+
+        assertEquals(
+            "Groceries\n\n• selected\nline one\nline two",
+            viewModel.buildShareText(1L, setOf(selected.id)),
+        )
+        viewModel.selectAllItems(listOf(first.id, selected.id, third.id))
+        viewModel.exitItemMultiSelect()
+        assertEquals(emptySet<Long>(), viewModel.selectedItemIds)
+    }
+
 }

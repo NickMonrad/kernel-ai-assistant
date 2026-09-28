@@ -23,6 +23,7 @@ enum class ListChangeOperation {
     RESTORE_COLLECTION,
     CREATE_ITEM,
     SET_ITEM_TEXT,
+    SET_ITEM_DESCRIPTION,
     SET_ITEM_CHECKED,
     SET_ITEM_DUE_AT,
     SET_ITEM_PLACEMENT,
@@ -32,6 +33,7 @@ enum class ListChangeOperation {
 data class ListChangePayload(
     val canonicalTitle: String? = null,
     val text: String? = null,
+    val description: String? = null,
     val checked: Boolean? = null,
     val dueAt: Long? = null,
     val parentItemId: String? = null,
@@ -39,13 +41,14 @@ data class ListChangePayload(
 ) {
     /** Compact versioned payload; URL-safe Base64 tokens cannot contain the field separator. */
     fun encode(): String = listOf(
-        "1",
+        "2",
         canonicalTitle.encodeToken(),
         text.encodeToken(),
         checked?.toString() ?: NULL_TOKEN,
         dueAt?.toString() ?: NULL_TOKEN,
         parentItemId.encodeToken(),
         orderKey.encodeToken(),
+        description.encodeToken(),
     ).joinToString("|")
 
     companion object {
@@ -53,7 +56,8 @@ data class ListChangePayload(
 
         fun decode(raw: String): ListChangePayload {
             val fields = raw.split('|')
-            require(fields.size == 7 && fields[0] == "1") { "Unsupported Lists payload" }
+            require(fields[0] == "1" || fields[0] == "2") { "Unsupported Lists payload" }
+            require(fields.size == if (fields[0] == "1") 7 else 8) { "Unsupported Lists payload" }
             return ListChangePayload(
                 canonicalTitle = fields[1].decodeToken(),
                 text = fields[2].decodeToken(),
@@ -61,6 +65,7 @@ data class ListChangePayload(
                 dueAt = fields[4].takeUnless { it == NULL_TOKEN }?.toLong(),
                 parentItemId = fields[5].decodeToken(),
                 orderKey = fields[6].decodeToken(),
+                description = fields.getOrNull(7)?.decodeToken(),
             )
         }
     }

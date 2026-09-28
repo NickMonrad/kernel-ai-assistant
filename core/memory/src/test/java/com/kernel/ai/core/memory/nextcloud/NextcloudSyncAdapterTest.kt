@@ -336,6 +336,66 @@ class NextcloudSyncAdapterTest {
         assertFalse(bindings.getValue(binding.collectionId).syncEnabled)
     }
 
+    @Test
+    fun `push preserves multiline item descriptions in VTODO`() = runTest {
+        val binding = binding("writable")
+        val description = "line one\nhttps://example.com/a?query=full\nline three"
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item").copy(description = description)),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        val body = transport.putBodies.last { it.contains("BEGIN:VTODO") }
+        assertEquals(description, VTodoDocument.parse(body).decoded("DESCRIPTION"))
+    }
+
+    @Test
+    fun `pull imports a changed remote description with its own version stamp`() = runTest {
+        val binding = binding("writable")
+        val description = "remote line\nhttps://example.com/remote?query=full"
+        val transport = RecordingTransport(
+            reportDocument = {
+                VTodoDocument.new(
+                    uid = it,
+                    summary = "Item",
+                    checked = false,
+                    dueAt = null,
+                    parentUid = null,
+                    orderKey = "0",
+                    description = description,
+                ).render()
+            },
+        )
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item").copy(etag = "\"old-etag\"")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        fixture.adapter.syncAll()
+
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match { snapshot ->
+                    snapshot.items.single().description == description &&
+                        snapshot.items.single().descriptionStamp.actorId == "nextcloud-caldav"
+                },
+                any(),
+            )
+        }
+    }
+
     // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
 
     @Test

@@ -380,6 +380,7 @@ class NextcloudSyncAdapter @Inject constructor(
                         dueAt = row.dueAt,
                         parentUid = row.parentItemId?.let(uidByItem::get),
                         orderKey = row.orderKey,
+                        description = row.description,
                     )
                 } else {
                     VTodoDocument.parse(itemBinding.rawVtodo).also { doc ->
@@ -389,6 +390,8 @@ class NextcloudSyncAdapter @Inject constructor(
                         if (row.checked && doc.first("COMPLETED") == null) doc.replaceSingle("COMPLETED", formatUtcMillis(row.updatedAt))
                         if (!row.checked) doc.remove("COMPLETED")
                         if (row.dueAt == null) doc.remove("DUE") else doc.replaceDueAt(row.dueAt)
+                        if (row.description.isEmpty()) doc.remove("DESCRIPTION")
+                        else doc.replaceSingle("DESCRIPTION", row.description, escapeText = true)
                         doc.replaceParent(row.parentItemId?.let(uidByItem::get))
                         doc.replaceSingle("X-JANDAL-ORDER", row.orderKey)
                     }
@@ -547,8 +550,10 @@ class NextcloudSyncAdapter @Inject constructor(
         val checked = document.first("STATUS")?.value.equals("COMPLETED", ignoreCase = true)
         val dueAt = parseUtcMillis(document.first("DUE")?.value)
         val text = document.decoded("SUMMARY").orEmpty()
+        val description = document.decoded("DESCRIPTION").orEmpty()
         val remoteOrder = document.first("X-JANDAL-ORDER")?.value?.takeIf { it.toBigDecimalOrNull() != null } ?: fallbackOrder
         val changedText = base == null || base.decoded("SUMMARY") != document.decoded("SUMMARY")
+        val changedDescription = base == null || base.decoded("DESCRIPTION").orEmpty() != description
         val changedChecked = base == null || !base.first("STATUS")?.value.equals(document.first("STATUS")?.value, ignoreCase = true)
         val changedDue = base == null || parseUtcMillis(base.first("DUE")?.value) != dueAt
         val changedParent = base == null || base.all("RELATED-TO").firstOrNull { it.hasParameter("RELTYPE", "PARENT") }?.value != parentUid()
@@ -558,6 +563,7 @@ class NextcloudSyncAdapter @Inject constructor(
         return SharedItemSnapshot(
             itemId = itemId,
             text = if (changedText || local == null) text else local.text,
+            description = if (changedDescription || local == null) description else local.description,
             checked = if (changedChecked || local == null) checked else local.checked,
             dueAt = if (changedDue || local == null) dueAt else local.dueAt,
             parentItemId = if (changedParent || local == null) parentItemId else local.parentItemId,
@@ -565,6 +571,7 @@ class NextcloudSyncAdapter @Inject constructor(
             lifecycle = ListLifecycle.ACTIVE,
             createdAt = local?.createdAt ?: System.currentTimeMillis(),
             textStamp = if (changedText || local == null) provider else VersionStamp(local.textLogicalClock, local.textStampActorId),
+            descriptionStamp = if (changedDescription || local == null) provider else VersionStamp(local.descriptionLogicalClock, local.descriptionStampActorId),
             checkedStamp = if (changedChecked || local == null) provider else VersionStamp(local.checkedLogicalClock, local.checkedStampActorId),
             dueAtStamp = if (changedDue || local == null) provider else VersionStamp(local.dueAtLogicalClock, local.dueAtStampActorId),
             placementStamp = if (changedParent || changedOrder || local == null) provider else VersionStamp(local.placementLogicalClock, local.placementStampActorId),
@@ -588,6 +595,7 @@ class NextcloudSyncAdapter @Inject constructor(
     private fun ListItemEntity.toSnapshot(lifecycle: ListLifecycle, stamp: VersionStamp) = SharedItemSnapshot(
         itemId = itemId,
         text = text,
+        description = description,
         checked = checked,
         dueAt = dueAt,
         parentItemId = parentItemId,
@@ -595,6 +603,7 @@ class NextcloudSyncAdapter @Inject constructor(
         lifecycle = lifecycle,
         createdAt = createdAt,
         textStamp = stamp,
+        descriptionStamp = stamp,
         checkedStamp = stamp,
         dueAtStamp = stamp,
         placementStamp = stamp,

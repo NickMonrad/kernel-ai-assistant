@@ -47,6 +47,8 @@ data class SharedItemSnapshot(
     val dueAtStamp: VersionStamp,
     val placementStamp: VersionStamp,
     val lifecycleStamp: VersionStamp,
+    val description: String = "",
+    val descriptionStamp: VersionStamp = VersionStamp(0L, ""),
 )
 
 /** Per-actor delivery position for one collection, carried so the receiver need not replay it. */
@@ -86,12 +88,12 @@ data class SharedCollectionSnapshot(
     ).joinToString(FIELD.toString())
 
     companion object {
-        const val PAYLOAD_FORMAT_VERSION = 1
+        const val PAYLOAD_FORMAT_VERSION = 2
         private const val FIELD_COUNT = 11
 
         fun decode(raw: String): SharedCollectionSnapshot {
             val fields = raw.split(FIELD)
-            if (fields.size != FIELD_COUNT || fields[0] != PAYLOAD_FORMAT_VERSION.toString()) {
+            if (fields.size != FIELD_COUNT || fields[0] !in setOf("1", PAYLOAD_FORMAT_VERSION.toString())) {
                 fail(ListPackageFailure.MALFORMED, "Unsupported shared Lists payload")
             }
             val snapshot = SharedCollectionSnapshot(
@@ -116,7 +118,8 @@ data class SharedCollectionSnapshot(
     }
 }
 
-private const val ITEM_ENTRY_FIELD_COUNT = 18
+private const val ITEM_ENTRY_FIELD_COUNT_V1 = 18
+private const val ITEM_ENTRY_FIELD_COUNT_V2 = 21
 private const val FIELD = '|'
 private const val ENTRY = ';'
 private const val ITEM_FIELD = ':'
@@ -140,11 +143,14 @@ private fun encodeItemEntry(item: SharedItemSnapshot): String = listOf(
     item.placementStamp.actorId.encodeToken(),
     item.lifecycleStamp.logicalClock.toString(),
     item.lifecycleStamp.actorId.encodeToken(),
+    item.description.encodeToken(),
+    item.descriptionStamp.logicalClock.toString(),
+    item.descriptionStamp.actorId.encodeToken(),
 ).joinToString(ITEM_FIELD.toString())
 
 private fun decodeItemEntry(entry: String): SharedItemSnapshot {
     val fields = entry.split(ITEM_FIELD)
-    if (fields.size != ITEM_ENTRY_FIELD_COUNT) {
+    if (fields.size != ITEM_ENTRY_FIELD_COUNT_V1 && fields.size != ITEM_ENTRY_FIELD_COUNT_V2) {
         fail(ListPackageFailure.MALFORMED, "Unsupported shared Lists item payload")
     }
     return SharedItemSnapshot(
@@ -161,6 +167,11 @@ private fun decodeItemEntry(entry: String): SharedItemSnapshot {
         dueAtStamp = VersionStamp(fields[12].requireLong("dueAtLogicalClock"), fields[13].optionalToken()),
         placementStamp = VersionStamp(fields[14].requireLong("placementLogicalClock"), fields[15].optionalToken()),
         lifecycleStamp = VersionStamp(fields[16].requireLong("lifecycleLogicalClock"), fields[17].optionalToken()),
+        description = fields.getOrNull(18)?.optionalToken().orEmpty(),
+        descriptionStamp = VersionStamp(
+            fields.getOrNull(19)?.requireLong("descriptionLogicalClock") ?: 0L,
+            fields.getOrNull(20)?.optionalToken().orEmpty(),
+        ),
     )
 }
 

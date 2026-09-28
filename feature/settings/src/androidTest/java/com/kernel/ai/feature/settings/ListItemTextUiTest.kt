@@ -35,6 +35,21 @@ class ListItemTextUiTest {
     }
 
     @Test
+    fun multilineDescriptionStillOpensStoredUrl() {
+        var openedUrl: String? = null
+        showItemText(
+            text = "Description\nhttps://example.com/a?query=full",
+            onUriOpened = { openedUrl = it },
+        )
+
+        composeTestRule
+            .onNodeWithText("Description\nhttps://example.com/a?query=full")
+            .performTouchInput { click(center) }
+
+        assertEquals("https://example.com/a?query=full", openedUrl)
+    }
+
+    @Test
     fun multiSelectPlainTextTapRoutesToSelection() {
         var selected = false
         showItemText(

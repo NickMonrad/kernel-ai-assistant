@@ -53,8 +53,9 @@ Synchronization is triggered by local changes, app-active refresh, manual refres
 
 ## VTODO mapping
 
-`SUMMARY`, `STATUS`, `DUE`, `RELATED-TO;RELTYPE=PARENT`, and
-`X-JANDAL-ORDER` map to item text, checked state, due time, hierarchy, and ordering.
+`SUMMARY`, `DESCRIPTION`, `STATUS`, `DUE`, `RELATED-TO;RELTYPE=PARENT`, and
+`X-JANDAL-ORDER` map to item text, optional multiline description, checked state, due time,
+hierarchy, and ordering. An empty local description removes `DESCRIPTION` on push.
 Unknown VTODO properties and unrelated relationships are retained from the last remote
 representation when Jandal updates a task. Remote deletion creates a Jandal tombstone;
 explicit local restore publishes the task again with an `If-None-Match: *` precondition.

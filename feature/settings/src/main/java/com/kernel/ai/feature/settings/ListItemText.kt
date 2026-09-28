@@ -105,6 +105,7 @@ internal fun ListItemText(
     color: Color,
     modifier: Modifier = Modifier,
     activateLinks: Boolean = true,
+    maxLines: Int = 3,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -139,7 +140,7 @@ internal fun ListItemText(
             )
         },
         style = style.copy(color = color),
-        maxLines = 3,
+        maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { layoutResult = it },
     )

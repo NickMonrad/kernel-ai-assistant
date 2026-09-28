@@ -26,6 +26,8 @@ data class ListItemEntity(
     /** Local FK; never leaves the device as identity. */
     val listId: Long,
     val text: String,
+    /** Optional user-authored multiline content kept independently from the item title. */
+    val description: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val checked: Boolean = false,
@@ -40,6 +42,8 @@ data class ListItemEntity(
     val orderKey: String = "0",
     val textLogicalClock: Long = 0L,
     val textStampActorId: String = "",
+    val descriptionLogicalClock: Long = 0L,
+    val descriptionStampActorId: String = "",
     val checkedLogicalClock: Long = 0L,
     val checkedStampActorId: String = "",
     val dueAtLogicalClock: Long = 0L,

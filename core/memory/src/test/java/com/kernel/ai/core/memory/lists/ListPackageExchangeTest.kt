@@ -157,7 +157,7 @@ class ListPackageExchangeTest {
         )
 
     private fun defaultItems(): List<SharedItemSnapshot> = listOf(
-        item(itemId = "parent", text = "MILK-SECRET", orderKey = "0"),
+        item(itemId = "parent", text = "MILK-SECRET", description = "https://example.com/milk?full=true", orderKey = "0"),
         item(itemId = "child", text = "Bread", parentItemId = "parent", orderKey = "1", checked = true),
         item(itemId = "gone", text = "Eggs", orderKey = "2", lifecycle = ListLifecycle.DELETED),
     )
@@ -165,6 +165,7 @@ class ListPackageExchangeTest {
     private fun item(
         itemId: String = "item",
         text: String = "Item",
+        description: String = "",
         checked: Boolean = false,
         dueAt: Long? = null,
         parentItemId: String? = null,
@@ -175,6 +176,7 @@ class ListPackageExchangeTest {
     ): SharedItemSnapshot = SharedItemSnapshot(
         itemId = itemId,
         text = text,
+        description = description,
         checked = checked,
         dueAt = dueAt,
         parentItemId = parentItemId,

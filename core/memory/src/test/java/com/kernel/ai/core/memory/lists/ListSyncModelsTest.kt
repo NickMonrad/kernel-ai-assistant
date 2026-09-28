@@ -18,6 +18,7 @@ class ListSyncModelsTest {
         val payload = ListChangePayload(
             canonicalTitle = "Groceries",
             text = "Milk",
+            description = "line one\nhttps://example.com/a?x=full",
             checked = false,
             dueAt = null,
             parentItemId = null,
