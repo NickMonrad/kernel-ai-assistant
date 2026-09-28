@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-24 (reconciled shipped Lists/Nextcloud capability and #1559 Arctic embedding migration)
+> **Last updated:** 2026-09-28 (added #1495 Lists long-item/URL usability launch gate)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -38,6 +38,7 @@ Current release gates are deliberately narrow:
 - [#1329](https://github.com/NickMonrad/kernel-ai-assistant/issues/1329) — release-candidate golden-journey validation;
 - [#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447) — ship one higher-quality local TTS option, with current candidate safety/evidence in #1449 and #1485;
 - [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
+- [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) — Lists long-item and hyperlink usability: bounded URL presentation, tappable links, practical long-item editing, and unchanged local/Nextcloud text.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
 
@@ -445,7 +446,7 @@ Room-backed Lists remain the authoritative local state consumed by the UI, skill
 - [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing/ACL management.
 - [#1552](https://github.com/NickMonrad/kernel-ai-assistant/issues/1552) — explicit selected-note sync with Nextcloud Notes.
 
-These follow-ups are not prerequisites for the already-shipped Lists sync capability. Other Lists enhancements such as [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) remain independently tracked. [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) remains open until this documentation reconciliation is reviewed/merged and its remaining acceptance state is checked.
+These follow-ups are not prerequisites for the already-shipped Lists sync capability. [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) is independently tracked as a v0.1 usability gate for long list items and hyperlinks; it does not change the shipped plain-text/Nextcloud sync model. [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) remains open until its remaining acceptance state is checked.
 
 ### Known Issues / Decisions
 
