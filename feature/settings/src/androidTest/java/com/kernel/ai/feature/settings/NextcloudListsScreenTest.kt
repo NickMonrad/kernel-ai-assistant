@@ -211,6 +211,49 @@ class NextcloudListsScreenTest {
         composeTestRule.onNodeWithText("No lists match \"shop\".").assertIsDisplayed()
     }
 
+    @Test
+    fun initialSetupPrefersBrowserSignInAndHidesManualCredentialFields() {
+        var browserConnectClicked = false
+        show(
+            state = NextcloudSettingsState(),
+            onConnectWithNextcloud = { browserConnectClicked = true },
+        )
+
+        composeTestRule.onNodeWithTag("nextcloud_browser_connect_button").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithText("Use app password instead").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_username_field").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nextcloud_app_password_field").assertDoesNotExist()
+        assertEquals(true, browserConnectClicked)
+    }
+
+    @Test
+    fun browserLaunchFailureLeavesManualFallbackFieldsUsable() {
+        show(
+            state = NextcloudSettingsState(
+                manualFallbackVisible = true,
+                busy = false,
+                loginFlowInProgress = false,
+                feedback = "Could not open Nextcloud browser sign-in. Use manual app-password setup.",
+            ),
+        )
+
+        composeTestRule.onNodeWithTag("nextcloud_username_field").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_app_password_field").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_connect_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_login_flow_progress").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nextcloud_browser_connect_button").assertDoesNotExist()
+    }
+
+    @Test
+    fun browserAuthorizationShowsProgressAndCancellationAction() {
+        show(state = NextcloudSettingsState(loginFlowInProgress = true))
+
+        composeTestRule.onNodeWithTag("nextcloud_login_flow_progress").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Waiting for Nextcloud authorization\u2026").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_cancel_login_flow").assertIsDisplayed()
+    }
+
+
     // ── Harness ──────────────────────────────────────────────────────────────────────────────────
 
     private fun show(
@@ -220,6 +263,9 @@ class NextcloudListsScreenTest {
         onResumeSync: (NextcloudListItem) -> Unit = {},
         onAddToJandal: (NextcloudListItem) -> Unit = {},
         onSyncWithNextcloud: (NextcloudListItem) -> Unit = {},
+        onConnectWithNextcloud: () -> Unit = {},
+        onShowManualFallback: () -> Unit = {},
+        onCancelLoginFlow: () -> Unit = {},
     ) {
         composeTestRule.setContent {
             NextcloudListsContent(
@@ -230,6 +276,9 @@ class NextcloudListsScreenTest {
                 onResumeSync = onResumeSync,
                 onAddToJandal = onAddToJandal,
                 onSyncWithNextcloud = onSyncWithNextcloud,
+                onConnectWithNextcloud = onConnectWithNextcloud,
+                onShowManualFallback = onShowManualFallback,
+                onCancelLoginFlow = onCancelLoginFlow,
             )
         }
     }

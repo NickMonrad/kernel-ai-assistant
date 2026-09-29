@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,6 +69,7 @@ fun NextcloudSettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val sections by viewModel.sections.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(pendingListId, pendingListName) {
         viewModel.setPendingList(pendingListId, pendingListName)
@@ -87,6 +89,14 @@ fun NextcloudSettingsScreen(
         }
     }
 
+    LaunchedEffect(state.browserLoginUrl) {
+        state.browserLoginUrl?.let { url ->
+            val opened = openInAppBrowser(context, url)
+            viewModel.consumeBrowserLoginUrl()
+            if (!opened) viewModel.onBrowserLaunchFailed()
+        }
+    }
+
     NextcloudListsContent(
         state = state,
         sections = sections,
@@ -97,6 +107,9 @@ fun NextcloudSettingsScreen(
         onAppPasswordChange = viewModel::setAppPassword,
         onAllowInsecureHttpChange = viewModel::setAllowInsecureHttp,
         onConnect = viewModel::connect,
+        onConnectWithNextcloud = viewModel::connectWithNextcloud,
+        onShowManualFallback = viewModel::showManualFallback,
+        onCancelLoginFlow = viewModel::cancelLoginFlow,
         onEditAccount = viewModel::editAccount,
         onCancelEditing = viewModel::cancelEditing,
         onDisconnect = viewModel::disconnect,
@@ -124,6 +137,9 @@ internal fun NextcloudListsContent(
     onAppPasswordChange: (String) -> Unit = {},
     onAllowInsecureHttpChange: (Boolean) -> Unit = {},
     onConnect: () -> Unit = {},
+    onConnectWithNextcloud: () -> Unit = {},
+    onShowManualFallback: () -> Unit = {},
+    onCancelLoginFlow: () -> Unit = {},
     onEditAccount: () -> Unit = {},
     onCancelEditing: () -> Unit = {},
     onDisconnect: () -> Unit = {},
@@ -179,6 +195,9 @@ internal fun NextcloudListsContent(
                     onAppPasswordChange = onAppPasswordChange,
                     onAllowInsecureHttpChange = onAllowInsecureHttpChange,
                     onConnect = onConnect,
+                    onConnectWithNextcloud = onConnectWithNextcloud,
+                    onShowManualFallback = onShowManualFallback,
+                    onCancelLoginFlow = onCancelLoginFlow,
                     onCancelEditing = onCancelEditing,
                 )
                 state.authenticationFailed -> AccountNeedsAttention(
@@ -301,6 +320,9 @@ private fun CredentialEntry(
     onAppPasswordChange: (String) -> Unit,
     onAllowInsecureHttpChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
+    onConnectWithNextcloud: () -> Unit,
+    onShowManualFallback: () -> Unit,
+    onCancelLoginFlow: () -> Unit,
     onCancelEditing: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -308,8 +330,8 @@ private fun CredentialEntry(
         val pendingName = state.pendingListName
         Text(
             text = if (pendingName == null) {
-                "One self-managed Nextcloud account syncs the lists you choose. The app password " +
-                    "stays in Android Keystore-backed storage."
+                "Sign in through your Nextcloud browser session. Jandal stores only the app-specific " +
+                    "credential returned by Nextcloud."
             } else {
                 "Connect a Nextcloud account to sync \u201C$pendingName\u201D."
             },
@@ -327,25 +349,49 @@ private fun CredentialEntry(
             isError = state.addressError != null,
             supportingText = state.addressError?.let { { Text(it) } },
         )
-        OutlinedTextField(
-            value = state.username,
-            onValueChange = onUsernameChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("nextcloud_username_field"),
-            label = { Text("Username") },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = state.appPassword,
-            onValueChange = onAppPasswordChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("nextcloud_app_password_field"),
-            label = { Text("App password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-        )
+        if (state.loginFlowInProgress) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("nextcloud_login_flow_progress"),
+            ) {
+                CircularProgressIndicator()
+                Text("Waiting for Nextcloud authorization\u2026")
+                OutlinedButton(
+                    onClick = onCancelLoginFlow,
+                    modifier = Modifier.testTag("nextcloud_cancel_login_flow"),
+                ) {
+                    Text("Cancel")
+                }
+            }
+        } else if (state.manualFallbackVisible) {
+            OutlinedTextField(
+                value = state.username,
+                onValueChange = onUsernameChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("nextcloud_username_field"),
+                label = { Text("Username") },
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = state.appPassword,
+                onValueChange = onAppPasswordChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("nextcloud_app_password_field"),
+                label = { Text("App password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+            )
+        } else {
+            TextButton(
+                onClick = onShowManualFallback,
+                modifier = Modifier.testTag("nextcloud_manual_fallback"),
+            ) {
+                Text("Use app password instead")
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = state.allowInsecureHttp,
@@ -368,16 +414,26 @@ private fun CredentialEntry(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.connected != null) {
-                OutlinedButton(onClick = onCancelEditing) { Text("Cancel") }
+        if (!state.loginFlowInProgress) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.connected != null) {
+                    OutlinedButton(onClick = onCancelEditing) { Text("Cancel") }
+                }
+                Button(
+                    onClick = if (state.manualFallbackVisible) onConnect else onConnectWithNextcloud,
+                    enabled = !state.busy,
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                    modifier = Modifier.testTag(
+                        if (state.manualFallbackVisible) {
+                            "nextcloud_connect_button"
+                        } else {
+                            "nextcloud_browser_connect_button"
+                        },
+                    ),
+                ) {
+                    Text(if (state.manualFallbackVisible) "Connect" else "Connect with Nextcloud")
+                }
             }
-            Button(
-                onClick = onConnect,
-                enabled = !state.busy,
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-                modifier = Modifier.testTag("nextcloud_connect_button"),
-            ) { Text("Connect") }
         }
     }
 }
