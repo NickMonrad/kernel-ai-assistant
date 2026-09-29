@@ -588,9 +588,38 @@ class NextcloudSettingsViewModelTest {
 
         assertEquals("https://cloud.example.com", fixture.store.saved?.account?.serverUrl)
         assertEquals("alice", fixture.store.saved?.account?.username)
+        assertEquals("fixture-login-flow-password", fixture.store.saved?.appPassword)
+        assertEquals(1, fixture.store.saveCount)
         assertTrue(viewModel.state.value.connected != null)
         assertFalse(viewModel.state.value.loginFlowInProgress)
         assertFalse(viewModel.state.value.manualFallbackVisible)
+    }
+
+    @Test
+    fun `browser setup keeps returned credentials when discovery fails`() = runTest {
+        val fixture = Fixture(
+            transport = FakeTransport(
+                loginFlowEnabled = true,
+                failureStatus = 401,
+            ),
+        )
+        val viewModel = fixture.viewModel()
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertEquals("https://cloud.example.com", fixture.store.saved?.account?.serverUrl)
+        assertEquals("alice", fixture.store.saved?.account?.username)
+        assertEquals("fixture-login-flow-password", fixture.store.saved?.appPassword)
+        assertEquals(1, fixture.store.saveCount)
+        assertTrue(viewModel.state.value.manualFallbackVisible)
+        assertFalse(viewModel.state.value.loginFlowInProgress)
+        assertEquals(
+            "Nextcloud rejected the credentials. Use a valid app password and username.",
+            viewModel.state.value.feedback,
+        )
+        assertTrue(viewModel.state.value.authenticationFailed)
     }
 
     @Test
@@ -708,6 +737,35 @@ class NextcloudSettingsViewModelTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `contextual browser discovery failure keeps account and list local-only`() = runTest {
+        val shopping = list(7L, "Shopping", "collection-shopping")
+        val fixture = Fixture(
+            lists = MutableStateFlow(listOf(shopping)),
+            transport = FakeTransport(
+                loginFlowEnabled = true,
+                failureStatus = 401,
+            ),
+        )
+        coEvery { fixture.listNameDao.getById(7L) } returns shopping
+        val viewModel = fixture.viewModel()
+        viewModel.setPendingList(7L, "Shopping")
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertEquals("alice", fixture.store.saved?.account?.username)
+        assertEquals(1, fixture.store.saveCount)
+        assertFalse(viewModel.state.value.pendingSetupCompleted)
+        coVerify(exactly = 0) { fixture.collectionBindings.upsert(any()) }
+        assertTrue(fixture.bindings.isEmpty())
+        assertEquals(
+            "Nextcloud rejected the credentials. Use a valid app password and username.",
+            viewModel.state.value.feedback,
+        )
     }
 
     // ── Fixture ──────────────────────────────────────────────────────────────────────────────────

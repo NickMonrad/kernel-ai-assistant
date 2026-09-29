@@ -259,9 +259,18 @@ class NextcloudSettingsViewModel @Inject constructor(
             )
             result.fold(
                 onSuccess = { credentials ->
+                    // Login Flow already validated the returned identity and scope. Persist its
+                    // app password before discovery so a later CalDAV failure does not discard a
+                    // successfully authorized browser account.
+                    adapter.saveAccount(
+                        credentials.account.serverUrl,
+                        credentials.account.username,
+                        credentials.appPassword,
+                        credentials.account.allowInsecureHttp,
+                    )
                     completeConnection(
                         credentials = credentials,
-                        persistCredentials = true,
+                        persistCredentials = false,
                         displayServerUrl = credentials.account.serverUrl,
                         displayUsername = credentials.account.username,
                     )
@@ -329,8 +338,8 @@ class NextcloudSettingsViewModel @Inject constructor(
         }
         discovery.fold(
             onSuccess = { collections ->
-                // Credentials are persisted only after the returned identity passes Login Flow
-                // validation and CalDAV discovery succeeds.
+                // Manually entered credentials are persisted only after CalDAV discovery succeeds,
+                // preserving replacement rollback when validation fails.
                 if (persistCredentials) {
                     requireNotNull(credentials).let {
                         adapter.saveAccount(
