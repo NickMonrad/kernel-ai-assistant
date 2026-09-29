@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-28 (added Lists/Nextcloud usability and sharing launch gates)
+> **Last updated:** 2026-09-29 (made the near-term public execution sequence explicit)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -41,6 +41,18 @@ Current release gates are deliberately narrow:
 - [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) — Lists long-item and hyperlink usability: bounded URL presentation, tappable links, practical long-item editing, and unchanged local/Nextcloud text.
 - [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2: browser-based account authorization as the preferred setup path, with manual app-password entry retained as fallback.
 - [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing management from Jandal for bound Lists, using Nextcloud's existing user/group ACL model.
+
+### Immediate implementation sequence
+
+This is the current engineering execution queue, not a redefinition of the launch gates; [#1014](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) remains authoritative for what blocks the v0.1 release.
+
+1. [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2 — `launch:blocking`
+2. [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud shared-list management — `launch:blocking`
+3. [#1582](https://github.com/NickMonrad/kernel-ai-assistant/issues/1582) — reveal newly created item under active sort — `launch:pre`
+4. [#1581](https://github.com/NickMonrad/kernel-ai-assistant/issues/1581) — hierarchy drag targeting + collapsible parent groups — `launch:pre`
+5. Return to the remaining #1014 release-evidence / Play-readiness work as appropriate.
+
+This sequence may be interrupted only by a newly discovered release blocker or regression.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
 
