@@ -626,6 +626,78 @@ class NextcloudCalDavClientTest {
     }
 
     @Test
+    fun `failed invite propstat is not reported as an empty share list in either order`() = runTest {
+        val propstats = listOf(
+            """
+                <d:propstat><d:prop><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+                <d:propstat><d:prop><oc:invite/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
+            """.trimIndent(),
+            """
+                <d:propstat><d:prop><oc:invite/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
+                <d:propstat><d:prop><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent(),
+        )
+
+        propstats.forEach { splitPropstats ->
+            val error = runCatching {
+                NextcloudCalDavClient(
+                    credentials(),
+                    FakeTransport(
+                        mapOf(
+                            "PROPFIND https://cloud.example/tasks/" to response(
+                                """
+                                <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+                                    <d:response><d:href>/tasks/</d:href>$splitPropstats</d:response>
+                                </d:multistatus>
+                                """.trimIndent(),
+                            ),
+                        ),
+                    ),
+                ).listShares("https://cloud.example/tasks/")
+            }.exceptionOrNull()
+
+            assertEquals(NextcloudFailure.Code.PERMISSION, (error as NextcloudConnectionException).code)
+        }
+    }
+
+    @Test
+    fun `writable capability consumes successful permission properties and fails closed on denied ones`() = runTest {
+        val cases = listOf(
+            """
+                <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+                <d:propstat><d:prop><d:current-user-privilege-set/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
+            """.trimIndent() to false,
+            """
+                <d:propstat><d:prop><d:current-user-privilege-set/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
+                <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to false,
+            """
+                <d:propstat><d:prop><oc:read-only/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
+                <d:propstat><d:prop><oc:invite/><d:current-user-privilege-set><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to true,
+        )
+
+        cases.forEach { (splitPropstats, expectedWritable) ->
+            val listing = NextcloudCalDavClient(
+                credentials(),
+                FakeTransport(
+                    mapOf(
+                        "PROPFIND https://cloud.example/tasks/" to response(
+                            """
+                            <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+                                <d:response><d:href>/tasks/</d:href>$splitPropstats</d:response>
+                            </d:multistatus>
+                            """.trimIndent(),
+                        ),
+                    ),
+                ),
+            ).listShares("https://cloud.example/tasks/")
+
+            assertEquals(expectedWritable, listing.writable)
+        }
+    }
+
+    @Test
     fun `zero read-only property keeps writable collection writable`() = runTest {
         val transport = FakeTransport(
             mapOf(

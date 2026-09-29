@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory.repository
 import androidx.room.withTransaction
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ListActorStateDao
 import com.kernel.ai.core.memory.dao.ListAppliedChangeDao
@@ -36,6 +37,9 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class ListMutationBlockedException :
+    IllegalStateException("This Nextcloud list is read-only; content changes are unavailable.")
+
 @Singleton
 class ListMutationRepository @Inject constructor(
     private val database: KernelDatabase,
@@ -46,6 +50,7 @@ class ListMutationRepository @Inject constructor(
     private val changeDao: ListChangeDao,
     private val sourceDao: ListSourceSequenceDao,
     private val checkpointDao: ListCheckpointDao,
+    private val nextcloudBindingDao: NextcloudCollectionBindingDao,
 ) {
     suspend fun pendingChanges(): List<ListChange> = changeDao.getPending().map { it.toModel() }
     suspend fun acknowledgePushed(changeIds: List<String>) = database.withTransaction {
@@ -96,14 +101,19 @@ class ListMutationRepository @Inject constructor(
 
     suspend fun createCollectionWithItems(title: String, items: List<String>): Long = database.withTransaction {
         val listId = createCollectionInternal(title)
+        requireContentMutationAllowed(requireList(listId).collectionId)
         items.forEach { addItemInternal(listId, it, null, false, null) }
         listId
     }
 
     suspend fun addItem(listId: Long, text: String, dueAt: Long? = null, notificationTime: Long? = null): Long =
-        database.withTransaction { addItemInternal(listId, text, dueAt, false, notificationTime) }
+        database.withTransaction {
+            requireContentMutationAllowed(requireList(listId).collectionId)
+            addItemInternal(listId, text, dueAt, false, notificationTime)
+        }
 
     suspend fun addItems(listId: Long, texts: List<String>): List<Long> = database.withTransaction {
+        requireContentMutationAllowed(requireList(listId).collectionId)
         texts.map { addItemInternal(listId, it, null, false, null) }
     }
     suspend fun setItemChecked(itemId: Long, checked: Boolean) =
@@ -112,6 +122,10 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemsChecked(itemIds: List<Long>, checked: Boolean): CheckedStateMutation = database.withTransaction {
         if (itemIds.isEmpty()) return@withTransaction CheckedStateMutation()
         val requested = itemIds.distinct().map { requireItem(it) }
+        requested.filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            .map(ListItemEntity::collectionId)
+            .distinct()
+            .forEach { collectionId -> requireContentMutationAllowed(collectionId) }
         val activeByList = requested.groupBy { it.listId }.mapValues { (listId, _) ->
             listItemDao.getAllByListUnordered(listId)
                 .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
@@ -173,6 +187,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemText(itemId: Long, text: String) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.text == text || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(text = text, updatedAt = System.currentTimeMillis(), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId))
         touchList(item.listId)
@@ -182,6 +197,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemDescription(itemId: Long, description: String) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.description == description || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(
             item.copy(
@@ -204,6 +220,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemDueAt(itemId: Long, dueAt: Long?) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.dueAt == dueAt || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(dueAt = dueAt, updatedAt = System.currentTimeMillis(), dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId))
         touchList(item.listId)
@@ -221,6 +238,8 @@ class ListMutationRepository @Inject constructor(
     ) = database.withTransaction {
         var item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        val contentChanged = item.text != text || item.description != description || item.dueAt != dueAt
+        if (contentChanged) requireContentMutationAllowed(item.collectionId)
         var parentChanged = false
         if (item.text != text) {
             val stamp = nextStamp(item.collectionId)
@@ -270,6 +289,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
         require(item.lifecycle == ListLifecycle.ACTIVE.name) { "Item is not active" }
+        requireContentMutationAllowed(item.collectionId)
         applyPlacementInternal(item, parentItemId, orderKey)
     }
 
@@ -294,6 +314,9 @@ class ListMutationRepository @Inject constructor(
         precedingRowItemId: String,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle == ListLifecycle.ACTIVE.name) requireContentMutationAllowed(item.collectionId)
+        baseline?.let { requireContentMutationAllowed(requireList(it.listId).collectionId) }
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
         materialised + makeSubItemInternal(itemId, precedingRowItemId)
@@ -368,6 +391,9 @@ class ListMutationRepository @Inject constructor(
         itemId: Long,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle == ListLifecycle.ACTIVE.name) requireContentMutationAllowed(item.collectionId)
+        baseline?.let { requireContentMutationAllowed(requireList(it.listId).collectionId) }
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
         materialised + moveToTopLevelInternal(itemId)
@@ -429,6 +455,7 @@ class ListMutationRepository @Inject constructor(
         visibleRows: List<VisibleHierarchyRow>,
     ): CheckedStateMutation = database.withTransaction {
         if (visibleRows.isEmpty()) return@withTransaction CheckedStateMutation()
+        requireContentMutationAllowed(requireList(listId).collectionId)
         val active = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val byRowId = active.associateBy { it.id }
         val effectiveTopLevelItemIds = deriveHierarchy(active).topLevelItemIds.toSet()
@@ -538,6 +565,7 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {
+        requireContentMutationAllowed(requireList(listId).collectionId)
         val items = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
         val topLevel = hierarchy.topLevelItemIds.mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
@@ -552,6 +580,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun restoreItem(itemId: Long): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.DELETED.name) return@withTransaction CheckedStateMutation()
+        requireContentMutationAllowed(item.collectionId)
         val parentBefore = item.parentItemId
             ?.let { listItemDao.getByItemId(it) }
             ?.takeIf { it.lifecycle == ListLifecycle.ACTIVE.name }
@@ -598,6 +627,9 @@ class ListMutationRepository @Inject constructor(
         val active = listItemDao.getAllByListUnordered(items.first().listId)
             .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         require(items.all { it.listId == items.first().listId }) { "Items do not belong to one list" }
+        if (items.any { it.lifecycle == ListLifecycle.ACTIVE.name }) {
+            requireContentMutationAllowed(items.first().collectionId)
+        }
         val hierarchy = deriveHierarchy(active)
         val targets = items.filter { it.lifecycle == ListLifecycle.ACTIVE.name }.map { it.itemId }.toSet()
         val byId = active.associateBy { it.itemId }
@@ -633,7 +665,9 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteCollection(listId: Long) = database.withTransaction {
-        deleteCollectionInternal(requireList(listId))
+        val list = requireList(listId)
+        requireContentMutationAllowed(list.collectionId)
+        deleteCollectionInternal(list)
     }
 
     private suspend fun deleteCollectionInternal(list: ListNameEntity) {
@@ -646,6 +680,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun restoreCollection(listId: Long) = database.withTransaction {
         val list = requireList(listId)
         if (list.lifecycle != ListLifecycle.DELETED.name) return@withTransaction
+        requireContentMutationAllowed(list.collectionId)
         restoreCollectionInternal(list)
     }
 
@@ -653,6 +688,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun renameCollection(listId: Long, title: String) = database.withTransaction {
         val list = requireList(listId)
         if (list.canonicalTitle == title || list.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(list.collectionId)
         val stamp = nextStamp(list.collectionId)
         val name = uniqueDisplayName(title, list.id)
         listNameDao.upsert(list.copy(name = name, canonicalTitle = title, localDisplayAlias = name.takeIf { it != title }, updatedAt = System.currentTimeMillis(), titleLogicalClock = stamp.logicalClock, titleStampActorId = stamp.actorId))
@@ -660,7 +696,10 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteCollectionByName(name: String) = database.withTransaction {
-        listNameDao.getByNameAnyLifecycle(name)?.let { deleteCollectionInternal(it) }
+        listNameDao.getByNameAnyLifecycle(name)?.let { list ->
+            requireContentMutationAllowed(list.collectionId)
+            deleteCollectionInternal(list)
+        }
     }
 
     suspend fun applyRemote(change: ListChange) = database.withTransaction {
@@ -1343,6 +1382,12 @@ class ListMutationRepository @Inject constructor(
     }
     private suspend fun requireList(id: Long): ListNameEntity = listNameDao.getById(id) ?: error("Unknown list: $id")
     private suspend fun requireItem(id: Long): ListItemEntity = listItemDao.getById(id) ?: error("Unknown item: $id")
+
+    private suspend fun requireContentMutationAllowed(collectionId: String) {
+        if (nextcloudBindingDao.get(collectionId)?.remoteWritable == false) {
+            throw ListMutationBlockedException()
+        }
+    }
 
     private suspend fun uniqueDisplayName(title: String, exceptId: Long? = null, stableLabel: String? = null): String {
         if (listNameDao.getByNameAnyLifecycle(title)?.let { it.id != exceptId } != true) return title

@@ -285,7 +285,12 @@ class NextcloudCalDavClient(
         ).responses.firstOrNull()
             ?: throw malformed("Nextcloud returned no task collection metadata")
         val invite = response.elements("invite").firstOrNull()
-        val sharees = invite?.elements("user").orEmpty() + invite?.elements("sharee").orEmpty()
+        val sharees = if (invite != null) {
+            invite.elements("user") + invite.elements("sharee")
+        } else {
+            response.failedPropertyStatus("invite")?.let { throw propertyFailure(it) }
+            emptyList()
+        }
         val shares = sharees.mapNotNull { sharee ->
             val principal = sharee.descendantText("href")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
@@ -651,10 +656,23 @@ class NextcloudCalDavClient(
         "Nextcloud rejected the credentials. Use a valid app password and username.",
     )
 
-    private fun permissionFailure() = NextcloudConnectionException(
+    private fun permissionFailure(
+        message: String = "Nextcloud denied write access to this task collection. Check its permissions and try again.",
+    ) = NextcloudConnectionException(
         NextcloudFailure.Code.PERMISSION,
-        "Nextcloud denied write access to this task collection. Check its permissions and try again.",
+        message,
     )
+
+    private fun sharingUnsupportedFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.DISCOVERY,
+        "This Nextcloud server does not expose task-list sharing through CalDAV.",
+    )
+    private fun propertyFailure(status: Int) = when (status) {
+        401 -> authenticationFailure()
+        403 -> permissionFailure("Nextcloud denied access to task-list sharing metadata.")
+        404, 405, 501 -> sharingUnsupportedFailure()
+        else -> permissionFailure("Nextcloud refused task-list sharing metadata.")
+    }
 
     private fun etagForHeader(etag: String): String {
         val value = etag.trim()
@@ -673,18 +691,47 @@ class NextcloudCalDavClient(
     private fun malformed(message: String) = NextcloudConnectionException(NextcloudFailure.Code.MALFORMED_RESPONSE, message)
 
     private data class MultiStatus(val responses: List<Response>)
+    private data class Propstat(
+        val status: Int,
+        val properties: List<Element>,
+    )
     private data class Response(
         val href: String?,
-        val properties: List<Element>,
+        val propstats: List<Propstat>,
     ) {
-        fun firstText(localName: String): String? = properties.firstOrNull { it.localName == localName }?.textContent?.trim()
-        fun elements(localName: String): List<Element> = properties.filter { it.localName == localName }
+        private val successfulProperties: List<Element>
+            get() = propstats.filter { it.status in 200..299 }.flatMap { it.properties }
+
+        fun firstText(localName: String): String? =
+            successfulProperties.firstOrNull { it.localName == localName }?.textContent?.trim()
+
+        fun elements(localName: String): List<Element> =
+            successfulProperties.filter { it.localName == localName }
+
         fun writable(): Boolean {
             val readOnly = elements("read-only").firstOrNull()
             if (readOnly != null && readOnly.booleanValue()) return false
-            val privileges = elements("current-user-privilege-set").firstOrNull() ?: return true
-            return privileges.hasDescendant("write") || privileges.hasDescendant("write-content")
+
+            val privileges = elements("current-user-privilege-set").firstOrNull()
+            if (privileges != null) {
+                return privileges.hasDescendant("write") || privileges.hasDescendant("write-content")
+            }
+
+            // A failed permission property is not equivalent to an absent optional property. Do not
+            // fail open when the server explicitly refused the capability metadata.
+            if (propertyFailed("read-only") || propertyFailed("current-user-privilege-set")) return false
+            return true
         }
+
+        fun failedPropertyStatus(localName: String): Int? =
+            propstats
+                .filter { it.status !in 200..299 }
+                .firstOrNull { propstat -> propstat.properties.any { it.localName == localName } }
+                ?.status
+
+        private fun propertyFailed(localName: String): Boolean =
+            failedPropertyStatus(localName) != null
+
     }
 
 
@@ -695,17 +742,21 @@ class NextcloudCalDavClient(
             val nodes = document.getElementsByTagNameNS(DAV_NS, "response")
             return MultiStatus((0 until nodes.length).map { index ->
                 val element = nodes.item(index) as Element
-                val props = mutableListOf<Element>()
-                val propNodes = element.getElementsByTagNameNS(DAV_NS, "prop")
-                if (propNodes.length > 0) {
-                    val children = propNodes.item(0).childNodes
-                    for (childIndex in 0 until children.length) {
-                        (children.item(childIndex) as? Element)?.let(props::add)
-                    }
+                val propstats = element.elements("propstat").map { propstat ->
+                    // Preserve compatibility with existing servers/fixtures that omit the optional status.
+                    val status = propstat.elements("status").firstOrNull()?.textContent
+                        ?.trim()
+                        ?.let(::parseHttpStatus)
+                        ?: 200
+                    val prop = propstat.elements("prop").firstOrNull()
+                        ?: throw malformed("Nextcloud returned a propstat without properties")
+                    val properties = (0 until prop.childNodes.length)
+                        .mapNotNull { childIndex -> prop.childNodes.item(childIndex) as? Element }
+                    Propstat(status, properties)
                 }
                 Response(
                     href = element.elements("href").firstOrNull()?.textContent?.trim(),
-                    properties = props,
+                    propstats = propstats,
                 )
             })
         } catch (error: NextcloudFailure) {
@@ -714,6 +765,14 @@ class NextcloudCalDavClient(
             throw malformed("Nextcloud returned malformed CalDAV XML")
         }
     }
+
+    private fun parseHttpStatus(status: String): Int =
+        Regex("""^HTTP/\d(?:\.\d)?\s+(\d{3})(?:\s|$)""")
+            .find(status)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+            ?: throw malformed("Nextcloud returned a propstat with an invalid status")
 
     private fun MultiStatus.firstHref(vararg names: String): String? = responses.asSequence()
         .flatMap { response -> names.asSequence().mapNotNull { response.firstText(it) } }

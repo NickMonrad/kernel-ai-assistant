@@ -40,6 +40,7 @@ class ListMutationRepositoryAndroidTest {
             changeDao = database.listChangeDao(),
             sourceDao = database.listSourceSequenceDao(),
             checkpointDao = database.listCheckpointDao(),
+            nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
         )
     }
 
@@ -1058,6 +1059,41 @@ class ListMutationRepositoryAndroidTest {
         assertTrue(database.listItemDao().getById(oldParentId)!!.checked)
         assertTrue(database.listItemDao().getById(newParentId)!!.checked)
         assertEquals(newParent.itemId, database.listItemDao().getById(childId)!!.parentItemId)
+    }
+
+    @Test
+    fun `read-only bound collections reject local content changes but accept remote apply`() = runBlocking {
+        val listId = repository.createCollection("Shared")
+        val itemId = repository.addItem(listId, "Local")
+        val list = requireNotNull(database.listNameDao().getById(listId))
+        database.nextcloudCollectionBindingDao().upsert(
+            com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = list.collectionId,
+                remoteHref = "https://cloud.example/tasks/shared/",
+                remoteTitle = list.canonicalTitle,
+                remoteEtag = null,
+                remoteLogicalClock = 0L,
+                updatedAt = 0L,
+                remoteWritable = false,
+            ),
+        )
+
+        assertThrows(ListMutationBlockedException::class.java) {
+            runBlocking { repository.setItemText(itemId, "Blocked") }
+        }
+        assertEquals("Local", database.listItemDao().getById(itemId)?.text)
+
+        repository.applyRemote(
+            change(
+                collectionId = list.collectionId,
+                targetId = database.listItemDao().getById(itemId)!!.itemId,
+                actorId = "nextcloud-caldav",
+                sourceSequence = 1L, logicalClock = 100L,
+                operation = ListChangeOperation.SET_ITEM_TEXT,
+                payload = ListChangePayload(text = "Remote"),
+            ),
+        )
+        assertEquals("Remote", database.listItemDao().getById(itemId)?.text)
     }
 
     /** The effective projection order the user sees: each top-level row followed by its children. */

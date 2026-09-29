@@ -258,6 +258,9 @@ fun ListItemsScreen(
         if (isRemoteReadOnly) {
             viewModel.exitItemMultiSelect()
             editingItem = null
+            showAddDialog = false
+            showRenameDialog = false
+            showItemBulkDeleteDialog = false
         }
     }
     val hierarchyEditingEnabled = isHierarchyEditingEnabled(
