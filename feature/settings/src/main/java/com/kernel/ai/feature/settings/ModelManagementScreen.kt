@@ -540,15 +540,19 @@ private fun formatBytes(bytes: Long): String {
     }
 }
 
-internal fun openInAppBrowser(context: android.content.Context, url: String) {
-    val uri = url.toUri()
+internal fun openInAppBrowser(context: android.content.Context, url: String): Boolean {
+    val uri = runCatching { url.toUri() }.getOrNull() ?: return false
     val customTabsIntent = CustomTabsIntent.Builder().build()
-    runCatching {
+    return runCatching {
         customTabsIntent.launchUrl(context, uri)
+        true
     }.getOrElse {
-        val fallbackIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(fallbackIntent)
+        runCatching {
+            val fallbackIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallbackIntent)
+            true
+        }.getOrDefault(false)
     }
 }

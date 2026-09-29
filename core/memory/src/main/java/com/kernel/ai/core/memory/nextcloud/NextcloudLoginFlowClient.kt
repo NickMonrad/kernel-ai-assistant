@@ -61,6 +61,7 @@ internal class NextcloudLoginFlowClient(
             method = "POST",
             url = startUrl,
             headers = JSON_HEADERS,
+            body = "",
         )
         when {
             startResponse.status == 404 || startResponse.status == 405 || startResponse.status == 501 ->
@@ -212,16 +213,16 @@ internal class NextcloudLoginFlowClient(
     }
 
     private fun pathWithinRequestedBase(from: String, to: String): Boolean {
-        val basePath = runCatching { URI(from).path }.getOrNull()
-            ?.trimEnd('/')
-            ?.ifEmpty { "/" }
-            ?: return false
-        val targetPath = runCatching { URI(to).path }.getOrNull()
-            ?.trimEnd('/')
-            ?.ifEmpty { "/" }
-            ?: return false
+        val basePath = canonicalPath(from) ?: return false
+        val targetPath = canonicalPath(to) ?: return false
         return basePath == "/" || targetPath == basePath || targetPath.startsWith("$basePath/")
     }
+
+    private fun canonicalPath(url: String): String? =
+        runCatching { URI(url).normalize().path }
+            .getOrNull()
+            ?.trimEnd('/')
+            ?.ifEmpty { "/" }
 
     private fun origin(url: String): LoginFlowOrigin? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null

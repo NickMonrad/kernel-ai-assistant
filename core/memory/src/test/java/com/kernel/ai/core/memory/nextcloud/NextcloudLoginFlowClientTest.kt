@@ -1,8 +1,12 @@
 package com.kernel.ai.core.memory.nextcloud
 
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -47,6 +51,41 @@ class NextcloudLoginFlowClientTest {
         assertEquals(POLL_URL, transport.requests[2].url)
         assertEquals("application/x-www-form-urlencoded", transport.requests[1].headers["Content-Type"])
         assertTrue(transport.requests[1].body?.startsWith("token=") == true)
+    }
+
+
+    @Test
+    fun `initiation sends a real zero length POST body`() = runTest {
+        MockWebServer().use { server ->
+            val serverUrl = server.url("/nextcloud").toString().removeSuffix("/")
+            val loginUrl = server.url("/nextcloud/login/v2/flow").toString()
+            val pollUrl = server.url("/nextcloud/login/v2/poll").toString()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """{"poll":{"token":"fixture-token","endpoint":"$pollUrl"},"login":"$loginUrl"}""",
+                    ),
+            )
+            val authentication = launch {
+                NextcloudLoginFlowClient(
+                    transport = OkHttpCalDavTransport(),
+                    timeoutMillis = 10_000L,
+                    pollIntervalMillis = 1_000L,
+                ).authenticate(serverUrl, allowInsecureHttp = true)
+            }
+            runCurrent()
+
+            val initiation = server.takeRequest(1L, TimeUnit.SECONDS)
+                ?: error("Login Flow initiation request was not received")
+            authentication.cancel()
+            authentication.join()
+
+            assertEquals("POST", initiation.method)
+            assertEquals(0L, initiation.body.size)
+            assertEquals("", initiation.body.readUtf8())
+        }
     }
 
     @Test
@@ -135,6 +174,26 @@ class NextcloudLoginFlowClientTest {
                 "$LOGIN_SERVER/index.php/login/v2",
                 response(
                     """{"poll":{"token":"flow-token","endpoint":"https://cloud.example/other/login/v2/poll"},"login":"$LOGIN_URL"}""",
+                ),
+            )
+        }
+
+        val error = runCatching {
+            NextcloudLoginFlowClient(transport, timeoutMillis = 100L).authenticate(LOGIN_SERVER)
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT, (error as NextcloudFailure).code)
+        assertEquals(1, transport.requests.size)
+    }
+
+    @Test
+    fun `dot segment escape outside the requested base path is rejected`() = runTest {
+        val transport = QueueTransport().apply {
+            enqueue(
+                "POST",
+                "$LOGIN_SERVER/index.php/login/v2",
+                response(
+                    """{"poll":{"token":"flow-token","endpoint":"https://cloud.example/nextcloud/../outside/login/v2/poll"},"login":"$LOGIN_URL"}""",
                 ),
             )
         }

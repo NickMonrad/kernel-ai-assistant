@@ -227,12 +227,20 @@ class NextcloudListsScreenTest {
     }
 
     @Test
-    fun manualFallbackShowsUsernameAndAppPasswordFields() {
-        show(state = NextcloudSettingsState(manualFallbackVisible = true))
+    fun browserLaunchFailureLeavesManualFallbackFieldsUsable() {
+        show(
+            state = NextcloudSettingsState(
+                manualFallbackVisible = true,
+                busy = false,
+                loginFlowInProgress = false,
+                feedback = "Could not open Nextcloud browser sign-in. Use manual app-password setup.",
+            ),
+        )
 
         composeTestRule.onNodeWithTag("nextcloud_username_field").assertIsDisplayed()
         composeTestRule.onNodeWithTag("nextcloud_app_password_field").assertIsDisplayed()
         composeTestRule.onNodeWithTag("nextcloud_connect_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_login_flow_progress").assertDoesNotExist()
         composeTestRule.onNodeWithTag("nextcloud_browser_connect_button").assertDoesNotExist()
     }
 

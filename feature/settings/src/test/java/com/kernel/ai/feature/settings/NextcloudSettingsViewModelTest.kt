@@ -620,6 +620,35 @@ class NextcloudSettingsViewModelTest {
     }
 
     @Test
+    fun `browser launch failure cancels flow and exposes manual fallback`() = runTest {
+        val fixture = Fixture(
+            transport = FakeTransport(
+                loginFlowEnabled = true,
+                loginPollResponses = ArrayDeque(
+                    listOf(CalDavResponse(404, emptyMap(), "", "https://cloud.example.com/login/v2/poll")),
+                ),
+            ),
+        )
+        val viewModel = fixture.viewModel()
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        runCurrent()
+        viewModel.onBrowserLaunchFailed()
+        runCurrent()
+
+        assertFalse(viewModel.state.value.busy)
+        assertFalse(viewModel.state.value.loginFlowInProgress)
+        assertNull(viewModel.state.value.browserLoginUrl)
+        assertTrue(viewModel.state.value.manualFallbackVisible)
+        assertEquals(
+            "Could not open Nextcloud browser sign-in. Use manual app-password setup.",
+            viewModel.state.value.feedback,
+        )
+        assertNull(fixture.store.saved)
+    }
+
+    @Test
     fun `unsupported browser flow exposes manual fallback without saving credentials`() = runTest {
         val fixture = Fixture(transport = FakeTransport(loginStartStatus = 404))
         val viewModel = fixture.viewModel()

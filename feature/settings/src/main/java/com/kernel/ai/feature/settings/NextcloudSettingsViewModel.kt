@@ -303,6 +303,19 @@ class NextcloudSettingsViewModel @Inject constructor(
         _state.value = _state.value.copy(browserLoginUrl = null)
     }
 
+    /** Ends Login Flow when neither Custom Tabs nor the system browser can open the URL. */
+    fun onBrowserLaunchFailed() {
+        loginFlowJob?.cancel()
+        loginFlowJob = null
+        _state.value = _state.value.copy(
+            busy = false,
+            loginFlowInProgress = false,
+            browserLoginUrl = null,
+            manualFallbackVisible = true,
+            feedback = "Could not open Nextcloud browser sign-in. Use manual app-password setup.",
+        )
+    }
+
     private suspend fun completeConnection(
         credentials: NextcloudAccountCredentials?,
         persistCredentials: Boolean,

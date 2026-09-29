@@ -91,8 +91,9 @@ fun NextcloudSettingsScreen(
 
     LaunchedEffect(state.browserLoginUrl) {
         state.browserLoginUrl?.let { url ->
-            openInAppBrowser(context, url)
+            val opened = openInAppBrowser(context, url)
             viewModel.consumeBrowserLoginUrl()
+            if (!opened) viewModel.onBrowserLaunchFailed()
         }
     }
 
