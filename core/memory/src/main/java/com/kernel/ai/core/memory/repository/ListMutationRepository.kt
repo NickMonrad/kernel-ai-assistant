@@ -179,6 +179,28 @@ class ListMutationRepository @Inject constructor(
         recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = text))
     }
 
+    suspend fun setItemDescription(itemId: Long, description: String) = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.description == description || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        val stamp = nextStamp(item.collectionId)
+        listItemDao.upsert(
+            item.copy(
+                description = description,
+                updatedAt = System.currentTimeMillis(),
+                descriptionLogicalClock = stamp.logicalClock,
+                descriptionStampActorId = stamp.actorId,
+            ),
+        )
+        touchList(item.listId)
+        recordLocal(
+            item.collectionId,
+            item.itemId,
+            stamp,
+            ListChangeOperation.SET_ITEM_DESCRIPTION,
+            ListChangePayload(description = description),
+        )
+    }
+
     suspend fun setItemDueAt(itemId: Long, dueAt: Long?) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.dueAt == dueAt || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
@@ -189,7 +211,14 @@ class ListMutationRepository @Inject constructor(
     }
 
 
-    suspend fun updateItem(itemId: Long, text: String, dueAt: Long?, favourite: Boolean, notificationTime: Long?) = database.withTransaction {
+    suspend fun updateItem(
+        itemId: Long,
+        text: String,
+        dueAt: Long?,
+        favourite: Boolean,
+        notificationTime: Long?,
+        description: String = "",
+    ) = database.withTransaction {
         var item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
         var parentChanged = false
@@ -198,6 +227,24 @@ class ListMutationRepository @Inject constructor(
             item = item.copy(text = text, updatedAt = System.currentTimeMillis(), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId)
             listItemDao.upsert(item)
             recordLocal(item.collectionId, item.itemId, stamp, ListChangeOperation.SET_ITEM_TEXT, ListChangePayload(text = text))
+            parentChanged = true
+        }
+        if (item.description != description) {
+            val stamp = nextStamp(item.collectionId)
+            item = item.copy(
+                description = description,
+                updatedAt = System.currentTimeMillis(),
+                descriptionLogicalClock = stamp.logicalClock,
+                descriptionStampActorId = stamp.actorId,
+            )
+            listItemDao.upsert(item)
+            recordLocal(
+                item.collectionId,
+                item.itemId,
+                stamp,
+                ListChangeOperation.SET_ITEM_DESCRIPTION,
+                ListChangePayload(description = description),
+            )
             parentChanged = true
         }
         if (item.dueAt != dueAt) {
@@ -626,7 +673,11 @@ class ListMutationRepository @Inject constructor(
             ListChangeOperation.SET_COLLECTION_TITLE -> applyCollectionTitle(change)
             ListChangeOperation.DELETE_COLLECTION, ListChangeOperation.RESTORE_COLLECTION -> applyCollectionLifecycle(change)
             ListChangeOperation.CREATE_ITEM -> applyCreateItem(change)
-            ListChangeOperation.SET_ITEM_TEXT, ListChangeOperation.SET_ITEM_CHECKED, ListChangeOperation.SET_ITEM_DUE_AT, ListChangeOperation.SET_ITEM_PLACEMENT -> applyItemField(change)
+            ListChangeOperation.SET_ITEM_TEXT,
+            ListChangeOperation.SET_ITEM_DESCRIPTION,
+            ListChangeOperation.SET_ITEM_CHECKED,
+            ListChangeOperation.SET_ITEM_DUE_AT,
+            ListChangeOperation.SET_ITEM_PLACEMENT -> applyItemField(change)
             ListChangeOperation.DELETE_ITEM, ListChangeOperation.RESTORE_ITEM -> applyItemLifecycle(change)
         }
         appliedDao.insert(ListAppliedChangeEntity(change.changeId, change.collectionId, change.actorId, change.sourceSequence))
@@ -892,6 +943,13 @@ class ListMutationRepository @Inject constructor(
                 textStampActorId = incoming.textStamp.actorId,
             )
         }
+        if (incoming.descriptionStamp > VersionStamp(local.descriptionLogicalClock, local.descriptionStampActorId)) {
+            merged = merged.copy(
+                description = incoming.description,
+                descriptionLogicalClock = incoming.descriptionStamp.logicalClock,
+                descriptionStampActorId = incoming.descriptionStamp.actorId,
+            )
+        }
         if (incoming.checkedStamp > VersionStamp(local.checkedLogicalClock, local.checkedStampActorId)) {
             merged = merged.copy(
                 checked = incoming.checked,
@@ -928,6 +986,7 @@ class ListMutationRepository @Inject constructor(
 
     private fun SharedItemSnapshot.observedClock(): Long = maxOf(
         textStamp.logicalClock,
+        descriptionStamp.logicalClock,
         checkedStamp.logicalClock,
         dueAtStamp.logicalClock,
         placementStamp.logicalClock,
@@ -937,6 +996,7 @@ class ListMutationRepository @Inject constructor(
     private fun ListItemEntity.toSnapshot(): SharedItemSnapshot = SharedItemSnapshot(
         itemId = itemId,
         text = text,
+        description = description,
         checked = checked,
         dueAt = dueAt,
         parentItemId = parentItemId,
@@ -944,6 +1004,7 @@ class ListMutationRepository @Inject constructor(
         lifecycle = ListLifecycle.valueOf(lifecycle),
         createdAt = createdAt,
         textStamp = VersionStamp(textLogicalClock, textStampActorId),
+        descriptionStamp = VersionStamp(descriptionLogicalClock, descriptionStampActorId),
         checkedStamp = VersionStamp(checkedLogicalClock, checkedStampActorId),
         dueAtStamp = VersionStamp(dueAtLogicalClock, dueAtStampActorId),
         placementStamp = VersionStamp(placementLogicalClock, placementStampActorId),
@@ -955,6 +1016,7 @@ class ListMutationRepository @Inject constructor(
         return ListItemEntity(
             listId = listId,
             text = text,
+            description = description,
             createdAt = createdAt,
             updatedAt = System.currentTimeMillis(),
             checked = checked,
@@ -969,6 +1031,8 @@ class ListMutationRepository @Inject constructor(
             orderKey = canonical,
             textLogicalClock = textStamp.logicalClock,
             textStampActorId = textStamp.actorId,
+            descriptionLogicalClock = descriptionStamp.logicalClock,
+            descriptionStampActorId = descriptionStamp.actorId,
             checkedLogicalClock = checkedStamp.logicalClock,
             checkedStampActorId = checkedStamp.actorId,
             dueAtLogicalClock = dueAtStamp.logicalClock,
@@ -1002,6 +1066,8 @@ class ListMutationRepository @Inject constructor(
             displayOrder = orderKey.toLong(),
             textLogicalClock = stamp.logicalClock,
             textStampActorId = stamp.actorId,
+            descriptionLogicalClock = stamp.logicalClock,
+            descriptionStampActorId = stamp.actorId,
             checkedLogicalClock = stamp.logicalClock,
             checkedStampActorId = stamp.actorId,
             dueAtLogicalClock = stamp.logicalClock,
@@ -1011,7 +1077,7 @@ class ListMutationRepository @Inject constructor(
         )
         listItemDao.insert(item)
         touchList(list.id)
-        recordLocal(list.collectionId, itemId, stamp, ListChangeOperation.CREATE_ITEM, ListChangePayload(text = text, checked = checked, dueAt = dueAt, orderKey = orderKey))
+        recordLocal(list.collectionId, itemId, stamp, ListChangeOperation.CREATE_ITEM, ListChangePayload(text = text, description = "", checked = checked, dueAt = dueAt, orderKey = orderKey))
         return listItemDao.getByItemId(itemId)?.id ?: error("Failed to create item")
     }
 
@@ -1175,7 +1241,7 @@ class ListMutationRepository @Inject constructor(
         val existing = listItemDao.getByItemId(change.targetId)
         if (existing == null) {
             val orderKey = OrderKey.canonical(payload.orderKey ?: "0")
-            listItemDao.insert(ListItemEntity(listId = list.id, text = requireNotNull(payload.text), checked = payload.checked ?: false, dueAt = payload.dueAt, itemId = change.targetId, collectionId = change.collectionId, parentItemId = payload.parentItemId, orderKey = orderKey, displayOrder = orderKey.toLongOrNull() ?: 0L, textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId, checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId, dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId, placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
+            listItemDao.insert(ListItemEntity(listId = list.id, text = requireNotNull(payload.text), description = payload.description.orEmpty(), checked = payload.checked ?: false, dueAt = payload.dueAt, itemId = change.targetId, collectionId = change.collectionId, parentItemId = payload.parentItemId, orderKey = orderKey, displayOrder = orderKey.toLongOrNull() ?: 0L, textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId, descriptionLogicalClock = stamp.logicalClock, descriptionStampActorId = stamp.actorId, checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId, dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId, placementLogicalClock = stamp.logicalClock, placementStampActorId = stamp.actorId))
             touchList(list.id)
             return
         }
@@ -1183,6 +1249,9 @@ class ListMutationRepository @Inject constructor(
         var merged = existing
         if (stamp > VersionStamp(existing.textLogicalClock, existing.textStampActorId)) {
             merged = merged.copy(text = requireNotNull(payload.text), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId)
+        }
+        if (stamp > VersionStamp(existing.descriptionLogicalClock, existing.descriptionStampActorId)) {
+            merged = merged.copy(description = payload.description.orEmpty(), descriptionLogicalClock = stamp.logicalClock, descriptionStampActorId = stamp.actorId)
         }
         if (stamp > VersionStamp(existing.checkedLogicalClock, existing.checkedStampActorId)) {
             merged = merged.copy(checked = payload.checked ?: false, checkedLogicalClock = stamp.logicalClock, checkedStampActorId = stamp.actorId)
@@ -1212,6 +1281,10 @@ class ListMutationRepository @Inject constructor(
             ListChangeOperation.SET_ITEM_TEXT ->
                 if (change.stamp > VersionStamp(item.textLogicalClock, item.textStampActorId)) {
                     item.copy(text = requireNotNull(change.payload.text), textLogicalClock = change.stamp.logicalClock, textStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
+                } else null
+            ListChangeOperation.SET_ITEM_DESCRIPTION ->
+                if (change.stamp > VersionStamp(item.descriptionLogicalClock, item.descriptionStampActorId)) {
+                    item.copy(description = requireNotNull(change.payload.description), descriptionLogicalClock = change.stamp.logicalClock, descriptionStampActorId = change.stamp.actorId, updatedAt = System.currentTimeMillis())
                 } else null
             ListChangeOperation.SET_ITEM_CHECKED ->
                 if (change.stamp > VersionStamp(item.checkedLogicalClock, item.checkedStampActorId)) {

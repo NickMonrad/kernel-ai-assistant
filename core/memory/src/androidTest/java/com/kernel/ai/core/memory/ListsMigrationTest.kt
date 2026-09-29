@@ -66,4 +66,25 @@ class ListsMigrationTest {
         db.close()
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun `migration 54 to 55 adds empty descriptions without losing item content`() {
+        val oldDb = helper.createDatabase(testDbName, 54)
+        oldDb.execSQL(
+            "INSERT INTO list_items (listId, text, createdAt, updatedAt, checked, dueAt, isFavourite, notificationTime, displayOrder, itemId, collectionId, orderKey, textLogicalClock, textStampActorId, checkedLogicalClock, checkedStampActorId, dueAtLogicalClock, dueAtStampActorId, placementLogicalClock, placementStampActorId, lifecycle, lifecycleLogicalClock, lifecycleStampActorId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            arrayOf<Any?>(1L, "Keep me", 3L, 4L, 0, null, 0, null, 0L, "item-1", "collection-1", "0", 1L, "test", 1L, "test", 1L, "test", 1L, "test", "ACTIVE", 1L, "test"),
+        )
+        oldDb.close()
+
+        val db = helper.runMigrationsAndValidate(testDbName, 55, true, KernelDatabase.MIGRATION_54_55)
+        db.query("SELECT text, description, descriptionLogicalClock, descriptionStampActorId FROM list_items WHERE itemId = 'item-1'").use { cursor ->
+            assertEquals(1, cursor.count)
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Keep me", cursor.getString(cursor.getColumnIndexOrThrow("text")))
+            assertEquals("", cursor.getString(cursor.getColumnIndexOrThrow("description")))
+            assertEquals(0L, cursor.getLong(cursor.getColumnIndexOrThrow("descriptionLogicalClock")))
+            assertEquals("", cursor.getString(cursor.getColumnIndexOrThrow("descriptionStampActorId")))
+        }
+        db.close()
+    }
 }

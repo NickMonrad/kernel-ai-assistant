@@ -186,12 +186,15 @@ SharedItemState
 - itemId
 - collectionId
 - text + textStamp
+- description + descriptionStamp
 - checked + checkedStamp
 - dueAt + dueAtStamp
 - placement(parentItemId, orderKey) + placementStamp
 - lifecycle + lifecycleStamp
 - createdAt
 ```
+
+`description` is optional plain text and may be empty or multiline.
 
 `dueAt` may be null.
 
@@ -327,6 +330,7 @@ RESTORE_COLLECTION
 ```text
 CREATE_ITEM
 SET_ITEM_TEXT
+SET_ITEM_DESCRIPTION
 SET_ITEM_CHECKED
 SET_ITEM_DUE_AT
 SET_ITEM_PLACEMENT
@@ -399,6 +403,7 @@ This rule covers:
 
 - collection title;
 - item text;
+- item description;
 - checked state;
 - due date;
 - placement.
@@ -764,6 +769,7 @@ Current fields include:
 - local `Long id`;
 - local `listId` FK;
 - `text`;
+- optional multiline `description`;
 - `createdAt`;
 - `updatedAt`;
 - `checked`;

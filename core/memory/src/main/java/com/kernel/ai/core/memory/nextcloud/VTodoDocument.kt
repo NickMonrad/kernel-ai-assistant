@@ -157,13 +157,22 @@ class VTodoDocument private constructor(
             })
         }
 
-        fun new(uid: String, summary: String, checked: Boolean, dueAt: Long?, parentUid: String?, orderKey: String): VTodoDocument {
+        fun new(
+            uid: String,
+            summary: String,
+            checked: Boolean,
+            dueAt: Long?,
+            parentUid: String?,
+            orderKey: String,
+            description: String = "",
+        ): VTodoDocument {
             val document = parse(
                 "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Jandal//Nextcloud Tasks//EN\r\n" +
                     "BEGIN:VTODO\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
             )
             document.setUid(uid)
             document.replaceSingle("SUMMARY", summary, escapeText = true)
+            if (description.isNotEmpty()) document.replaceSingle("DESCRIPTION", description, escapeText = true)
             document.replaceSingle("STATUS", if (checked) "COMPLETED" else "NEEDS-ACTION")
             if (checked) document.replaceSingle("COMPLETED", UTC_FORMATTER.format(Instant.now()))
             if (dueAt != null) document.replaceSingle("DUE", UTC_FORMATTER.format(Instant.ofEpochMilli(dueAt)))

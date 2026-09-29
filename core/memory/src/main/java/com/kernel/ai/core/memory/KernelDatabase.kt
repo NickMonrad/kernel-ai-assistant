@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 54,
+    version = 55,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1019,6 +1019,14 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `syncEnabled` INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureCode` TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureAt` INTEGER DEFAULT NULL")
+            }
+        }
+        /** Adds independent item descriptions and their sync stamps (#1579). */
+        val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `description` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionStampActorId` TEXT NOT NULL DEFAULT ''")
             }
         }
     }

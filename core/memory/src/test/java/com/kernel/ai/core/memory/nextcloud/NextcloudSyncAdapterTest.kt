@@ -336,6 +336,156 @@ class NextcloudSyncAdapterTest {
         assertFalse(bindings.getValue(binding.collectionId).syncEnabled)
     }
 
+    @Test
+    fun `push preserves multiline item descriptions in VTODO`() = runTest {
+        val binding = binding("writable")
+        val description = "line one\nhttps://example.com/a?query=full\nline three"
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(
+                binding.collectionId to listItem(binding.collectionId, "writable-item").copy(
+                    description = description,
+                    descriptionLogicalClock = 1L,
+                    descriptionStampActorId = "local",
+                ),
+            ),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        val body = transport.putBodies.last { it.contains("BEGIN:VTODO") }
+        assertEquals(description, VTodoDocument.parse(body).decoded("DESCRIPTION"))
+    }
+
+    @Test
+    fun `first sync backfills a bound description without destructive push`() = runTest {
+        val binding = binding("writable")
+        val description = "legacy line\nhttps://example.com/legacy?full=true\nlast line"
+        val remoteDocument = VTodoDocument.new(
+            uid = "writable-item",
+            summary = "Item",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "0",
+            description = description,
+        ).also { it.replaceSingle("X-NEXTCLOUD-UNKNOWN", "keep") }.render()
+        val transport = RecordingTransport(reportDocument = { remoteDocument })
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(rawVtodo = remoteDocument),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(
+            transport.putBodies.all { VTodoDocument.parse(it).decoded("DESCRIPTION") == description },
+            "an upgrade sync must never PUT a bound VTODO with DESCRIPTION removed",
+        )
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match { snapshot ->
+                    snapshot.items.single().description == description &&
+                        snapshot.items.single().descriptionStamp.logicalClock > 0L &&
+                        snapshot.items.single().descriptionStamp.actorId == "nextcloud-caldav"
+                },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `initialized local description clear removes remote DESCRIPTION but keeps unknown properties`() = runTest {
+        val binding = binding("writable")
+        val remoteDocument = VTodoDocument.new(
+            uid = "writable-item",
+            summary = "Item",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "0",
+            description = "remove me\nhttps://example.com/remove?full=true",
+        ).also { it.replaceSingle("X-NEXTCLOUD-UNKNOWN", "keep") }.render()
+        val transport = RecordingTransport()
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(rawVtodo = remoteDocument),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(
+                binding.collectionId to listItem(binding.collectionId, "writable-item").copy(
+                    description = "",
+                    descriptionLogicalClock = 1L,
+                    descriptionStampActorId = "local",
+                ),
+            ),
+            emptyList(),
+            transport,
+        )
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        val body = transport.putBodies.last { it.contains("BEGIN:VTODO") }
+        assertNull(VTodoDocument.parse(body).decoded("DESCRIPTION"))
+        assertTrue(body.contains("X-NEXTCLOUD-UNKNOWN:keep"))
+    }
+
+    @Test
+    fun `pull imports a changed remote description with its own version stamp`() = runTest {
+        val binding = binding("writable")
+        val description = "remote line\nhttps://example.com/remote?query=full"
+        val transport = RecordingTransport(
+            reportDocument = {
+                VTodoDocument.new(
+                    uid = it,
+                    summary = "Item",
+                    checked = false,
+                    dueAt = null,
+                    parentUid = null,
+                    orderKey = "0",
+                    description = description,
+                ).render()
+            },
+        )
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(binding.collectionId to itemBinding(binding.collectionId, "writable-item").copy(etag = "\"old-etag\"")),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to listItem(binding.collectionId, "writable-item")),
+            emptyList(),
+            transport,
+        )
+
+        fixture.adapter.syncAll()
+
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match { snapshot ->
+                    snapshot.items.single().description == description &&
+                        snapshot.items.single().descriptionStamp.actorId == "nextcloud-caldav"
+                },
+                any(),
+            )
+        }
+    }
+
     // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
 
     @Test

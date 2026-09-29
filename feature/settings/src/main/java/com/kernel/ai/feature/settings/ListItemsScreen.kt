@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -374,7 +377,7 @@ fun ListItemsScreen(
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
-                        // Overflow: Select All
+                        // Overflow: selected sharing and selection controls
                         Box {
                             IconButton(onClick = { showSelectAllMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "More options")
@@ -383,6 +386,28 @@ fun ListItemsScreen(
                                 expanded = showSelectAllMenu,
                                 onDismissRequest = { showSelectAllMenu = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share selected") },
+                                    onClick = {
+                                        showSelectAllMenu = false
+                                        coroutineScope.launch {
+                                            val text = viewModel.buildShareText(listId, selectedItemIds)
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(Intent.EXTRA_TITLE, displayName.replaceFirstChar { it.uppercase() })
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share selected items"))
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Select none") },
+                                    onClick = {
+                                        showSelectAllMenu = false
+                                        viewModel.exitItemMultiSelect()
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Select all") },
                                     onClick = {
@@ -1100,6 +1125,8 @@ private fun ListItemRow(
     onLongClick: () -> Unit = {},
     onSelectToggle: () -> Unit = {},
 ) {
+    val descriptionUrls = remember(item.description) { findListItemUrls(item.description) }
+
     // An explicit Row rather than M3 ListItem: the ListItem slots add fixed 16.dp start, leading
     // and trailing padding on top of the mandatory 48.dp handle, checkbox and star targets, and
     // that reservation was squeezing the item text. Spacing here is one 8.dp step, all three
@@ -1183,6 +1210,27 @@ private fun ListItemRow(
                     if (!isMultiSelectMode) onLongClick()
                 },
             )
+            if (item.description.isNotEmpty()) {
+                ListItemText(
+                    text = item.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    activateLinks = !isMultiSelectMode,
+                    maxLines = 3,
+                    onClick = {
+                        if (isMultiSelectMode) onSelectToggle() else onEdit()
+                    },
+                    onLongClick = {
+                        if (!isMultiSelectMode) onLongClick()
+                    },
+                )
+                DescriptionUrlActions(
+                    urls = descriptionUrls,
+                    activateLinks = !isMultiSelectMode,
+                    compactMultipleLinksLabel = true,
+                    onInactiveClick = onSelectToggle,
+                )
+            }
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {
                 val overdue = isOverdue(dueAtMs, item.checked)
@@ -1262,10 +1310,13 @@ private fun EditItemSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember(item.id) { mutableStateOf(item.text) }
+    var description by remember(item.id) { mutableStateOf(item.description) }
     var dueAt by remember(item.id) { mutableStateOf(item.dueAt) }
     var isFavourite by remember(item.id) { mutableStateOf(item.isFavourite) }
     var notificationTime by remember(item.id) { mutableStateOf(item.notificationTime) }
     var notifyEnabled by remember(item.id) { mutableStateOf(item.notificationTime != null) }
+    val descriptionUrls = remember(description) { findListItemUrls(description) }
+
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
 
@@ -1276,6 +1327,8 @@ private fun EditItemSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(horizontal = 24.dp),
         ) {
             Text("Edit item", style = MaterialTheme.typography.titleMedium)
@@ -1290,6 +1343,19 @@ private fun EditItemSheet(
                 minLines = 3,
                 maxLines = 6,
                 singleLine = false,
+            )
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Description") },
+                minLines = 3,
+                maxLines = 8,
+                singleLine = false,
+            )
+            DescriptionUrlActions(
+                urls = descriptionUrls,
+                activateLinks = true,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1428,6 +1494,7 @@ private fun EditItemSheet(
                         onSave(
                             item.copy(
                                 text = text,
+                                description = description,
                                 dueAt = dueAt,
                                 isFavourite = isFavourite,
                                 notificationTime = if (notifyEnabled) notificationTime else null,

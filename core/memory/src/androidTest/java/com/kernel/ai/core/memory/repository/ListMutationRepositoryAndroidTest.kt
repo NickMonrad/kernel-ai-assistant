@@ -116,6 +116,22 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `description mutation persists independently and records an outbox change`() = runBlocking {
+        val listId = repository.createCollection("Groceries")
+        val itemId = repository.addItem(listId, "Milk")
+        val description = "line one\nhttps://example.com/a?x=full"
+
+        repository.setItemDescription(itemId, description)
+
+        val persisted = requireNotNull(database.listItemDao().getById(itemId))
+        assertEquals(description, persisted.description)
+        assertTrue(persisted.descriptionLogicalClock > 0L)
+        val change = repository.pendingChanges().last { it.targetId == persisted.itemId }
+        assertEquals(ListChangeOperation.SET_ITEM_DESCRIPTION, change.operation)
+        assertEquals(description, change.payload.description)
+    }
+
+    @Test
     fun `remote field and item create can arrive before collection create`() = runBlocking {
         val collectionId = "remote-collection"
         val itemId = "remote-item"
