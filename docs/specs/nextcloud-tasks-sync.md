@@ -8,12 +8,17 @@ Jandal Lists supports one explicit Nextcloud account through standard CalDAV and
 
 ## Account and discovery
 
-The Settings screen stores the server URL, username, Nextcloud app password and the per-account
-insecure-HTTP opt-in in one Keystore-backed encrypted preference record. The password is not logged
-or included in provider metadata, and it is never read back into UI state, so a saved password is
-never redisplayed; credential fields appear only for initial connection or an explicit
-edit/reconnect. An expired credential surfaces an account-level `Reconnect` while local Lists stay
-usable.
+The Settings screen prefers Nextcloud Login Flow v2: after the user enters a server address,
+Jandal starts the anonymous `POST /index.php/login/v2` exchange, opens the server-provided login
+URL in the device browser, and polls the exact server-provided endpoint until authorization
+completes. Pending `404` responses are retried for at most 20 minutes; cancellation, timeout,
+unsupported Login Flow, or terminal failure returns the user to the manual app-password fallback.
+The returned server and account identity must remain within the requested origin and base path.
+
+The successful Login Flow app password is validated through CalDAV discovery before it is saved in
+the existing Keystore-backed credential record. Login Flow tokens and returned app passwords are
+never exposed in UI state, logs, or public evidence. Manual username/app-password entry remains
+available as an explicit fallback and for reconnect.
 
 The connection form takes a **Nextcloud address**: a bare host, a host plus base path, a host plus
 port, or an explicit URL. HTTPS is always the default and is applied when no scheme is supplied. An

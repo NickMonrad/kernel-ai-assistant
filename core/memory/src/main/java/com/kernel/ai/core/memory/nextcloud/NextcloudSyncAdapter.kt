@@ -108,6 +108,38 @@ class NextcloudSyncAdapter @Inject constructor(
     suspend fun testConnection(credentials: NextcloudAccountCredentials): Result<NextcloudDiscovery> =
         runCatching { NextcloudCalDavClient(credentials, transport).discover() }
 
+    /**
+     * Completes browser authentication without persisting credentials. The caller must validate the
+     * returned account through discovery before saving it in [NextcloudCredentialStore].
+     */
+    suspend fun loginFlow(
+        serverUrl: String,
+        allowInsecureHttp: Boolean = false,
+        onLoginUrl: suspend (String) -> Unit = {},
+    ): Result<NextcloudAccountCredentials> {
+        return try {
+            val result = NextcloudLoginFlowClient(transport).authenticate(
+                serverUrl = serverUrl,
+                allowInsecureHttp = allowInsecureHttp,
+                onLoginUrl = onLoginUrl,
+            )
+            Result.success(
+                NextcloudAccountCredentials(
+                    account = NextcloudAccount(
+                        serverUrl = result.serverUrl,
+                        username = result.username,
+                        allowInsecureHttp = allowInsecureHttp,
+                    ),
+                    appPassword = result.appPassword,
+                ),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     suspend fun discoverCollections(): Result<List<NextcloudCalendarCollection>> =
         testConnection().map { it.collections }
 

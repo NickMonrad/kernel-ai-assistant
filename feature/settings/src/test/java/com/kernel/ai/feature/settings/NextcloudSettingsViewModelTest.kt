@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -574,6 +575,112 @@ class NextcloudSettingsViewModelTest {
         coVerify(exactly = 0) { fixture.collectionBindings.upsert(any()) }
     }
 
+    // ── Login Flow v2 browser setup ───────────────────────────────────────────────────────────────
+
+    @Test
+    fun `address-first browser setup stores discovered credentials without manual fields`() = runTest {
+        val fixture = Fixture(transport = FakeTransport(loginFlowEnabled = true))
+        val viewModel = fixture.viewModel()
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertEquals("https://cloud.example.com", fixture.store.saved?.account?.serverUrl)
+        assertEquals("alice", fixture.store.saved?.account?.username)
+        assertTrue(viewModel.state.value.connected != null)
+        assertFalse(viewModel.state.value.loginFlowInProgress)
+        assertFalse(viewModel.state.value.manualFallbackVisible)
+    }
+
+    @Test
+    fun `browser setup exposes progress and one-shot browser URL while authorization is pending`() = runTest {
+        val fixture = Fixture(
+            transport = FakeTransport(
+                loginFlowEnabled = true,
+                loginPollResponses = ArrayDeque(
+                    listOf(CalDavResponse(404, emptyMap(), "", "https://cloud.example.com/login/v2/poll")),
+                ),
+            ),
+        )
+        val viewModel = fixture.viewModel()
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.loginFlowInProgress)
+        assertEquals("https://cloud.example.com/login/v2/flow", viewModel.state.value.browserLoginUrl)
+        viewModel.consumeBrowserLoginUrl()
+        assertNull(viewModel.state.value.browserLoginUrl)
+        viewModel.cancelLoginFlow()
+        assertTrue(viewModel.state.value.manualFallbackVisible)
+        assertFalse(viewModel.state.value.loginFlowInProgress)
+        assertNull(fixture.store.saved)
+    }
+
+    @Test
+    fun `unsupported browser flow exposes manual fallback without saving credentials`() = runTest {
+        val fixture = Fixture(transport = FakeTransport(loginStartStatus = 404))
+        val viewModel = fixture.viewModel()
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.manualFallbackVisible)
+        assertTrue(viewModel.state.value.feedback!!.contains("manual app-password"))
+        assertNull(fixture.store.saved)
+        assertEquals(0, fixture.store.saveCount)
+    }
+
+    @Test
+    fun `reconnect uses browser flow and keeps existing local account until discovery succeeds`() = runTest {
+        val previous = NextcloudAccountCredentials(
+            account = NextcloudAccount("https://cloud.example.com", "old-user"),
+            appPassword = "old-app-password",
+        )
+        val fixture = Fixture(
+            store = FakeCredentialStore(previous),
+            transport = FakeTransport(loginFlowEnabled = true),
+        )
+        val viewModel = fixture.viewModel()
+
+        viewModel.editAccount()
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertEquals("alice", fixture.store.saved?.account?.username)
+        assertEquals(1, fixture.store.saveCount)
+        assertTrue(viewModel.state.value.connected != null)
+    }
+
+    @Test
+    fun `contextual browser setup continues the initiating list binding`() = runTest {
+        val shopping = list(7L, "Shopping", "collection-shopping")
+        val fixture = Fixture(
+            lists = MutableStateFlow(listOf(shopping)),
+            transport = FakeTransport(loginFlowEnabled = true),
+        )
+        coEvery { fixture.listNameDao.getById(7L) } returns shopping
+        val viewModel = fixture.viewModel()
+        viewModel.setPendingList(7L, "Shopping")
+        viewModel.setAddress("cloud.example.com")
+
+        viewModel.connectWithNextcloud()
+        advanceUntilIdle()
+
+        assertEquals("List synced with Nextcloud", viewModel.state.value.feedback)
+        assertTrue(viewModel.state.value.pendingSetupCompleted)
+        coVerify {
+            fixture.collectionBindings.upsert(
+                match { binding ->
+                    binding.collectionId == "collection-shopping" && binding.syncEnabled
+                },
+            )
+        }
+    }
+
     // ── Fixture ──────────────────────────────────────────────────────────────────────────────────
 
     private class Fixture(
@@ -712,6 +819,9 @@ class NextcloudSettingsViewModelTest {
         private val failureStatus: Int? = null,
         var failure: Throwable? = null,
         private val failMkcalendar: Boolean = false,
+        private val loginFlowEnabled: Boolean = false,
+        private val loginStartStatus: Int? = null,
+        private val loginPollResponses: ArrayDeque<CalDavResponse> = ArrayDeque(),
     ) : CalDavTransport {
         var lastAuthorization: String? = null
         val requestedUrls = mutableListOf<String>()
@@ -726,6 +836,34 @@ class NextcloudSettingsViewModelTest {
             lastAuthorization = headers["Authorization"]
             requestedUrls += url
             failure?.let { throw it }
+            val loginServer = when {
+                "/index.php" in url -> url.substringBefore("/index.php")
+                url.endsWith("/login/v2/poll") -> url.substringBefore("/login/v2/poll")
+                else -> url
+            }
+            if (method == "POST" && url.endsWith("/index.php/login/v2") &&
+                (loginFlowEnabled || loginStartStatus != null)
+            ) {
+                val startBody = if (loginStartStatus == null) {
+                    "{\"poll\":{\"token\":\"fixture-token\",\"endpoint\":\"$loginServer/login/v2/poll\"},\"login\":\"$loginServer/login/v2/flow\"}"
+                } else {
+                    ""
+                }
+                return CalDavResponse(
+                    status = loginStartStatus ?: 200,
+                    headers = mapOf("content-type" to "application/json"),
+                    body = startBody,
+                    finalUrl = url,
+                )
+            }
+            if (method == "POST" && url.endsWith("/login/v2/poll") && loginFlowEnabled) {
+                return loginPollResponses.removeFirstOrNull() ?: CalDavResponse(
+                    status = 200,
+                    headers = mapOf("content-type" to "application/json"),
+                    body = """{"server":"$loginServer","loginName":"alice","appPassword":"fixture-login-flow-password"}""",
+                    finalUrl = url,
+                )
+            }
             if (failureStatus != null) {
                 return CalDavResponse(failureStatus, emptyMap(), "", url)
             }

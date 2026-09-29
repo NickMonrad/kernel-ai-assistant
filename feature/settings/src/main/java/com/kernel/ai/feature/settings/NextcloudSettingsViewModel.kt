@@ -16,6 +16,7 @@ import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -100,6 +101,12 @@ data class NextcloudSettingsState(
     /** One-shot signal that the contextual setup finished and its origin should be shown again. */
     val pendingSetupCompleted: Boolean = false,
     val busy: Boolean = false,
+    /** True while Login Flow v2 is waiting for browser authorization. */
+    val loginFlowInProgress: Boolean = false,
+    /** One-shot browser URL emitted after it has passed Login Flow origin checks. */
+    val browserLoginUrl: String? = null,
+    /** Shows the existing username/app-password path after explicit user choice or browser failure. */
+    val manualFallbackVisible: Boolean = false,
     /** Collection currently being synchronized, for per-row progress. */
     val busyCollectionId: String? = null,
     /** Concise transient feedback for the screen's snackbar. */
@@ -127,6 +134,8 @@ class NextcloudSettingsViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(NextcloudSettingsState(connected = adapter.account()))
     val state: StateFlow<NextcloudSettingsState> = _state.asStateFlow()
+
+    private var loginFlowJob: Job? = null
 
     /** Sections after search and state filtering, with a bound list never repeated. */
     val sections: StateFlow<NextcloudListSections> = combine(
@@ -172,6 +181,7 @@ class NextcloudSettingsViewModel @Inject constructor(
 
     // ── Connection lifecycle ─────────────────────────────────────────────────────────────────────
 
+    /** Runs the existing manual username/app-password path. */
     fun connect() {
         val current = _state.value
         val normalized = NextcloudAddress.normalize(current.address, current.allowInsecureHttp)
@@ -188,6 +198,7 @@ class NextcloudSettingsViewModel @Inject constructor(
         if (username.isBlank() || (current.appPassword.isBlank() && !canUseStoredCredentials)) {
             _state.value = current.copy(
                 addressError = null,
+                manualFallbackVisible = true,
                 feedback = "Enter the username and app password for this Nextcloud account.",
             )
             return
@@ -201,16 +212,114 @@ class NextcloudSettingsViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            _state.value = _state.value.copy(busy = true, feedback = null, addressError = null)
-            val discovery = if (transient == null) {
-                adapter.discoverCollections()
-            } else {
-                adapter.discoverCollections(transient)
-            }
-            discovery.fold(
-                onSuccess = { collections ->
-                    // Credentials are persisted only after discovery succeeds.
-                    transient?.let {
+            _state.value = _state.value.copy(
+                busy = true,
+                loginFlowInProgress = false,
+                browserLoginUrl = null,
+                manualFallbackVisible = true,
+                feedback = null,
+                addressError = null,
+            )
+            completeConnection(
+                credentials = transient,
+                persistCredentials = transient != null,
+                displayServerUrl = serverUrl,
+                displayUsername = username,
+            )
+        }
+    }
+
+    /** Starts the preferred address-first browser authorization path. */
+    fun connectWithNextcloud() {
+        val current = _state.value
+        if (current.busy) return
+        val normalized = NextcloudAddress.normalize(current.address, current.allowInsecureHttp)
+        if (normalized is NextcloudAddressResult.Rejected) {
+            _state.value = current.copy(addressError = normalized.message)
+            return
+        }
+        val serverUrl = (normalized as NextcloudAddressResult.Accepted).serverUrl
+        loginFlowJob?.cancel()
+        _state.value = current.copy(
+            address = serverUrl,
+            addressError = null,
+            feedback = null,
+            busy = true,
+            loginFlowInProgress = true,
+            browserLoginUrl = null,
+            manualFallbackVisible = false,
+        )
+        loginFlowJob = viewModelScope.launch {
+            val result = adapter.loginFlow(
+                serverUrl = serverUrl,
+                allowInsecureHttp = current.allowInsecureHttp,
+                onLoginUrl = { loginUrl ->
+                    _state.value = _state.value.copy(browserLoginUrl = loginUrl)
+                },
+            )
+            result.fold(
+                onSuccess = { credentials ->
+                    completeConnection(
+                        credentials = credentials,
+                        persistCredentials = true,
+                        displayServerUrl = credentials.account.serverUrl,
+                        displayUsername = credentials.account.username,
+                    )
+                },
+                onFailure = { error ->
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        loginFlowInProgress = false,
+                        manualFallbackVisible = true,
+                        feedback = safeMessage(error),
+                    )
+                },
+            )
+            loginFlowJob = null
+        }
+    }
+
+    /** Shows the existing manual path without changing or reading the stored credential. */
+    fun showManualFallback() {
+        if (!_state.value.loginFlowInProgress) {
+            _state.value = _state.value.copy(manualFallbackVisible = true, feedback = null)
+        }
+    }
+
+    /** Cancels browser polling; no account or list binding is created by cancellation. */
+    fun cancelLoginFlow() {
+        loginFlowJob?.cancel()
+        loginFlowJob = null
+        _state.value = _state.value.copy(
+            busy = false,
+            loginFlowInProgress = false,
+            browserLoginUrl = null,
+            manualFallbackVisible = true,
+            feedback = "Nextcloud browser authentication cancelled.",
+        )
+    }
+
+    fun consumeBrowserLoginUrl() {
+        _state.value = _state.value.copy(browserLoginUrl = null)
+    }
+
+    private suspend fun completeConnection(
+        credentials: NextcloudAccountCredentials?,
+        persistCredentials: Boolean,
+        displayServerUrl: String,
+        displayUsername: String,
+    ) {
+        val discovery = if (credentials == null) {
+            adapter.discoverCollections()
+        } else {
+            adapter.discoverCollections(credentials)
+        }
+        discovery.fold(
+            onSuccess = { collections ->
+                // Credentials are persisted only after the returned identity passes Login Flow
+                // validation and CalDAV discovery succeeds.
+                if (persistCredentials) {
+                    requireNotNull(credentials).let {
                         adapter.saveAccount(
                             it.account.serverUrl,
                             it.account.username,
@@ -218,39 +327,49 @@ class NextcloudSettingsViewModel @Inject constructor(
                             it.account.allowInsecureHttp,
                         )
                     }
-                    _state.value = _state.value.copy(
-                        collections = collections,
-                        discovered = true,
-                        appPassword = "",
-                        address = serverUrl,
-                        username = username,
-                        connected = adapter.account(),
-                        editingAccount = false,
-                        authenticationFailed = false,
-                        busy = false,
-                    )
-                    continuePendingSetup()
-                },
-                onFailure = { error ->
-                    _state.value = _state.value.copy(
-                        busy = false,
-                        authenticationFailed = (error as? NextcloudFailure)?.code ==
-                            NextcloudFailure.Code.AUTHENTICATION,
-                        feedback = safeMessage(error),
-                    )
-                },
-            )
-        }
+                }
+                _state.value = _state.value.copy(
+                    collections = collections,
+                    discovered = true,
+                    appPassword = "",
+                    address = displayServerUrl,
+                    username = displayUsername,
+                    connected = adapter.account() ?: credentials?.account,
+                    editingAccount = false,
+                    authenticationFailed = false,
+                    busy = false,
+                    loginFlowInProgress = false,
+                    manualFallbackVisible = false,
+                )
+                continuePendingSetup()
+            },
+            onFailure = { error ->
+                _state.value = _state.value.copy(
+                    busy = false,
+                    loginFlowInProgress = false,
+                    manualFallbackVisible = true,
+                    authenticationFailed = (error as? NextcloudFailure)?.code ==
+                        NextcloudFailure.Code.AUTHENTICATION,
+                    feedback = safeMessage(error),
+                )
+            },
+        )
     }
 
     /** Abandons an in-progress credential edit; a stored account stays untouched. */
     fun cancelEditing() {
+        loginFlowJob?.cancel()
+        loginFlowJob = null
         _state.value = _state.value.copy(
             editingAccount = false,
             appPassword = "",
             addressError = null,
             address = _state.value.connected?.serverUrl.orEmpty(),
             username = _state.value.connected?.username.orEmpty(),
+            busy = false,
+            loginFlowInProgress = false,
+            browserLoginUrl = null,
+            manualFallbackVisible = false,
         )
     }
 
@@ -263,10 +382,13 @@ class NextcloudSettingsViewModel @Inject constructor(
             address = _state.value.connected?.serverUrl.orEmpty(),
             username = _state.value.connected?.username.orEmpty(),
             authenticationFailed = false,
+            manualFallbackVisible = false,
         )
     }
 
     fun disconnect() {
+        loginFlowJob?.cancel()
+        loginFlowJob = null
         adapter.clearAccount()
         _state.value = NextcloudSettingsState(feedback = "Nextcloud account disconnected.")
     }
