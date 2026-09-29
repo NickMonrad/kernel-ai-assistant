@@ -366,7 +366,15 @@ class NextcloudSettingsViewModel @Inject constructor(
                 continuePendingSetup()
             },
             onFailure = { error ->
+                val retainedAccount = if (!persistCredentials) {
+                    credentials?.account ?: _state.value.connected
+                } else {
+                    _state.value.connected
+                }
                 _state.value = _state.value.copy(
+                    address = retainedAccount?.serverUrl ?: displayServerUrl,
+                    username = retainedAccount?.username ?: displayUsername,
+                    connected = retainedAccount,
                     busy = false,
                     loginFlowInProgress = false,
                     manualFallbackVisible = true,

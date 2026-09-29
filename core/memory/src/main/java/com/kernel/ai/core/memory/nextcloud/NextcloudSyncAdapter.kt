@@ -109,8 +109,8 @@ class NextcloudSyncAdapter @Inject constructor(
         runCatching { NextcloudCalDavClient(credentials, transport).discover() }
 
     /**
-     * Completes browser authentication without persisting credentials. The caller must validate the
-     * returned account through discovery before saving it in [NextcloudCredentialStore].
+     * Completes browser authentication without persisting credentials. Login Flow validates the
+     * returned identity and scope; the caller owns secure persistence and CalDAV discovery.
      */
     suspend fun loginFlow(
         serverUrl: String,

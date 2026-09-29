@@ -613,6 +613,8 @@ class NextcloudSettingsViewModelTest {
         assertEquals("alice", fixture.store.saved?.account?.username)
         assertEquals("fixture-login-flow-password", fixture.store.saved?.appPassword)
         assertEquals(1, fixture.store.saveCount)
+        assertEquals("https://cloud.example.com", viewModel.state.value.connected?.serverUrl)
+        assertEquals("alice", viewModel.state.value.connected?.username)
         assertTrue(viewModel.state.value.manualFallbackVisible)
         assertFalse(viewModel.state.value.loginFlowInProgress)
         assertEquals(
@@ -759,6 +761,8 @@ class NextcloudSettingsViewModelTest {
 
         assertEquals("alice", fixture.store.saved?.account?.username)
         assertEquals(1, fixture.store.saveCount)
+        assertEquals("alice", viewModel.state.value.connected?.username)
+        assertTrue(viewModel.state.value.authenticationFailed)
         assertFalse(viewModel.state.value.pendingSetupCompleted)
         coVerify(exactly = 0) { fixture.collectionBindings.upsert(any()) }
         assertTrue(fixture.bindings.isEmpty())
