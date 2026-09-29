@@ -30,8 +30,11 @@ import javax.xml.parsers.ParserConfigurationException
 
 private const val DAV_NS = "DAV:"
 private const val CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
+private const val SCHEDULE_NS = "http://sabredav.org/ns"
+private const val OWNCLOUD_NS = "http://owncloud.org/ns"
 private const val MAX_REDIRECT_HOPS = 5
 private val REDIRECT_STATUSES = setOf(301, 302, 303, 307, 308)
+
 
 sealed class NextcloudFailure(
     val code: Code,
@@ -72,6 +75,37 @@ class NextcloudConflictException(message: String = "Nextcloud changed this task 
 data class NextcloudCalendarCollection(
     val href: String,
     val displayName: String,
+    /** Whether the authenticated account can write VTODO resources in this collection. */
+    val writable: Boolean = true,
+)
+
+enum class NextcloudShareeType {
+    USER,
+    GROUP,
+}
+
+enum class NextcloudSharePermission {
+    READ_ONLY,
+    EDITABLE,
+}
+
+data class NextcloudShare(
+    val principal: String,
+    val displayName: String,
+    val type: NextcloudShareeType,
+    val permission: NextcloudSharePermission,
+    val invitationAccepted: Boolean,
+)
+
+data class NextcloudSharee(
+    val principal: String,
+    val displayName: String,
+    val type: NextcloudShareeType,
+)
+
+data class NextcloudShareListing(
+    val shares: List<NextcloudShare>,
+    val writable: Boolean,
 )
 
 data class RemoteVTodo(
@@ -84,6 +118,7 @@ data class NextcloudDiscovery(
     val principalHref: String,
     val calendarHomeHref: String,
     val collections: List<NextcloudCalendarCollection>,
+    val davRootHref: String = "",
 )
 
 interface CalDavTransport {
@@ -218,8 +253,9 @@ class NextcloudCalDavClient(
             homeHref,
             depth = "1",
             body = """
-                <d:propfind xmlns:d="$DAV_NS" xmlns:c="$CALDAV_NS"><d:prop>
+                <d:propfind xmlns:d="$DAV_NS" xmlns:c="$CALDAV_NS" xmlns:oc="$OWNCLOUD_NS"><d:prop>
                     <d:displayname/><d:resourcetype/><c:supported-calendar-component-set/>
+                    <d:current-user-privilege-set/><oc:read-only/>
                 </d:prop></d:propfind>
             """.trimIndent(),
         ).responses.mapNotNull { response ->
@@ -230,9 +266,133 @@ class NextcloudCalDavClient(
             NextcloudCalendarCollection(
                 href = resolve(homeHref, response.href ?: return@mapNotNull null),
                 displayName = response.firstText("displayname")?.ifBlank { "Nextcloud Tasks" } ?: "Nextcloud Tasks",
+                writable = response.writable(),
             )
         }.filter { it.href != homeHref }
-        return NextcloudDiscovery(principalHref, homeHref, collections)
+        return NextcloudDiscovery(principalHref, homeHref, collections, endpoint)
+    }
+
+    suspend fun listShares(collectionHref: String): NextcloudShareListing {
+        val response = propfind(
+            collectionHref,
+            depth = "0",
+            body = """
+                <d:propfind xmlns:d="$DAV_NS" xmlns:oc="$OWNCLOUD_NS"><d:prop>
+                    <oc:invite/><d:current-user-privilege-set/><oc:read-only/>
+                </d:prop></d:propfind>
+            """.trimIndent(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
+        ).responses.firstOrNull()
+            ?: throw malformed("Nextcloud returned no task collection metadata")
+        val invite = response.elements("invite").firstOrNull()
+        val sharees = invite?.elements("user").orEmpty() + invite?.elements("sharee").orEmpty()
+        val shares = sharees.mapNotNull { sharee ->
+            val principal = sharee.descendantText("href")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            val type = sharee.shareeType(principal) ?: return@mapNotNull null
+            NextcloudShare(
+                principal = principal,
+                displayName = sharee.descendantText("common-name")
+                    ?: sharee.descendantText("summary")
+                    ?: sharee.descendantText("share-with")
+                    ?: principal.substringAfterLast('/').ifBlank { principal },
+                type = type,
+                permission = if (sharee.hasDescendant("read-write")) {
+                    NextcloudSharePermission.EDITABLE
+                } else {
+                    NextcloudSharePermission.READ_ONLY
+                },
+                invitationAccepted = sharee.descendantText("invite-accepted")
+                    ?.let { it == "1" || it.equals("true", ignoreCase = true) }
+                    ?: true,
+            )
+        }
+        return NextcloudShareListing(shares = shares, writable = response.writable())
+    }
+
+    suspend fun searchSharees(query: String, davRootHref: String): List<NextcloudSharee> {
+        val term = query.trim()
+        if (term.isBlank()) return emptyList()
+        val response = request(
+            method = "REPORT",
+            url = davRootHref,
+            headers = authHeaders() + mapOf(
+                "Depth" to "0",
+                "Content-Type" to "application/xml; charset=utf-8",
+            ),
+            body = """
+                <d:principal-property-search xmlns:d="$DAV_NS" xmlns:c="$CALDAV_NS" xmlns:s="$SCHEDULE_NS" test="anyof">
+                    <d:property-search>
+                        <d:prop><d:displayname/></d:prop>
+                        <d:match>${xmlEscape(term)}</d:match>
+                    </d:property-search>
+                    <d:property-search>
+                        <d:prop><s:email-address/></d:prop>
+                        <d:match>${xmlEscape(term)}</d:match>
+                    </d:property-search>
+                    <d:prop><d:displayname/><c:calendar-user-type/><d:principal-URL/><s:email-address/></d:prop>
+                    <d:apply-to-principal-collection-set/>
+                </d:principal-property-search>
+            """.trimIndent(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
+        ).response
+        return parseMultistatus(response).responses.mapNotNull { item ->
+            val type = when (item.firstText("calendar-user-type")?.uppercase()) {
+                "INDIVIDUAL" -> NextcloudShareeType.USER
+                "GROUP" -> NextcloudShareeType.GROUP
+                else -> null
+            } ?: return@mapNotNull null
+            val principal = principalScheme(davRootHref, item.href ?: return@mapNotNull null)
+                ?: return@mapNotNull null
+            NextcloudSharee(
+                principal = principal,
+                displayName = item.firstText("displayname")
+                    ?: item.firstText("email-address")
+                    ?: principal.substringAfterLast('/').ifBlank { principal },
+                type = type,
+            )
+        }
+    }
+
+    suspend fun setShare(
+        collectionHref: String,
+        principal: String,
+        permission: NextcloudSharePermission,
+    ) {
+        validatePrincipal(principal)
+        val access = if (permission == NextcloudSharePermission.EDITABLE) {
+            "<oc:read-write/>"
+        } else {
+            ""
+        }
+        val response = request(
+            method = "POST",
+            url = collectionHref,
+            headers = authHeaders() + mapOf("Content-Type" to "application/xml; charset=utf-8"),
+            body = """
+                <oc:share xmlns:oc="$OWNCLOUD_NS" xmlns:d="$DAV_NS">
+                    <oc:set><d:href>${xmlEscape(principal)}</d:href>$access</oc:set>
+                </oc:share>
+            """.trimIndent(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
+        ).response
+        if (response.status !in 200..299) throw serverFailure(response.status)
+    }
+
+    suspend fun removeShare(collectionHref: String, principal: String) {
+        validatePrincipal(principal)
+        val response = request(
+            method = "POST",
+            url = collectionHref,
+            headers = authHeaders() + mapOf("Content-Type" to "application/xml; charset=utf-8"),
+            body = """
+                <oc:share xmlns:oc="$OWNCLOUD_NS" xmlns:d="$DAV_NS">
+                    <oc:remove><d:href>${xmlEscape(principal)}</d:href></oc:remove>
+                </oc:share>
+            """.trimIndent(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
+        ).response
+        if (response.status !in 200..299) throw serverFailure(response.status)
     }
 
     suspend fun fetchTasks(collectionHref: String): List<RemoteVTodo> {
@@ -320,9 +480,41 @@ class NextcloudCalDavClient(
         return NextcloudCalendarCollection(href, title)
     }
 
-    private suspend fun propfind(url: String, depth: String, body: String): MultiStatus = parseMultistatus(
-        request("PROPFIND", url, authHeaders() + mapOf("Depth" to depth, "Content-Type" to "application/xml; charset=utf-8"), body).response,
+    private suspend fun propfind(
+        url: String,
+        depth: String,
+        body: String,
+        forbiddenResponse: ForbiddenResponse = ForbiddenResponse.AUTHENTICATION,
+    ): MultiStatus = parseMultistatus(
+        request(
+            "PROPFIND",
+            url,
+            authHeaders() + mapOf("Depth" to depth, "Content-Type" to "application/xml; charset=utf-8"),
+            body,
+            forbiddenResponse,
+        ).response,
     )
+
+    private fun validatePrincipal(principal: String) {
+        if (!principal.startsWith("principal:principals/users/") &&
+            !principal.startsWith("principal:principals/groups/")
+        ) {
+            throw malformed("Nextcloud returned an unsupported share target")
+        }
+    }
+
+    private fun principalScheme(davRootHref: String, href: String): String? {
+        val absolute = runCatching { resolve(davRootHref, href) }.getOrNull() ?: return null
+        val root = URI(davRootHref).path.orEmpty().trimEnd('/') + "/"
+        val path = URI(absolute).path.orEmpty()
+        val relative = path.removePrefix(root)
+        if (relative == path ||
+            (!relative.startsWith("principals/users/") && !relative.startsWith("principals/groups/"))
+        ) {
+            return null
+        }
+        return "principal:${relative.trimEnd('/')}"
+    }
 
     private enum class ForbiddenResponse {
         AUTHENTICATION,
@@ -487,7 +679,14 @@ class NextcloudCalDavClient(
     ) {
         fun firstText(localName: String): String? = properties.firstOrNull { it.localName == localName }?.textContent?.trim()
         fun elements(localName: String): List<Element> = properties.filter { it.localName == localName }
+        fun writable(): Boolean {
+            val readOnly = elements("read-only").firstOrNull()
+            if (readOnly != null && readOnly.booleanValue()) return false
+            val privileges = elements("current-user-privilege-set").firstOrNull() ?: return true
+            return privileges.hasDescendant("write") || privileges.hasDescendant("write-content")
+        }
     }
+
 
     private fun parseMultistatus(response: CalDavResponse): MultiStatus {
         if (response.status !in 200..299 && response.status != 207) throw serverFailure(response.status)
@@ -533,6 +732,38 @@ class NextcloudCalDavClient(
 private fun Node.elements(localName: String): List<Element> = (0 until childNodes.length)
     .mapNotNull { childNodes.item(it) as? Element }
     .filter { (it.localName ?: it.nodeName.substringAfter(':')) == localName }
+    private fun Element.shareeType(principal: String): NextcloudShareeType? {
+        return when {
+            descendantText("share-type") == "1" || principal.contains("/groups/") -> NextcloudShareeType.GROUP
+            descendantText("share-type") == "0" || principal.contains("/users/") -> NextcloudShareeType.USER
+            else -> null
+        }
+    }
+
+    private fun Element.hasDescendant(localName: String): Boolean =
+        (this.localName ?: nodeName.substringAfter(':')) == localName ||
+            (0 until childNodes.length).any { index ->
+                (childNodes.item(index) as? Element)?.hasDescendant(localName) == true
+            }
+
+    private fun Element.descendantText(localName: String): String? {
+        if ((this.localName ?: nodeName.substringAfter(':')) == localName) {
+            return textContent?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        return (0 until childNodes.length)
+            .asSequence()
+            .mapNotNull { childNodes.item(it) as? Element }
+            .mapNotNull { it.descendantText(localName) }
+            .firstOrNull()
+    }
+
+    private fun Element.booleanValue(): Boolean {
+        return when (textContent?.trim()?.lowercase()) {
+            "", "1", "true", "yes", "on" -> true
+            "0", "false", "no", "off" -> false
+            else -> true
+        }
+    }
 
 internal fun parseSecureXml(body: String): Document {
     if (body.contains("<!DOCTYPE", ignoreCase = true)) {

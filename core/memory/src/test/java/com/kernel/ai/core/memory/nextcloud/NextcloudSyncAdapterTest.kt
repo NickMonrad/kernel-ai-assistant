@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test
 
 class NextcloudSyncAdapterTest {
     @Test
-    fun `read-only binding pulls and does not block later bindings`() = runTest {
+    fun `read-only binding pulls without pushing while writable bindings continue`() = runTest {
         val readOnly = binding("readonly")
         val writable = binding("writable")
         val bindings = linkedMapOf(readOnly.collectionId to readOnly, writable.collectionId to writable)
@@ -50,24 +50,22 @@ class NextcloudSyncAdapterTest {
             change("readonly", "readonly-change"),
             change("writable", "writable-change"),
         )
-        val transport = RecordingTransport()
+        val transport = RecordingTransport(readOnlyCollections = setOf("readonly"))
         val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
 
         val result = fixture.adapter.syncAll()
 
-        assertTrue(result is NextcloudSyncResult.Failure)
-        assertEquals(
-            NextcloudFailure.Code.PERMISSION,
-            (result as NextcloudSyncResult.Failure).error.code,
-        )
+        assertTrue(result is NextcloudSyncResult.Success)
         assertTrue("readonly" in transport.reportedCollections)
+        assertTrue("writable" in transport.reportedCollections)
+        assertTrue(transport.putCalls.none { "/readonly/" in it })
         coVerify(exactly = 0) {
             fixture.mutations.acknowledgePushed(listOf("readonly-change"))
         }
         coVerify {
             fixture.mutations.acknowledgePushed(listOf("writable-change"))
         }
-        assertTrue("writable" in transport.reportedCollections)
+        assertFalse(bindings.getValue("readonly").remoteWritable)
     }
 
     @Test
@@ -765,6 +763,7 @@ class NextcloudSyncAdapterTest {
         /** Held open by the test to suspend an initial push while it is in flight. */
         private val putGate: CompletableDeferred<Unit>? = null,
         private val reportDocument: ((String) -> String)? = null,
+        private val readOnlyCollections: Set<String> = emptySet(),
     ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
         val mkcalendarCalls = mutableListOf<String>()
@@ -813,7 +812,7 @@ class NextcloudSyncAdapterTest {
                 method == "PROPFIND" && url.contains("/calendars/alice/") ->
                     response(
                         """
-                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/readonly/</d:href><d:propstat><d:prop><d:displayname>readonly</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:propstat></d:response><d:response><d:href>/calendars/writable/</d:href><d:propstat><d:prop><d:displayname>writable</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:propstat></d:response></d:multistatus>
+                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:oc="http://owncloud.org/ns"><d:response><d:href>/calendars/readonly/</d:href><d:propstat><d:prop><d:displayname>readonly</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>${if ("readonly" in readOnlyCollections) "<oc:read-only/>" else "<d:current-user-privilege-set><d:privilege><d:read/><d:write/></d:privilege></d:current-user-privilege-set>"}</d:prop></d:propstat></d:response><d:response><d:href>/calendars/writable/</d:href><d:propstat><d:prop><d:displayname>writable</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>${if ("writable" in readOnlyCollections) "<oc:read-only/>" else "<d:current-user-privilege-set><d:privilege><d:read/><d:write/></d:privilege></d:current-user-privilege-set>"}</d:prop></d:propstat></d:response></d:multistatus>
                         """,
                     )
                 method == "MKCALENDAR" -> {

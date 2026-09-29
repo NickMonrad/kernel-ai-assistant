@@ -16,6 +16,11 @@ data class NextcloudCollectionBindingEntity(
     val remoteLogicalClock: Long,
     val updatedAt: Long,
     /**
+     * Current-user CalDAV write capability. This is refreshed from server privileges; false prevents
+     * the sync path from issuing unauthorized VTODO writes for read-only shared lists.
+     */
+    val remoteWritable: Boolean = true,
+    /**
      * Per-list "Stop Nextcloud sync" state (#1551). False keeps the binding, the local list and the
      * remote collection, and only suspends synchronization for this list.
      */

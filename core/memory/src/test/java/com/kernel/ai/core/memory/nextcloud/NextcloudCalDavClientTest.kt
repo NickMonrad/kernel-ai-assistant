@@ -524,6 +524,149 @@ class NextcloudCalDavClientTest {
         assertEquals(NextcloudFailure.Code.DISCOVERY, (error as NextcloudConnectionException).code)
     }
 
+    @Test
+    fun `sharing metadata parses user and group permissions and read-only capability`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "PROPFIND https://cloud.example/tasks/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+                        <d:response><d:href>/tasks/</d:href><d:propstat><d:prop>
+                            <oc:invite>
+                                <oc:user><d:href>principal:principals/users/bob</d:href><oc:common-name>Bob</oc:common-name><oc:access><oc:read-write/></oc:access><oc:invite-accepted/></oc:user>
+                                <oc:user><d:href>principal:principals/groups/team</d:href><oc:common-name>Team</oc:common-name><oc:access><oc:read/></oc:access></oc:user>
+                            </oc:invite>
+                            <oc:read-only>1</oc:read-only>
+                            <d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set>
+                        </d:prop></d:propstat></d:response>
+                    </d:multistatus>
+                    """,
+                ),
+            ),
+        )
+
+        val listing = NextcloudCalDavClient(credentials(), transport).listShares("https://cloud.example/tasks/")
+
+        assertFalse(listing.writable)
+        assertEquals(listOf("Bob", "Team"), listing.shares.map { it.displayName })
+        assertEquals(NextcloudShareeType.USER, listing.shares[0].type)
+        assertEquals(NextcloudSharePermission.EDITABLE, listing.shares[0].permission)
+        assertEquals(NextcloudShareeType.GROUP, listing.shares[1].type)
+        assertEquals(NextcloudSharePermission.READ_ONLY, listing.shares[1].permission)
+    }
+
+    @Test
+    fun `sharee search returns only users and groups with principal schemes`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "REPORT https://cloud.example/remote.php/dav" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+                        <d:response><d:href>/remote.php/dav/principals/users/bob/</d:href><d:propstat><d:prop>
+                            <d:displayname>Bob</d:displayname><c:calendar-user-type>INDIVIDUAL</c:calendar-user-type>
+                        </d:prop></d:propstat></d:response>
+                        <d:response><d:href>/remote.php/dav/principals/groups/team/</d:href><d:propstat><d:prop>
+                            <d:displayname>Team</d:displayname><c:calendar-user-type>GROUP</c:calendar-user-type>
+                        </d:prop></d:propstat></d:response>
+                        <d:response><d:href>/remote.php/dav/principals/resources/room/</d:href><d:propstat><d:prop>
+                            <d:displayname>Room</d:displayname><c:calendar-user-type>RESOURCE</c:calendar-user-type>
+                        </d:prop></d:propstat></d:response>
+                    </d:multistatus>
+                    """,
+                ),
+            ),
+        )
+
+        val results = NextcloudCalDavClient(credentials(), transport)
+            .searchSharees("bob & team", "https://cloud.example/remote.php/dav")
+
+        assertEquals(
+            listOf("principal:principals/users/bob", "principal:principals/groups/team"),
+            results.map { it.principal },
+        )
+        assertEquals(listOf(NextcloudShareeType.USER, NextcloudShareeType.GROUP), results.map { it.type })
+        assertTrue(transport.requests.single().body.orEmpty().contains("bob &amp; team"))
+    }
+
+    @Test
+    fun `share permission changes and removal use bounded CalDAV share requests`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "POST https://cloud.example/tasks/" to CalDavResponse(200, emptyMap(), "", ""),
+            ),
+        )
+        val client = NextcloudCalDavClient(credentials(), transport)
+
+        client.setShare(
+            "https://cloud.example/tasks/",
+            "principal:principals/users/bob",
+            NextcloudSharePermission.EDITABLE,
+        )
+        client.setShare(
+            "https://cloud.example/tasks/",
+            "principal:principals/groups/team",
+            NextcloudSharePermission.READ_ONLY,
+        )
+        client.removeShare("https://cloud.example/tasks/", "principal:principals/users/bob")
+
+        assertEquals(3, transport.requests.size)
+        assertTrue(transport.requests[0].body.orEmpty().contains("<oc:read-write/>"))
+        assertFalse(transport.requests[1].body.orEmpty().contains("<oc:read-write/>"))
+        assertTrue(transport.requests[1].body.orEmpty().contains("<oc:set>"))
+        assertTrue(transport.requests[2].body.orEmpty().contains("<oc:remove>"))
+        assertThrows(NextcloudConnectionException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                client.setShare(
+                    "https://cloud.example/tasks/",
+                    "https://evil.example/principal",
+                    NextcloudSharePermission.READ_ONLY,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `zero read-only property keeps writable collection writable`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "PROPFIND https://cloud.example/tasks/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+                        <d:response><d:href>/tasks/</d:href><d:propstat><d:prop>
+                            <oc:read-only>0</oc:read-only>
+                            <d:current-user-privilege-set><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set>
+                        </d:prop></d:propstat></d:response>
+                    </d:multistatus>
+                    """,
+                ),
+            ),
+        )
+
+        assertTrue(NextcloudCalDavClient(credentials(), transport).listShares("https://cloud.example/tasks/").writable)
+    }
+
+    @Test
+    fun `forbidden sharing mutation is reported as a permission failure`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "POST https://cloud.example/tasks/" to
+                    CalDavResponse(403, emptyMap(), "private response", "https://cloud.example/tasks/"),
+            ),
+        )
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport).setShare(
+                "https://cloud.example/tasks/",
+                "principal:principals/users/bob",
+                NextcloudSharePermission.READ_ONLY,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is NextcloudConnectionException)
+        assertEquals(NextcloudFailure.Code.PERMISSION, (error as NextcloudConnectionException).code)
+        assertFalse(error.message.contains("private response"))
+    }
+
     private fun credentials() = NextcloudAccountCredentials(NextcloudAccount("https://cloud.example", "alice"), "secret-password")
 
     private fun response(xml: String) = CalDavResponse(207, mapOf("content-type" to "application/xml"), xml, "")

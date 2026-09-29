@@ -56,6 +56,24 @@ The Nextcloud lists screen places every list in exactly one of **Connected lists
 
 Synchronization is triggered by local changes, app-active refresh, manual refresh/retry, and the bounded WorkManager periodic job. A stopped list is skipped by later triggers until it is resumed.
 
+## Sharing and effective permissions
+
+An existing bound list exposes **Manage Nextcloud sharing**. The screen reads and mutates the
+collection's native Nextcloud CalDAV shares for users and groups; it does not maintain a second
+Jandal ACL. Share permissions are displayed as **Read-only** or **Editable**, and changes/removal
+are sent through the collection's CalDAV `oc:share` endpoint.
+
+The collection's `oc:read-only` property and `DAV:current-user-privilege-set` are authoritative.
+Jandal refreshes them before sharing mutations and before synchronization, persists the effective
+`remoteWritable` state, pulls without pushing when the account is read-only, and disables local
+list writes that would otherwise be published. A server-side downgrade therefore wins over stale
+local state. Authentication, permission, malformed-response, and transport failures remain
+actionable without exposing credentials or private server response bodies.
+
+Recipient discovery/import uses the existing Nextcloud collection discovery flow. Sharing
+interoperability with two real Nextcloud accounts, including propagation after permission changes
+and removal, remains an environment-owned manual gate; CI does not contain provider credentials.
+
 ## VTODO mapping
 
 `SUMMARY`, `DESCRIPTION`, `STATUS`, `DUE`, `RELATED-TO;RELTYPE=PARENT`, and
@@ -79,6 +97,7 @@ Manual refresh and per-list retry provide deterministic recovery in addition to 
 
 The JVM tests cover VTODO preservation/escaping, CalDAV discovery, authentication
 errors, duplicate-safe response handling, conditional writes, ETag parsing, address
-normalization, the HTTPS-only redirect policy, clean remote display naming, and per-list
-stop/resume. A real Nextcloud instance with an app password remains an environment-owned
+normalization, the HTTPS-only redirect policy, clean remote display naming, per-list
+stop/resume, native user/group share listing and mutation, and server-enforced read-only
+transitions. A real Nextcloud instance with an app password remains an environment-owned
 interoperability gate; CI does not contain provider credentials.

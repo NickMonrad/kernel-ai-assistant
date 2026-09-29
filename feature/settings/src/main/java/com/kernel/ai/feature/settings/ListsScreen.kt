@@ -92,6 +92,7 @@ fun ListsScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     onNavigateToNextcloud: () -> Unit = {},
     onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> onNavigateToNextcloud() },
+    onNavigateToNextcloudSharing: (String) -> Unit = {},
     externalMessage: String? = null,
     onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
@@ -158,6 +159,7 @@ fun ListsScreen(
             },
             onStopSync = { viewModel.stopListNextcloudSync(entity.collectionId) },
             onResumeSync = { viewModel.resumeListNextcloudSync(entity.collectionId) },
+            onManageSharing = { onNavigateToNextcloudSharing(entity.collectionId) },
             // Opening the bound-list state must never look like a new contextual setup.
             onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
         )

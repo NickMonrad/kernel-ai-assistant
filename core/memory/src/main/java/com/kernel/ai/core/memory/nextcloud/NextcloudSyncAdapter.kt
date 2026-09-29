@@ -50,7 +50,7 @@ class NextcloudSyncAdapter @Inject constructor(
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val mutations: ListMutationRepository,
-) {
+) : NextcloudSharingOperations {
     private val syncMutex = Mutex()
 
     /** Collection ids with a synchronization in flight, so the UI can show `Syncing…` (#1551). */
@@ -70,6 +70,7 @@ class NextcloudSyncAdapter @Inject constructor(
                     collectionId = summary.collectionId,
                     remoteHref = summary.remoteHref,
                     state = summary.state(summary.collectionId in active),
+                    remoteWritable = summary.remoteWritable,
                 )
             }
         }
@@ -190,6 +191,7 @@ class NextcloudSyncAdapter @Inject constructor(
                 remoteEtag = null,
                 remoteLogicalClock = remoteItems.size.toLong().coerceAtLeast(1L),
                 updatedAt = now,
+                remoteWritable = collection.writable,
             ),
         )
         remoteItems.forEach { remote ->
@@ -199,6 +201,41 @@ class NextcloudSyncAdapter @Inject constructor(
             )
         }
         imported.listId
+    }
+
+    override suspend fun listShares(collectionId: String): Result<NextcloudShareListing> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val listing = client().listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        listing
+    }
+
+    override suspend fun searchSharees(collectionId: String, query: String): Result<List<NextcloudSharee>> = guarded {
+        requireBoundBinding(collectionId)
+        val client = client()
+        client.searchSharees(query, client.discover().davRootHref)
+    }
+
+    override suspend fun setShare(
+        collectionId: String,
+        principal: String,
+        permission: NextcloudSharePermission,
+    ): Result<Unit> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val client = client()
+        val listing = client.listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        if (!listing.writable) throw permissionFailure()
+        client.setShare(binding.remoteHref, principal, permission)
+    }
+
+    override suspend fun removeShare(collectionId: String, principal: String): Result<Unit> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val client = client()
+        val listing = client.listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        if (!listing.writable) throw permissionFailure()
+        client.removeShare(binding.remoteHref, principal)
     }
 
     suspend fun publishCollection(listId: Long): Result<Unit> = guarded {
@@ -224,7 +261,9 @@ class NextcloudSyncAdapter @Inject constructor(
         try {
             val client = client()
             syncMutex.withLock {
-                withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
+                val current = refreshCollectionAccess(client, binding)
+                if (!current.remoteWritable) throw permissionFailure()
+                withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, current) }
             }
             recordSuccess(list.collectionId)
         } catch (error: Exception) {
@@ -368,24 +407,23 @@ class NextcloudSyncAdapter @Inject constructor(
         return syncMutex.withLock {
             // Re-read under the lock: a Stop may have landed since the caller snapshotted bindings,
             // in which case this list must not be synchronized at all.
-            val binding = collectionBindings.get(original.collectionId) ?: original
-            if (!binding.syncEnabled) return@withLock false
+            val persisted = collectionBindings.get(original.collectionId) ?: original
+            if (!persisted.syncEnabled) return@withLock false
+            val binding = refreshCollectionAccess(client, persisted)
+            if (!binding.remoteWritable) {
+                return@withLock pullCollection(client, binding)
+            }
             try {
                 pushCollection(client, binding.collectionId, binding)
             } catch (_: NextcloudConflictException) {
                 pullCollection(client, binding)
                 pushCollection(client, binding.collectionId, binding)
-            } catch (error: NextcloudConnectionException) {
-                if (error.code != NextcloudFailure.Code.PERMISSION) throw error
-                // A read-only collection must still pull remote changes. Keep the original
-                // permission failure so the caller reports it and pending local changes remain
-                // retryable after the server-side permission is restored.
-                pullCollection(client, binding)
-                throw error
             }
             val pulled = pullCollection(client, collectionBindings.get(binding.collectionId) ?: binding)
             val latest = collectionBindings.get(binding.collectionId) ?: binding
-            pushCollection(client, binding.collectionId, latest)
+            if (latest.remoteWritable) {
+                pushCollection(client, binding.collectionId, latest)
+            }
             pulled
         }
     }
@@ -471,9 +509,7 @@ class NextcloudSyncAdapter @Inject constructor(
         binding: NextcloudCollectionBindingEntity,
     ): Boolean {
         val list = listNameDao.getByCollectionId(binding.collectionId) ?: return false
-        val remoteTitle = client.discover().collections
-            .firstOrNull { it.href == binding.remoteHref }?.displayName
-            ?: binding.remoteTitle
+        val remoteTitle = binding.remoteTitle
         val remoteItems = client.fetchTasks(binding.remoteHref)
         val oldBindings = itemBindings.getAll(binding.collectionId).associateBy { it.remoteUid }
         val remoteByUid = remoteItems.associateBy { it.uid() }
@@ -546,6 +582,48 @@ class NextcloudSyncAdapter @Inject constructor(
 
     private suspend fun recordFailure(collectionId: String, failure: NextcloudFailure) {
         collectionBindings.recordSyncOutcome(collectionId, failure.code.name, System.currentTimeMillis())
+    }
+
+    private suspend fun requireBoundBinding(collectionId: String): NextcloudCollectionBindingEntity =
+        collectionBindings.get(collectionId)
+            ?: throw NextcloudConnectionException(
+                NextcloudFailure.Code.PERMISSION,
+                "This list is not connected to Nextcloud.",
+            )
+
+    private fun permissionFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        "Nextcloud denied write access to this task collection. Check its permissions and try again.",
+    )
+    private suspend fun persistWritable(
+        binding: NextcloudCollectionBindingEntity,
+        writable: Boolean,
+    ) {
+        if (binding.remoteWritable != writable) {
+            collectionBindings.upsert(
+                binding.copy(
+                    remoteWritable = writable,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    private suspend fun refreshCollectionAccess(
+        client: NextcloudCalDavClient,
+        binding: NextcloudCollectionBindingEntity,
+    ): NextcloudCollectionBindingEntity {
+        val collection = client.discover().collections.firstOrNull { it.href == binding.remoteHref }
+            ?: return binding
+        val remoteMetadataChanged =
+            collection.displayName != binding.remoteTitle || collection.writable != binding.remoteWritable
+        val refreshed = binding.copy(
+            remoteTitle = collection.displayName,
+            remoteWritable = collection.writable,
+            updatedAt = if (remoteMetadataChanged) System.currentTimeMillis() else binding.updatedAt,
+        )
+        if (refreshed != binding) collectionBindings.upsert(refreshed)
+        return refreshed
     }
 
     private suspend fun client(): NextcloudCalDavClient = NextcloudCalDavClient(

@@ -948,7 +948,9 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
     val nextcloudStates: StateFlow<Map<String, NextcloudListState>> = nextcloud.observeListBindings()
         .map { bindings -> bindings.associate { it.collectionId to it.state } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
+    val nextcloudWritable: StateFlow<Map<String, Boolean>> = nextcloud.observeListBindings()
+        .map { bindings -> bindings.associate { it.collectionId to it.remoteWritable } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     /** True when a Nextcloud account is stored, so a list can be bound without routing to setup. */
     val nextcloudAccountConfigured: StateFlow<Boolean> = nextcloud.observeAccountConfigured()
 

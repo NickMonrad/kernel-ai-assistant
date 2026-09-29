@@ -20,7 +20,7 @@ interface NextcloudCollectionBindingDao {
     suspend fun getAll(): List<NextcloudCollectionBindingEntity>
 
     /** Per-list sync state for the Lists overview and the Nextcloud lists screen (#1551). */
-    @Query("SELECT collectionId, remoteHref, syncEnabled, lastFailureCode FROM nextcloud_collection_bindings")
+    @Query("SELECT collectionId, remoteHref, syncEnabled, lastFailureCode, remoteWritable FROM nextcloud_collection_bindings")
     fun observeSyncSummaries(): Flow<List<NextcloudListSyncSummary>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

@@ -85,10 +85,24 @@ class ListsRowOverflowActionsTest {
     }
 
     @Test
+    fun aBoundListOffersManageSharing() {
+        var manageSharing = false
+        showMenu(
+            NextcloudRowActions(
+                state = NextcloudListState.UP_TO_DATE,
+                onManageSharing = { manageSharing = true },
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Manage sharing").assertIsDisplayed().performClick()
+
+        assertEquals(true, manageSharing)
+    }
+
+    @Test
     fun everyRowExposesTheSameShareAndExportActions() {
         var exported = false
         showMenu(NextcloudRowActions(state = null), onExport = { exported = true })
-
         composeTestRule.onNodeWithText("Share as text").assertIsDisplayed()
         composeTestRule.onNodeWithText("Copy to clipboard").assertIsDisplayed()
         composeTestRule.onNodeWithText("Export Jandal file").assertIsDisplayed().performClick()

@@ -28,6 +28,7 @@ internal data class NextcloudRowActions(
     val onStopSync: () -> Unit = {},
     val onResumeSync: () -> Unit = {},
     val onOpenNextcloud: () -> Unit = {},
+    val onManageSharing: () -> Unit = {},
 )
 
 /**
@@ -63,6 +64,11 @@ internal fun NextcloudOverflowItems(
         )
     }
     if (actions.state != null) {
+        DropdownMenuItem(
+            text = { Text("Manage sharing") },
+            onClick = { onDismiss(); actions.onManageSharing() },
+            modifier = Modifier.testTag("${testTagPrefix}_manage_sharing"),
+        )
         DropdownMenuItem(
             text = { Text("Nextcloud") },
             onClick = { onDismiss(); actions.onOpenNextcloud() },

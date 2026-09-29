@@ -26,6 +26,7 @@ data class NextcloudListSyncSummary(
     val remoteHref: String,
     val syncEnabled: Boolean,
     val lastFailureCode: String?,
+    val remoteWritable: Boolean = true,
 ) {
     /**
      * Durable state, before the in-flight overlay.
@@ -52,4 +53,5 @@ data class NextcloudListBinding(
     val collectionId: String,
     val remoteHref: String,
     val state: NextcloudListState,
+    val remoteWritable: Boolean = true,
 )
