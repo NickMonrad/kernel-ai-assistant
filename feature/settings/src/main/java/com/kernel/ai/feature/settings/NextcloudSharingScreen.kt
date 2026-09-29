@@ -3,6 +3,7 @@
 package com.kernel.ai.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -88,7 +90,9 @@ fun NextcloudSharingScreen(
             state = state,
             modifier = Modifier.padding(padding),
             onQueryChange = viewModel::setQuery,
-            onGrant = viewModel::grant,
+            onSelectSharee = viewModel::selectSharee,
+            onSelectPermission = viewModel::selectPermission,
+            onShareSelected = viewModel::shareSelected,
             onChangePermission = viewModel::changePermission,
             onRemove = { pendingRemove = it },
         )
@@ -115,7 +119,9 @@ internal fun NextcloudSharingContent(
     state: NextcloudSharingState,
     modifier: Modifier = Modifier,
     onQueryChange: (String) -> Unit = {},
-    onGrant: (com.kernel.ai.core.memory.nextcloud.NextcloudSharee, NextcloudSharePermission) -> Unit = { _, _ -> },
+    onSelectSharee: (com.kernel.ai.core.memory.nextcloud.NextcloudSharee) -> Unit = {},
+    onSelectPermission: (NextcloudSharePermission) -> Unit = {},
+    onShareSelected: () -> Unit = {},
     onChangePermission: (NextcloudShare, NextcloudSharePermission) -> Unit = { _, _ -> },
     onRemove: (NextcloudShare) -> Unit = {},
 ) {
@@ -156,29 +162,78 @@ internal fun NextcloudSharingContent(
                     )
                     if (state.searching) CircularProgressIndicator()
                     state.results.forEach { sharee ->
+                        val selected = state.selectedSharee?.principal == sharee.principal
                         ListItem(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = state.busyPrincipal == null) {
+                                    onSelectSharee(sharee)
+                                }
+                                .testTag("nextcloud_sharing_result"),
+                            leadingContent = {
+                                RadioButton(
+                                    selected = selected,
+                                    onClick = { onSelectSharee(sharee) },
+                                    enabled = state.busyPrincipal == null,
+                                )
+                            },
                             headlineContent = { Text(sharee.displayName) },
                             supportingContent = { Text(sharee.typeLabel()) },
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            OutlinedButton(
-                                onClick = { onGrant(sharee, NextcloudSharePermission.READ_ONLY) },
-                                modifier = Modifier.testTag("nextcloud_sharing_grant_read"),
-                                enabled = state.busyPrincipal == null,
-                            ) { Text("Read-only") }
-                            Button(
-                                onClick = { onGrant(sharee, NextcloudSharePermission.EDITABLE) },
-                                modifier = Modifier.testTag("nextcloud_sharing_grant_edit"),
-                                enabled = state.busyPrincipal == null,
-                            ) { Text("Editable") }
-                        }
                         HorizontalDivider()
                     }
-                }
+                    state.selectedSharee?.let { selected ->
+                        Text(
+                            "Selected: ${selected.displayName} (${selected.typeLabel()})",
+                            modifier = Modifier.testTag("nextcloud_sharing_selected"),
+                        )
+                        Text("Permission", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    onSelectPermission(NextcloudSharePermission.READ_ONLY)
+                                },
+                                modifier = Modifier.testTag("nextcloud_sharing_permission_read"),
+                                enabled = state.busyPrincipal == null,
+                            ) {
+                                Text(
+                                    "Read-only" +
+                                        if (state.selectedPermission == NextcloudSharePermission.READ_ONLY) {
+                                            " ✓"
+                                        } else {
+                                            ""
+                                        },
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    onSelectPermission(NextcloudSharePermission.EDITABLE)
+                                },
+                                modifier = Modifier.testTag("nextcloud_sharing_permission_edit"),
+                                enabled = state.busyPrincipal == null,
+                            ) {
+                                Text(
+                                    "Editable" +
+                                        if (state.selectedPermission == NextcloudSharePermission.EDITABLE) {
+                                            " ✓"
+                                        } else {
+                                            ""
+                                        },
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = onShareSelected,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("nextcloud_sharing_share"),
+                            enabled = state.busyPrincipal == null,
+                        ) {
+                            Text("Share")
+                        }
+                    }
 
+                }
                 Text(
                     "People and groups with access",
                     style = MaterialTheme.typography.titleMedium,

@@ -661,20 +661,29 @@ class NextcloudCalDavClientTest {
     }
 
     @Test
-    fun `writable capability consumes successful permission properties and fails closed on denied ones`() = runTest {
+    fun `writable capability prioritizes read-only metadata and fails closed when unavailable`() = runTest {
         val cases = listOf(
             """
                 <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to true,
+            """
+                <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to true,
+            """
+                <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
                 <d:propstat><d:prop><d:current-user-privilege-set/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
-            """.trimIndent() to false,
+            """.trimIndent() to true,
             """
                 <d:propstat><d:prop><d:current-user-privilege-set/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
                 <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
-            """.trimIndent() to false,
+            """.trimIndent() to true,
             """
                 <d:propstat><d:prop><oc:read-only/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
                 <d:propstat><d:prop><oc:invite/><d:current-user-privilege-set><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
             """.trimIndent() to true,
+            """
+                <d:propstat><d:prop><oc:invite/><oc:read-only>1</oc:read-only><d:current-user-privilege-set><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to false,
         )
 
         cases.forEach { (splitPropstats, expectedWritable) ->

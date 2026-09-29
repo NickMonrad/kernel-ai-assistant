@@ -710,7 +710,7 @@ class NextcloudCalDavClient(
 
         fun writable(): Boolean {
             val readOnly = elements("read-only").firstOrNull()
-            if (readOnly != null && readOnly.booleanValue()) return false
+            if (readOnly != null) return !readOnly.booleanValue()
 
             val privileges = elements("current-user-privilege-set").firstOrNull()
             if (privileges != null) {

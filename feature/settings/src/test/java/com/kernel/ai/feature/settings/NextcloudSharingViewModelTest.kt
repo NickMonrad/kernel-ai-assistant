@@ -90,7 +90,36 @@ class NextcloudSharingViewModelTest {
         assertEquals(results, viewModel.state.value.results)
         assertTrue(viewModel.state.value.results.any { it.type == NextcloudShareeType.GROUP })
     }
+    @Test
+    fun `selecting a search result and permission waits for explicit share`() = runTest {
+        val sharee = NextcloudSharee(
+            principal = "principal:principals/users/bob",
+            displayName = "Bob",
+            type = NextcloudShareeType.USER,
+        )
+        operations.searchResults = listOf(sharee)
+        val viewModel = NextcloudSharingViewModel(operations)
 
+        viewModel.start("collection")
+        advanceUntilIdle()
+        viewModel.setQuery("bob")
+        advanceUntilIdle()
+        viewModel.selectSharee(sharee)
+        viewModel.selectPermission(NextcloudSharePermission.EDITABLE)
+        advanceUntilIdle()
+
+        assertTrue(operations.setCalls.isEmpty())
+        assertEquals(sharee, viewModel.state.value.selectedSharee)
+        assertEquals(NextcloudSharePermission.EDITABLE, viewModel.state.value.selectedPermission)
+
+        viewModel.shareSelected()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(Triple("collection", sharee.principal, NextcloudSharePermission.EDITABLE)),
+            operations.setCalls,
+        )
+    }
     private fun share(
         permission: NextcloudSharePermission = NextcloudSharePermission.EDITABLE,
     ) = NextcloudShare(

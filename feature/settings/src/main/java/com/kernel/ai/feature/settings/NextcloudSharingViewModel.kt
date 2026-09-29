@@ -24,6 +24,8 @@ data class NextcloudSharingState(
     val writable: Boolean = false,
     val query: String = "",
     val results: List<NextcloudSharee> = emptyList(),
+    val selectedSharee: NextcloudSharee? = null,
+    val selectedPermission: NextcloudSharePermission = NextcloudSharePermission.READ_ONLY,
     val searching: Boolean = false,
     val busyPrincipal: String? = null,
     val feedback: String? = null,
@@ -55,6 +57,8 @@ class NextcloudSharingViewModel @Inject constructor(
         _state.value = _state.value.copy(
             query = query,
             results = emptyList(),
+            selectedSharee = null,
+            selectedPermission = NextcloudSharePermission.READ_ONLY,
             feedback = null,
             error = null,
         )
@@ -74,9 +78,24 @@ class NextcloudSharingViewModel @Inject constructor(
         }
     }
 
-    fun grant(sharee: NextcloudSharee, permission: NextcloudSharePermission) {
-        mutate(sharee.principal) {
-            adapter.setShare(requireCollectionId(), sharee.principal, permission)
+    fun selectSharee(sharee: NextcloudSharee) {
+        if (_state.value.busyPrincipal != null) return
+        _state.value = _state.value.copy(
+            selectedSharee = sharee,
+            selectedPermission = NextcloudSharePermission.READ_ONLY,
+        )
+    }
+
+    fun selectPermission(permission: NextcloudSharePermission) {
+        if (_state.value.selectedSharee == null || _state.value.busyPrincipal != null) return
+        _state.value = _state.value.copy(selectedPermission = permission)
+    }
+
+    fun shareSelected() {
+        val selected = _state.value.selectedSharee ?: return
+        val permission = _state.value.selectedPermission
+        mutate(selected.principal, clearSelection = true) {
+            adapter.setShare(requireCollectionId(), selected.principal, permission)
         }
     }
 
@@ -122,7 +141,11 @@ class NextcloudSharingViewModel @Inject constructor(
         }
     }
 
-    private fun mutate(principal: String, operation: suspend () -> Result<Unit>) {
+    private fun mutate(
+        principal: String,
+        clearSelection: Boolean = false,
+        operation: suspend () -> Result<Unit>,
+    ) {
         if (_state.value.busyPrincipal != null || !_state.value.writable) return
         viewModelScope.launch {
             _state.value = _state.value.copy(busyPrincipal = principal, error = null, feedback = null)
@@ -130,6 +153,7 @@ class NextcloudSharingViewModel @Inject constructor(
                 onSuccess = {
                     _state.value = _state.value.copy(
                         busyPrincipal = null,
+                        selectedSharee = if (clearSelection) null else _state.value.selectedSharee,
                         feedback = "Sharing updated.",
                     )
                     loadShares(preserveFeedback = true)
