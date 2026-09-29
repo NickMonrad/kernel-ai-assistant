@@ -86,12 +86,18 @@ internal class NextcloudLoginFlowClient(
         // Open the browser before the first poll. The token is never passed to this callback/UI.
         onLoginUrl(loginUrl)
         while (true) {
-            val pollResponse = execute(
-                method = "POST",
-                url = pollEndpoint,
-                headers = FORM_HEADERS,
-                body = "token=${URLEncoder.encode(start.pollToken, Charsets.UTF_8.name())}",
-            )
+            val pollResponse = try {
+                execute(
+                    method = "POST",
+                    url = pollEndpoint,
+                    headers = FORM_HEADERS,
+                    body = "token=${URLEncoder.encode(start.pollToken, Charsets.UTF_8.name())}",
+                )
+            } catch (error: NextcloudFailure) {
+                if (error.code != NextcloudFailure.Code.DNS) throw error
+                if (pollIntervalMillis > 0L) delay(pollIntervalMillis)
+                continue
+            }
             when (pollResponse.status) {
                 404 -> {
                     if (pollIntervalMillis > 0L) delay(pollIntervalMillis)

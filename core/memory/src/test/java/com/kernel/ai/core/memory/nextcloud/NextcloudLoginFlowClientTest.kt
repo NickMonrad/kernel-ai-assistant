@@ -53,6 +53,66 @@ class NextcloudLoginFlowClientTest {
         assertTrue(transport.requests[1].body?.startsWith("token=") == true)
     }
 
+    @Test
+    fun `pending poll then transient DNS then success returns credentials`() = runTest {
+        val transport = QueueTransport().apply {
+            enqueue(
+                "POST",
+                "$LOGIN_SERVER/index.php/login/v2",
+                response("""{"poll":{"token":"flow-token","endpoint":"$POLL_URL"},"login":"$LOGIN_URL"}"""),
+            )
+            enqueue("POST", POLL_URL, CalDavResponse(404, emptyMap(), "", POLL_URL))
+            enqueueFailure("POST", POLL_URL, NextcloudFailure.Code.DNS)
+            enqueue(
+                "POST",
+                POLL_URL,
+                response("""{"server":"$LOGIN_SERVER","loginName":"alice","appPassword":"app-password"}"""),
+            )
+        }
+
+        val credentials = NextcloudLoginFlowClient(
+            transport = transport,
+            timeoutMillis = 1_000L,
+            pollIntervalMillis = 1L,
+        ).authenticate(LOGIN_SERVER)
+
+        assertEquals(LOGIN_SERVER, credentials.serverUrl)
+        assertEquals("alice", credentials.username)
+        assertEquals("app-password", credentials.appPassword)
+    }
+
+    @Test
+    fun `transient DNS poll retry reuses the same endpoint and token without restarting`() = runTest {
+        val initiationUrl = "$LOGIN_SERVER/index.php/login/v2"
+        val transport = QueueTransport().apply {
+            enqueue(
+                "POST",
+                initiationUrl,
+                response("""{"poll":{"token":"flow-token","endpoint":"$POLL_URL"},"login":"$LOGIN_URL"}"""),
+            )
+            enqueue("POST", POLL_URL, CalDavResponse(404, emptyMap(), "", POLL_URL))
+            enqueueFailure("POST", POLL_URL, NextcloudFailure.Code.DNS)
+            enqueue(
+                "POST",
+                POLL_URL,
+                response("""{"server":"$LOGIN_SERVER","loginName":"alice","appPassword":"app-password"}"""),
+            )
+        }
+
+        NextcloudLoginFlowClient(
+            transport = transport,
+            timeoutMillis = 1_000L,
+            pollIntervalMillis = 1L,
+        ).authenticate(LOGIN_SERVER)
+
+        val initiationRequests = transport.requests.filter { it.url == initiationUrl }
+        val pollRequests = transport.requests.filter { it.url == POLL_URL }
+        assertEquals(1, initiationRequests.size)
+        assertEquals(3, pollRequests.size)
+        assertTrue(pollRequests.all { it.url == POLL_URL })
+        assertEquals(pollRequests.first().body, pollRequests.last().body)
+    }
+
 
     @Test
     fun `initiation sends a real zero length POST body`() = runTest {
@@ -125,6 +185,31 @@ class NextcloudLoginFlowClientTest {
 
         assertEquals(NextcloudFailure.Code.AUTHENTICATION, (error as NextcloudFailure).code)
         assertEquals(2, transport.requests.size)
+    }
+
+    @Test
+    fun `repeated DNS poll failures remain bounded by the existing timeout`() = runTest {
+        val transport = QueueTransport().apply {
+            enqueue(
+                "POST",
+                "$LOGIN_SERVER/index.php/login/v2",
+                response("""{"poll":{"token":"flow-token","endpoint":"$POLL_URL"},"login":"$LOGIN_URL"}"""),
+            )
+            repeat(10) {
+                enqueueFailure("POST", POLL_URL, NextcloudFailure.Code.DNS)
+            }
+        }
+
+        val error = runCatching {
+            NextcloudLoginFlowClient(
+                transport = transport,
+                timeoutMillis = 20L,
+                pollIntervalMillis = 10L,
+            ).authenticate(LOGIN_SERVER)
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.TIMEOUT, (error as NextcloudFailure).code)
+        assertTrue(transport.requests.size >= 2)
     }
 
     @Test
@@ -340,10 +425,16 @@ class NextcloudLoginFlowClientTest {
 
     private class QueueTransport : CalDavTransport {
         val requests = mutableListOf<Request>()
-        private val responses = linkedMapOf<String, ArrayDeque<CalDavResponse>>()
+        private val responses = linkedMapOf<String, ArrayDeque<Outcome>>()
 
         fun enqueue(method: String, url: String, response: CalDavResponse) {
-            responses.getOrPut("$method $url") { ArrayDeque() }.addLast(response)
+            responses.getOrPut("$method $url") { ArrayDeque() }.addLast(Outcome.Response(response))
+        }
+
+        fun enqueueFailure(method: String, url: String, code: NextcloudFailure.Code) {
+            responses.getOrPut("$method $url") { ArrayDeque() }.addLast(
+                Outcome.Failure(NextcloudConnectionException(code, "test failure")),
+            )
         }
 
         override suspend fun execute(
@@ -353,8 +444,17 @@ class NextcloudLoginFlowClientTest {
             body: String?,
         ): CalDavResponse {
             requests += Request(method, url, headers, body)
-            return responses["$method $url"]?.removeFirstOrNull()
-                ?: error("Unexpected Login Flow request")
+            return when (val outcome = responses["$method $url"]?.removeFirstOrNull()) {
+                is Outcome.Response -> outcome.value
+                is Outcome.Failure -> throw outcome.error
+                null -> error("Unexpected Login Flow request")
+            }
+        }
+
+        private sealed interface Outcome {
+            data class Response(val value: CalDavResponse) : Outcome
+
+            data class Failure(val error: NextcloudFailure) : Outcome
         }
     }
 
