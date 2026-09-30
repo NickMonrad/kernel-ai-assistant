@@ -23,9 +23,9 @@ CI remains provider-credential-free. The instrumentation test is skipped unless
   Ultra (`SM-S918B`). Supply their ADB serials directly to the script; the script does not print
   them.
 - The same reviewer-approved debug APK and its `app-debug-androidTest.apk` are installed on both
-  devices. Existing app data and the encrypted Nextcloud account setup must remain intact. Open the
-  configured app on each device and keep its process running; the runner refuses a cold-start test
-  that could trigger normal startup work.
+  devices. Existing app data and the encrypted Nextcloud account setup must remain intact. The target
+  app process does not need to remain running: Android instrumentation owns the per-step process
+  lifecycle and may force-stop it between steps.
 - The owner app is configured with a Nextcloud account that can create a VTODO calendar. The
   recipient app is configured with a different Nextcloud account. Neither password nor app password
   is given to the harness.
