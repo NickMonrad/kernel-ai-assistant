@@ -710,7 +710,7 @@ class NextcloudCalDavClient(
 
         fun writable(): Boolean {
             val readOnly = elements("read-only").firstOrNull()
-            if (readOnly != null) return !readOnly.booleanValue()
+            if (readOnly != null) return !readOnly.readOnlyFlag()
 
             val privileges = elements("current-user-privilege-set").firstOrNull()
             if (privileges != null) {
@@ -816,10 +816,17 @@ private fun Node.elements(localName: String): List<Element> = (0 until childNode
             .firstOrNull()
     }
 
-    private fun Element.booleanValue(): Boolean {
+    /**
+     * Parses the `oc:read-only` capability flag Nextcloud sets on shared collections.
+     *
+     * Nextcloud and Sabre serialize this property from a PHP boolean: a read-only share sends `1`
+     * while a read-write share sends an empty element, because PHP casts `false` to an empty
+     * string. An empty value therefore means "not read-only"; only an explicit truthy literal, or
+     * an unrecognised value, is treated as read-only.
+     */
+    private fun Element.readOnlyFlag(): Boolean {
         return when (textContent?.trim()?.lowercase()) {
-            "", "1", "true", "yes", "on" -> true
-            "0", "false", "no", "off" -> false
+            "", "0", "false", "no", "off" -> false
             else -> true
         }
     }

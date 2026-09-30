@@ -64,11 +64,14 @@ Jandal ACL. Share permissions are displayed as **Read-only** or **Editable**, an
 are sent through the collection's CalDAV `oc:share` endpoint.
 
 The collection's `oc:read-only` property and `DAV:current-user-privilege-set` are authoritative.
-Jandal refreshes them before sharing mutations and before synchronization, persists the effective
-`remoteWritable` state, pulls without pushing when the account is read-only, and disables local
-list writes that would otherwise be published. A server-side downgrade therefore wins over stale
-local state. Authentication, permission, malformed-response, and transport failures remain
-actionable without exposing credentials or private server response bodies.
+Nextcloud serialises `oc:read-only` from a PHP boolean, so a read-only share arrives as `1` and a
+read-write share arrives as an **empty element** (`false` casts to `""`); an empty value therefore
+means "writable" rather than "unknown". Jandal refreshes these properties before sharing mutations
+and before synchronization, persists the effective `remoteWritable` state, pulls without pushing
+when the account is read-only, and disables local list writes that would otherwise be published. A
+server-side downgrade therefore wins over stale local state. Authentication, permission,
+malformed-response, and transport failures remain actionable without exposing credentials or
+private server response bodies.
 
 Recipient discovery/import uses the existing Nextcloud collection discovery flow. Sharing
 interoperability with two real Nextcloud accounts, including propagation after permission changes

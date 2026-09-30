@@ -670,6 +670,9 @@ class NextcloudCalDavClientTest {
                 <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
             """.trimIndent() to true,
             """
+                <d:propstat><d:prop><oc:invite/><oc:read-only/><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+            """.trimIndent() to true,
+            """
                 <d:propstat><d:prop><oc:invite/><oc:read-only>0</oc:read-only></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
                 <d:propstat><d:prop><d:current-user-privilege-set/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat>
             """.trimIndent() to true,
@@ -704,6 +707,65 @@ class NextcloudCalDavClientTest {
 
             assertEquals(expectedWritable, listing.writable)
         }
+    }
+
+    @Test
+    fun `shared nextcloud collections derive writability from the read-only capability flag`() = runTest {
+        val transport = FakeTransport(
+            mapOf(
+                "GET https://cloud.example/.well-known/caldav" to
+                    CalDavResponse(200, emptyMap(), "", "https://cloud.example/remote.php/dav"),
+                "PROPFIND https://cloud.example/remote.php/dav" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/remote.php/dav/principals/users/alice/</d:href></d:current-user-principal></d:prop></d:propstat></d:response></d:multistatus>
+                    """,
+                ),
+                "PROPFIND https://cloud.example/remote.php/dav/principals/users/alice/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/remote.php/dav/principals/users/alice/</d:href><d:propstat><d:prop><c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set></d:prop></d:propstat></d:response></d:multistatus>
+                    """,
+                ),
+                // Nextcloud serialises the `oc:read-only` flag from a PHP boolean: a read-write
+                // share is an empty element, an ACCESS_READ share is `1`, and the sharee's
+                // privilege set carries `write` only for read-write shares.
+                "PROPFIND https://cloud.example/remote.php/dav/calendars/alice/" to response(
+                    """
+                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:oc="http://owncloud.org/ns">
+                        <d:response><d:href>/remote.php/dav/calendars/alice/editable_shared_by_bob/</d:href><d:propstat><d:prop>
+                            <d:displayname>Editable (Bob)</d:displayname>
+                            <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+                            <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
+                            <d:current-user-privilege-set>
+                                <d:privilege><d:read/></d:privilege>
+                                <d:privilege><d:write/></d:privilege>
+                                <d:privilege><d:write-properties/></d:privilege>
+                                <d:privilege><d:write-content/></d:privilege>
+                            </d:current-user-privilege-set>
+                            <oc:read-only/>
+                            <oc:owner-principal>principals/users/bob</oc:owner-principal>
+                        </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+                        <d:response><d:href>/remote.php/dav/calendars/alice/shared_shared_by_carol/</d:href><d:propstat><d:prop>
+                            <d:displayname>Read only (Carol)</d:displayname>
+                            <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+                            <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
+                            <d:current-user-privilege-set>
+                                <d:privilege><d:read/></d:privilege>
+                                <d:privilege><d:write-properties/></d:privilege>
+                            </d:current-user-privilege-set>
+                            <oc:read-only>1</oc:read-only>
+                            <oc:owner-principal>principals/users/carol</oc:owner-principal>
+                        </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+                    </d:multistatus>
+                    """,
+                ),
+            ),
+        )
+
+        val collections = NextcloudCalDavClient(credentials(), transport).discover().collections
+            .associateBy { it.displayName }
+
+        assertTrue(collections.getValue("Editable (Bob)").writable)
+        assertFalse(collections.getValue("Read only (Carol)").writable)
     }
 
     @Test
