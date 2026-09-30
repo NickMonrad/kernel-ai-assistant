@@ -16,6 +16,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -1094,6 +1096,103 @@ class ListMutationRepositoryAndroidTest {
             ),
         )
         assertEquals("Remote", database.listItemDao().getById(itemId)?.text)
+    }
+
+    @Test
+    fun `unavailable and stranded bindings reject local content changes`() = runBlocking {
+        val listId = repository.createCollection("Removed share")
+        val itemId = repository.addItem(listId, "Local")
+        val list = requireNotNull(database.listNameDao().getById(listId))
+        val bindingDao = database.nextcloudCollectionBindingDao()
+        bindingDao.upsert(
+            com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = list.collectionId,
+                remoteHref = "https://cloud.example/tasks/removed/",
+                remoteTitle = list.canonicalTitle,
+                remoteEtag = null,
+                remoteLogicalClock = 0L,
+                updatedAt = 0L,
+                remoteAvailable = false,
+            ),
+        )
+
+        assertThrows(ListMutationBlockedException::class.java) {
+            runBlocking { repository.setItemText(itemId, "Blocked") }
+        }
+        assertThrows(ListMutationBlockedException::class.java) {
+            runBlocking { repository.addItem(listId, "Also blocked") }
+        }
+
+        // A discoverable share whose stranded work awaits the user's decision is blocked too.
+        bindingDao.upsert(
+            bindingDao.get(list.collectionId)!!.copy(
+                remoteAvailable = true,
+                remoteWritable = false,
+                blockedUnsyncedAt = 1L,
+            ),
+        )
+        assertThrows(ListMutationBlockedException::class.java) {
+            runBlocking { repository.setItemText(itemId, "Still blocked") }
+        }
+        assertEquals("Local", database.listItemDao().getById(itemId)?.text)
+        assertEquals(1, database.listItemDao().getAllByListAnyLifecycle(listId).size)
+    }
+
+    @Test
+    fun `copying a bound list locally leaves no provider state on the copy`() = runBlocking {
+        val listId = repository.createCollection("Shared")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val dueAt = 42_000L
+        repository.setItemDueAt(childId, dueAt)
+        repository.setItemPlacement(
+            childId,
+            database.listItemDao().getById(parentId)!!.itemId,
+            "1",
+        )
+        val list = requireNotNull(database.listNameDao().getById(listId))
+        val bindingDao = database.nextcloudCollectionBindingDao()
+        bindingDao.upsert(
+            com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = list.collectionId,
+                remoteHref = "https://cloud.example/tasks/shared/",
+                remoteTitle = list.canonicalTitle,
+                remoteEtag = null,
+                remoteLogicalClock = 1L,
+                updatedAt = 1L,
+                remoteWritable = false,
+            ),
+        )
+
+        val copyListId = repository.copyListAsLocal(listId, "Shared (local copy)")
+
+        val copy = requireNotNull(database.listNameDao().getById(copyListId))
+        assertNotEquals(list.collectionId, copy.collectionId)
+        assertNull(bindingDao.get(copy.collectionId))
+        assertTrue(database.nextcloudItemBindingDao().getAll(copy.collectionId).isEmpty())
+        assertTrue(repository.pendingChanges().none { it.collectionId == copy.collectionId })
+        assertEquals(list.collectionId, requireNotNull(database.listNameDao().getById(listId)).collectionId)
+
+        val sourceItems = database.listItemDao().getAllByListAnyLifecycle(listId).associateBy { it.text }
+        val copyItems = database.listItemDao().getAllByListAnyLifecycle(copyListId).associateBy { it.text }
+        assertEquals(sourceItems.keys, copyItems.keys)
+        assertEquals(dueAt, copyItems.getValue("Child").dueAt)
+        assertNotEquals(
+            sourceItems.getValue("Parent").itemId,
+            copyItems.getValue("Parent").itemId,
+            "the copy identifies its items independently",
+        )
+        assertEquals(
+            copyItems.getValue("Parent").itemId,
+            copyItems.getValue("Child").parentItemId,
+            "the copied hierarchy points at the copied parent",
+        )
+        assertEquals(
+            "Shared",
+            requireNotNull(database.listNameDao().getById(listId)).name,
+            "the shared list keeps its own name",
+        )
+        assertTrue(copy.name.startsWith("Shared (local copy)"))
     }
 
     /** The effective projection order the user sees: each top-level row followed by its children. */

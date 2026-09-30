@@ -23,6 +23,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -67,7 +68,7 @@ class NextcloudSyncAdapterTest {
     }
 
     @Test
-    fun `downgrade discovered after a stale local mutation keeps it pending and reports needs attention`() = runTest {
+    fun `downgrade discovered after a stale local mutation quarantines the work and reports unsynced changes`() = runTest {
         val readOnly = binding("readonly")
         val bindings = linkedMapOf(readOnly.collectionId to readOnly)
         val itemBindings = linkedMapOf(
@@ -95,10 +96,221 @@ class NextcloudSyncAdapterTest {
             fixture.mutations.acknowledgePushed(listOf("readonly-change"))
         }
         assertFalse(bindings.getValue("readonly").remoteWritable)
-        assertEquals(
-            NextcloudFailure.Code.PERMISSION.name,
-            bindings.getValue("readonly").lastFailureCode,
+        assertNotNull(
+            bindings.getValue("readonly").blockedUnsyncedAt,
+            "the stranded work is recorded so it can never auto-push later",
         )
+        assertEquals(
+            NextcloudListState.UNSYNCED_CHANGES,
+            summaryOf(bindings.getValue("readonly")).state(),
+        )
+    }
+
+    @Test
+    fun `write access restored after a discovered downgrade never publishes the stranded work`() = runTest {
+        val stale = binding("readonly").copy(blockedUnsyncedAt = 5L)
+        val bindings = linkedMapOf(stale.collectionId to stale)
+        val itemBindings = linkedMapOf(
+            stale.collectionId to itemBinding(stale.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(stale.collectionId to list(stale.collectionId))
+        val rows = mapOf(
+            stale.collectionId to listItem(stale.collectionId, "readonly-item").copy(text = "Added while stale"),
+        )
+        val pending = listOf(change("readonly", "readonly-change"))
+        // The owner restored write access; the quarantined work still must not move.
+        val transport = RecordingTransport()
+        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+
+        val result = fixture.adapter.syncAll()
+
+        assertEquals(
+            NextcloudFailure.Code.PERMISSION,
+            (result as NextcloudSyncResult.Failure).error.code,
+        )
+        assertTrue(
+            transport.putCalls.isEmpty(),
+            "work stranded by a discovered downgrade is never published, even when write access returns",
+        )
+        coVerify(exactly = 0) {
+            fixture.mutations.acknowledgePushed(listOf("readonly-change"))
+        }
+        assertNotNull(bindings.getValue("readonly").blockedUnsyncedAt)
+    }
+
+    @Test
+    fun `discarding stranded work reverts to the provider representation and clears the record`() = runTest {
+        val readOnly = binding("readonly").copy(
+            remoteWritable = false,
+            blockedUnsyncedAt = 5L,
+            lastFailureCode = NextcloudFailure.Code.PERMISSION.name,
+        )
+        val bindings = linkedMapOf(readOnly.collectionId to readOnly)
+        val itemBindings = linkedMapOf(
+            readOnly.collectionId to itemBinding(readOnly.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(readOnly.collectionId to list(readOnly.collectionId))
+        val rows = mapOf(readOnly.collectionId to listItem(readOnly.collectionId, "readonly-item"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, listOf(change("readonly", "readonly-change")), RecordingTransport())
+
+        val outcome = fixture.adapter.resolveLocalWork(
+            readOnly.collectionId,
+            NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES,
+        )
+
+        assertEquals(1L, outcome.getOrNull())
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match {
+                    it.collectionId == readOnly.collectionId &&
+                        it.items.single().text == "Item" &&
+                        it.items.single().textStamp.logicalClock > 1L
+                },
+                any(),
+                true,
+            )
+        }
+        coVerify { fixture.mutations.discardPendingChanges(readOnly.collectionId) }
+        assertNull(
+            bindings.getValue(readOnly.collectionId).blockedUnsyncedAt,
+            "the record is cleared once the user resolves it",
+        )
+        assertTrue(
+            bindings.containsKey(readOnly.collectionId),
+            "a still-reachable read-only share keeps its binding",
+        )
+        coVerify(exactly = 0) { fixture.mutations.copyListAsLocal(any(), any()) }
+    }
+
+    @Test
+    fun `keeping stranded work copies it out and returns the shared list to the owner`() = runTest {
+        val readOnly = binding("readonly").copy(remoteWritable = false, blockedUnsyncedAt = 5L)
+        val bindings = linkedMapOf(readOnly.collectionId to readOnly)
+        val itemBindings = linkedMapOf(
+            readOnly.collectionId to itemBinding(readOnly.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(readOnly.collectionId to list(readOnly.collectionId))
+        val rows = mapOf(readOnly.collectionId to listItem(readOnly.collectionId, "readonly-item"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, listOf(change("readonly", "readonly-change")), RecordingTransport())
+
+        val outcome = fixture.adapter.resolveLocalWork(
+            readOnly.collectionId,
+            NextcloudLocalWorkResolution.KEEP_LOCAL_COPY,
+        )
+
+        assertEquals(99L, outcome.getOrNull(), "the copy is the list the user now edits")
+        coVerify { fixture.mutations.copyListAsLocal(1L, "readonly (local copy)") }
+        coVerify { fixture.mutations.importSnapshot(match { it.collectionId == readOnly.collectionId }, any(), true) }
+        coVerify { fixture.mutations.discardPendingChanges(readOnly.collectionId) }
+        assertNull(bindings.getValue(readOnly.collectionId).blockedUnsyncedAt)
+        assertTrue(
+            bindings.containsKey(readOnly.collectionId),
+            "the shared list stays bound, read-only and owner-following",
+        )
+    }
+
+    @Test
+    fun `read-only share can be copied out proactively without unsynced work`() = runTest {
+        val readOnly = binding("readonly").copy(remoteWritable = false)
+        val bindings = linkedMapOf(readOnly.collectionId to readOnly)
+        val itemBindings = linkedMapOf(
+            readOnly.collectionId to itemBinding(readOnly.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(readOnly.collectionId to list(readOnly.collectionId))
+        val rows = mapOf(readOnly.collectionId to listItem(readOnly.collectionId, "readonly-item"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, emptyList(), RecordingTransport())
+
+        val outcome = fixture.adapter.createLocalCopy(readOnly.collectionId)
+
+        assertEquals(99L, outcome.getOrNull())
+        coVerify { fixture.mutations.copyListAsLocal(1L, "readonly (local copy)") }
+        coVerify(exactly = 0) { fixture.mutations.discardPendingChanges(any()) }
+        assertTrue(bindings.containsKey(readOnly.collectionId), "the shared list stays bound and read-only")
+    }
+
+    @Test
+    fun `removed share without unsynced work marks the binding unavailable and never writes`() = runTest {
+        val removed = binding("readonly")
+        val bindings = linkedMapOf(removed.collectionId to removed)
+        val itemBindings = linkedMapOf(
+            removed.collectionId to itemBinding(removed.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(removed.collectionId to list(removed.collectionId))
+        val rows = mapOf(removed.collectionId to listItem(removed.collectionId, "readonly-item"))
+        val transport = RecordingTransport(absentCollections = setOf("readonly"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, emptyList(), transport)
+
+        val result = fixture.adapter.syncAll()
+
+        assertEquals(
+            NextcloudFailure.Code.PERMISSION,
+            (result as NextcloudSyncResult.Failure).error.code,
+        )
+        assertFalse(bindings.getValue("readonly").remoteAvailable, "the removal is durable")
+        assertNull(
+            bindings.getValue("readonly").blockedUnsyncedAt,
+            "there is no local work to quarantine",
+        )
+        assertTrue(transport.putCalls.isEmpty())
+        assertEquals(
+            NextcloudListState.UNAVAILABLE,
+            summaryOf(bindings.getValue("readonly")).state(),
+        )
+    }
+
+    @Test
+    fun `removed share with stranded work is released only when the user keeps it locally`() = runTest {
+        val removed = binding("readonly")
+        val bindings = linkedMapOf(removed.collectionId to removed)
+        val itemBindings = linkedMapOf(
+            removed.collectionId to itemBinding(removed.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(removed.collectionId to list(removed.collectionId))
+        val rows = mapOf(removed.collectionId to listItem(removed.collectionId, "readonly-item"))
+        val pending = listOf(change("readonly", "readonly-change"))
+        val transport = RecordingTransport(absentCollections = setOf("readonly"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+
+        fixture.adapter.syncAll()
+
+        assertFalse(bindings.getValue("readonly").remoteAvailable)
+        assertNotNull(
+            bindings.getValue("readonly").blockedUnsyncedAt,
+            "the local work is preserved until the user decides",
+        )
+        assertTrue(bindings.containsKey("readonly"), "no automatic cleanup happens")
+        assertTrue(itemBindings.containsKey("readonly"))
+
+        val outcome = fixture.adapter.resolveLocalWork(
+            removed.collectionId,
+            NextcloudLocalWorkResolution.KEEP_LOCAL_COPY,
+        )
+
+        assertEquals(1L, outcome.getOrNull(), "the list itself becomes the local copy")
+        coVerify(exactly = 0) { fixture.mutations.copyListAsLocal(any(), any()) }
+        coVerify { fixture.mutations.discardPendingChanges(removed.collectionId) }
+        assertTrue(bindings.isEmpty(), "the inaccessible association is cleaned up")
+        assertTrue(itemBindings.isEmpty(), "provider item metadata goes with it")
+    }
+
+    @Test
+    fun `a local copy created from a removed share is never pushed by later syncs`() = runTest {
+        val removed = binding("readonly").copy(blockedUnsyncedAt = 5L, remoteAvailable = false)
+        val bindings = linkedMapOf(removed.collectionId to removed)
+        val itemBindings = linkedMapOf(
+            removed.collectionId to itemBinding(removed.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(removed.collectionId to list(removed.collectionId))
+        val rows = mapOf(removed.collectionId to listItem(removed.collectionId, "readonly-item"))
+        val transport = RecordingTransport(absentCollections = setOf("readonly"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, emptyList(), transport)
+
+        fixture.adapter.resolveLocalWork(removed.collectionId, NextcloudLocalWorkResolution.KEEP_LOCAL_COPY)
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(transport.putCalls.isEmpty(), "an unbound copy is never published")
+        assertTrue(bindings.isEmpty(), "no binding is recreated for the copy")
     }
 
     @Test
@@ -719,7 +931,7 @@ class NextcloudSyncAdapterTest {
             "app-password",
         )
         val collectionDao = mockk<NextcloudCollectionBindingDao>()
-        coEvery { collectionDao.getAll() } returns bindings.values.toList()
+        coEvery { collectionDao.getAll() } answers { bindings.values.toList() }
         coEvery { collectionDao.get(any()) } answers { bindings[firstArg()] }
         coEvery { collectionDao.upsert(any()) } answers { bindings[firstArg<NextcloudCollectionBindingEntity>().collectionId] = firstArg() }
         coEvery { collectionDao.recordSyncOutcome(any(), any(), any()) } answers {
@@ -740,6 +952,11 @@ class NextcloudSyncAdapterTest {
         coEvery { itemDao.getAll(any()) } answers { itemBindings.values.filter { it.collectionId == firstArg() } }
         coEvery { itemDao.upsert(any()) } answers { itemBindings[firstArg<NextcloudItemBindingEntity>().collectionId] = firstArg() }
         coEvery { itemDao.delete(any()) } answers { itemBindings.remove(firstArg<String>()) }
+        coEvery { itemDao.deleteForCollection(any()) } answers {
+            val collectionId = firstArg<String>()
+            itemBindings.keys.filter { itemBindings.getValue(it).collectionId == collectionId }
+                .forEach { itemBindings.remove(it) }
+        }
 
         val listItemDao = mockk<ListItemDao>()
         coEvery { listItemDao.getByItemId(any()) } returns null
@@ -750,8 +967,10 @@ class NextcloudSyncAdapterTest {
 
         val mutations = mockk<ListMutationRepository>()
         coEvery { mutations.pendingChanges() } returns pending
-        coEvery { mutations.importSnapshot(any(), any()) } returns mockk(relaxed = true)
+        coEvery { mutations.importSnapshot(any(), any(), any()) } returns mockk(relaxed = true)
         coEvery { mutations.acknowledgePushed(any()) } returns Unit
+        coEvery { mutations.discardPendingChanges(any()) } returns Unit
+        coEvery { mutations.copyListAsLocal(any(), any()) } returns 99L
 
         return Fixture(
             adapter = NextcloudSyncAdapter(
@@ -775,6 +994,17 @@ class NextcloudSyncAdapterTest {
         remoteEtag = null,
         remoteLogicalClock = 1L,
         updatedAt = 1L,
+    )
+
+    /** The projection the Lists surfaces render, derived exactly like the DAO query does. */
+    private fun summaryOf(binding: NextcloudCollectionBindingEntity) = NextcloudListSyncSummary(
+        collectionId = binding.collectionId,
+        remoteHref = binding.remoteHref,
+        syncEnabled = binding.syncEnabled,
+        lastFailureCode = binding.lastFailureCode,
+        remoteWritable = binding.remoteWritable,
+        remoteAvailable = binding.remoteAvailable,
+        blockedUnsyncedAt = binding.blockedUnsyncedAt,
     )
     private fun change(collectionId: String, changeId: String) = ListChange(
         changeId = changeId,
@@ -830,6 +1060,8 @@ class NextcloudSyncAdapterTest {
         private val putGate: CompletableDeferred<Unit>? = null,
         private val reportDocument: ((String) -> String)? = null,
         private val readOnlyCollections: Set<String> = emptySet(),
+        /** Collections the owner removed: they no longer appear in discovery (#1548). */
+        private val absentCollections: Set<String> = emptySet(),
     ) : CalDavTransport {
         val reportedCollections = mutableSetOf<String>()
         val mkcalendarCalls = mutableListOf<String>()
@@ -875,12 +1107,7 @@ class NextcloudSyncAdapterTest {
                         <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/remote.php/dav/principals/users/alice/</d:href><d:propstat><d:prop><c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set></d:prop></d:propstat></d:response></d:multistatus>
                         """,
                     )
-                method == "PROPFIND" && url.contains("/calendars/alice/") ->
-                    response(
-                        """
-                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:oc="http://owncloud.org/ns"><d:response><d:href>/calendars/readonly/</d:href><d:propstat><d:prop><d:displayname>readonly</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>${if ("readonly" in readOnlyCollections) "<oc:read-only>1</oc:read-only><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write-properties/></d:privilege></d:current-user-privilege-set>" else "<oc:read-only/><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set>"}</d:prop></d:propstat></d:response><d:response><d:href>/calendars/writable/</d:href><d:propstat><d:prop><d:displayname>writable</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>${if ("writable" in readOnlyCollections) "<oc:read-only>1</oc:read-only><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write-properties/></d:privilege></d:current-user-privilege-set>" else "<oc:read-only/><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set>"}</d:prop></d:propstat></d:response></d:multistatus>
-                        """,
-                    )
+                method == "PROPFIND" && url.contains("/calendars/alice/") -> response(discoveryXml())
                 method == "MKCALENDAR" -> {
                     mkcalendarCalls += url
                     CalDavResponse(201, emptyMap(), "", url)
@@ -905,6 +1132,30 @@ class NextcloudSyncAdapterTest {
         }
 
         private fun response(xml: String) = CalDavResponse(207, emptyMap(), xml.trimIndent(), "")
+
+        /**
+         * Discovery as Nextcloud serves it: every collection the sharee can see. A collection listed
+         * in [absentCollections] is left out, which is what a removed share looks like (#1548).
+         */
+        private fun discoveryXml(): String = buildString {
+            append("<d:multistatus xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\" xmlns:oc=\"http://owncloud.org/ns\">")
+            listOf("readonly", "writable")
+                .filter { it !in absentCollections }
+                .forEach { append(calendarResponse(it)) }
+            append("</d:multistatus>")
+        }
+
+        private fun calendarResponse(id: String): String {
+            val capability = if (id in readOnlyCollections) {
+                "<oc:read-only>1</oc:read-only><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write-properties/></d:privilege></d:current-user-privilege-set>"
+            } else {
+                "<oc:read-only/><d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set>"
+            }
+            return "<d:response><d:href>/calendars/$id/</d:href><d:propstat><d:prop><d:displayname>$id</d:displayname>" +
+                "<d:resourcetype><d:collection/><c:calendar/></d:resourcetype>" +
+                "<c:supported-calendar-component-set><c:comp name=\"VTODO\"/></c:supported-calendar-component-set>" +
+                "$capability</d:prop></d:propstat></d:response>"
+        }
         private fun remoteDocument(uid: String): String = VTodoDocument.new(
             uid = uid,
             summary = "Item",

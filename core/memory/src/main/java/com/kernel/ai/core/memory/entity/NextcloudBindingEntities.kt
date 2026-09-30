@@ -21,6 +21,20 @@ data class NextcloudCollectionBindingEntity(
      */
     val remoteWritable: Boolean = true,
     /**
+     * Whether the bound collection is still present in this account's CalDAV discovery. False means
+     * the owner removed the share, so the local list is preserved until the user explicitly keeps it
+     * as a local copy or discards the changes (#1548).
+     */
+    val remoteAvailable: Boolean = true,
+    /**
+     * Epoch-ms when local content changes were found to be unpublishable because provider access was
+     * lost — a read-only downgrade or a share removal discovered after the edit was accepted under
+     * the stale cached permission. Non-null quarantines the provider push path for this list until
+     * the user explicitly keeps a local copy or discards the changes (#1548), so stranded work can
+     * never auto-push if access is restored.
+     */
+    val blockedUnsyncedAt: Long? = null,
+    /**
      * Per-list "Stop Nextcloud sync" state (#1551). False keeps the binding, the local list and the
      * remote collection, and only suspends synchronization for this list.
      */

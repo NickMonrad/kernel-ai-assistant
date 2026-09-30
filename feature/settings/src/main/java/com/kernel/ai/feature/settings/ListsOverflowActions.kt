@@ -21,14 +21,23 @@ import com.kernel.ai.core.memory.nextcloud.NextcloudListState
  * [state] is null for a list that has never been connected, which is also the only case where
  * `Sync with Nextcloud` is offered. When no account is configured the caller still shows that
  * action and routes to Nextcloud setup afterwards rather than hiding the capability.
+ *
+ * [unsyncedChanges] marks local work that provider access stranded; [remoteAvailable] is false when
+ * the owner removed the share. Both decide which local-copy / discard entries are offered (#1548).
  */
 internal data class NextcloudRowActions(
     val state: NextcloudListState?,
+    val remoteWritable: Boolean = true,
+    val remoteAvailable: Boolean = true,
+    val unsyncedChanges: Boolean = false,
     val onSyncWithNextcloud: () -> Unit = {},
     val onStopSync: () -> Unit = {},
     val onResumeSync: () -> Unit = {},
     val onOpenNextcloud: () -> Unit = {},
     val onManageSharing: () -> Unit = {},
+    val onSaveLocalCopy: () -> Unit = {},
+    val onKeepLocalCopy: () -> Unit = {},
+    val onDiscardLocalChanges: () -> Unit = {},
 )
 
 /**
@@ -38,6 +47,8 @@ internal data class NextcloudRowActions(
  * - never connected → `Sync with Nextcloud`
  * - connected and syncing → `Stop Nextcloud sync`
  * - connected with sync stopped → `Resume Nextcloud sync`
+ * - read-only or removed access → `Save as local copy`
+ * - stranded local changes → `Keep as local copy` and `Discard local changes`
  * - connected either way → `Nextcloud`, opening the existing binding state
  */
 @Composable
@@ -64,6 +75,25 @@ internal fun NextcloudOverflowItems(
         )
     }
     if (actions.state != null) {
+        if (!actions.unsyncedChanges && (!actions.remoteWritable || !actions.remoteAvailable)) {
+            DropdownMenuItem(
+                text = { Text("Save as local copy") },
+                onClick = { onDismiss(); actions.onSaveLocalCopy() },
+                modifier = Modifier.testTag("${testTagPrefix}_save_local_copy"),
+            )
+        }
+        if (actions.unsyncedChanges) {
+            DropdownMenuItem(
+                text = { Text("Keep as local copy") },
+                onClick = { onDismiss(); actions.onKeepLocalCopy() },
+                modifier = Modifier.testTag("${testTagPrefix}_keep_local_copy"),
+            )
+            DropdownMenuItem(
+                text = { Text("Discard local changes") },
+                onClick = { onDismiss(); actions.onDiscardLocalChanges() },
+                modifier = Modifier.testTag("${testTagPrefix}_discard_local_changes"),
+            )
+        }
         DropdownMenuItem(
             text = { Text("Manage sharing") },
             onClick = { onDismiss(); actions.onManageSharing() },

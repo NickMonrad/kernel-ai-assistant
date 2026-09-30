@@ -167,6 +167,73 @@ class ListsRowOverflowActionsTest {
         composeTestRule.onNodeWithTag("list_detail_stop_nextcloud_sync").assertDoesNotExist()
     }
 
+    @Test
+    fun aReadOnlyShareOffersOnlyProactiveLocalCopy() {
+        var saved = 0
+        val actions = NextcloudRowActions(
+            state = NextcloudListState.UP_TO_DATE,
+            remoteWritable = false,
+            onSaveLocalCopy = { saved += 1 },
+        )
+        showMenu(actions)
+
+        composeTestRule.onNodeWithTag("lists_row_save_local_copy").performClick()
+        assertEquals(1, saved)
+        composeTestRule.onNodeWithTag("lists_row_keep_local_copy").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("lists_row_discard_local_changes").assertDoesNotExist()
+    }
+
+    @Test
+    fun strandedWorkOffersKeepOrDiscardInsteadOfAPlainCopy() {
+        var kept = 0
+        var discarded = 0
+        val actions = NextcloudRowActions(
+            state = NextcloudListState.UNSYNCED_CHANGES,
+            remoteWritable = false,
+            unsyncedChanges = true,
+            onKeepLocalCopy = { kept += 1 },
+            onDiscardLocalChanges = { discarded += 1 },
+        )
+        showMenu(actions)
+
+        composeTestRule.onNodeWithTag("lists_row_keep_local_copy").performClick()
+        composeTestRule.onNodeWithTag("lists_row_discard_local_changes").performClick()
+        assertEquals(1, kept)
+        assertEquals(1, discarded)
+        composeTestRule.onNodeWithTag("lists_row_save_local_copy").assertDoesNotExist()
+    }
+
+    @Test
+    fun aRemovedShareWithoutStrandedWorkOffersOnlyTheLocalCopy() {
+        var saved = 0
+        val actions = NextcloudRowActions(
+            state = NextcloudListState.UNAVAILABLE,
+            remoteAvailable = false,
+            onSaveLocalCopy = { saved += 1 },
+        )
+        showMenu(actions)
+
+        composeTestRule.onNodeWithTag("lists_row_save_local_copy").performClick()
+        assertEquals(1, saved)
+        composeTestRule.onNodeWithTag("lists_row_keep_local_copy").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("lists_row_discard_local_changes").assertDoesNotExist()
+    }
+
+    @Test
+    fun strandedAndRemovedStatesAreVisibleOnTheRowIndicator() {
+        composeTestRule.setContent {
+            Column {
+                NextcloudListIndicator(NextcloudListState.UNSYNCED_CHANGES)
+                NextcloudListIndicator(NextcloudListState.UNAVAILABLE)
+            }
+        }
+
+        composeTestRule.onNodeWithContentDescription("Nextcloud changes are not synced").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Nextcloud access is unavailable").assertIsDisplayed()
+        assertEquals("Unsynced changes", NextcloudListState.UNSYNCED_CHANGES.label())
+        assertEquals("Unavailable", NextcloudListState.UNAVAILABLE.label())
+    }
+
     private fun showMenu(
         nextcloud: NextcloudRowActions,
         onExport: () -> Unit = {},

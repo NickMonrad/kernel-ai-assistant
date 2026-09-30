@@ -65,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -210,8 +211,7 @@ fun ListItemsScreen(
     val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
-    val nextcloudStates by viewModel.nextcloudStates.collectAsStateWithLifecycle()
-    val nextcloudWritable by viewModel.nextcloudWritable.collectAsStateWithLifecycle()
+    val nextcloudBindings by viewModel.nextcloudBindings.collectAsStateWithLifecycle()
     val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
 
     // Restores this list's saved sort so reopening never falls back to the default.
@@ -219,9 +219,13 @@ fun ListItemsScreen(
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
     val collectionId = listEntities.firstOrNull { it.id == listId }?.collectionId
-    val nextcloudState = collectionId?.let { nextcloudStates[it] }
+    val nextcloudBinding = collectionId?.let { nextcloudBindings[it] }
+    val nextcloudState = nextcloudBinding?.state
     val nextcloudActions = NextcloudRowActions(
         state = nextcloudState,
+        remoteWritable = nextcloudBinding?.remoteWritable ?: true,
+        remoteAvailable = nextcloudBinding?.remoteAvailable ?: true,
+        unsyncedChanges = nextcloudBinding?.unsyncedChanges == true,
         onSyncWithNextcloud = {
             if (nextcloudAccountConfigured) {
                 viewModel.syncListWithNextcloud(listId)
@@ -232,6 +236,9 @@ fun ListItemsScreen(
         onStopSync = { collectionId?.let(viewModel::stopListNextcloudSync) },
         onResumeSync = { collectionId?.let(viewModel::resumeListNextcloudSync) },
         onManageSharing = { collectionId?.let(onNavigateToNextcloudSharing) },
+        onSaveLocalCopy = { collectionId?.let(viewModel::saveListAsLocalCopy) },
+        onKeepLocalCopy = { collectionId?.let(viewModel::keepUnsyncedListAsLocalCopy) },
+        onDiscardLocalChanges = { collectionId?.let(viewModel::discardUnsyncedListChanges) },
         // Opening the bound-list state must never look like a new contextual setup.
         onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
     )
@@ -251,11 +258,13 @@ fun ListItemsScreen(
 
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
-    val isRemoteReadOnly = collectionId != null &&
-        nextcloudState != null &&
-        nextcloudWritable[collectionId] == false
-    LaunchedEffect(isRemoteReadOnly) {
-        if (isRemoteReadOnly) {
+    // Content changes are unavailable whenever the provider refuses them: a read-only share, a
+    // removed share, or local work already stranded by either (#1548). Local-only fields stay usable.
+    val isRemoteReadOnly = nextcloudState != null &&
+        (nextcloudBinding?.remoteWritable == false || nextcloudBinding?.remoteAvailable == false)
+    val hasUnsyncedChanges = nextcloudBinding?.unsyncedChanges == true
+    LaunchedEffect(isRemoteReadOnly, hasUnsyncedChanges) {
+        if (isRemoteReadOnly || hasUnsyncedChanges) {
             viewModel.exitItemMultiSelect()
             editingItem = null
             showAddDialog = false
@@ -622,15 +631,19 @@ fun ListItemsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (isRemoteReadOnly) {
-                Text(
-                    text = "This Nextcloud list is read-only. Changes are unavailable.",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
+            if (nextcloudState != null &&
+                (
+                    nextcloudBinding?.remoteWritable == false ||
+                        nextcloudBinding?.remoteAvailable == false ||
+                        hasUnsyncedChanges
+                    )
+            ) {
+                NextcloudAccessBanner(
+                    unsyncedChanges = hasUnsyncedChanges,
+                    available = nextcloudBinding?.remoteAvailable != false,
+                    onKeepLocalCopy = nextcloudActions.onKeepLocalCopy,
+                    onDiscardLocalChanges = nextcloudActions.onDiscardLocalChanges,
+                    onSaveLocalCopy = nextcloudActions.onSaveLocalCopy,
                 )
             }
             // Search bar
@@ -965,6 +978,61 @@ fun ListItemsScreen(
         )
     }
 
+}
+
+/**
+ * Explains why local content changes are unavailable for a bound Nextcloud list and offers the
+ * explicit resolutions #1548 requires.
+ *
+ * Unsynced work that provider access stranded can be preserved as a local copy or discarded;
+ * a read-only or removed share can be copied out proactively so the user keeps editing locally.
+ */
+@Composable
+internal fun NextcloudAccessBanner(
+    unsyncedChanges: Boolean,
+    available: Boolean,
+    onKeepLocalCopy: () -> Unit,
+    onDiscardLocalChanges: () -> Unit,
+    onSaveLocalCopy: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .testTag("nextcloud_list_access_banner"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = when {
+                unsyncedChanges && !available ->
+                    "Nextcloud access to this list was removed. Your local changes are not synced."
+                unsyncedChanges ->
+                    "This list became read-only in Nextcloud. Your local changes are not synced."
+                !available -> "Nextcloud access to this list was removed."
+                else -> "This Nextcloud list is read-only. Changes are unavailable."
+            },
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (unsyncedChanges) {
+                Button(
+                    onClick = onKeepLocalCopy,
+                    modifier = Modifier.testTag("nextcloud_list_keep_local_copy"),
+                ) { Text("Keep as local copy") }
+                OutlinedButton(
+                    onClick = onDiscardLocalChanges,
+                    modifier = Modifier.testTag("nextcloud_list_discard_local_changes"),
+                ) { Text("Discard local changes") }
+            } else {
+                Button(
+                    onClick = onSaveLocalCopy,
+                    modifier = Modifier.testTag("nextcloud_list_save_local_copy"),
+                ) { Text("Save as local copy") }
+            }
+        }
+    }
 }
 
 /**

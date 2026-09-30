@@ -685,7 +685,11 @@ internal fun NextcloudListSections.filtered(
             NextcloudListFilter.CONNECTED -> row.section == NextcloudListSection.CONNECTED
             NextcloudListFilter.NEXTCLOUD_ONLY -> row.section == NextcloudListSection.NEXTCLOUD_ONLY
             NextcloudListFilter.JANDAL_ONLY -> row.section == NextcloudListSection.JANDAL_ONLY
-            NextcloudListFilter.NEEDS_ATTENTION -> row.syncState == NextcloudListState.NEEDS_ATTENTION
+            NextcloudListFilter.NEEDS_ATTENTION -> row.syncState in setOf(
+                NextcloudListState.NEEDS_ATTENTION,
+                NextcloudListState.UNSYNCED_CHANGES,
+                NextcloudListState.UNAVAILABLE,
+            )
         }
     }
     return NextcloudListSections(

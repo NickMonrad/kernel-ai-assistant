@@ -29,7 +29,8 @@ import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
-import com.kernel.ai.core.memory.nextcloud.NextcloudListState
+import com.kernel.ai.core.memory.nextcloud.NextcloudListBinding
+import com.kernel.ai.core.memory.nextcloud.NextcloudLocalWorkResolution
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -944,12 +945,9 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
 
     // ── Nextcloud per-list state and lifecycle (#1551) ───────────────────────────────────────────
 
-    /** Nextcloud state per local collection id; a missing entry means never connected. */
-    val nextcloudStates: StateFlow<Map<String, NextcloudListState>> = nextcloud.observeListBindings()
-        .map { bindings -> bindings.associate { it.collectionId to it.state } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-    val nextcloudWritable: StateFlow<Map<String, Boolean>> = nextcloud.observeListBindings()
-        .map { bindings -> bindings.associate { it.collectionId to it.remoteWritable } }
+    /** Binding metadata per local collection id; a missing entry means never connected. */
+    val nextcloudBindings: StateFlow<Map<String, NextcloudListBinding>> = nextcloud.observeListBindings()
+        .map { bindings -> bindings.associateBy { it.collectionId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     /** True when a Nextcloud account is stored, so a list can be bound without routing to setup. */
     val nextcloudAccountConfigured: StateFlow<Boolean> = nextcloud.observeAccountConfigured()
@@ -993,6 +991,44 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
                 is NextcloudSyncResult.Success -> "List synced with Nextcloud"
                 is NextcloudSyncResult.Failure -> result.error.safeNextcloudMessage()
             }
+        }
+    }
+
+    /**
+     * Preserves a read-only shared list as an independent local list (#1548).
+     *
+     * The shared list keeps following its owner; the copy is unbound, so it can never be pushed back
+     * to the former share or re-associated with it.
+     */
+    fun saveListAsLocalCopy(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.createLocalCopy(collectionId).fold(
+                onSuccess = { "Saved a local copy of this list" },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /** Keeps local work stranded by lost Nextcloud access as an independent local list (#1548). */
+    fun keepUnsyncedListAsLocalCopy(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.KEEP_LOCAL_COPY, "Kept as a local copy")
+    }
+
+    /** Discards local work stranded by lost Nextcloud access (#1548). */
+    fun discardUnsyncedListChanges(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES, "Unsynced changes discarded")
+    }
+
+    private fun resolveLocalWork(
+        collectionId: String,
+        resolution: NextcloudLocalWorkResolution,
+        successMessage: String,
+    ) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.resolveLocalWork(collectionId, resolution).fold(
+                onSuccess = { successMessage },
+                onFailure = { it.safeNextcloudMessage() },
+            )
         }
     }
 

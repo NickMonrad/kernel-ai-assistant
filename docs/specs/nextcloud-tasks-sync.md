@@ -69,12 +69,41 @@ read-write share arrives as an **empty element** (`false` casts to `""`); an emp
 means "writable" rather than "unknown". Jandal refreshes these properties before sharing mutations
 and before synchronization, persists the effective `remoteWritable` state, pulls without pushing
 when the account is read-only, and disables local list writes that would otherwise be published. A
-server-side downgrade therefore wins over stale local state. A mutation accepted just before the
-downgrade is discovered keeps its pending record and its local row: the list reports `Needs
-attention` and pulls owner changes instead of claiming `Up to date`, and the retained change is
-published only once write access returns. Authentication, permission, malformed-response, and
-transport failures remain actionable without exposing credentials or private server response
-bodies.
+server-side downgrade therefore wins over stale local state. Authentication, permission,
+malformed-response, and transport failures remain actionable without exposing credentials or
+private server response bodies.
+
+## Stranded work, removals and local copies
+
+Jandal keeps no network permission check in front of ordinary edits; the race is resolved where
+permissions are already reconciled. When a synchronization discovers that write access is gone —
+or that the collection has disappeared from this account's discovery because the owner removed the
+share — and local content changes are still pending, those changes are **stranded**: the binding
+records `blockedUnsyncedAt`, the list reports **Unsynced changes**, and the provider push path is
+closed for that list. The stranded work is never pushed and is never silently discarded, and because
+the quarantine is durable it also cannot auto-push if write access returns; only an explicit user
+decision clears it. A still-reachable read-only share continues to pull owner changes while it is
+stranded. A collection that discovery no longer offers is recorded as unavailable
+(`remoteAvailable = false`) and reports **Unavailable**; its local content stays untouched.
+
+Two explicit decisions resolve stranded work, offered from the list row overflow and from a banner
+on the list itself:
+
+- **Keep as local copy** — for a still-reachable share, the visible local content is copied into a
+  new unbound Jandal list and the shared list is returned to the owner's representation, so it stays
+  read-only and owner-following. When access is already gone there is no owner state left to follow,
+  so the list itself becomes the local copy and the inaccessible association is released.
+- **Discard local changes** — the list is returned to the provider representation Jandal last saw
+  (retained per item from the last complete remote VTODO) and the inaccessible association is
+  released when access is gone.
+
+A reachable read-only share can also be copied out proactively, with no unsynced work at all: the
+shared list keeps following its owner and the copy is independent.
+
+A local copy is a normal unbound Jandal list. It carries a fresh collection identity and fresh item
+identities, has no Nextcloud binding, no provider item metadata and no pending provider changes, and
+is therefore never pushed and never re-associated with the former share — not even if the owner
+restores or recreates it. Device-local automation such as item reminders is not duplicated.
 
 Recipient discovery/import uses the existing Nextcloud collection discovery flow. Sharing
 interoperability with two real Nextcloud accounts, including propagation after permission changes
@@ -104,6 +133,9 @@ Manual refresh and per-list retry provide deterministic recovery in addition to 
 The JVM tests cover VTODO preservation/escaping, CalDAV discovery, authentication
 errors, duplicate-safe response handling, conditional writes, ETag parsing, address
 normalization, the HTTPS-only redirect policy, clean remote display naming, per-list
-stop/resume, native user/group share listing and mutation, and server-enforced read-only
-transitions. A real Nextcloud instance with an app password remains an environment-owned
-interoperability gate; CI does not contain provider credentials.
+stop/resume, native user/group share listing and mutation, server-enforced read-only
+transitions, and the stranded-work lifecycle (quarantine, no auto-push after access
+returns, discard, local-copy resolution and share removal). Room migration and device
+tests cover the read-only/unavailable mutation guard and local-copy creation. A real
+Nextcloud instance with an app password remains an environment-owned interoperability
+gate; CI does not contain provider credentials.

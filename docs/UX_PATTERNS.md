@@ -510,6 +510,21 @@ When a user navigates into an archived item's detail screen:
 - Skip any expensive initialisation that only makes sense for active items (e.g. do not init Gemma-4 for archived conversations).
 - Apply `.navigationBarsPadding()` to the content column; use `contentWindowInsets = WindowInsets(0)` on the `Scaffold`.
 
+### 2.5a Lost provider access on a synced Nextcloud list (#1548)
+
+When a bound Nextcloud list can no longer be written — the share became read-only, or the owner
+removed it — the list must say so and offer exactly one resolution path:
+
+- Banner at the top of the list detail uses the error container, and the row indicator carries the
+  durable state label (`Unsynced changes`, `Unavailable`); no state is colour-only.
+- **Unsynced changes** (local work stranded by the access change) offers **Keep as local copy** and
+  **Discard local changes**. Neither is applied automatically, and the work is never pushed.
+- **Unavailable / read-only without stranded work** offers **Save as local copy**, which keeps the
+  original list bound and owner-following and puts the editable copy in a new local list.
+- Content-edit affordances (add, edit, check, reorder, multi-select) are disabled while the list is
+  blocked; device-local fields (pin, archive, favourite, reminder) stay available.
+- Overflow menus offer the same resolution entries so they are reachable without opening the list.
+
 ### 2.6 Retention / cleanup
 
 List items with an archiving lifecycle should have a configurable retention period:
