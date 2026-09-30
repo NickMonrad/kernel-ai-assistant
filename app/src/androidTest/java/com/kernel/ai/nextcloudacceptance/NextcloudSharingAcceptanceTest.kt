@@ -156,7 +156,7 @@ class NextcloudSharingAcceptanceTest {
     private suspend fun createOwnerFixture(name: String, harness: Harness) {
         demand(harness.database.listNameDao().getByNameAnyLifecycle(name) == null)
         demand(harness.database.listNameDao().getAll().none { it.canonicalTitle == name })
-        demand(harness.adapter.discoverCollections().getOrThrow().none { it.displayName == name })
+        demand(harness.adapter.discoverCollections().getOrThrow().none { collectionMatchesFixture(name, it.href) })
         harness.mutations.createCollectionWithItems(name, listOf(token(name, "owner-seed")))
         requireSourceList(name, harness)
     }
@@ -176,9 +176,9 @@ class NextcloudSharingAcceptanceTest {
         val collection = requireUniqueRemoteCollection(name, harness)
         val localId = harness.adapter.importCollection(collection).getOrThrow()
         val imported = harness.database.listNameDao().getById(localId) ?: fail()
-        demand(imported.canonicalTitle == name)
+        demand(imported.canonicalTitle == collection.displayName)
         val binding = harness.database.nextcloudCollectionBindingDao().get(imported.collectionId) ?: fail()
-        demand(binding.remoteHref == collection.href && binding.remoteTitle == name)
+        demand(binding.remoteHref == collection.href && binding.remoteTitle == collection.displayName)
     }
 
     private suspend fun setShare(
@@ -378,11 +378,11 @@ class NextcloudSharingAcceptanceTest {
         val source = localLists.singleOrNull { it.canonicalTitle == name }
         val binding = source?.let { harness.database.nextcloudCollectionBindingDao().get(it.collectionId) }
         val remoteMatches = harness.adapter.discoverCollections().getOrThrow()
-            .filter { it.displayName == name }
+            .filter { collectionMatchesFixture(name, it.href) }
         demand(remoteMatches.size <= 1)
         val remote = remoteMatches.singleOrNull()
         if (remote != null && source != null && binding != null) {
-            demand(remote.href == binding.remoteHref && binding.remoteTitle == name)
+            demand(remote.href == binding.remoteHref && binding.remoteTitle == remote.displayName)
             val target = requireRecipientSharee(source.collectionId, recipientUsername, harness)
             val shares = harness.adapter.listShares(source.collectionId).getOrThrow().shares
             if (shares.any { it.principal == target.principal }) {
@@ -494,16 +494,28 @@ class NextcloudSharingAcceptanceTest {
     ): Pair<ListNameEntity, NextcloudCollectionBindingEntity> {
         val matches = harness.database.nextcloudCollectionBindingDao().getAll().mapNotNull { binding ->
             val list = harness.database.listNameDao().getByCollectionId(binding.collectionId)
-            if (list?.canonicalTitle == name && binding.remoteTitle == name) list to binding else null
+            if (list != null && collectionMatchesFixture(name, binding.remoteHref)) list to binding else null
         }
         demand(matches.size == 1)
         return matches.single()
     }
 
     private suspend fun requireSourceList(name: String, harness: Harness): ListNameEntity {
-        val matches = harness.database.listNameDao().getAll().filter { it.canonicalTitle == name }
-        demand(matches.size == 1)
-        return matches.single()
+        val lists = testLists(name, harness)
+        val exact = lists.filter { it.canonicalTitle == name }
+        if (exact.size == 1) return exact.single()
+        val bound = lists.filter { list ->
+            val binding = harness.database.nextcloudCollectionBindingDao().get(list.collectionId)
+            binding != null && collectionMatchesFixture(name, binding.remoteHref)
+        }
+        if (bound.size == 1) return bound.single()
+        val sourceCandidates = lists.filterNot { it.canonicalTitle.endsWith(" (local copy)") }
+            .filter { list ->
+                harness.database.listItemDao().getAllByListAnyLifecycle(list.id)
+                    .any { it.text == token(name, "owner-seed") }
+            }
+        demand(sourceCandidates.size == 1)
+        return sourceCandidates.single()
     }
 
     private suspend fun requireRemoteMatches(
@@ -512,24 +524,37 @@ class NextcloudSharingAcceptanceTest {
         harness: Harness,
     ): NextcloudCalendarCollection {
         val remote = requireUniqueRemoteCollection(name, harness)
-        demand(remote.href == binding.remoteHref && binding.remoteTitle == name)
+        demand(remote.href == binding.remoteHref && binding.remoteTitle == remote.displayName)
         return remote
     }
 
-    private suspend fun requireUniqueRemoteCollection(name: String, harness: Harness): NextcloudCalendarCollection {
-        val matches = harness.adapter.discoverCollections().getOrThrow().filter { it.displayName == name }
+    private suspend fun requireUniqueRemoteCollection(
+        name: String,
+        harness: Harness,
+    ): NextcloudCalendarCollection {
+        val matches = selectFixtureCollections(name, harness.adapter.discoverCollections().getOrThrow())
         demand(matches.size == 1)
         return matches.single()
     }
 
+    private suspend fun testLists(name: String, harness: Harness): List<ListNameEntity> {
+        val allLists = harness.database.listNameDao().getAll()
+        return allLists.filter { list ->
+            if (list.canonicalTitle == name || list.canonicalTitle.startsWith("$name (local copy)")) {
+                true
+            } else {
+                val binding = harness.database.nextcloudCollectionBindingDao().get(list.collectionId)
+                collectionMatchesFixture(name, binding?.remoteHref.orEmpty()) ||
+                    harness.database.listItemDao().getAllByListAnyLifecycle(list.id)
+                        .any { it.text.startsWith("${name}_") }
+            }
+        }
+    }
+
+
     private suspend fun hasActiveText(list: ListNameEntity, text: String, harness: Harness): Boolean =
         harness.database.listItemDao().getAllByListAnyLifecycle(list.id)
             .any { it.lifecycle == "ACTIVE" && it.text == text }
-
-    private suspend fun testLists(name: String, harness: Harness): List<ListNameEntity> =
-        harness.database.listNameDao().getAll().filter {
-            it.canonicalTitle == name || it.canonicalTitle.startsWith("$name (local copy)")
-        }
 
     private fun requireFixtureName(name: String) {
         demand(name.matches(Regex("J1548-[0-9a-f]{16}")))
@@ -553,4 +578,16 @@ class NextcloudSharingAcceptanceTest {
         val mutations: ListMutationRepository,
         val database: KernelDatabase,
     )
+}
+
+internal fun collectionMatchesFixture(name: String, href: String): Boolean =
+    href.split('/').any { segment ->
+        segment == name || segment.startsWith("${name}_shared_by_")
+    }
+
+internal fun selectFixtureCollections(
+    name: String,
+    collections: List<NextcloudCalendarCollection>,
+): List<NextcloudCalendarCollection> = collections.filter {
+    collectionMatchesFixture(name, it.href)
 }
