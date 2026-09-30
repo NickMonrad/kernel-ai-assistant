@@ -411,7 +411,16 @@ class NextcloudSyncAdapter @Inject constructor(
             if (!persisted.syncEnabled) return@withLock false
             val binding = refreshCollectionAccess(client, persisted)
             if (!binding.remoteWritable) {
-                return@withLock pullCollection(client, binding)
+                val pulled = pullCollection(client, binding)
+                // A local mutation accepted under stale cached access is already durable when the
+                // downgrade lands. Pulling keeps owner changes flowing and the local rows stay, but
+                // the blocked write must not read as synchronized: it keeps its pending record and
+                // the list reports the permission failure (`Needs attention`) instead of
+                // `Up to date`, so it can never be mistaken for a published change.
+                if (mutations.pendingChanges().any { it.collectionId == binding.collectionId }) {
+                    throw permissionFailure()
+                }
+                return@withLock pulled
             }
             try {
                 pushCollection(client, binding.collectionId, binding)

@@ -69,9 +69,12 @@ read-write share arrives as an **empty element** (`false` casts to `""`); an emp
 means "writable" rather than "unknown". Jandal refreshes these properties before sharing mutations
 and before synchronization, persists the effective `remoteWritable` state, pulls without pushing
 when the account is read-only, and disables local list writes that would otherwise be published. A
-server-side downgrade therefore wins over stale local state. Authentication, permission,
-malformed-response, and transport failures remain actionable without exposing credentials or
-private server response bodies.
+server-side downgrade therefore wins over stale local state. A mutation accepted just before the
+downgrade is discovered keeps its pending record and its local row: the list reports `Needs
+attention` and pulls owner changes instead of claiming `Up to date`, and the retained change is
+published only once write access returns. Authentication, permission, malformed-response, and
+transport failures remain actionable without exposing credentials or private server response
+bodies.
 
 Recipient discovery/import uses the existing Nextcloud collection discovery flow. Sharing
 interoperability with two real Nextcloud accounts, including propagation after permission changes

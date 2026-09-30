@@ -46,10 +46,7 @@ class NextcloudSyncAdapterTest {
             readOnly.collectionId to listItem(readOnly.collectionId, "readonly-item"),
             writable.collectionId to listItem(writable.collectionId, "writable-item"),
         )
-        val pending = listOf(
-            change("readonly", "readonly-change"),
-            change("writable", "writable-change"),
-        )
+        val pending = listOf(change("writable", "writable-change"))
         val transport = RecordingTransport(readOnlyCollections = setOf("readonly"))
         val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
 
@@ -60,12 +57,81 @@ class NextcloudSyncAdapterTest {
         assertTrue("writable" in transport.reportedCollections)
         assertTrue(transport.putCalls.none { "/readonly/" in it })
         coVerify(exactly = 0) {
-            fixture.mutations.acknowledgePushed(listOf("readonly-change"))
+            fixture.mutations.acknowledgePushed(match { "readonly-change" in it })
         }
         coVerify {
             fixture.mutations.acknowledgePushed(listOf("writable-change"))
         }
         assertFalse(bindings.getValue("readonly").remoteWritable)
+        assertNull(bindings.getValue("readonly").lastFailureCode)
+    }
+
+    @Test
+    fun `downgrade discovered after a stale local mutation keeps it pending and reports needs attention`() = runTest {
+        val readOnly = binding("readonly")
+        val bindings = linkedMapOf(readOnly.collectionId to readOnly)
+        val itemBindings = linkedMapOf(
+            readOnly.collectionId to itemBinding(readOnly.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(readOnly.collectionId to list(readOnly.collectionId))
+        val rows = mapOf(readOnly.collectionId to listItem(readOnly.collectionId, "readonly-item"))
+        // The mutation was accepted while the cached binding still said writable.
+        val pending = listOf(change("readonly", "readonly-change"))
+        val transport = RecordingTransport(readOnlyCollections = setOf("readonly"))
+        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+
+        val result = fixture.adapter.syncAll()
+
+        assertEquals(
+            NextcloudFailure.Code.PERMISSION,
+            (result as NextcloudSyncResult.Failure).error.code,
+        )
+        assertTrue("readonly" in transport.reportedCollections, "owner changes are still pulled")
+        assertTrue(
+            transport.putCalls.none { "/readonly/" in it },
+            "the stale local mutation is never published while the collection is read-only",
+        )
+        coVerify(exactly = 0) {
+            fixture.mutations.acknowledgePushed(listOf("readonly-change"))
+        }
+        assertFalse(bindings.getValue("readonly").remoteWritable)
+        assertEquals(
+            NextcloudFailure.Code.PERMISSION.name,
+            bindings.getValue("readonly").lastFailureCode,
+        )
+    }
+
+    @Test
+    fun `regained write access publishes the retained mutation and clears the failure`() = runTest {
+        val stale = binding("writable").copy(
+            remoteWritable = false,
+            lastFailureCode = NextcloudFailure.Code.PERMISSION.name,
+        )
+        val bindings = linkedMapOf(stale.collectionId to stale)
+        val itemBindings = linkedMapOf(
+            stale.collectionId to itemBinding(stale.collectionId, "writable-item"),
+        )
+        val lists = mapOf(stale.collectionId to list(stale.collectionId))
+        // The row that was accepted while the cached binding still said writable.
+        val rows = mapOf(
+            stale.collectionId to listItem(stale.collectionId, "writable-item")
+                .copy(text = "Added while read-only"),
+        )
+        val pending = listOf(change("writable", "writable-change"))
+        val transport = RecordingTransport()
+        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(
+            transport.putCalls.any { "/writable/" in it },
+            "the retained local change is published once write access returns",
+        )
+        assertTrue(transport.putBodies.any { "Added while read-only" in it })
+        coVerify { fixture.mutations.acknowledgePushed(listOf("writable-change")) }
+        assertTrue(bindings.getValue("writable").remoteWritable)
+        assertNull(bindings.getValue("writable").lastFailureCode)
     }
 
     @Test
