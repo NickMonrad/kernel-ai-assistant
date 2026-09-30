@@ -33,6 +33,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 import java.io.FileInputStream
@@ -57,6 +58,12 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         val args = InstrumentationRegistry.getArguments()
+        assumeTrue(
+            "Optional #1451 benchmark skipped; pass model_path, candidate, and source_commit instrumentation args.",
+            !args.getString("model_path").isNullOrBlank() &&
+                !args.getString("candidate").isNullOrBlank() &&
+                !args.getString("source_commit").isNullOrBlank(),
+        )
         val modelFile = File(requireNotNull(args.getString("model_path")) { "Pass -e model_path=<absolute path>" })
         val candidate = requireNotNull(args.getString("candidate")) { "Pass -e candidate=<label>" }
         val sourceCommit = requireNotNull(args.getString("source_commit")) { "Pass -e source_commit=<40-character git SHA>" }
