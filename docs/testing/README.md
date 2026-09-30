@@ -10,6 +10,7 @@
 | [`.docs/agents/test-evidence-workflow.md`](../../.docs/agents/test-evidence-workflow.md) | Agent guidance on evidence lifecycle — generation, reporting, publishing, dashboard |
 | [`docs/testing/llm-tools-harness.md`](./llm-tools-harness.md) | Deep reference for the `llm_tools` harness phase — markers, assertions, troubleshooting |
 | [`docs/testing/s21-model-readiness.md`](./s21-model-readiness.md) | S21 model readiness preflight — after reinstall, run this before accepting model-backed ADB evidence |
+| [`1451-gemma4-gpu-package-benchmark.md`](./1451-gemma4-gpu-package-benchmark.md) | #1451 Gemma 4 GPU package A/B test procedure, artifact provenance, and 0.11.0 evidence limits |
 | `scripts/generate_permission_flow_evidence.py` | Converts `permission_flows` connected-test XML into #1113 normalised JSON/CSV/Markdown evidence |
 
 ## Design / specification docs
