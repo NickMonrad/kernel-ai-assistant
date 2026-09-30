@@ -313,6 +313,42 @@ class ListsViewModelCheckedReminderTest {
         verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
     }
 
+    @Test
+    fun `resolution prunes and cancels an existing item reminder`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val sourceList = ListNameEntity(id = 1L, name = "groceries", collectionId = "collection-1")
+        val pruned = item(7L, checked = false, notificationTime = triggerAtMs)
+        coEvery { listNameDao.getById(sourceList.id) } returns sourceList
+        coEvery { dao.getAllByListAnyLifecycle(sourceList.id) } returns emptyList()
+        val viewModel = testViewModel(preferences)
+
+        runBlocking { viewModel.reconcileLocalWorkReminderTransitions(sourceList, listOf(pruned)) }
+
+        verify(exactly = 1) { scheduler.cancel(pruned.id) }
+        verify(exactly = 0) { scheduler.schedule(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `resolution restores active unchecked item reminder`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val sourceList = ListNameEntity(id = 1L, name = "groceries", collectionId = "collection-1")
+        val stranded = item(7L, checked = true, notificationTime = triggerAtMs)
+            .copy(lifecycle = ListLifecycle.DELETED.name)
+        val restored = item(7L, checked = false, notificationTime = triggerAtMs)
+        coEvery { listNameDao.getById(sourceList.id) } returns sourceList
+        coEvery { dao.getById(restored.id) } returns restored
+        coEvery { dao.getAllByListAnyLifecycle(sourceList.id) } returns listOf(restored)
+        val viewModel = testViewModel(preferences)
+
+        runBlocking {
+            viewModel.reconcileLocalWorkReminderTransitions(sourceList, listOf(stranded))
+        }
+
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(restored.id, restored.text, restored.listId, sourceList.name, triggerAtMs)
+        }
+    }
+
     private fun packageSnapshot() = SharedCollectionSnapshot(
         collectionId = "collection-1",
         canonicalTitle = "groceries",

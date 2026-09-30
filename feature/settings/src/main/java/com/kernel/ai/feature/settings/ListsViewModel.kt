@@ -506,10 +506,12 @@ class ListsViewModel @Inject constructor(
     private suspend fun applyCheckedStateReminderTransitions(
         mutation: CheckedStateMutation,
         lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
+        removedItemIds: Set<Long> = emptySet(),
     ) {
         val cancellationIds = (
             mutation.checkedIds +
-                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId }
+                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
+                removedItemIds
             ).toSet()
         cancellationIds.forEach(scheduler::cancel)
 
@@ -1025,11 +1027,52 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
         successMessage: String,
     ) {
         viewModelScope.launch(ioDispatcher) {
-            nextcloudMessage = nextcloud.resolveLocalWork(collectionId, resolution).fold(
+            val sourceList = listNameDao.getByCollectionId(collectionId)
+            val rowsBefore = sourceList?.let { dao.getAllByListAnyLifecycle(it.id) }.orEmpty()
+            val result = nextcloud.resolveLocalWork(collectionId, resolution)
+            sourceList?.let { reconcileLocalWorkReminderTransitions(it, rowsBefore) }
+            nextcloudMessage = result.fold(
                 onSuccess = { successMessage },
                 onFailure = { it.safeNextcloudMessage() },
             )
         }
+    }
+
+    /**
+     * Reconciles reminders on the original bound list after resolution. Keep-as-copy creates a new
+     * list separately; its existing copy path clears reminder times and is not scheduled here.
+     */
+    internal suspend fun reconcileLocalWorkReminderTransitions(
+        sourceList: ListNameEntity,
+        rowsBefore: List<ListItemEntity>,
+    ) {
+        val listAfter = listNameDao.getById(sourceList.id)
+        val rowsAfterById = dao.getAllByListAnyLifecycle(sourceList.id).associateBy { it.id }
+        val wasCollectionActive = sourceList.lifecycle == ListLifecycle.ACTIVE.name
+        val isCollectionActive = listAfter?.lifecycle == ListLifecycle.ACTIVE.name
+
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        val lifecycleTransitions = rowsBefore.mapNotNull { before ->
+            val after = rowsAfterById[before.id] ?: return@mapNotNull null
+            if (before.checked != after.checked) {
+                if (after.checked) checkedIds += before.id else uncheckedIds += before.id
+            }
+            val wasActive = wasCollectionActive && before.lifecycle == ListLifecycle.ACTIVE.name
+            val isActive = isCollectionActive && after.lifecycle == ListLifecycle.ACTIVE.name
+            if (wasActive == isActive) {
+                null
+            } else {
+                ListItemLifecycleTransition(before.id, wasActive, isActive)
+            }
+        }
+        val removedItemIds = rowsBefore.mapTo(mutableSetOf()) { it.id } - rowsAfterById.keys
+
+        applyCheckedStateReminderTransitions(
+            CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds),
+            lifecycleTransitions,
+            removedItemIds,
+        )
     }
 
     // ── Encrypted shared-list package exchange (#1493) ───────────────────────────────────────────
