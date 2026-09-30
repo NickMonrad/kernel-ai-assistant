@@ -63,7 +63,9 @@ The recipient-side Android test verifies copies have fresh collection/item ident
 provider item metadata, or pending provider changes. The owner account verifies the stranded/local-only
 items never reach its calendar.
 
-The runner rechecks device, package, and running-app identity before every action and invokes only
+The runner rechecks device serial/model, installed target/test packages, and the installed app version
+before every action. A running target-app process is not required: Android instrumentation can
+force-stop the target package at each step's start and completion. The runner invokes only
 `NextcloudSharingAcceptanceTest.runRequestedAcceptanceStep`. It emits only device aliases, step
 names, generated fixture names, and PASS/FAIL/CLEAN status; Android instrumentation output is
 captured and suppressed. On failure, automated cleanup runs only for owner fixtures whose exact

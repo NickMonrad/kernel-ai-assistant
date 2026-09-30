@@ -133,12 +133,6 @@ def verify_device(device: Device, expected_version_code: int) -> None:
     match = re.search(r"\bversionCode=(\d+)\b", package_dump)
     if match is None or int(match.group(1)) != expected_version_code:
         raise HarnessFailure(f"{device.alias}: installed app version does not match the candidate.")
-    try:
-        running_pids = run_checked([*adb, "shell", "pidof", APP_ID])
-    except HarnessFailure as error:
-        raise HarnessFailure(f"{device.alias}: open the configured app and keep it running before acceptance.") from error
-    if not re.fullmatch(r"\d+(?:\s+\d+)*", running_pids):
-        raise HarnessFailure(f"{device.alias}: open the configured app and keep it running before acceptance.")
 
 
 def invoke_step(
