@@ -124,9 +124,10 @@ class ListMutationRepository @Inject constructor(
      *
      * Used when a shared Nextcloud list becomes read-only or unavailable and the user chooses
      * **Keep as local copy**. The copy is an ordinary unbound Jandal list: it carries a fresh
-     * collection identity, fresh item identities and no local change records, so it can never be
-     * pushed to the former share or re-associated with it if the owner shares it again. Only visible
-     * (active) rows are copied; device-local automation such as item reminders is not duplicated.
+     * collection identity, fresh item identities and no local change records, so it cannot be
+     * automatically pushed to or silently re-associated with the former share if the owner shares
+     * it again. Only visible (active) rows are copied; device-local automation such as item
+     * reminders is not duplicated. A deliberate user action may bind it later.
      */
     suspend fun copyListAsLocal(listId: Long, name: String): Long = database.withTransaction {
         val source = requireList(listId)

@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity
 import com.kernel.ai.core.memory.entity.NextcloudItemBindingEntity
 import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
@@ -17,15 +18,15 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -259,6 +260,72 @@ class NextcloudSyncAdapterTest {
     }
 
     @Test
+    fun `discarding stranded work after share removal restores cached owner state and releases provider metadata`() = runTest {
+        val removed = binding("readonly")
+        val bindings = linkedMapOf(removed.collectionId to removed)
+        val itemBindings = linkedMapOf(
+            removed.collectionId to itemBinding(removed.collectionId, "readonly-item"),
+        )
+        val lists = mapOf(removed.collectionId to list(removed.collectionId))
+        val rows = mutableMapOf(
+            removed.collectionId to listItem(removed.collectionId, "readonly-item")
+                .copy(text = "Added while stale"),
+        )
+        val pending = listOf(change("readonly", "readonly-change"))
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            lists,
+            rows,
+            pending,
+            RecordingTransport(absentCollections = setOf("readonly")),
+            onImportSnapshot = { snapshot ->
+                rows["readonly"] = rows.getValue("readonly").copy(text = snapshot.items.single().text)
+            },
+        )
+
+        fixture.adapter.syncAll()
+        assertNotNull(bindings.getValue("readonly").blockedUnsyncedAt)
+
+        val outcome = fixture.adapter.resolveLocalWork(
+            removed.collectionId,
+            NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES,
+        )
+
+        assertEquals(1L, outcome.getOrNull())
+        assertEquals("Item", rows.getValue("readonly").text)
+        assertTrue(fixture.pendingChanges.isEmpty())
+        assertTrue(bindings.isEmpty(), "discarding an inaccessible list releases its collection binding")
+        assertTrue(itemBindings.isEmpty(), "discarding an inaccessible list releases its item bindings")
+        coVerify { fixture.mutations.discardPendingChanges(removed.collectionId) }
+    }
+
+    @Test
+    fun `unavailable share without stranded work can be kept locally and releases provider metadata`() = runTest {
+        val removed = binding("readonly").copy(remoteAvailable = false)
+        val bindings = linkedMapOf(removed.collectionId to removed)
+        val itemBindings = linkedMapOf(
+            removed.collectionId to itemBinding(removed.collectionId, "readonly-item"),
+        )
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            mapOf(removed.collectionId to list(removed.collectionId)),
+            mapOf(removed.collectionId to listItem(removed.collectionId, "readonly-item")),
+            emptyList(),
+            RecordingTransport(absentCollections = setOf("readonly")),
+        )
+
+        val outcome = fixture.adapter.createLocalCopy(removed.collectionId)
+
+        assertEquals(1L, outcome.getOrNull(), "the existing list becomes the local copy")
+        assertTrue(bindings.isEmpty())
+        assertTrue(itemBindings.isEmpty())
+        coVerify { fixture.mutations.discardPendingChanges(removed.collectionId) }
+        coVerify(exactly = 0) { fixture.mutations.copyListAsLocal(any(), any()) }
+    }
+
+    @Test
     fun `removed share with stranded work is released only when the user keeps it locally`() = runTest {
         val removed = binding("readonly")
         val bindings = linkedMapOf(removed.collectionId to removed)
@@ -314,36 +381,55 @@ class NextcloudSyncAdapterTest {
     }
 
     @Test
-    fun `regained write access publishes the retained mutation and clears the failure`() = runTest {
+    fun `kept local changes never publish after write access is restored`() = runTest {
         val stale = binding("writable").copy(
             remoteWritable = false,
+            blockedUnsyncedAt = 5L,
             lastFailureCode = NextcloudFailure.Code.PERMISSION.name,
         )
         val bindings = linkedMapOf(stale.collectionId to stale)
         val itemBindings = linkedMapOf(
             stale.collectionId to itemBinding(stale.collectionId, "writable-item"),
         )
-        val lists = mapOf(stale.collectionId to list(stale.collectionId))
-        // The row that was accepted while the cached binding still said writable.
-        val rows = mapOf(
+        val rows = mutableMapOf(
             stale.collectionId to listItem(stale.collectionId, "writable-item")
                 .copy(text = "Added while read-only"),
         )
-        val pending = listOf(change("writable", "writable-change"))
+        val lists = mapOf(stale.collectionId to list(stale.collectionId))
         val transport = RecordingTransport()
-        val fixture = adapter(bindings, itemBindings, lists, rows, pending, transport)
+        val fixture = adapter(
+            bindings,
+            itemBindings,
+            lists,
+            rows,
+            listOf(change("writable", "writable-change")),
+            transport,
+            onImportSnapshot = { snapshot ->
+                rows["writable"] = rows.getValue("writable").copy(text = snapshot.items.single().text)
+            },
+        )
+
+        val copyId = fixture.adapter.resolveLocalWork(
+            stale.collectionId,
+            NextcloudLocalWorkResolution.KEEP_LOCAL_COPY,
+        ).getOrThrow()
+
+        assertEquals(99L, copyId)
+        assertTrue(fixture.pendingChanges.isEmpty(), "kept work leaves the provider outbox")
+        assertNull(bindings.getValue("writable").blockedUnsyncedAt)
 
         val result = fixture.adapter.syncAll()
 
         assertTrue(result is NextcloudSyncResult.Success)
+        assertTrue(transport.putCalls.isEmpty())
         assertTrue(
-            transport.putCalls.any { "/writable/" in it },
-            "the retained local change is published once write access returns",
+            transport.putBodies.none { "Added while read-only" in it },
+            "restored access cannot publish work already kept in a separate local list",
         )
-        assertTrue(transport.putBodies.any { "Added while read-only" in it })
-        coVerify { fixture.mutations.acknowledgePushed(listOf("writable-change")) }
         assertTrue(bindings.getValue("writable").remoteWritable)
         assertNull(bindings.getValue("writable").lastFailureCode)
+        coVerify { fixture.mutations.copyListAsLocal(2L, any()) }
+        coVerify(exactly = 0) { fixture.mutations.acknowledgePushed(listOf("writable-change")) }
     }
 
     @Test
@@ -915,6 +1001,7 @@ class NextcloudSyncAdapterTest {
         val adapter: NextcloudSyncAdapter,
         val mutations: ListMutationRepository,
         val listNameDao: ListNameDao,
+        val pendingChanges: MutableList<ListChange>,
     )
 
     private fun adapter(
@@ -924,7 +1011,9 @@ class NextcloudSyncAdapterTest {
         rows: Map<String, ListItemEntity>,
         pending: List<ListChange>,
         transport: RecordingTransport,
+        onImportSnapshot: suspend (SharedCollectionSnapshot) -> Unit = {},
     ): Fixture {
+        val pendingChanges = pending.toMutableList()
         val accountStore = mockk<NextcloudCredentialStore>()
         every { accountStore.read() } returns NextcloudAccountCredentials(
             NextcloudAccount("https://cloud.example", "alice"),
@@ -966,12 +1055,22 @@ class NextcloudSyncAdapterTest {
         coEvery { listNameDao.getByCollectionId(any()) } answers { lists[firstArg()] }
 
         val mutations = mockk<ListMutationRepository>()
-        coEvery { mutations.pendingChanges() } returns pending
-        coEvery { mutations.importSnapshot(any(), any(), any()) } returns mockk(relaxed = true)
-        coEvery { mutations.acknowledgePushed(any()) } returns Unit
-        coEvery { mutations.discardPendingChanges(any()) } returns Unit
+        coEvery { mutations.pendingChanges() } answers { pendingChanges.toList() }
+        coEvery { mutations.importSnapshot(any(), any(), any()) } coAnswers {
+            onImportSnapshot(firstArg())
+            mockk(relaxed = true)
+        }
+        coEvery { mutations.acknowledgePushed(any()) } coAnswers {
+            val pushedIds = firstArg<List<String>>().toSet()
+            pendingChanges.removeAll { it.changeId in pushedIds }
+            Unit
+        }
+        coEvery { mutations.discardPendingChanges(any()) } coAnswers {
+            val collectionId = firstArg<String>()
+            pendingChanges.removeAll { it.collectionId == collectionId }
+            Unit
+        }
         coEvery { mutations.copyListAsLocal(any(), any()) } returns 99L
-
         return Fixture(
             adapter = NextcloudSyncAdapter(
                 accountStore,
@@ -984,6 +1083,7 @@ class NextcloudSyncAdapterTest {
             ),
             mutations = mutations,
             listNameDao = listNameDao,
+            pendingChanges = pendingChanges,
         )
     }
 

@@ -455,6 +455,21 @@ class NextcloudCalDavClient(
         return true
     }
 
+    /** Deletes one exact calendar href after ensuring its credentials stay inside this server's origin. */
+    suspend fun deleteCollection(href: String): Boolean {
+        validateCalDavHref(href)
+        val response = request(
+            method = "DELETE",
+            url = href,
+            headers = authHeaders(),
+            forbiddenResponse = ForbiddenResponse.PERMISSION,
+        ).response
+        if (response.status == 404) return false
+        if (response.status == 412 || response.status == 409) throw NextcloudConflictException()
+        if (response.status !in 200..299) throw serverFailure(response.status)
+        return true
+    }
+
     /**
      * Creates a VTODO collection whose user-visible display name is exactly [title].
      *
@@ -620,6 +635,11 @@ class NextcloudCalDavClient(
         return origin.explicitPort == target.explicitPort
     }
 
+    private fun validateCalDavHref(href: String) {
+        if (!permitsRedirect(normalizeServer(account.account.serverUrl), href)) {
+            throw crossOriginRedirectFailure()
+        }
+    }
     private fun redirectOrigin(url: String): RedirectOrigin? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val host = uri.host?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null

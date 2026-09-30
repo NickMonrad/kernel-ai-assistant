@@ -329,6 +329,7 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.room.runtime)
     androidTestImplementation(libs.test.rules)
     androidTestImplementation(libs.uiautomator)
     androidTestImplementation(libs.tflite)

@@ -101,13 +101,17 @@ A reachable read-only share can also be copied out proactively, with no unsynced
 shared list keeps following its owner and the copy is independent.
 
 A local copy is a normal unbound Jandal list. It carries a fresh collection identity and fresh item
-identities, has no Nextcloud binding, no provider item metadata and no pending provider changes, and
-is therefore never pushed and never re-associated with the former share — not even if the owner
-restores or recreates it. Device-local automation such as item reminders is not duplicated.
+identities, has no Nextcloud binding, no provider item metadata and no pending provider changes.
+It is never **automatically** pushed or re-associated with the former share, even if the owner
+restores or recreates it. A user may deliberately bind the local list through the normal
+Nextcloud-sharing action. Device-local automation such as item reminders is not duplicated.
 
-Recipient discovery/import uses the existing Nextcloud collection discovery flow. Sharing
-interoperability with two real Nextcloud accounts, including propagation after permission changes
-and removal, remains an environment-owned manual gate; CI does not contain provider credentials.
+`scripts/nextcloud_sharing_acceptance.py` drives a guarded, two-account physical acceptance run
+against already-configured app accounts. Its required phases cover editable bidirectional sync,
+read-only owner updates, downgrade quarantine with Keep and Discard, removed-share recovery, and
+no automatic association after re-sharing. It verifies device/package identity before every
+instrumentation step and removes only its uniquely generated remote collections and local rows.
+CI remains credential-free; see `docs/specs/nextcloud-sharing-acceptance.md` for the operator gate.
 
 ## VTODO mapping
 

@@ -416,8 +416,8 @@ class NextcloudSyncAdapter @Inject constructor(
      * instead of producing a duplicate.
      *
      * Either way the preserved list has no Nextcloud binding, no provider item metadata and no
-     * pending provider changes, so it can never be pushed back or silently re-associated if the
-     * owner shares the collection again.
+     * pending provider changes, so it cannot be automatically pushed or silently re-associated if
+     * the owner shares the collection again. A deliberate user action may bind it later.
      */
     suspend fun createLocalCopy(collectionId: String): Result<Long> = guarded {
         val binding = requireBoundBinding(collectionId)

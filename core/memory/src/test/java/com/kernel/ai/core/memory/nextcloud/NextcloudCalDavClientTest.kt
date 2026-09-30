@@ -149,6 +149,38 @@ class NextcloudCalDavClientTest {
         assertTrue(error is NextcloudConflictException)
         assertEquals("\"etag-1\"", transport.requests.single().headers["If-Match"])
     }
+
+    @Test
+    fun `calendar cleanup deletes only the requested collection and treats a missing one as clean`() = runTest {
+        val existingHref = "https://cloud.example/calendars/J1548-test/"
+        val missingHref = "https://cloud.example/calendars/J1548-missing/"
+        val transport = FakeTransport(
+            mapOf(
+                "DELETE $existingHref" to CalDavResponse(204, emptyMap(), "", existingHref),
+                "DELETE $missingHref" to CalDavResponse(404, emptyMap(), "", missingHref),
+            ),
+        )
+        val client = NextcloudCalDavClient(credentials(), transport)
+
+        assertTrue(client.deleteCollection(existingHref))
+        assertFalse(client.deleteCollection(missingHref))
+        assertEquals(listOf(existingHref, missingHref), transport.requests.map { it.url })
+        assertTrue(transport.requests.all { it.method == "DELETE" })
+    }
+
+    @Test
+    fun `calendar cleanup refuses a foreign origin before sending credentials`() = runTest {
+        val transport = FakeTransport(emptyMap())
+
+        val error = runCatching {
+            NextcloudCalDavClient(credentials(), transport)
+                .deleteCollection("https://attacker.example/calendars/J1548-test/")
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT, (error as NextcloudConnectionException).code)
+        assertTrue(transport.requests.isEmpty())
+    }
+
     @Test
     fun `new task preserves the server etag and uses create precondition`() = runTest {
         val transport = FakeTransport(
