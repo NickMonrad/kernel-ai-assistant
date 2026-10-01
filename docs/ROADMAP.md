@@ -48,7 +48,7 @@ This is the current engineering execution queue, not a redefinition of the launc
 
 1. [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2 — `launch:blocking`
 2. [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud shared-list management — `launch:blocking`
-3. [#1582](https://github.com/NickMonrad/kernel-ai-assistant/issues/1582) — reveal newly created item under active sort — `launch:pre`
+3. [#1582](https://github.com/NickMonrad/kernel-ai-assistant/issues/1582) — after Main-FAB creation, preserve sort/search/filter/hierarchy; reveal the item at its projected position or confirm when the current view hides it — `launch:pre`
 4. [#1581](https://github.com/NickMonrad/kernel-ai-assistant/issues/1581) — hierarchy drag targeting + collapsible parent groups — `launch:pre`
 5. Return to the remaining #1014 release-evidence / Play-readiness work as appropriate.
 
