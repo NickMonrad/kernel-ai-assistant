@@ -33,6 +33,7 @@ dependencies {
 
     // LiteRT-LM on-device inference
     implementation(libs.litertlm.android)
+    implementation(libs.gson)
 
     // MediaPipe TextEmbedder (USE fallback)
     implementation(libs.mediapipe.tasks.text)
