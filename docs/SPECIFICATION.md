@@ -906,7 +906,7 @@ The LLM is used only for bounded structured output. Kotlin owns enforcement:
 - parse-time New Zealand wording normalization for generated titles, ingredients, and method text
 - recent-plan history retrieval from completed plans only, plus bounded self-repair loops to reduce exact repeats and obvious same-protein/same-shape duplication without making soft variety preferences block generation entirely
 
-Recipe projections now write lightweight cooking checklists: each recipe list contains an `Ingredients` section followed by a `Method` section with numbered steps. Shopping and recipe lists are derived artifacts only; the planner can rebuild or delete them from canonical planner rows.
+Recipe projections write two-level cooking checklists: `Ingredients` is the first top-level item, followed by each ingredient as a direct child in canonical order; `Method` is the next top-level item, followed by each numbered step as a direct child in canonical order. Newly generated and recreated recipe lists initially use per-list Manual item sort, while later explicit sort choices remain authoritative. Shopping projections remain flat and keep their existing ordering. Recipe and shopping lists are derived artifacts that the planner can rebuild or delete from canonical planner rows.
 
 #### 4.3.5 Chat UX and status surface
 

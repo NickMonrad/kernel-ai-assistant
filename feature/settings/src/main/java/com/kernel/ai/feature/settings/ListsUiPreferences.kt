@@ -35,12 +35,15 @@ class ListsUiPreferences @Inject constructor(
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     /**
-     * Saved item sort for [listId], or [DEFAULT_ITEM_SORT] when unset or undecodable.
+     * Saved item sort for [listId], or [defaultSort] when no preference is stored.
      *
      * [listId] is the local row id, so each list remembers its own selection.
      */
-    suspend fun itemSortFor(listId: Long): ItemSort = withContext(ioDispatcher) {
-        val stored = preferences()[itemSortKeyOf(listId)] ?: return@withContext DEFAULT_ITEM_SORT
+    suspend fun itemSortFor(
+        listId: Long,
+        defaultSort: ItemSort = DEFAULT_ITEM_SORT,
+    ): ItemSort = withContext(ioDispatcher) {
+        val stored = preferences()[itemSortKeyOf(listId)] ?: return@withContext defaultSort
         ItemSort.entries.firstOrNull { it.name == stored } ?: DEFAULT_ITEM_SORT
     }
 

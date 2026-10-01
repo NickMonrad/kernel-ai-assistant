@@ -208,7 +208,12 @@ class ListsViewModel @Inject constructor(
         boundItemListId = listId
         itemSortLoadJob?.cancel()
         itemSortLoadJob = viewModelScope.launch {
-            val saved = listsUiPreferences.itemSortFor(listId)
+            val defaultSort = if (listNameDao.getById(listId)?.manualItemSortByDefault == true) {
+                ItemSort.MANUAL
+            } else {
+                DEFAULT_ITEM_SORT
+            }
+            val saved = listsUiPreferences.itemSortFor(listId, defaultSort)
             if (boundItemListId == listId) itemSort = saved
         }
     }

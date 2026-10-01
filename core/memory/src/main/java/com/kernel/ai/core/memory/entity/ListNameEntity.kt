@@ -35,4 +35,6 @@ data class ListNameEntity(
     val titleStampActorId: String = "",
     val lifecycleLogicalClock: Long = 0L,
     val lifecycleStampActorId: String = "",
+    /** Local-only initial item sort hint; never included in sync changes or snapshots. */
+    @ColumnInfo(name = "manualItemSortByDefault", defaultValue = "0") val manualItemSortByDefault: Boolean = false,
 )

@@ -129,7 +129,11 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun recreateRecipeList(sessionId: String, dayIndex: Int): String = database.withTransaction {
         val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
         val targetName = nextAvailableListName(recipeVersion.title.ifBlank { "Recipe" })
-        listMutations.createCollectionWithItems(targetName, buildRecipeListTexts(recipeVersion))
+        createRecipeList(
+            targetName,
+            buildRecipeIngredientTexts(recipeVersion),
+            buildRecipeMethodTexts(recipeVersion),
+        )
         targetName
     }
 
@@ -707,7 +711,11 @@ class MealPlanSessionRepository @Inject constructor(
                 sourceKeyPrefix = sourcePrefix,
                 timestamp = projectedAt,
             )
-            listMutations.createCollectionWithItems(targetName, recipeListItems.map { it.second })
+            createRecipeList(
+                targetName,
+                ingredients.map { it.originalText },
+                methodSteps.map { "${it.stepNumber}. ${it.text}" },
+            )
             projectionWriteDao.insertAll(
                 recipeListItems.map { (sourceKey, _) ->
                     MealPlanProjectionWriteEntity(
@@ -905,11 +913,33 @@ class MealPlanSessionRepository @Inject constructor(
         return day to recipeVersion
     }
 
-    private fun buildRecipeListTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> = buildList {
-        add("Ingredients")
-        addAll(buildRecipeIngredientTexts(recipeVersion))
-        add("Method")
-        addAll(buildRecipeMethodTexts(recipeVersion))
+    private suspend fun createRecipeList(
+        title: String,
+        ingredients: List<String>,
+        methodSteps: List<String>,
+    ): Long {
+        val listId = listMutations.createCollectionWithItems(
+            title = title,
+            items = buildList {
+                add("Ingredients")
+                addAll(ingredients)
+                add("Method")
+                addAll(methodSteps)
+            },
+            manualItemSortByDefault = true,
+        )
+        val items = listItemDao.getAllByList(listId)
+        val methodHeaderIndex = ingredients.size + 1
+        val ingredientsHeader = items.first()
+        val methodHeader = items[methodHeaderIndex]
+
+        items.subList(1, methodHeaderIndex).forEach { ingredient ->
+            listMutations.setItemPlacement(ingredient.id, ingredientsHeader.itemId, ingredient.orderKey)
+        }
+        items.subList(methodHeaderIndex + 1, items.size).forEach { step ->
+            listMutations.setItemPlacement(step.id, methodHeader.itemId, step.orderKey)
+        }
+        return listId
     }
 
     private fun buildRecipeIngredientTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =

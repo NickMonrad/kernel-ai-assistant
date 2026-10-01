@@ -108,4 +108,30 @@ class ListsMigrationTest {
         }
         db.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun `migration 57 to 58 adds manual sort default without changing lists`() {
+        val oldDb = helper.createDatabase(testDbName, 57)
+        oldDb.execSQL(
+            """
+            INSERT INTO lists (
+                name, createdAt, updatedAt, pinned, displayOrder, archivedAt, collectionId,
+                canonicalTitle, localDisplayAlias, lifecycle, titleLogicalClock, titleStampActorId,
+                lifecycleLogicalClock, lifecycleStampActorId
+            ) VALUES ('Recipe', 1000, 1001, 0, 0, NULL, 'collection-1', 'Recipe', NULL,
+                      'ACTIVE', 1, 'test', 1, 'test')
+            """.trimIndent(),
+        )
+        oldDb.close()
+
+        val db = helper.runMigrationsAndValidate(testDbName, 58, true, KernelDatabase.MIGRATION_57_58)
+        db.query("SELECT name, manualItemSortByDefault FROM lists WHERE collectionId = 'collection-1'").use { cursor ->
+            assertEquals(1, cursor.count)
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Recipe", cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("manualItemSortByDefault")))
+        }
+        db.close()
+    }
 }

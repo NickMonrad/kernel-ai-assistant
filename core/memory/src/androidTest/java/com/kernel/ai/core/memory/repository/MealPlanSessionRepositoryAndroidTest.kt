@@ -14,6 +14,8 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
+import com.kernel.ai.core.memory.lists.ListChangeOperation
+import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
 import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
@@ -31,6 +33,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -52,6 +55,7 @@ class MealPlanSessionRepositoryAndroidTest {
     private lateinit var projectionWriteDao: MealPlanProjectionWriteDao
     private lateinit var listItemDao: ListItemDao
     private lateinit var listNameDao: ListNameDao
+    private lateinit var listMutations: ListMutationRepository
 
     @Before
     fun setUp() {
@@ -65,6 +69,17 @@ class MealPlanSessionRepositoryAndroidTest {
                 }
             })
             .build()
+        listMutations = ListMutationRepository(
+            database = database,
+            listItemDao = database.listItemDao(),
+            listNameDao = database.listNameDao(),
+            actorDao = database.listActorStateDao(),
+            appliedDao = database.listAppliedChangeDao(),
+            changeDao = database.listChangeDao(),
+            sourceDao = database.listSourceSequenceDao(),
+            checkpointDao = database.listCheckpointDao(),
+            nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
+        )
         repository = MealPlanSessionRepository(
             database = database,
             sessionDao = database.mealPlanSessionDao(),
@@ -75,17 +90,7 @@ class MealPlanSessionRepositoryAndroidTest {
             projectionWriteDao = database.mealPlanProjectionWriteDao(),
             listItemDao = database.listItemDao(),
             listNameDao = database.listNameDao(),
-            listMutations = ListMutationRepository(
-                database = database,
-                listItemDao = database.listItemDao(),
-                listNameDao = database.listNameDao(),
-                actorDao = database.listActorStateDao(),
-                appliedDao = database.listAppliedChangeDao(),
-                changeDao = database.listChangeDao(),
-                sourceDao = database.listSourceSequenceDao(),
-                checkpointDao = database.listCheckpointDao(),
-                nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
-            ),
+            listMutations = listMutations,
         )
         projectionWriteDao = database.mealPlanProjectionWriteDao()
         listItemDao = database.listItemDao()
@@ -155,9 +160,16 @@ class MealPlanSessionRepositoryAndroidTest {
             listOf("Ingredients", "placeholder ingredient", "Method", "1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
             listItemDao.getByList(recipeListId).map { it.text },
         )
+        assertTrue(listItemDao.getByList(shoppingListId).all { it.parentItemId == null })
+        assertRecipeHierarchy(
+            recipeListId,
+            ingredients = listOf("placeholder ingredient"),
+            methodSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
         assertEquals(2, projectionCount(updated.sessionId, "PLAN_SHOPPING_LIST", superseded = null))
         assertEquals(5, projectionCount(updated.sessionId, "RECIPE_LIST", superseded = null))
     }
+
     @Test
     fun persistRecipeDraft_aggregatesNormalizedShoppingProjectionItems() = runBlocking {
         val session = repository.startOrResume("conv-aggregate")
@@ -304,6 +316,11 @@ class MealPlanSessionRepositoryAndroidTest {
         assertFalse(currentListNames.contains(originalRecipeListName))
         assertEquals(listOf("1 lemon"), listItemDao.getByList(shoppingListId).map { it.text })
         assertEquals(listOf("Ingredients", "placeholder ingredient", "Method", "1. Roast the chicken with lemon."), listItemDao.getByList(regeneratedRecipeListId).map { it.text })
+        assertRecipeHierarchy(
+            regeneratedRecipeListId,
+            ingredients = listOf("placeholder ingredient"),
+            methodSteps = listOf("1. Roast the chicken with lemon."),
+        )
         assertEquals(1, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
         assertEquals(2, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
         assertEquals(4, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = false))
@@ -422,6 +439,11 @@ class MealPlanSessionRepositoryAndroidTest {
         val restoredRecipeListId = rebuiltLists.single { it.name == firstRecipeListName }.id
         assertEquals(listOf("500 g chicken thigh", "1 block tofu"), listItemDao.getByList(restoredShoppingListId).map { it.text })
         assertEquals(listOf("Ingredients", "placeholder ingredient", "Method", "1. Prep vegetables."), listItemDao.getByList(restoredRecipeListId).map { it.text })
+        assertRecipeHierarchy(
+            restoredRecipeListId,
+            ingredients = listOf("placeholder ingredient"),
+            methodSteps = listOf("1. Prep vegetables."),
+        )
     }
 
     @Test
@@ -599,6 +621,16 @@ class MealPlanSessionRepositoryAndroidTest {
 
         assertEquals(expectedItems, listItemDao.getByList(firstListId).map { it.text })
         assertEquals(expectedItems, listItemDao.getByList(secondListId).map { it.text })
+        assertRecipeHierarchy(
+            firstListId,
+            ingredients = listOf("placeholder ingredient"),
+            methodSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
+        assertRecipeHierarchy(
+            secondListId,
+            ingredients = listOf("placeholder ingredient"),
+            methodSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
     }
 
     @Test
@@ -1190,6 +1222,53 @@ class MealPlanSessionRepositoryAndroidTest {
         }
         migratedDb.close()
     }
+
+    private suspend fun assertRecipeHierarchy(
+        listId: Long,
+        ingredients: List<String>,
+        methodSteps: List<String>,
+    ) {
+        val recipeList = requireNotNull(listNameDao.getById(listId))
+        assertTrue(recipeList.manualItemSortByDefault)
+        val ordered = listItemDao.getAllByListUnordered(listId).sortedWith(Comparator { left, right ->
+            OrderKey.compare(left.orderKey, right.orderKey)
+                .takeIf { it != 0 }
+                ?: left.itemId.compareTo(right.itemId)
+        })
+        val methodHeaderIndex = ingredients.size + 1
+        val ingredientsHeader = ordered.first()
+        val methodHeader = ordered[methodHeaderIndex]
+        assertEquals("Ingredients", ingredientsHeader.text)
+        assertEquals("Method", methodHeader.text)
+        assertNull(ingredientsHeader.parentItemId)
+        assertNull(methodHeader.parentItemId)
+        assertEquals(
+            listOf(ingredientsHeader.itemId, methodHeader.itemId),
+            ordered.filter { it.parentItemId == null }.map { it.itemId },
+        )
+        assertEquals(
+            ingredients,
+            ordered.subList(1, methodHeaderIndex).map { it.text },
+        )
+        assertTrue(ordered.subList(1, methodHeaderIndex).all { it.parentItemId == ingredientsHeader.itemId })
+        assertEquals(
+            methodSteps,
+            ordered.subList(methodHeaderIndex + 1, ordered.size).map { it.text },
+        )
+        assertTrue(ordered.subList(methodHeaderIndex + 1, ordered.size).all { it.parentItemId == methodHeader.itemId })
+        val expectedPlacementParents = buildMap<String, String?> {
+            ordered.subList(1, methodHeaderIndex).forEach { put(it.itemId, ingredientsHeader.itemId) }
+            ordered.subList(methodHeaderIndex + 1, ordered.size).forEach { put(it.itemId, methodHeader.itemId) }
+        }
+        val recordedPlacementParents = listMutations.pendingChanges()
+            .filter {
+                it.collectionId == recipeList.collectionId &&
+                    it.operation == ListChangeOperation.SET_ITEM_PLACEMENT
+            }
+            .associate { it.targetId to it.payload.parentItemId }
+        assertEquals(expectedPlacementParents, recordedPlacementParents)
+    }
+
     private fun rawQueryInt(sql: String): Int =
         database.openHelper.writableDatabase.query(sql).use { cursor ->
             cursor.moveToFirst()

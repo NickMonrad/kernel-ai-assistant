@@ -75,7 +75,10 @@ class ListMutationRepository @Inject constructor(
         createCollectionInternal(title)
     }
 
-    private suspend fun createCollectionInternal(title: String): Long {
+    private suspend fun createCollectionInternal(
+        title: String,
+        manualItemSortByDefault: Boolean = false,
+    ): Long {
         val existing = listNameDao.getByNameAnyLifecycle(title)
         if (existing != null && existing.lifecycle == ListLifecycle.ACTIVE.name) {
             return existing.id
@@ -93,6 +96,7 @@ class ListMutationRepository @Inject constructor(
                 name = name,
                 canonicalTitle = title,
                 localDisplayAlias = name.takeIf { it != title },
+                manualItemSortByDefault = manualItemSortByDefault,
                 collectionId = collectionId,
                 createdAt = now,
                 updatedAt = now,
@@ -112,8 +116,12 @@ class ListMutationRepository @Inject constructor(
         recordLocal(list.collectionId, list.collectionId, stamp, ListChangeOperation.RESTORE_COLLECTION)
     }
 
-    suspend fun createCollectionWithItems(title: String, items: List<String>): Long = database.withTransaction {
-        val listId = createCollectionInternal(title)
+    suspend fun createCollectionWithItems(
+        title: String,
+        items: List<String>,
+        manualItemSortByDefault: Boolean = false,
+    ): Long = database.withTransaction {
+        val listId = createCollectionInternal(title, manualItemSortByDefault)
         requireContentMutationAllowed(requireList(listId).collectionId)
         items.forEach { addItemInternal(listId, it, null, false, null) }
         listId

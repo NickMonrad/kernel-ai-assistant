@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 57,
+    version = 58,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1044,6 +1044,12 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `remoteAvailable` INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `blockedUnsyncedAt` INTEGER")
+            }
+        }
+        /** Adds a local-only manual item-sort default hint to generated recipe lists (#1549). */
+        val MIGRATION_57_58 = object : Migration(57, 58) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `manualItemSortByDefault` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

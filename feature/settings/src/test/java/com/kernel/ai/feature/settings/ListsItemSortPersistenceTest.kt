@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -50,6 +51,14 @@ class ListsUiPreferencesTest {
     @Test
     fun `an unset list reads back as created newest`() {
         assertEquals(ItemSort.CREATED_NEWEST, runBlocking { preferences.itemSortFor(1L) })
+    }
+
+    @Test
+    fun `a supplied default is used only when a list has no saved sort`() {
+        assertEquals(ItemSort.MANUAL, runBlocking { preferences.itemSortFor(1L, ItemSort.MANUAL) })
+        runBlocking { preferences.setItemSort(1L, ItemSort.NAME_ASC) }
+
+        assertEquals(ItemSort.NAME_ASC, runBlocking { preferences.itemSortFor(1L, ItemSort.MANUAL) })
     }
 
     @Test
@@ -368,6 +377,21 @@ class ListsItemSortPersistenceTest {
     @Test
     fun `a list with no saved sort opens in created newest`() {
         assertEquals(ItemSort.CREATED_NEWEST, openList(1L).itemSort)
+    }
+
+    @Test
+    fun `a recipe list defaults to manual but keeps its explicit sort when reopened`() {
+        coEvery { listNameDao.getById(42L) } returns ListNameEntity(
+            id = 42L,
+            name = "Recipe",
+            manualItemSortByDefault = true,
+        )
+
+        assertEquals(ItemSort.MANUAL, openList(42L).itemSort)
+
+        openList(42L).selectItemSort(ItemSort.DUE_SOONEST)
+
+        assertEquals(ItemSort.DUE_SOONEST, openList(42L).itemSort)
     }
 
     @Test
