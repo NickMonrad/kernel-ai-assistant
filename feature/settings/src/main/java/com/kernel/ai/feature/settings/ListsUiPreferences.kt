@@ -15,6 +15,7 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
+import com.kernel.ai.core.memory.dao.ListNameDao
 
 private const val TAG = "ListsUiPreferences"
 
@@ -30,6 +31,7 @@ val DEFAULT_ITEM_SORT = ItemSort.CREATED_NEWEST
 @Singleton
 class ListsUiPreferences @Inject constructor(
     @Named("lists") private val dataStore: DataStore<Preferences>,
+    private val listNameDao: ListNameDao,
 ) {
     /** Dispatcher for DataStore IO; replaced by the test scheduler in unit tests. */
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
@@ -40,8 +42,14 @@ class ListsUiPreferences @Inject constructor(
      * [listId] is the local row id, so each list remembers its own selection.
      */
     suspend fun itemSortFor(listId: Long): ItemSort = withContext(ioDispatcher) {
-        val stored = preferences()[itemSortKeyOf(listId)] ?: return@withContext DEFAULT_ITEM_SORT
-        ItemSort.entries.firstOrNull { it.name == stored } ?: DEFAULT_ITEM_SORT
+        val stored = preferences()[itemSortKeyOf(listId)]
+        if (stored != null) {
+            ItemSort.entries.firstOrNull { it.name == stored } ?: DEFAULT_ITEM_SORT
+        } else {
+            listNameDao.getById(listId)?.defaultItemSort
+                ?.let { ItemSort.entries.firstOrNull { sort -> sort.name == it } }
+                ?: DEFAULT_ITEM_SORT
+        }
     }
 
     /** Persists [sort] as the item sort for [listId]. */

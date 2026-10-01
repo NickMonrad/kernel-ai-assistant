@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -80,6 +81,26 @@ class ListsUiPreferencesTest {
         }
 
         assertEquals(ItemSort.CREATED_NEWEST, runBlocking { preferences.itemSortFor(1L) })
+    }
+    @Test
+    fun `a list default sort is used when no explicit preference is set`() {
+        val preferences = testListsUiPreferences(
+            dispatcher,
+            listNameDao = listNameDaoReturning("MANUAL"),
+        )
+        assertEquals(ItemSort.MANUAL, runBlocking { preferences.itemSortFor(1L) })
+    }
+
+    @Test
+    fun `an explicit preference overrides the list default sort`() {
+        val listNameDao = listNameDaoReturning("MANUAL")
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+        runBlocking { preferences.setItemSort(1L, ItemSort.NAME_ASC) }
+        assertEquals(ItemSort.NAME_ASC, runBlocking { preferences.itemSortFor(1L) })
+    }
+
+    private fun listNameDaoReturning(defaultItemSort: String?): ListNameDao = mockk(relaxed = true) {
+        coEvery { getById(any()) } returns ListNameEntity(id = 1L, name = "Recipe", defaultItemSort = defaultItemSort)
     }
 }
 
