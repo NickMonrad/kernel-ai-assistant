@@ -4,7 +4,7 @@
 two already-configured Nextcloud accounts. It does not install APKs, clear app data, mutate
 ungenerated lists, save instrument output, or print a server URL, username, password, token, or raw
 exception. Local fixture lists are retired through the normal delete path (tombstones remain in
-Room); only calendars whose discovered href matches the generated fixture slug case-insensitively (including Nextcloud's `_shared_by_` sharee suffix) are deleted on the server.
+Room); only calendars whose href path segment matches the generated slug plus its UUID (case-insensitively, with an optional Nextcloud `_shared_by_` sharee suffix) are deleted on the server.
 
 ## Approval gate
 

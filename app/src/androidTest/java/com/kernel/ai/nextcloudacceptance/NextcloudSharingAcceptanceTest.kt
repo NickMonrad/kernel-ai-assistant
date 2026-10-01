@@ -580,11 +580,17 @@ class NextcloudSharingAcceptanceTest {
     )
 }
 
-internal fun collectionMatchesFixture(name: String, href: String): Boolean =
-    href.split('/').any { segment ->
+internal fun collectionMatchesFixture(name: String, href: String): Boolean {
+    val generatedCalendarHref = Regex(
+        "${Regex.escape(name)}-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:_shared_by_.+)?",
+        RegexOption.IGNORE_CASE,
+    )
+    return href.split('/').any { segment ->
         segment.equals(name, ignoreCase = true) ||
-            segment.startsWith("${name}_shared_by_", ignoreCase = true)
+            segment.startsWith("${name}_shared_by_", ignoreCase = true) ||
+            generatedCalendarHref.matches(segment)
     }
+}
 
 internal fun selectFixtureCollections(
     name: String,
