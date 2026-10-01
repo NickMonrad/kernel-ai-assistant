@@ -87,4 +87,25 @@ class ListsMigrationTest {
         }
         db.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun `migration 56 to 57 defaults access to available and unsynced work to resolved`() {
+        val oldDb = helper.createDatabase(testDbName, 56)
+        oldDb.execSQL(
+            "INSERT INTO nextcloud_collection_bindings (collectionId, remoteHref, remoteTitle, remoteEtag, remoteLogicalClock, updatedAt, remoteWritable, syncEnabled, lastFailureCode, lastFailureAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            arrayOf<Any?>("collection-1", "https://cloud.example/tasks/shared/", "Shared", null, 1L, 1L, 0, 1, null, null),
+        )
+        oldDb.close()
+
+        val db = helper.runMigrationsAndValidate(testDbName, 57, true, KernelDatabase.MIGRATION_56_57)
+        db.query("SELECT remoteWritable, remoteAvailable, blockedUnsyncedAt FROM nextcloud_collection_bindings WHERE collectionId = 'collection-1'").use { cursor ->
+            assertEquals(1, cursor.count)
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("remoteWritable")))
+            assertEquals(1, cursor.getInt(cursor.getColumnIndexOrThrow("remoteAvailable")))
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("blockedUnsyncedAt")))
+        }
+        db.close()
+    }
 }

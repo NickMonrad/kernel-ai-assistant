@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 55,
+    version = 57,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1027,6 +1027,23 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `list_items` ADD COLUMN `description` TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionLogicalClock` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionStampActorId` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+        /** Persists server-enforced read-only state for bound Nextcloud collections (#1548). */
+        val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `remoteWritable` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        /**
+         * Persists discovered loss of provider access and stranded local work for shared Nextcloud
+         * lists (#1548): an unavailable collection (share removed) and quarantined unsynced changes.
+         */
+        val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `remoteAvailable` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `blockedUnsyncedAt` INTEGER")
             }
         }
     }

@@ -367,6 +367,7 @@ class ListPackageImportAndroidTest {
         changeDao = database.listChangeDao(),
         sourceDao = database.listSourceSequenceDao(),
         checkpointDao = database.listCheckpointDao(),
+        nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
     )
 
     private suspend fun stableId(database: KernelDatabase, rowId: Long): String =

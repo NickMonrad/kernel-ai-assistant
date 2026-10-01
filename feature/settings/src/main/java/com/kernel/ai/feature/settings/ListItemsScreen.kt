@@ -65,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -202,6 +203,7 @@ fun ListItemsScreen(
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> },
+    onNavigateToNextcloudSharing: (String) -> Unit = {},
     externalMessage: String? = null,
     onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
@@ -209,7 +211,7 @@ fun ListItemsScreen(
     val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
-    val nextcloudStates by viewModel.nextcloudStates.collectAsStateWithLifecycle()
+    val nextcloudBindings by viewModel.nextcloudBindings.collectAsStateWithLifecycle()
     val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
 
     // Restores this list's saved sort so reopening never falls back to the default.
@@ -217,9 +219,13 @@ fun ListItemsScreen(
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
     val collectionId = listEntities.firstOrNull { it.id == listId }?.collectionId
-    val nextcloudState = collectionId?.let { nextcloudStates[it] }
+    val nextcloudBinding = collectionId?.let { nextcloudBindings[it] }
+    val nextcloudState = nextcloudBinding?.state
     val nextcloudActions = NextcloudRowActions(
         state = nextcloudState,
+        remoteWritable = nextcloudBinding?.remoteWritable ?: true,
+        remoteAvailable = nextcloudBinding?.remoteAvailable ?: true,
+        unsyncedChanges = nextcloudBinding?.unsyncedChanges == true,
         onSyncWithNextcloud = {
             if (nextcloudAccountConfigured) {
                 viewModel.syncListWithNextcloud(listId)
@@ -229,6 +235,10 @@ fun ListItemsScreen(
         },
         onStopSync = { collectionId?.let(viewModel::stopListNextcloudSync) },
         onResumeSync = { collectionId?.let(viewModel::resumeListNextcloudSync) },
+        onManageSharing = { collectionId?.let(onNavigateToNextcloudSharing) },
+        onSaveLocalCopy = { collectionId?.let(viewModel::saveListAsLocalCopy) },
+        onKeepLocalCopy = { collectionId?.let(viewModel::keepUnsyncedListAsLocalCopy) },
+        onDiscardLocalChanges = { collectionId?.let(viewModel::discardUnsyncedListChanges) },
         // Opening the bound-list state must never look like a new contextual setup.
         onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
     )
@@ -244,15 +254,29 @@ fun ListItemsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
+    var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
 
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
-    var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+    // Content changes are unavailable whenever the provider refuses them: a read-only share, a
+    // removed share, or local work already stranded by either (#1548). Local-only fields stay usable.
+    val isRemoteReadOnly = nextcloudState != null &&
+        (nextcloudBinding?.remoteWritable == false || nextcloudBinding?.remoteAvailable == false)
+    val hasUnsyncedChanges = nextcloudBinding?.unsyncedChanges == true
+    LaunchedEffect(isRemoteReadOnly, hasUnsyncedChanges) {
+        if (isRemoteReadOnly || hasUnsyncedChanges) {
+            viewModel.exitItemMultiSelect()
+            editingItem = null
+            showAddDialog = false
+            showRenameDialog = false
+            showItemBulkDeleteDialog = false
+        }
+    }
     val hierarchyEditingEnabled = isHierarchyEditingEnabled(
         itemFilter = viewModel.itemFilter,
         searchQuery = searchQuery,
         isMultiSelectMode = isItemMultiSelectMode,
-    )
+    ) && !isRemoteReadOnly
 
     var showSelectAllMenu by remember { mutableStateOf(false) }
 
@@ -431,7 +455,10 @@ fun ListItemsScreen(
                     title = {
                         Text(
                             text = displayName.replaceFirstChar { it.uppercase() },
-                            modifier = Modifier.clickable { showRenameDialog = true },
+                            modifier = Modifier.clickable(
+                                enabled = !isRemoteReadOnly,
+                                onClick = { showRenameDialog = true },
+                            ),
                         )
                     },
                     navigationIcon = {
@@ -441,7 +468,10 @@ fun ListItemsScreen(
                     },
                     actions = {
                         if (sortedCompleted.isNotEmpty()) {
-                            TextButton(onClick = { viewModel.clearChecked(listId) }) {
+                            TextButton(
+                                onClick = { viewModel.clearChecked(listId) },
+                                enabled = !isRemoteReadOnly,
+                            ) {
                                 Text("Clear done")
                             }
                         }
@@ -456,6 +486,7 @@ fun ListItemsScreen(
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Reorder & group") },
+                                    enabled = !isRemoteReadOnly,
                                     onClick = {
                                         viewModel.enterManualHierarchyEditing()
                                         showSortMenu = false
@@ -567,13 +598,28 @@ fun ListItemsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 SmallFloatingActionButton(
-                    onClick = onNavigateToVoiceActions,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    onClick = { if (!isRemoteReadOnly) onNavigateToVoiceActions() },
+                    containerColor = if (isRemoteReadOnly) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    },
+                    contentColor = if (isRemoteReadOnly) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    },
                 ) {
                     Icon(Icons.Default.Mic, contentDescription = "Voice input")
                 }
-                FloatingActionButton(onClick = { showAddDialog = true }) {
+                FloatingActionButton(
+                    onClick = { if (!isRemoteReadOnly) showAddDialog = true },
+                    containerColor = if (isRemoteReadOnly) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    },
+                ) {
                     Icon(Icons.Default.Add, contentDescription = "Add item")
                 }
             }
@@ -585,6 +631,21 @@ fun ListItemsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            if (nextcloudState != null &&
+                (
+                    nextcloudBinding?.remoteWritable == false ||
+                        nextcloudBinding?.remoteAvailable == false ||
+                        hasUnsyncedChanges
+                    )
+            ) {
+                NextcloudAccessBanner(
+                    unsyncedChanges = hasUnsyncedChanges,
+                    available = nextcloudBinding?.remoteAvailable != false,
+                    onKeepLocalCopy = nextcloudActions.onKeepLocalCopy,
+                    onDiscardLocalChanges = nextcloudActions.onDiscardLocalChanges,
+                    onSaveLocalCopy = nextcloudActions.onSaveLocalCopy,
+                )
+            }
             // Search bar
             OutlinedTextField(
                 value = searchQuery,
@@ -707,6 +768,7 @@ fun ListItemsScreen(
                                             item = item,
                                             isMultiSelectMode = isItemMultiSelectMode,
                                             isSelected = item.id in selectedItemIds,
+                                            interactionsEnabled = !isRemoteReadOnly,
                                             showDragHandle = hierarchyEditingEnabled,
                                             containerColor = rowColor,
                                         dragHandleModifier = if (hierarchyEditingEnabled) {
@@ -785,6 +847,7 @@ fun ListItemsScreen(
                                 item = group.parent,
                                 isMultiSelectMode = isItemMultiSelectMode,
                                 isSelected = group.parent.id in selectedItemIds,
+                                interactionsEnabled = !isRemoteReadOnly,
                                 showDragHandle = false,
                                 onToggle = { viewModel.toggleChecked(group.parent) },
                                 onEdit = { editingItem = group.parent },
@@ -804,6 +867,7 @@ fun ListItemsScreen(
                                         item = child,
                                         isMultiSelectMode = isItemMultiSelectMode,
                                         isSelected = child.id in selectedItemIds,
+                                        interactionsEnabled = !isRemoteReadOnly,
                                         showDragHandle = false,
                                         onToggle = { viewModel.toggleChecked(child) },
                                         onEdit = { editingItem = child },
@@ -914,6 +978,61 @@ fun ListItemsScreen(
         )
     }
 
+}
+
+/**
+ * Explains why local content changes are unavailable for a bound Nextcloud list and offers the
+ * explicit resolutions #1548 requires.
+ *
+ * Unsynced work that provider access stranded can be preserved as a local copy or discarded;
+ * a read-only or removed share can be copied out proactively so the user keeps editing locally.
+ */
+@Composable
+internal fun NextcloudAccessBanner(
+    unsyncedChanges: Boolean,
+    available: Boolean,
+    onKeepLocalCopy: () -> Unit,
+    onDiscardLocalChanges: () -> Unit,
+    onSaveLocalCopy: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .testTag("nextcloud_list_access_banner"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = when {
+                unsyncedChanges && !available ->
+                    "Nextcloud access to this list was removed. Your local changes are not synced."
+                unsyncedChanges ->
+                    "This list became read-only in Nextcloud. Your local changes are not synced."
+                !available -> "Nextcloud access to this list was removed."
+                else -> "This Nextcloud list is read-only. Changes are unavailable."
+            },
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (unsyncedChanges) {
+                Button(
+                    onClick = onKeepLocalCopy,
+                    modifier = Modifier.testTag("nextcloud_list_keep_local_copy"),
+                ) { Text("Keep as local copy") }
+                OutlinedButton(
+                    onClick = onDiscardLocalChanges,
+                    modifier = Modifier.testTag("nextcloud_list_discard_local_changes"),
+                ) { Text("Discard local changes") }
+            } else {
+                Button(
+                    onClick = onSaveLocalCopy,
+                    modifier = Modifier.testTag("nextcloud_list_save_local_copy"),
+                ) { Text("Save as local copy") }
+            }
+        }
+    }
 }
 
 /**
@@ -1115,6 +1234,7 @@ private fun ListItemRow(
     dragHandleModifier: Modifier = Modifier,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
+    interactionsEnabled: Boolean = true,
     showDragHandle: Boolean = false,
     /** Colour the row paints itself with. The caller passes the animated row colour so a drag or
      *  destination highlight stays visible. */
@@ -1140,6 +1260,7 @@ private fun ListItemRow(
             // a child indent applied outside the row would expose a strip of it too.
             .background(containerColor)
             .combinedClickable(
+                enabled = interactionsEnabled,
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
                 },
@@ -1177,12 +1298,14 @@ private fun ListItemRow(
             if (isMultiSelectMode) {
                 Checkbox(
                     checked = isSelected,
-                    onCheckedChange = { onSelectToggle() },
+                    onCheckedChange = { if (interactionsEnabled) onSelectToggle() },
+                    enabled = interactionsEnabled,
                 )
             } else {
                 Checkbox(
                     checked = item.checked,
-                    onCheckedChange = { onToggle() },
+                    onCheckedChange = { if (interactionsEnabled) onToggle() },
+                    enabled = interactionsEnabled,
                 )
             }
         }
@@ -1202,12 +1325,14 @@ private fun ListItemRow(
                 },
                 color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
-                activateLinks = !isMultiSelectMode,
+                activateLinks = interactionsEnabled && !isMultiSelectMode,
                 onClick = {
-                    if (isMultiSelectMode) onSelectToggle() else onEdit()
+                    if (interactionsEnabled) {
+                        if (isMultiSelectMode) onSelectToggle() else onEdit()
+                    }
                 },
                 onLongClick = {
-                    if (!isMultiSelectMode) onLongClick()
+                    if (interactionsEnabled && !isMultiSelectMode) onLongClick()
                 },
             )
             if (item.description.isNotEmpty()) {
@@ -1215,20 +1340,22 @@ private fun ListItemRow(
                     text = item.description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    activateLinks = !isMultiSelectMode,
+                    activateLinks = interactionsEnabled && !isMultiSelectMode,
                     maxLines = 3,
                     onClick = {
-                        if (isMultiSelectMode) onSelectToggle() else onEdit()
+                        if (interactionsEnabled) {
+                            if (isMultiSelectMode) onSelectToggle() else onEdit()
+                        }
                     },
                     onLongClick = {
-                        if (!isMultiSelectMode) onLongClick()
+                        if (interactionsEnabled && !isMultiSelectMode) onLongClick()
                     },
                 )
                 DescriptionUrlActions(
                     urls = descriptionUrls,
-                    activateLinks = !isMultiSelectMode,
+                    activateLinks = interactionsEnabled && !isMultiSelectMode,
                     compactMultipleLinksLabel = true,
-                    onInactiveClick = onSelectToggle,
+                    onInactiveClick = { if (interactionsEnabled) onSelectToggle() },
                 )
             }
             val dueAtMs = item.dueAt
@@ -1276,7 +1403,7 @@ private fun ListItemRow(
         if (isMultiSelectMode) {
             if (item.isFavourite) {
                 Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = {}) {
+                IconButton(onClick = {}, enabled = interactionsEnabled) {
                     Icon(
                         Icons.Default.Star,
                         contentDescription = "Favourited",
@@ -1286,7 +1413,7 @@ private fun ListItemRow(
             }
         } else {
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onToggleFavourite) {
+            IconButton(onClick = onToggleFavourite, enabled = interactionsEnabled) {
                 Icon(
                     imageVector = if (item.isFavourite) Icons.Default.Star
                     else Icons.Default.StarBorder,

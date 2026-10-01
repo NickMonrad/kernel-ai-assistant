@@ -37,6 +37,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -238,6 +239,8 @@ class NativeIntentHandler @Inject constructor(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ListMutationBlockedException) {
+            SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")

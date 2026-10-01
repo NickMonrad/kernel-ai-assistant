@@ -40,6 +40,8 @@ import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.nextcloud.CalDavTransport
 import com.kernel.ai.core.memory.nextcloud.NextcloudCredentialStore
 import com.kernel.ai.core.memory.nextcloud.NextcloudAccountStore
+import com.kernel.ai.core.memory.nextcloud.NextcloudSharingOperations
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.nextcloud.OkHttpCalDavTransport
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.clock.ClockRepository
@@ -81,7 +83,9 @@ abstract class MemoryModule {
     @Binds
     @Singleton
     abstract fun bindNextcloudCredentialStore(impl: NextcloudAccountStore): NextcloudCredentialStore
-
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudSharingOperations(impl: NextcloudSyncAdapter): NextcloudSharingOperations
     @Binds
     @Singleton
     abstract fun bindModelSettingsRepository(impl: ModelSettingsRepositoryImpl): ModelSettingsRepository
@@ -144,6 +148,8 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_52_53,
                     KernelDatabase.MIGRATION_53_54,
                     KernelDatabase.MIGRATION_54_55,
+                    KernelDatabase.MIGRATION_55_56,
+                    KernelDatabase.MIGRATION_56_57,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default; enable it per connection.

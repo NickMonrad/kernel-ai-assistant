@@ -37,13 +37,51 @@ class NextcloudSyncStateTest {
         )
     }
 
+    @Test
+    fun `stranded local work is reported before a recorded failure and before an explicit stop`() {
+        assertEquals(
+            NextcloudListState.UNSYNCED_CHANGES,
+            summary(failureCode = "PERMISSION", blockedUnsyncedAt = 5L).state(),
+        )
+        assertEquals(
+            NextcloudListState.UNSYNCED_CHANGES,
+            summary(syncEnabled = false, blockedUnsyncedAt = 5L).state(),
+        )
+    }
+
+    @Test
+    fun `a removed share reports unavailable before its stranded work`() {
+        assertEquals(
+            NextcloudListState.UNAVAILABLE,
+            summary(remoteAvailable = false).state(),
+        )
+        assertEquals(
+            NextcloudListState.UNAVAILABLE,
+            summary(remoteAvailable = false, blockedUnsyncedAt = 5L).state(),
+        )
+    }
+
+    @Test
+    fun `an in-flight synchronization still overlays lost access`() {
+        assertEquals(
+            NextcloudListState.SYNCING,
+            summary(remoteAvailable = false).state(syncing = true),
+        )
+    }
+
     private fun summary(
         syncEnabled: Boolean = true,
         failureCode: String? = null,
+        remoteWritable: Boolean = true,
+        remoteAvailable: Boolean = true,
+        blockedUnsyncedAt: Long? = null,
     ) = NextcloudListSyncSummary(
         collectionId = "collection-shopping",
         remoteHref = "https://cloud.example/tasks/shopping/",
         syncEnabled = syncEnabled,
         lastFailureCode = failureCode,
+        remoteWritable = remoteWritable,
+        remoteAvailable = remoteAvailable,
+        blockedUnsyncedAt = blockedUnsyncedAt,
     )
 }

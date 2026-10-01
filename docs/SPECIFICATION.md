@@ -74,7 +74,7 @@ Lists synchronisation follows the existing local-first path:
 
 Room remains the authoritative state consumed by Lists UI, skills and widgets. Local mutations commit through the atomic Room/change-recording seam before any transport attempt, so Lists remain usable offline. Only explicitly bound Lists are passed to a transport, and provider bindings remain metadata separate from Jandal stable list/item identities.
 
-The shipped optional provider is a user-configured Nextcloud Tasks server using CalDAV/VTODO. Conditional writes use provider ETags (including `If-Match`) to avoid blind overwrites. See the transport-independent [Shared Lists sync contract](./specs/shared-lists-sync.md) and the provider-specific [Nextcloud Tasks sync contract](./specs/nextcloud-tasks-sync.md) for detailed behaviour.
+The shipped optional provider is a user-configured Nextcloud Tasks server using CalDAV/VTODO. Conditional writes use provider ETags (including `If-Match`) to avoid blind overwrites. Sharing uses Nextcloud's user/group ACLs; read-only or removed access blocks writes, and stranded changes require explicit Keep-local-copy or Discard resolution. Copies are unbound and never auto-publish or silently re-associate. See the transport-independent [Shared Lists sync contract](./specs/shared-lists-sync.md) and the provider-specific [Nextcloud Tasks sync contract](./specs/nextcloud-tasks-sync.md) for detailed behaviour.
 
 ### 2.2 Model Inventory
 

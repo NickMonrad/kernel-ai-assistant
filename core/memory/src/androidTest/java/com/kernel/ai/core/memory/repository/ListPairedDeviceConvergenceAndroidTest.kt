@@ -420,6 +420,7 @@ class ListPairedDeviceConvergenceAndroidTest {
         changeDao = database.listChangeDao(),
         sourceDao = database.listSourceSequenceDao(),
         checkpointDao = database.listCheckpointDao(),
+        nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
     )
 
     private data class Peer(

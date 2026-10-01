@@ -92,6 +92,7 @@ fun ListsScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     onNavigateToNextcloud: () -> Unit = {},
     onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> onNavigateToNextcloud() },
+    onNavigateToNextcloudSharing: (String) -> Unit = {},
     externalMessage: String? = null,
     onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
@@ -99,7 +100,7 @@ fun ListsScreen(
     val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val archivedLists by viewModel.archivedLists.collectAsStateWithLifecycle()
-    val nextcloudStates by viewModel.nextcloudStates.collectAsStateWithLifecycle()
+    val nextcloudBindings by viewModel.nextcloudBindings.collectAsStateWithLifecycle()
     val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
     val showArchived = viewModel.showArchived
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
@@ -146,9 +147,12 @@ fun ListsScreen(
         }
     }
     val nextcloudActionsFor: (ListNameEntity) -> NextcloudRowActions = { entity ->
-        val state = nextcloudStates[entity.collectionId]
+        val binding = nextcloudBindings[entity.collectionId]
         NextcloudRowActions(
-            state = state,
+            state = binding?.state,
+            remoteWritable = binding?.remoteWritable ?: true,
+            remoteAvailable = binding?.remoteAvailable ?: true,
+            unsyncedChanges = binding?.unsyncedChanges == true,
             onSyncWithNextcloud = {
                 if (nextcloudAccountConfigured) {
                     viewModel.syncListWithNextcloud(entity.id)
@@ -158,6 +162,10 @@ fun ListsScreen(
             },
             onStopSync = { viewModel.stopListNextcloudSync(entity.collectionId) },
             onResumeSync = { viewModel.resumeListNextcloudSync(entity.collectionId) },
+            onManageSharing = { onNavigateToNextcloudSharing(entity.collectionId) },
+            onSaveLocalCopy = { viewModel.saveListAsLocalCopy(entity.collectionId) },
+            onKeepLocalCopy = { viewModel.keepUnsyncedListAsLocalCopy(entity.collectionId) },
+            onDiscardLocalChanges = { viewModel.discardUnsyncedListChanges(entity.collectionId) },
             // Opening the bound-list state must never look like a new contextual setup.
             onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
         )

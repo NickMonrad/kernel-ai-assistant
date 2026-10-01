@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory.repository
 import androidx.room.withTransaction
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ListActorStateDao
 import com.kernel.ai.core.memory.dao.ListAppliedChangeDao
@@ -36,6 +37,22 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Raised when a local content mutation targets a Nextcloud binding whose provider access is gone or
+ * whose local work is quarantined (#1548). The message is user-facing through the assistant path.
+ */
+class ListMutationBlockedException(
+    message: String = READ_ONLY_MESSAGE,
+) : IllegalStateException(message) {
+    companion object {
+        const val READ_ONLY_MESSAGE = "This Nextcloud list is read-only; content changes are unavailable."
+        const val UNAVAILABLE_MESSAGE =
+            "This Nextcloud list is no longer available. Save it as a local copy to keep editing."
+        const val UNSYNCED_MESSAGE =
+            "Local changes to this Nextcloud list are not synced. Keep them as a local copy or discard them first."
+    }
+}
+
 @Singleton
 class ListMutationRepository @Inject constructor(
     private val database: KernelDatabase,
@@ -46,6 +63,7 @@ class ListMutationRepository @Inject constructor(
     private val changeDao: ListChangeDao,
     private val sourceDao: ListSourceSequenceDao,
     private val checkpointDao: ListCheckpointDao,
+    private val nextcloudBindingDao: NextcloudCollectionBindingDao,
 ) {
     suspend fun pendingChanges(): List<ListChange> = changeDao.getPending().map { it.toModel() }
     suspend fun acknowledgePushed(changeIds: List<String>) = database.withTransaction {
@@ -96,14 +114,101 @@ class ListMutationRepository @Inject constructor(
 
     suspend fun createCollectionWithItems(title: String, items: List<String>): Long = database.withTransaction {
         val listId = createCollectionInternal(title)
+        requireContentMutationAllowed(requireList(listId).collectionId)
         items.forEach { addItemInternal(listId, it, null, false, null) }
         listId
     }
 
+    /**
+     * Copies one list's visible content into a new, independent local list (#1548).
+     *
+     * Used when a shared Nextcloud list becomes read-only or unavailable and the user chooses
+     * **Keep as local copy**. The copy is an ordinary unbound Jandal list: it carries a fresh
+     * collection identity, fresh item identities and no local change records, so it cannot be
+     * automatically pushed to or silently re-associated with the former share if the owner shares
+     * it again. Only visible (active) rows are copied; device-local automation such as item
+     * reminders is not duplicated. A deliberate user action may bind it later.
+     */
+    suspend fun copyListAsLocal(listId: Long, name: String): Long = database.withTransaction {
+        val source = requireList(listId)
+        val rows = listItemDao.getAllByListAnyLifecycle(source.id)
+            .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        val targetListId = insertLocalList(name)
+        val targetCollectionId = requireList(targetListId).collectionId
+        val stamp = nextStamp(targetCollectionId)
+        val itemIds = rows.associate { it.itemId to UUID.randomUUID().toString() }
+        rows.forEach { row ->
+            listItemDao.insert(
+                row.copy(
+                    id = 0,
+                    listId = targetListId,
+                    itemId = itemIds.getValue(row.itemId),
+                    collectionId = targetCollectionId,
+                    parentItemId = row.parentItemId?.let(itemIds::get),
+                    notificationTime = null,
+                    textLogicalClock = stamp.logicalClock,
+                    textStampActorId = stamp.actorId,
+                    descriptionLogicalClock = stamp.logicalClock,
+                    descriptionStampActorId = stamp.actorId,
+                    checkedLogicalClock = stamp.logicalClock,
+                    checkedStampActorId = stamp.actorId,
+                    dueAtLogicalClock = stamp.logicalClock,
+                    dueAtStampActorId = stamp.actorId,
+                    placementLogicalClock = stamp.logicalClock,
+                    placementStampActorId = stamp.actorId,
+                    lifecycleLogicalClock = stamp.logicalClock,
+                    lifecycleStampActorId = stamp.actorId,
+                ),
+            )
+        }
+        targetListId
+    }
+
+    /**
+     * Creates a fresh local list row for a copy without reusing an existing list of the same name
+     * and without recording a provider change: an unbound copy has nothing to publish (#1548).
+     */
+    private suspend fun insertLocalList(title: String): Long {
+        val collectionId = UUID.randomUUID().toString()
+        val stamp = nextStamp(collectionId)
+        val name = uniqueDisplayName(title, stableLabel = collectionId.take(8))
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(
+            ListNameEntity(
+                name = name,
+                canonicalTitle = title,
+                localDisplayAlias = name.takeIf { it != title },
+                collectionId = collectionId,
+                createdAt = now,
+                updatedAt = now,
+                titleLogicalClock = stamp.logicalClock,
+                titleStampActorId = stamp.actorId,
+                lifecycleLogicalClock = stamp.logicalClock,
+                lifecycleStampActorId = stamp.actorId,
+            ),
+        )
+        check(listId > 0L) { "Failed to create local list" }
+        return listId
+    }
+
+    /**
+     * Drops this collection's unpublished provider changes without delivering them (#1548).
+     *
+     * Called when the user keeps a local copy or discards the stranded work: the change records must
+     * not survive as ordinary pending changes that could auto-push if access is restored.
+     */
+    suspend fun discardPendingChanges(collectionId: String) = database.withTransaction {
+        changeDao.deletePendingForCollection(collectionId)
+    }
+
     suspend fun addItem(listId: Long, text: String, dueAt: Long? = null, notificationTime: Long? = null): Long =
-        database.withTransaction { addItemInternal(listId, text, dueAt, false, notificationTime) }
+        database.withTransaction {
+            requireContentMutationAllowed(requireList(listId).collectionId)
+            addItemInternal(listId, text, dueAt, false, notificationTime)
+        }
 
     suspend fun addItems(listId: Long, texts: List<String>): List<Long> = database.withTransaction {
+        requireContentMutationAllowed(requireList(listId).collectionId)
         texts.map { addItemInternal(listId, it, null, false, null) }
     }
     suspend fun setItemChecked(itemId: Long, checked: Boolean) =
@@ -112,6 +217,10 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemsChecked(itemIds: List<Long>, checked: Boolean): CheckedStateMutation = database.withTransaction {
         if (itemIds.isEmpty()) return@withTransaction CheckedStateMutation()
         val requested = itemIds.distinct().map { requireItem(it) }
+        requested.filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            .map(ListItemEntity::collectionId)
+            .distinct()
+            .forEach { collectionId -> requireContentMutationAllowed(collectionId) }
         val activeByList = requested.groupBy { it.listId }.mapValues { (listId, _) ->
             listItemDao.getAllByListUnordered(listId)
                 .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
@@ -173,6 +282,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemText(itemId: Long, text: String) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.text == text || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(text = text, updatedAt = System.currentTimeMillis(), textLogicalClock = stamp.logicalClock, textStampActorId = stamp.actorId))
         touchList(item.listId)
@@ -182,6 +292,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemDescription(itemId: Long, description: String) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.description == description || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(
             item.copy(
@@ -204,6 +315,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun setItemDueAt(itemId: Long, dueAt: Long?) = database.withTransaction {
         val item = requireItem(itemId)
         if (item.dueAt == dueAt || item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(item.collectionId)
         val stamp = nextStamp(item.collectionId)
         listItemDao.upsert(item.copy(dueAt = dueAt, updatedAt = System.currentTimeMillis(), dueAtLogicalClock = stamp.logicalClock, dueAtStampActorId = stamp.actorId))
         touchList(item.listId)
@@ -221,6 +333,8 @@ class ListMutationRepository @Inject constructor(
     ) = database.withTransaction {
         var item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        val contentChanged = item.text != text || item.description != description || item.dueAt != dueAt
+        if (contentChanged) requireContentMutationAllowed(item.collectionId)
         var parentChanged = false
         if (item.text != text) {
             val stamp = nextStamp(item.collectionId)
@@ -270,6 +384,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun moveItem(itemId: Long, parentItemId: String?, orderKey: String): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
         require(item.lifecycle == ListLifecycle.ACTIVE.name) { "Item is not active" }
+        requireContentMutationAllowed(item.collectionId)
         applyPlacementInternal(item, parentItemId, orderKey)
     }
 
@@ -294,6 +409,9 @@ class ListMutationRepository @Inject constructor(
         precedingRowItemId: String,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle == ListLifecycle.ACTIVE.name) requireContentMutationAllowed(item.collectionId)
+        baseline?.let { requireContentMutationAllowed(requireList(it.listId).collectionId) }
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
         materialised + makeSubItemInternal(itemId, precedingRowItemId)
@@ -368,6 +486,9 @@ class ListMutationRepository @Inject constructor(
         itemId: Long,
         baseline: VisibleOrderBaseline? = null,
     ): CheckedStateMutation = database.withTransaction {
+        val item = requireItem(itemId)
+        if (item.lifecycle == ListLifecycle.ACTIVE.name) requireContentMutationAllowed(item.collectionId)
+        baseline?.let { requireContentMutationAllowed(requireList(it.listId).collectionId) }
         val materialised = baseline?.let { applyVisibleHierarchyOrder(it.listId, it.rows) }
             ?: CheckedStateMutation()
         materialised + moveToTopLevelInternal(itemId)
@@ -429,6 +550,7 @@ class ListMutationRepository @Inject constructor(
         visibleRows: List<VisibleHierarchyRow>,
     ): CheckedStateMutation = database.withTransaction {
         if (visibleRows.isEmpty()) return@withTransaction CheckedStateMutation()
+        requireContentMutationAllowed(requireList(listId).collectionId)
         val active = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val byRowId = active.associateBy { it.id }
         val effectiveTopLevelItemIds = deriveHierarchy(active).topLevelItemIds.toSet()
@@ -538,6 +660,7 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun reorderItems(listId: Long, itemIds: List<Long>) = database.withTransaction {
+        requireContentMutationAllowed(requireList(listId).collectionId)
         val items = listItemDao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         val hierarchy = deriveHierarchy(items)
         val topLevel = hierarchy.topLevelItemIds.mapNotNull { stableId -> items.firstOrNull { it.itemId == stableId } }
@@ -552,6 +675,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun restoreItem(itemId: Long): CheckedStateMutation = database.withTransaction {
         val item = requireItem(itemId)
         if (item.lifecycle != ListLifecycle.DELETED.name) return@withTransaction CheckedStateMutation()
+        requireContentMutationAllowed(item.collectionId)
         val parentBefore = item.parentItemId
             ?.let { listItemDao.getByItemId(it) }
             ?.takeIf { it.lifecycle == ListLifecycle.ACTIVE.name }
@@ -598,6 +722,9 @@ class ListMutationRepository @Inject constructor(
         val active = listItemDao.getAllByListUnordered(items.first().listId)
             .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
         require(items.all { it.listId == items.first().listId }) { "Items do not belong to one list" }
+        if (items.any { it.lifecycle == ListLifecycle.ACTIVE.name }) {
+            requireContentMutationAllowed(items.first().collectionId)
+        }
         val hierarchy = deriveHierarchy(active)
         val targets = items.filter { it.lifecycle == ListLifecycle.ACTIVE.name }.map { it.itemId }.toSet()
         val byId = active.associateBy { it.itemId }
@@ -633,7 +760,9 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteCollection(listId: Long) = database.withTransaction {
-        deleteCollectionInternal(requireList(listId))
+        val list = requireList(listId)
+        requireContentMutationAllowed(list.collectionId)
+        deleteCollectionInternal(list)
     }
 
     private suspend fun deleteCollectionInternal(list: ListNameEntity) {
@@ -646,6 +775,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun restoreCollection(listId: Long) = database.withTransaction {
         val list = requireList(listId)
         if (list.lifecycle != ListLifecycle.DELETED.name) return@withTransaction
+        requireContentMutationAllowed(list.collectionId)
         restoreCollectionInternal(list)
     }
 
@@ -653,6 +783,7 @@ class ListMutationRepository @Inject constructor(
     suspend fun renameCollection(listId: Long, title: String) = database.withTransaction {
         val list = requireList(listId)
         if (list.canonicalTitle == title || list.lifecycle != ListLifecycle.ACTIVE.name) return@withTransaction
+        requireContentMutationAllowed(list.collectionId)
         val stamp = nextStamp(list.collectionId)
         val name = uniqueDisplayName(title, list.id)
         listNameDao.upsert(list.copy(name = name, canonicalTitle = title, localDisplayAlias = name.takeIf { it != title }, updatedAt = System.currentTimeMillis(), titleLogicalClock = stamp.logicalClock, titleStampActorId = stamp.actorId))
@@ -660,7 +791,10 @@ class ListMutationRepository @Inject constructor(
     }
 
     suspend fun deleteCollectionByName(name: String) = database.withTransaction {
-        listNameDao.getByNameAnyLifecycle(name)?.let { deleteCollectionInternal(it) }
+        listNameDao.getByNameAnyLifecycle(name)?.let { list ->
+            requireContentMutationAllowed(list.collectionId)
+            deleteCollectionInternal(list)
+        }
     }
 
     suspend fun applyRemote(change: ListChange) = database.withTransaction {
@@ -746,6 +880,14 @@ class ListMutationRepository @Inject constructor(
     suspend fun importSnapshot(
         snapshot: SharedCollectionSnapshot,
         displayAliasLabel: String? = null,
+        /**
+         * Removes rows of this collection that the snapshot does not contain (#1548).
+         *
+         * Set only for a provider-authoritative revert of stranded local work: a locally created row
+         * the provider never saw is exactly the local change being discarded. Ordinary
+         * reconciliation leaves unrelated rows alone.
+         */
+        pruneLocalItems: Boolean = false,
     ): ListPackageImportResult =
         database.withTransaction {
             require(snapshot.items.map { it.itemId }.toSet().size == snapshot.items.size) {
@@ -803,7 +945,17 @@ class ListMutationRepository @Inject constructor(
                     itemsUpdated += 1
                 }
             }
-            val changed = itemsCreated > 0 || itemsUpdated > 0
+            var itemsRemoved = 0
+            if (pruneLocalItems) {
+                val providerItemIds = snapshot.items.mapTo(HashSet()) { it.itemId }
+                listItemDao.getAllByListAnyLifecycle(list.id)
+                    .filter { it.itemId !in providerItemIds }
+                    .forEach {
+                        listItemDao.deleteItem(it.id)
+                        itemsRemoved += 1
+                    }
+            }
+            val changed = itemsCreated > 0 || itemsUpdated > 0 || itemsRemoved > 0
             val rowsAfterMerge = listItemDao.getAllByListAnyLifecycle(list.id)
             if (changed) {
                 // A merge can complete or reopen a parent, and it can move a child between groups:
@@ -1343,6 +1495,26 @@ class ListMutationRepository @Inject constructor(
     }
     private suspend fun requireList(id: Long): ListNameEntity = listNameDao.getById(id) ?: error("Unknown list: $id")
     private suspend fun requireItem(id: Long): ListItemEntity = listItemDao.getById(id) ?: error("Unknown item: $id")
+
+    /**
+     * Rejects local content mutations that cannot be published for a Nextcloud-bound list.
+     *
+     * A binding blocks content changes when the account lost write access, when the share was
+     * removed, or when local work is already stranded by such a loss and awaits the user's
+     * Keep as local copy / Discard decision (#1548). Device-local fields — pin, archive, favourite,
+     * reminder — never pass through here, so they stay editable.
+     */
+    private suspend fun requireContentMutationAllowed(collectionId: String) {
+        val binding = nextcloudBindingDao.get(collectionId) ?: return
+        if (binding.remoteAvailable && binding.remoteWritable && binding.blockedUnsyncedAt == null) return
+        throw ListMutationBlockedException(
+            when {
+                !binding.remoteAvailable -> ListMutationBlockedException.UNAVAILABLE_MESSAGE
+                binding.blockedUnsyncedAt != null -> ListMutationBlockedException.UNSYNCED_MESSAGE
+                else -> ListMutationBlockedException.READ_ONLY_MESSAGE
+            },
+        )
+    }
 
     private suspend fun uniqueDisplayName(title: String, exceptId: Long? = null, stableLabel: String? = null): String {
         if (listNameDao.getByNameAnyLifecycle(title)?.let { it.id != exceptId } != true) return title
