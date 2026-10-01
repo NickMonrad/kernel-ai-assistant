@@ -12,7 +12,7 @@ class NextcloudSharingAcceptanceHarnessTest {
     fun recipientCollectionSelectionUsesHrefSlugWhenServerChangesDisplayName() {
         val fixture = "J1548-0123456789abcdef"
         val candidate = NextcloudCalendarCollection(
-            href = "https://cloud.example/remote.php/dav/calendars/recipient/${fixture}_shared_by_owner/",
+            href = "https://cloud.example/remote.php/dav/calendars/recipient/${fixture.lowercase()}_shared_by_owner/",
             displayName = "Server-generated shared task title",
             writable = true,
         )

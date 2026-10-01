@@ -582,7 +582,8 @@ class NextcloudSharingAcceptanceTest {
 
 internal fun collectionMatchesFixture(name: String, href: String): Boolean =
     href.split('/').any { segment ->
-        segment == name || segment.startsWith("${name}_shared_by_")
+        segment.equals(name, ignoreCase = true) ||
+            segment.startsWith("${name}_shared_by_", ignoreCase = true)
     }
 
 internal fun selectFixtureCollections(
