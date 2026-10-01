@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
 import com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
@@ -926,26 +927,32 @@ fun KernelNavHost(
                     val externalMessage by backStackEntry.savedStateHandle
                         .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
                         .collectAsState()
-                    ListItemsScreen(
-                        listId = listId,
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) {
-                                popUpTo(ROUTE_LIST) { saveState = true }
-                                launchSingleTop = true
-                            }
-                        },
-                        onNavigateToNextcloudList = { pendingId, name ->
-                            navController.navigate(nextcloudListsRoute(pendingId, name))
-                        },
-                        onNavigateToNextcloudSharing = { collectionId ->
-                            navController.navigate(nextcloudSharingRoute(collectionId))
-                        },
-                        externalMessage = externalMessage,
-                        onExternalMessageShown = {
-                            backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
-                        },
-                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
+                    ) {
+                        ListItemsScreen(
+                            listId = listId,
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNavigateToVoiceActions = {
+                                navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                    popUpTo(ROUTE_LIST) { saveState = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToNextcloudList = { pendingId, name ->
+                                navController.navigate(nextcloudListsRoute(pendingId, name))
+                            },
+                            onNavigateToNextcloudSharing = { collectionId ->
+                                navController.navigate(nextcloudSharingRoute(collectionId))
+                            },
+                            externalMessage = externalMessage,
+                            onExternalMessageShown = {
+                                backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
+                            },
+                        )
+                    }
                 }
 
                 composable(
