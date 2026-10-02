@@ -91,6 +91,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -100,6 +101,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -194,6 +196,33 @@ private fun ItemFilter.label(): String = when (this) {
     ItemFilter.COMPLETED_ONLY -> "Completed only"
 }
 
+internal sealed interface AddedItemRevealDecision {
+    object AwaitingProjection : AddedItemRevealDecision
+    object HiddenBySearchOrFilter : AddedItemRevealDecision
+    object AlreadyVisible : AddedItemRevealDecision
+    data class ScrollToIndex(val index: Int) : AddedItemRevealDecision
+}
+
+internal fun decideAddedItemReveal(
+    sourceItemExists: Boolean,
+    displayedActiveIndex: Int,
+    renderedActiveIndex: Int,
+    itemIsVisible: Boolean,
+    currentLayoutItemCount: Int,
+    expectedLayoutItemCount: Int,
+): AddedItemRevealDecision {
+    if (!sourceItemExists) return AddedItemRevealDecision.AwaitingProjection
+    if (displayedActiveIndex < 0) return AddedItemRevealDecision.HiddenBySearchOrFilter
+    if (renderedActiveIndex != displayedActiveIndex || currentLayoutItemCount != expectedLayoutItemCount) {
+        return AddedItemRevealDecision.AwaitingProjection
+    }
+    return if (itemIsVisible) {
+        AddedItemRevealDecision.AlreadyVisible
+    } else {
+        AddedItemRevealDecision.ScrollToIndex(displayedActiveIndex)
+    }
+}
+
 // ── Screen ───────────────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -208,7 +237,7 @@ fun ListItemsScreen(
     onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
-    val displayedGroups by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
+    val displayedHierarchy by viewModel.observeDisplayedHierarchy(listId).collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
     val nextcloudBindings by viewModel.nextcloudBindings.collectAsStateWithLifecycle()
@@ -242,7 +271,8 @@ fun ListItemsScreen(
         // Opening the bound-list state must never look like a new contextual setup.
         onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
     )
-    val (activeGroups, completedGroups) = displayedGroups
+    val activeGroups = displayedHierarchy.activeGroups
+    val completedGroups = displayedHierarchy.completedGroups
     val sortedActive = activeGroups.flatMap { listOf(it.parent) + it.children }
     val sortedCompleted = completedGroups.flatMap { listOf(it.parent) + it.children }
     val allItems = sortedActive + sortedCompleted
@@ -284,6 +314,7 @@ fun ListItemsScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val pendingCreatedItemIds = remember(listId) { mutableStateListOf<Long>() }
 
     LaunchedEffect(viewModel.nextcloudMessage, externalMessage) {
         val message = viewModel.nextcloudMessage ?: externalMessage
@@ -308,6 +339,45 @@ fun ListItemsScreen(
     }
 
     val lazyListState = rememberLazyListState()
+    val currentDisplayedHierarchy = rememberUpdatedState(displayedHierarchy)
+    val currentSortedActive = rememberUpdatedState(sortedActive)
+    val currentLocalActiveItems = rememberUpdatedState(localActiveItems)
+    val currentCompletedExpanded = rememberUpdatedState(completedExpanded)
+
+    LaunchedEffect(listId, pendingCreatedItemIds.firstOrNull()) {
+        val itemId = pendingCreatedItemIds.firstOrNull() ?: return@LaunchedEffect
+        val decision = snapshotFlow {
+            val displayed = currentDisplayedHierarchy.value
+            val activeItems = currentSortedActive.value
+            val renderedItems = currentLocalActiveItems.value
+            val completedGroups = displayed.completedGroups
+            val layoutInfo = lazyListState.layoutInfo
+            val expectedItemCount =
+                renderedItems.size +
+                    (if (completedGroups.isNotEmpty()) 1 else 0) +
+                    (if (currentCompletedExpanded.value) completedGroups.size else 0) +
+                    1
+            decideAddedItemReveal(
+                sourceItemExists = displayed.sourceItems.any { it.id == itemId },
+                displayedActiveIndex = activeItems.indexOfFirst { it.id == itemId },
+                renderedActiveIndex = renderedItems.indexOfFirst { it.id == itemId },
+                itemIsVisible = layoutInfo.visibleItemsInfo.any { it.key == itemId },
+                currentLayoutItemCount = layoutInfo.totalItemsCount,
+                expectedLayoutItemCount = expectedItemCount,
+            )
+        }.first { it != AddedItemRevealDecision.AwaitingProjection }
+
+        when (decision) {
+            AddedItemRevealDecision.AwaitingProjection ->
+                error("A pending list-item reveal cannot be handled")
+            AddedItemRevealDecision.HiddenBySearchOrFilter ->
+                snackbarHostState.showSnackbar("Added, but hidden by the current search or filter.")
+            AddedItemRevealDecision.AlreadyVisible -> Unit
+            is AddedItemRevealDecision.ScrollToIndex ->
+                lazyListState.animateScrollToItem(decision.index)
+        }
+        pendingCreatedItemIds.removeAt(0)
+    }
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         if (!hierarchyEditingEnabled) return@rememberReorderableLazyListState
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
@@ -918,7 +988,9 @@ fun ListItemsScreen(
         AddItemDialog(
             onConfirm = { text ->
                 showAddDialog = false
-                viewModel.addItem(listId, text)
+                viewModel.addItem(listId, text) { createdItemId ->
+                    pendingCreatedItemIds.add(createdItemId)
+                }
             },
             onDismiss = { showAddDialog = false },
         )
