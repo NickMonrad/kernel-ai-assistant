@@ -34,6 +34,7 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
@@ -968,6 +969,23 @@ class NativeIntentHandlerTest {
         )
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `add_to_list reports read-only Nextcloud mutation failure instead of success`() {
+        stubMixedCaseMealPlan()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(42L, "Dessert", any(), any()) } throws ListMutationBlockedException()
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Dessert", "list_name" to "meal plan"),
+        )
+
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+        assertEquals("add_to_list", failure.skillName)
+        assertEquals("This Nextcloud list is read-only; content changes are unavailable.", failure.error)
     }
 
     @Test

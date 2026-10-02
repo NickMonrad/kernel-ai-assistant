@@ -84,6 +84,7 @@ class MealPlanSessionRepositoryAndroidTest {
                 changeDao = database.listChangeDao(),
                 sourceDao = database.listSourceSequenceDao(),
                 checkpointDao = database.listCheckpointDao(),
+                nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
             ),
         )
         projectionWriteDao = database.mealPlanProjectionWriteDao()

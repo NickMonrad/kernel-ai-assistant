@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
 import com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
@@ -74,6 +75,7 @@ import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
 import com.kernel.ai.feature.settings.NextcloudSettingsScreen
+import com.kernel.ai.feature.settings.NextcloudSharingScreen
 import com.kernel.ai.feature.settings.MealPlansScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
@@ -111,9 +113,12 @@ internal const val ROUTE_CLOCK_SETTINGS = "settings/clock_settings"
 internal const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
 private const val ARG_PENDING_LIST_ID = "pendingListId"
 private const val ARG_PENDING_LIST_NAME = "pendingListName"
+private const val ARG_NEXTCLOUD_COLLECTION_ID = "collectionId"
 /** Nextcloud lists, optionally carrying the list whose contextual setup started this visit. */
 private const val ROUTE_NEXTCLOUD_LISTS =
     "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID={$ARG_PENDING_LIST_ID}&$ARG_PENDING_LIST_NAME={$ARG_PENDING_LIST_NAME}"
+private const val ROUTE_NEXTCLOUD_SHARING =
+    "$ROUTE_NEXTCLOUD_SETTINGS/sharing/{$ARG_NEXTCLOUD_COLLECTION_ID}"
 
 /** Result key for the message a completed contextual Nextcloud setup leaves for its origin. */
 internal const val KEY_LISTS_EXTERNAL_MESSAGE = "listsExternalMessage"
@@ -234,6 +239,9 @@ internal fun shouldNavigateForShortcut(
 private fun nextcloudListsRoute(listId: Long?, name: String?): String =
     "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID=${listId ?: -1L}" +
         "&$ARG_PENDING_LIST_NAME=${Uri.encode(name.orEmpty())}"
+
+private fun nextcloudSharingRoute(collectionId: String): String =
+    "$ROUTE_NEXTCLOUD_SETTINGS/sharing/${Uri.encode(collectionId)}"
 
 private fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -705,6 +713,22 @@ fun KernelNavHost(
                     )
                 }
 
+                composable(
+                    route = ROUTE_NEXTCLOUD_SHARING,
+                    arguments = listOf(navArgument(ARG_NEXTCLOUD_COLLECTION_ID) {
+                        type = NavType.StringType
+                    }),
+                ) { backStackEntry ->
+                    val collectionId = backStackEntry.arguments
+                        ?.getString(ARG_NEXTCLOUD_COLLECTION_ID)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: return@composable
+                    NextcloudSharingScreen(
+                        collectionId = collectionId,
+                        onBack = { navController.popBackOrNavigateHome() },
+                    )
+                }
+
                 composable(ROUTE_USER_PROFILE) {
                     UserProfileScreen(
                         onBack = { navController.popBackOrNavigateHome() },
@@ -884,6 +908,9 @@ fun KernelNavHost(
                         onNavigateToNextcloudList = { listId, name ->
                             navController.navigate(nextcloudListsRoute(listId, name))
                         },
+                        onNavigateToNextcloudSharing = { collectionId ->
+                            navController.navigate(nextcloudSharingRoute(collectionId))
+                        },
                         externalMessage = externalMessage,
                         onExternalMessageShown = {
                             backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
@@ -900,23 +927,32 @@ fun KernelNavHost(
                     val externalMessage by backStackEntry.savedStateHandle
                         .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
                         .collectAsState()
-                    ListItemsScreen(
-                        listId = listId,
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) {
-                                popUpTo(ROUTE_LIST) { saveState = true }
-                                launchSingleTop = true
-                            }
-                        },
-                        onNavigateToNextcloudList = { pendingId, name ->
-                            navController.navigate(nextcloudListsRoute(pendingId, name))
-                        },
-                        externalMessage = externalMessage,
-                        onExternalMessageShown = {
-                            backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
-                        },
-                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
+                    ) {
+                        ListItemsScreen(
+                            listId = listId,
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNavigateToVoiceActions = {
+                                navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                    popUpTo(ROUTE_LIST) { saveState = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToNextcloudList = { pendingId, name ->
+                                navController.navigate(nextcloudListsRoute(pendingId, name))
+                            },
+                            onNavigateToNextcloudSharing = { collectionId ->
+                                navController.navigate(nextcloudSharingRoute(collectionId))
+                            },
+                            externalMessage = externalMessage,
+                            onExternalMessageShown = {
+                                backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
+                            },
+                        )
+                    }
                 }
 
                 composable(

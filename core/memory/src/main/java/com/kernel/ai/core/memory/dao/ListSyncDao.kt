@@ -60,6 +60,16 @@ interface ListChangeDao {
 
     @Query("DELETE FROM list_changes WHERE isPending = 0 AND changeId NOT IN (SELECT changeId FROM list_changes WHERE isPending = 0 ORDER BY logicalClock DESC LIMIT :limit)")
     suspend fun pruneAcknowledged(limit: Int = 512)
+
+    /**
+     * Drops this collection's unpublished provider changes without applying or delivering them.
+     *
+     * Used when the user explicitly discards local work that provider access made unpublishable
+     * (#1548): a stranded change must not remain an ordinary pending change that could auto-push
+     * later.
+     */
+    @Query("DELETE FROM list_changes WHERE isPending = 1 AND collectionId = :collectionId")
+    suspend fun deletePendingForCollection(collectionId: String)
 }
 
 @Dao

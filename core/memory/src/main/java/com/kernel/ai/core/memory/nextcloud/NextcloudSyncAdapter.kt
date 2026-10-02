@@ -50,7 +50,7 @@ class NextcloudSyncAdapter @Inject constructor(
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val mutations: ListMutationRepository,
-) {
+) : NextcloudSharingOperations {
     private val syncMutex = Mutex()
 
     /** Collection ids with a synchronization in flight, so the UI can show `Syncing…` (#1551). */
@@ -70,6 +70,9 @@ class NextcloudSyncAdapter @Inject constructor(
                     collectionId = summary.collectionId,
                     remoteHref = summary.remoteHref,
                     state = summary.state(summary.collectionId in active),
+                    remoteWritable = summary.remoteWritable,
+                    remoteAvailable = summary.remoteAvailable,
+                    unsyncedChanges = summary.unsyncedChanges,
                 )
             }
         }
@@ -190,6 +193,7 @@ class NextcloudSyncAdapter @Inject constructor(
                 remoteEtag = null,
                 remoteLogicalClock = remoteItems.size.toLong().coerceAtLeast(1L),
                 updatedAt = now,
+                remoteWritable = collection.writable,
             ),
         )
         remoteItems.forEach { remote ->
@@ -199,6 +203,41 @@ class NextcloudSyncAdapter @Inject constructor(
             )
         }
         imported.listId
+    }
+
+    override suspend fun listShares(collectionId: String): Result<NextcloudShareListing> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val listing = client().listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        listing
+    }
+
+    override suspend fun searchSharees(collectionId: String, query: String): Result<List<NextcloudSharee>> = guarded {
+        requireBoundBinding(collectionId)
+        val client = client()
+        client.searchSharees(query, client.discover().davRootHref)
+    }
+
+    override suspend fun setShare(
+        collectionId: String,
+        principal: String,
+        permission: NextcloudSharePermission,
+    ): Result<Unit> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val client = client()
+        val listing = client.listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        if (!listing.writable) throw permissionFailure()
+        client.setShare(binding.remoteHref, principal, permission)
+    }
+
+    override suspend fun removeShare(collectionId: String, principal: String): Result<Unit> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        val client = client()
+        val listing = client.listShares(binding.remoteHref)
+        persistWritable(binding, listing.writable)
+        if (!listing.writable) throw permissionFailure()
+        client.removeShare(binding.remoteHref, principal)
     }
 
     suspend fun publishCollection(listId: Long): Result<Unit> = guarded {
@@ -224,7 +263,11 @@ class NextcloudSyncAdapter @Inject constructor(
         try {
             val client = client()
             syncMutex.withLock {
-                withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, binding) }
+                val current = quarantineUnsyncedWork(refreshCollectionAccess(client, binding))
+                if (!current.remoteAvailable) throw accessRemovedFailure(current)
+                if (current.blockedUnsyncedAt != null) throw unsyncedChangesFailure()
+                if (!current.remoteWritable) throw permissionFailure()
+                withActiveSync(list.collectionId) { pushCollection(client, list.collectionId, current) }
             }
             recordSuccess(list.collectionId)
         } catch (error: Exception) {
@@ -364,28 +407,202 @@ class NextcloudSyncAdapter @Inject constructor(
         return syncCollection(collectionId)
     }
 
+    /**
+     * Explicitly preserves a read-only or unavailable shared list as an unbound local list (#1548).
+     *
+     * For a read-only share this is the proactive path: a new independent Jandal list receives the
+     * visible local content while the shared list keeps following its owner. When access was already
+     * removed there is no owner state left to follow, so the list itself becomes the local copy
+     * instead of producing a duplicate.
+     *
+     * Either way the preserved list has no Nextcloud binding, no provider item metadata and no
+     * pending provider changes, so it cannot be automatically pushed or silently re-associated if
+     * the owner shares the collection again. A deliberate user action may bind it later.
+     */
+    suspend fun createLocalCopy(collectionId: String): Result<Long> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        if (binding.remoteWritable && binding.remoteAvailable && binding.blockedUnsyncedAt == null) {
+            throw localStateFailure("This Nextcloud list is still editable, so a local copy is not needed.")
+        }
+        syncMutex.withLock {
+            preserveLocalState(binding, revertSharedList = binding.blockedUnsyncedAt != null)
+        }
+    }
+
+    /**
+     * Resolves local work stranded by a discovered read-only downgrade or a removed share (#1548).
+     *
+     * [NextcloudLocalWorkResolution.KEEP_LOCAL_COPY] preserves the local content in an unbound local
+     * list and then brings the shared list back to the owner's state; when access is already gone the
+     * shared list itself becomes the local copy, because there is no owner state left to follow.
+     * [NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES] drops the stranded edits and returns the
+     * shared list to the owner's representation. Either way the stranded provider changes are
+     * removed, so they can never auto-push later.
+     *
+     * @return the local list holding the preserved visible content.
+     */
+    suspend fun resolveLocalWork(
+        collectionId: String,
+        resolution: NextcloudLocalWorkResolution,
+    ): Result<Long> = guarded {
+        val binding = requireBoundBinding(collectionId)
+        if (binding.blockedUnsyncedAt == null) {
+            throw localStateFailure("This Nextcloud list has no unsynced changes to resolve.")
+        }
+        syncMutex.withLock {
+            if (resolution == NextcloudLocalWorkResolution.KEEP_LOCAL_COPY) {
+                preserveLocalState(binding, revertSharedList = true)
+            } else {
+                revertStrandedLocalWork(binding)
+                // With access gone the association has nothing left to follow, so the explicit
+                // discard is also the cleanup step that releases it.
+                if (!binding.remoteAvailable) releaseBinding(collectionId)
+                localListId(binding)
+            }
+        }
+    }
+
+    /**
+     * Keeps the visible local content: a new unbound copy for a reachable share, or the list itself
+     * once access is gone. [revertSharedList] returns the shared list to the owner's state, which is
+     * what makes the shared copy read-only and owner-following again.
+     */
+    private suspend fun preserveLocalState(
+        binding: NextcloudCollectionBindingEntity,
+        revertSharedList: Boolean,
+    ): Long {
+        val listId = localListId(binding)
+        if (!binding.remoteAvailable) {
+            mutations.discardPendingChanges(binding.collectionId)
+            releaseBinding(binding.collectionId)
+            return listId
+        }
+        val copyListId = copyToLocalList(binding)
+        if (revertSharedList) revertStrandedLocalWork(binding)
+        return copyListId
+    }
+
+    private suspend fun localListId(binding: NextcloudCollectionBindingEntity): Long =
+        listNameDao.getByCollectionId(binding.collectionId)?.id
+            ?: throw localStateFailure("This list is no longer available locally.")
+
+    /** Copies the visible content of one bound list into a new unbound local list (#1548). */
+    private suspend fun copyToLocalList(binding: NextcloudCollectionBindingEntity): Long {
+        val list = listNameDao.getByCollectionId(binding.collectionId)
+            ?: throw localStateFailure("This list is no longer available locally.")
+        return mutations.copyListAsLocal(list.id, "${list.canonicalTitle} (local copy)")
+    }
+
+    /**
+     * Returns one collection to the provider representation Jandal last saw (#1548).
+     *
+     * The stranded local edits are replaced by the retained remote VTODO documents, locally created
+     * rows are removed, and the collection's pending provider changes are dropped — that is the
+     * "discard" half of both resolutions. No network call is needed: item bindings already hold the
+     * last complete remote document per item.
+     */
+    private suspend fun revertStrandedLocalWork(binding: NextcloudCollectionBindingEntity) {
+        providerRepresentation(binding)?.let { snapshot ->
+            mutations.importSnapshot(snapshot, displayAliasLabel = PROVIDER_ALIAS, pruneLocalItems = true)
+        }
+        mutations.discardPendingChanges(binding.collectionId)
+        val current = collectionBindings.get(binding.collectionId) ?: return
+        if (current.blockedUnsyncedAt != null) {
+            collectionBindings.upsert(current.copy(blockedUnsyncedAt = null, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    /** Releases the provider association once the user has explicitly resolved a removed share. */
+    private suspend fun releaseBinding(collectionId: String) {
+        itemBindings.deleteForCollection(collectionId)
+        collectionBindings.delete(collectionId)
+    }
+
+    /**
+     * Builds the provider-authoritative snapshot of one collection from the retained remote
+     * documents (#1548).
+     *
+     * Field stamps are newer than every local stamp so the merge in `importSnapshot` restores the
+     * provider values, and the collection title follows the last discovered remote title.
+     */
+    private suspend fun providerRepresentation(
+        binding: NextcloudCollectionBindingEntity,
+    ): SharedCollectionSnapshot? {
+        val list = listNameDao.getByCollectionId(binding.collectionId) ?: return null
+        val bindings = itemBindings.getAll(binding.collectionId)
+        val itemIdByUid = bindings.associate { it.remoteUid to it.itemId }
+        val newestLocalClock = listItemDao.getAllByListAnyLifecycle(list.id)
+            .maxOfOrNull { row ->
+                maxOf(
+                    row.textLogicalClock,
+                    row.descriptionLogicalClock,
+                    row.checkedLogicalClock,
+                    row.dueAtLogicalClock,
+                    row.placementLogicalClock,
+                    row.lifecycleLogicalClock,
+                )
+            } ?: 0L
+        val revision = maxOf(newestLocalClock, binding.remoteLogicalClock) + 1L
+        val items = bindings.mapIndexedNotNull { index, itemBinding ->
+            val document = runCatching { VTodoDocument.parse(itemBinding.rawVtodo) }.getOrNull()
+                ?: return@mapIndexedNotNull null
+            val remote = RemoteVTodo(itemBinding.remoteHref, itemBinding.etag, document)
+            val snapshot = remote.toSnapshot(
+                itemId = itemBinding.itemId,
+                parentItemId = remote.parentUid()?.let(itemIdByUid::get),
+                revision = revision,
+                fallbackOrder = index.toString(),
+            )
+            // An item the owner already removed stays removed: the retained document is only the
+            // last representation Jandal saw, not a live remote resource.
+            if (itemBinding.deletedRemotely) snapshot.copy(lifecycle = ListLifecycle.DELETED) else snapshot
+        }
+        return SharedCollectionSnapshot(
+            collectionId = binding.collectionId,
+            canonicalTitle = binding.remoteTitle,
+            lifecycle = ListLifecycle.ACTIVE,
+            createdAt = list.createdAt,
+            titleStamp = VersionStamp(revision, PROVIDER_ACTOR),
+            lifecycleStamp = VersionStamp(revision, PROVIDER_ACTOR),
+            items = items,
+            checkpoints = emptyList(),
+        )
+    }
+
     private suspend fun syncBoundCollection(client: NextcloudCalDavClient, original: NextcloudCollectionBindingEntity): Boolean {
         return syncMutex.withLock {
             // Re-read under the lock: a Stop may have landed since the caller snapshotted bindings,
             // in which case this list must not be synchronized at all.
-            val binding = collectionBindings.get(original.collectionId) ?: original
-            if (!binding.syncEnabled) return@withLock false
+            val persisted = collectionBindings.get(original.collectionId) ?: original
+            if (!persisted.syncEnabled) return@withLock false
+            val binding = quarantineUnsyncedWork(refreshCollectionAccess(client, persisted))
+            if (!binding.remoteAvailable) {
+                // The owner removed the share (or deleted the collection). Nothing can be pulled or
+                // pushed; the local list is preserved for the user's Keep as local copy / Discard
+                // decision, and content changes stay rejected meanwhile (#1548).
+                throw accessRemovedFailure(binding)
+            }
+            if (binding.blockedUnsyncedAt != null) {
+                // Owner changes keep flowing while access still exists, but work accepted under the
+                // stale cached permission is never published; it waits for explicit user resolution.
+                pullCollection(client, binding)
+                throw unsyncedChangesFailure()
+            }
+            if (!binding.remoteWritable) {
+                // A read-only share still follows the owner; only the provider push path is closed.
+                return@withLock pullCollection(client, binding)
+            }
             try {
                 pushCollection(client, binding.collectionId, binding)
             } catch (_: NextcloudConflictException) {
                 pullCollection(client, binding)
                 pushCollection(client, binding.collectionId, binding)
-            } catch (error: NextcloudConnectionException) {
-                if (error.code != NextcloudFailure.Code.PERMISSION) throw error
-                // A read-only collection must still pull remote changes. Keep the original
-                // permission failure so the caller reports it and pending local changes remain
-                // retryable after the server-side permission is restored.
-                pullCollection(client, binding)
-                throw error
             }
             val pulled = pullCollection(client, collectionBindings.get(binding.collectionId) ?: binding)
             val latest = collectionBindings.get(binding.collectionId) ?: binding
-            pushCollection(client, binding.collectionId, latest)
+            if (latest.remoteWritable && latest.blockedUnsyncedAt == null) {
+                pushCollection(client, binding.collectionId, latest)
+            }
             pulled
         }
     }
@@ -471,9 +688,7 @@ class NextcloudSyncAdapter @Inject constructor(
         binding: NextcloudCollectionBindingEntity,
     ): Boolean {
         val list = listNameDao.getByCollectionId(binding.collectionId) ?: return false
-        val remoteTitle = client.discover().collections
-            .firstOrNull { it.href == binding.remoteHref }?.displayName
-            ?: binding.remoteTitle
+        val remoteTitle = binding.remoteTitle
         val remoteItems = client.fetchTasks(binding.remoteHref)
         val oldBindings = itemBindings.getAll(binding.collectionId).associateBy { it.remoteUid }
         val remoteByUid = remoteItems.associateBy { it.uid() }
@@ -546,6 +761,105 @@ class NextcloudSyncAdapter @Inject constructor(
 
     private suspend fun recordFailure(collectionId: String, failure: NextcloudFailure) {
         collectionBindings.recordSyncOutcome(collectionId, failure.code.name, System.currentTimeMillis())
+    }
+
+    private suspend fun requireBoundBinding(collectionId: String): NextcloudCollectionBindingEntity =
+        collectionBindings.get(collectionId)
+            ?: throw NextcloudConnectionException(
+                NextcloudFailure.Code.PERMISSION,
+                "This list is not connected to Nextcloud.",
+            )
+
+    private fun permissionFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        "Nextcloud denied write access to this task collection. Check its permissions and try again.",
+    )
+
+    /** The owner removed the share, so neither pull nor push is possible any more (#1548). */
+    private fun accessRemovedFailure(binding: NextcloudCollectionBindingEntity) = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        if (binding.blockedUnsyncedAt != null) {
+            "Nextcloud access to this shared list was removed. Keep it as a local copy to save the local changes, or discard them."
+        } else {
+            "Nextcloud access to this shared list was removed. Save it as a local copy to keep editing it."
+        },
+    )
+
+    /** Local work accepted under a stale cached permission waits for explicit resolution (#1548). */
+    private fun unsyncedChangesFailure() = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        "Local changes to this shared list are not synced because it became read-only. Keep them as a local copy or discard them.",
+    )
+
+    private fun localStateFailure(message: String) = NextcloudConnectionException(
+        NextcloudFailure.Code.PERMISSION,
+        message,
+    )
+    private suspend fun persistWritable(
+        binding: NextcloudCollectionBindingEntity,
+        writable: Boolean,
+    ) {
+        if (binding.remoteWritable != writable) {
+            collectionBindings.upsert(
+                binding.copy(
+                    remoteWritable = writable,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Refreshes the durable provider metadata for one binding from CalDAV discovery.
+     *
+     * A bound collection that discovery no longer offers is recorded as unavailable rather than
+     * silently kept: removal of the share is the only way the owner can take access away, so the list
+     * must stop behaving like a synchronized one (#1548). Availability is restored the same way when
+     * the collection comes back.
+     */
+    private suspend fun refreshCollectionAccess(
+        client: NextcloudCalDavClient,
+        binding: NextcloudCollectionBindingEntity,
+    ): NextcloudCollectionBindingEntity {
+        val collection = client.discover().collections.firstOrNull { it.href == binding.remoteHref }
+        if (collection == null) {
+            if (!binding.remoteAvailable) return binding
+            val removed = binding.copy(remoteAvailable = false, updatedAt = System.currentTimeMillis())
+            collectionBindings.upsert(removed)
+            return removed
+        }
+        val remoteMetadataChanged =
+            collection.displayName != binding.remoteTitle ||
+                collection.writable != binding.remoteWritable ||
+                !binding.remoteAvailable
+        val refreshed = binding.copy(
+            remoteTitle = collection.displayName,
+            remoteWritable = collection.writable,
+            remoteAvailable = true,
+            updatedAt = if (remoteMetadataChanged) System.currentTimeMillis() else binding.updatedAt,
+        )
+        if (refreshed != binding) collectionBindings.upsert(refreshed)
+        return refreshed
+    }
+
+    /**
+     * Quarantines local work that the provider can no longer publish (#1548).
+     *
+     * A content mutation accepted under a stale cached permission is already durable when the
+     * downgrade — or the share removal — is discovered at the next synchronization. Recording that
+     * stranded state on the binding is what stops the push path permanently: even if write access
+     * returns, nothing is published until the user explicitly keeps a local copy or discards the
+     * changes, so the edit is neither pushed nor silently dropped.
+     */
+    private suspend fun quarantineUnsyncedWork(
+        binding: NextcloudCollectionBindingEntity,
+    ): NextcloudCollectionBindingEntity {
+        if (binding.blockedUnsyncedAt != null) return binding
+        if (binding.remoteAvailable && binding.remoteWritable) return binding
+        if (mutations.pendingChanges().none { it.collectionId == binding.collectionId }) return binding
+        val blocked = binding.copy(blockedUnsyncedAt = System.currentTimeMillis())
+        collectionBindings.upsert(blocked)
+        return blocked
     }
 
     private suspend fun client(): NextcloudCalDavClient = NextcloudCalDavClient(

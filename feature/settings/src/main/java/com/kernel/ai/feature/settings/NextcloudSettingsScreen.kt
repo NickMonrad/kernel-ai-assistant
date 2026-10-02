@@ -584,6 +584,8 @@ internal fun NextcloudListState.label(): String = when (this) {
     NextcloudListState.SYNCING -> "Syncing\u2026"
     NextcloudListState.SYNC_OFF -> "Sync off"
     NextcloudListState.NEEDS_ATTENTION -> "Needs attention"
+    NextcloudListState.UNSYNCED_CHANGES -> "Unsynced changes"
+    NextcloudListState.UNAVAILABLE -> "Unavailable"
 }
 
 internal fun NextcloudListState.icon() = when (this) {
@@ -591,6 +593,8 @@ internal fun NextcloudListState.icon() = when (this) {
     NextcloudListState.SYNCING -> Icons.Default.Sync
     NextcloudListState.SYNC_OFF -> Icons.Default.CloudOff
     NextcloudListState.NEEDS_ATTENTION -> Icons.Default.WarningAmber
+    NextcloudListState.UNSYNCED_CHANGES -> Icons.Default.WarningAmber
+    NextcloudListState.UNAVAILABLE -> Icons.Default.CloudOff
 }
 
 internal fun NextcloudListState.contentDescription(): String = when (this) {
@@ -598,11 +602,16 @@ internal fun NextcloudListState.contentDescription(): String = when (this) {
     NextcloudListState.SYNCING -> "Syncing with Nextcloud"
     NextcloudListState.SYNC_OFF -> "Nextcloud sync stopped"
     NextcloudListState.NEEDS_ATTENTION -> "Nextcloud sync needs attention"
+    NextcloudListState.UNSYNCED_CHANGES -> "Nextcloud changes are not synced"
+    NextcloudListState.UNAVAILABLE -> "Nextcloud access is unavailable"
 }
 
 @Composable
 internal fun NextcloudListState.tint() = when (this) {
-    NextcloudListState.NEEDS_ATTENTION -> MaterialTheme.colorScheme.error
+    NextcloudListState.NEEDS_ATTENTION,
+    NextcloudListState.UNSYNCED_CHANGES,
+    NextcloudListState.UNAVAILABLE,
+    -> MaterialTheme.colorScheme.error
     NextcloudListState.SYNC_OFF -> MaterialTheme.colorScheme.onSurfaceVariant
     else -> MaterialTheme.colorScheme.primary
 }

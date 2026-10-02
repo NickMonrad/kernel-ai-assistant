@@ -29,7 +29,8 @@ import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
-import com.kernel.ai.core.memory.nextcloud.NextcloudListState
+import com.kernel.ai.core.memory.nextcloud.NextcloudListBinding
+import com.kernel.ai.core.memory.nextcloud.NextcloudLocalWorkResolution
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -306,12 +307,18 @@ class ListsViewModel @Inject constructor(
             )
         }
 
+    data class DisplayedHierarchy(
+        val sourceItems: List<ListItemEntity>,
+        val activeGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        val completedGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    )
+
     private val hierarchyFlowCache =
-        mutableMapOf<Long, StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>>>()
+        mutableMapOf<Long, StateFlow<DisplayedHierarchy>>()
 
     fun observeDisplayedHierarchy(
         listId: Long,
-    ): StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>> =
+    ): StateFlow<DisplayedHierarchy> =
         hierarchyFlowCache.getOrPut(listId) {
             combine(
                 dao.observeByList(listId),
@@ -349,8 +356,16 @@ class ListsViewModel @Inject constructor(
                 }
                 val active = groupsForStatus(matching, checked = false, comparator)
                 val completed = groupsForStatus(matching, checked = true, comparator)
-                Pair(active, completed)
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Pair(emptyList(), emptyList()))
+                DisplayedHierarchy(
+                    sourceItems = items,
+                    activeGroups = active,
+                    completedGroups = completed,
+                )
+            }.stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DisplayedHierarchy(emptyList(), emptyList(), emptyList()),
+            )
         }
 
     private fun itemComparator(sort: ItemSort): Comparator<ListItemEntity> = when (sort) {
@@ -505,10 +520,12 @@ class ListsViewModel @Inject constructor(
     private suspend fun applyCheckedStateReminderTransitions(
         mutation: CheckedStateMutation,
         lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
+        removedItemIds: Set<Long> = emptySet(),
     ) {
         val cancellationIds = (
             mutation.checkedIds +
-                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId }
+                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
+                removedItemIds
             ).toSet()
         cancellationIds.forEach(scheduler::cancel)
 
@@ -798,10 +815,12 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    fun addItem(listId: Long, itemText: String) {
+    fun addItem(listId: Long, itemText: String, onItemCreated: (Long) -> Unit) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch { listMutations.addItem(listId, trimmed) }
+        viewModelScope.launch {
+            onItemCreated(listMutations.addItem(listId, trimmed))
+        }
     }
 
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
@@ -944,11 +963,10 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
 
     // ── Nextcloud per-list state and lifecycle (#1551) ───────────────────────────────────────────
 
-    /** Nextcloud state per local collection id; a missing entry means never connected. */
-    val nextcloudStates: StateFlow<Map<String, NextcloudListState>> = nextcloud.observeListBindings()
-        .map { bindings -> bindings.associate { it.collectionId to it.state } }
+    /** Binding metadata per local collection id; a missing entry means never connected. */
+    val nextcloudBindings: StateFlow<Map<String, NextcloudListBinding>> = nextcloud.observeListBindings()
+        .map { bindings -> bindings.associateBy { it.collectionId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
     /** True when a Nextcloud account is stored, so a list can be bound without routing to setup. */
     val nextcloudAccountConfigured: StateFlow<Boolean> = nextcloud.observeAccountConfigured()
 
@@ -992,6 +1010,85 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
                 is NextcloudSyncResult.Failure -> result.error.safeNextcloudMessage()
             }
         }
+    }
+
+    /**
+     * Preserves a read-only shared list as an independent local list (#1548).
+     *
+     * The shared list keeps following its owner; the copy is unbound, so it can never be pushed back
+     * to the former share or re-associated with it.
+     */
+    fun saveListAsLocalCopy(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.createLocalCopy(collectionId).fold(
+                onSuccess = { "Saved a local copy of this list" },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /** Keeps local work stranded by lost Nextcloud access as an independent local list (#1548). */
+    fun keepUnsyncedListAsLocalCopy(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.KEEP_LOCAL_COPY, "Kept as a local copy")
+    }
+
+    /** Discards local work stranded by lost Nextcloud access (#1548). */
+    fun discardUnsyncedListChanges(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES, "Unsynced changes discarded")
+    }
+
+    private fun resolveLocalWork(
+        collectionId: String,
+        resolution: NextcloudLocalWorkResolution,
+        successMessage: String,
+    ) {
+        viewModelScope.launch(ioDispatcher) {
+            val sourceList = listNameDao.getByCollectionId(collectionId)
+            val rowsBefore = sourceList?.let { dao.getAllByListAnyLifecycle(it.id) }.orEmpty()
+            val result = nextcloud.resolveLocalWork(collectionId, resolution)
+            sourceList?.let { reconcileLocalWorkReminderTransitions(it, rowsBefore) }
+            nextcloudMessage = result.fold(
+                onSuccess = { successMessage },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /**
+     * Reconciles reminders on the original bound list after resolution. Keep-as-copy creates a new
+     * list separately; its existing copy path clears reminder times and is not scheduled here.
+     */
+    internal suspend fun reconcileLocalWorkReminderTransitions(
+        sourceList: ListNameEntity,
+        rowsBefore: List<ListItemEntity>,
+    ) {
+        val listAfter = listNameDao.getById(sourceList.id)
+        val rowsAfterById = dao.getAllByListAnyLifecycle(sourceList.id).associateBy { it.id }
+        val wasCollectionActive = sourceList.lifecycle == ListLifecycle.ACTIVE.name
+        val isCollectionActive = listAfter?.lifecycle == ListLifecycle.ACTIVE.name
+
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        val lifecycleTransitions = rowsBefore.mapNotNull { before ->
+            val after = rowsAfterById[before.id] ?: return@mapNotNull null
+            if (before.checked != after.checked) {
+                if (after.checked) checkedIds += before.id else uncheckedIds += before.id
+            }
+            val wasActive = wasCollectionActive && before.lifecycle == ListLifecycle.ACTIVE.name
+            val isActive = isCollectionActive && after.lifecycle == ListLifecycle.ACTIVE.name
+            if (wasActive == isActive) {
+                null
+            } else {
+                ListItemLifecycleTransition(before.id, wasActive, isActive)
+            }
+        }
+        val removedItemIds = rowsBefore.mapTo(mutableSetOf()) { it.id } - rowsAfterById.keys
+
+        applyCheckedStateReminderTransitions(
+            CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds),
+            lifecycleTransitions,
+            removedItemIds,
+        )
     }
 
     // ── Encrypted shared-list package exchange (#1493) ───────────────────────────────────────────
