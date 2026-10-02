@@ -4,17 +4,17 @@ This is the preparation handoff for issue [#1451](https://github.com/NickMonrad/
 
 ## Current runtime and compatibility boundary
 
-- Jandal `main` pins `litertlm-android` **0.11.0** in `gradle/libs.versions.toml`.
-- Issue [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) remains the runtime-upgrade seam; its current release evaluation target is 0.17.1. This spike does not upgrade the app.
+- Post-#1590 Jandal `main` pins `litertlm-android` **0.17.1** in `gradle/libs.versions.toml`.
+- The refreshed #1451 benchmark uses that current runtime baseline; it makes no further runtime changes.
 - The candidate cards do not document a minimum LiteRT-LM version. Their package-specific embedded context/KV limit, tokenizer, chat template, capability declaration, and actual required runtime are not established by the public file tree.
-- LiteRT-LM 0.11.0 does not expose the newer package capability/template snapshot or native token-count, prefill/decode, KV-cache, and GPU delegate-utilization metrics. Record callback TTFT, callback chunks (not tokens), visible characters/second, PSS/RSS, and selected backend only. The engine's existing `tokens/sec` log also counts callback chunks, not model tokens.
+- LiteRT-LM 0.17.1 `Conversation.getBenchmarkInfo()` values are emitted after completed streamed generations in the `LiteRtInferenceEngine` log: native initialization phase sum, native TTFT, and prefill/decode model-token counts and rates. The report records the source and field names; preserve logcat for the values. `first_engine_init_ms`, `warm_engine_reload_ms`, and `background_resume_engine_reload_ms` remain app wall-clock timings. Do not conflate native initialization phases with engine-ready wall time, or callback chunks with model tokens. `BenchmarkInfo` does not include KV allocation/peak or GPU delegate-utilization; the benchmark does not collect embedded package capability/template metadata.
 - The least-invasive GPU check is an explicit GPU request, `activeBackend == GPU` assertion after initialization and during generations, and `LiteRtInferenceEngine`'s `Backend GPU initialized successfully` log. This proves the app's GPU backend initialized and did not silently fall back; it is not a per-kernel utilization counter. If a device/runtime cannot establish that backend, record GPU execution as unresolved and do not infer it from `-gpu`.
 
 ## Live GPU candidates verified for this preparation
 
 | Family | Repository head | Exact candidate / upload commit | Size | SHA-256 / LFS OID | Upload history |
 |---|---|---|---:|---|---|
-| E2B | [`b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1) (2026-08-31) | [`gemma-4-E2B-it-gpu.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94) — `6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94` | 2,008,432,640 B | `a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5` | HF upload commit dated 2026-08-07; #1451 body gives 2026-08-10, so retain the live commit history as authoritative. |
+| E2B | [`b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1) (2026-08-31) | [`gemma-4-E2B-it-gpu.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94) — `6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94` | 2,008,432,640 B | `a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5` | HF upload commit dated 2026-08-07, correcting the 2026-08-10 date in #1451's issue body; live commit history is authoritative. |
 | E4B | [`2eee7ac325f20eb8c9ac1d0e972f7c84663062da`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/commit/2eee7ac325f20eb8c9ac1d0e972f7c84663062da) | [`gemma-4-E4B-it-gpu.litertlm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/commit/2eee7ac325f20eb8c9ac1d0e972f7c84663062da) — `2eee7ac325f20eb8c9ac1d0e972f7c84663062da` | 2,969,059,328 B | `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff` | HF upload/current repo head dated 2026-08-07. |
 
 The exact blobs were downloaded outside git to `/home/lokhor/.cache/jandal-1451/` and SHA-256 checked. Do not copy model binaries into this repository. Recheck the live HF tree, commit and hash immediately before later device runs.
@@ -25,7 +25,7 @@ Both HF cards declare **Apache-2.0** and identify the corresponding Google Gemma
 
 ## Fixed functional corpus and evidence
 
-Run the single test `Gemma4GpuPackageBenchmarkDeviceTest#benchmarkConfiguredPackage` once per package using the same debug app/test APK, LiteRT-LM 0.11.0, device, GPU selection, and thermal starting condition. It writes incremental JSON to `files/1451/<run_id>.json` in the debug app's private files directory and emits `PR1451_CASE`, `PR1451_CANCEL`, and `PR1451_RESULT` log markers.
+Run the single test `Gemma4GpuPackageBenchmarkDeviceTest#benchmarkConfiguredPackage` once per package using the same debug app/test APK, LiteRT-LM 0.17.1, device, GPU selection, and thermal starting condition. It writes incremental JSON to `files/1451/<run_id>.json` in the debug app's private files directory and emits `PR1451_CASE`, `PR1451_CANCEL`, and `PR1451_RESULT` log markers.
 
 The fixed functional prompts cover:
 
@@ -42,7 +42,9 @@ The fixture tools are test-only deterministic substitutes with no device side ef
 
 The JSON records exact model path/bytes/hash, source commit, device/build/API, first engine initialization (process-cold only; the OS/page cache is not flushed), same-process warm reload, background/resume reload, selected backend, requested/resolved context token capacity, first-visible-callback TTFT for streamed generation cases, callback chunks, visible-character throughput, thinking characters, structured-output duration, cancellation completion, PSS, `/proc/self/status` RSS/high-water RSS, and thermal status samples during three repeated generations. The SHA-256 is calculated after measured generation so hashing does not pre-warm file pages ahead of initialization/TTFT measurements. Pass `expected_sha256` for pinned GPU candidates; the report always contains the observed hash when the test can finish cleanup.
 
-Native model-token throughput, prefill/decode rates, KV allocation/peak, embedded tokenizer/template/capabilities, and delegate utilization remain unavailable on 0.11.0. Do not relabel callback count as tokens/s. Package load, thinking, tool/schema behavior, context, reset/cancel and selected GPU backend must be determined by the instrumented run.
+For each completed streamed generation, `LiteRtInferenceEngine` logs `LiteRT benchmark: init=..., TTFT=..., prefill=... tokens @ ... tokens/s, decode=... tokens @ ... tokens/s [backend=...]` from `Conversation.getBenchmarkInfo()`. `initTimeInSecond` is the native engine-plus-conversation initialization phase sum; the `*_engine_init_ms` report fields are app wall-clock durations around `engine.initialize()`. Capture the native values with the corresponding JSON using the logcat command below.
+
+`BenchmarkInfo` does not include KV allocation/peak or GPU delegate-utilization; the benchmark does not collect embedded tokenizer/template/capability metadata. Do not relabel callback count as tokens/s. Package load, thinking, tool/schema behavior, context, reset/cancel and selected GPU backend must be determined by the instrumented run.
 
 ## Later device procedure (not run in this preparation)
 
@@ -88,7 +90,7 @@ For each row, replace the example command's `model_path`, `candidate`, expected 
 
 ## TEST-READY blockers and stop line
 
-- No device evidence exists yet: load compatibility on 0.11.0, the embedded chat-template version, functional corpus outcomes, memory/thermal stability, and GPU execution remain unverified until the later device phase.
-- The public cards do not establish a minimum runtime. If the 0.11.0 test exposes a runtime requirement, record the exact failure/evidence and coordinate a bounded runtime decision through #31; do not upgrade this app in #1451.
+- No device evidence exists yet: load compatibility on 0.17.1, the embedded chat-template version, functional corpus outcomes, memory/thermal stability, and GPU execution remain unverified until the later device phase.
+- The public cards do not establish a minimum runtime. Record any 0.17.1 compatibility failure and exact evidence; a further runtime change is outside this #1451 refresh and requires a separate decision.
 - The schema-property regression is intentionally a hard functional case. Do not rename or rewrite the schema to hide an old embedded-template failure.
 - Newer device-specific NPU packages, model replacement/default changes, custom JNI/delegate telemetry, and broad runtime architecture work are out of scope.

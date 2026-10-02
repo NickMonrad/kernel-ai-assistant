@@ -92,13 +92,26 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             .put("device_model", android.os.Build.MODEL)
             .put("device_build", android.os.Build.DISPLAY)
             .put("sdk", android.os.Build.VERSION.SDK_INT)
-            .put("runtime", "LiteRT-LM Android 0.11.0")
+            .put("runtime", "LiteRT-LM Android 0.17.1")
             .put("requested_backend", BackendType.GPU.name)
             .put("requested_max_tokens", REQUESTED_MAX_TOKENS)
-            .put("native_token_prefill_decode_kv_delegate_metrics", JSONObject.NULL)
+            .put("native_benchmark_info_source", "LiteRtInferenceEngine logcat from Conversation.getBenchmarkInfo()")
             .put(
-                "metrics_note",
-                "LiteRT-LM 0.11.0 exposes no native token, prefill/decode, KV-cache, package-capability, or delegate-utilization metrics here. Callback chunks are not model tokens; throughput is visible characters/second.",
+                "native_benchmark_info_fields",
+                JSONArray(
+                    listOf(
+                        "initTimeInSecond",
+                        "timeToFirstTokenInSecond",
+                        "lastPrefillTokenCount",
+                        "lastPrefillTokensPerSecond",
+                        "lastDecodeTokenCount",
+                        "lastDecodeTokensPerSecond",
+                    ),
+                ),
+            )
+            .put(
+                "native_metrics_note",
+                "Native initTimeInSecond is the native initialization phase sum, distinct from app wall-clock engine initialization. Native TTFT and prefill/decode token counts and rates are emitted after completed streamed generations; capture LiteRtInferenceEngine logcat. Callback chunks are not model tokens; visible-character throughput remains separate. BenchmarkInfo does not include KV allocation/peak or GPU delegate-utilization; this benchmark does not collect embedded package capability/template metadata.",
             )
             .put("status", "running")
         caseResults = JSONArray()
