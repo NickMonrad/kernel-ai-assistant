@@ -319,12 +319,18 @@ class ListsViewModel @Inject constructor(
             )
         }
 
+    data class DisplayedHierarchy(
+        val sourceItems: List<ListItemEntity>,
+        val activeGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        val completedGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    )
+
     private val hierarchyFlowCache =
-        mutableMapOf<Long, StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>>>()
+        mutableMapOf<Long, StateFlow<DisplayedHierarchy>>()
 
     fun observeDisplayedHierarchy(
         listId: Long,
-    ): StateFlow<Pair<List<EffectiveHierarchyGroup<ListItemEntity>>, List<EffectiveHierarchyGroup<ListItemEntity>>>> =
+    ): StateFlow<DisplayedHierarchy> =
         hierarchyFlowCache.getOrPut(listId) {
             combine(
                 dao.observeByList(listId),
@@ -362,8 +368,16 @@ class ListsViewModel @Inject constructor(
                 }
                 val active = groupsForStatus(matching, checked = false, comparator)
                 val completed = groupsForStatus(matching, checked = true, comparator)
-                Pair(active, completed)
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Pair(emptyList(), emptyList()))
+                DisplayedHierarchy(
+                    sourceItems = items,
+                    activeGroups = active,
+                    completedGroups = completed,
+                )
+            }.stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DisplayedHierarchy(emptyList(), emptyList(), emptyList()),
+            )
         }
 
     private fun itemComparator(sort: ItemSort): Comparator<ListItemEntity> = when (sort) {
@@ -813,10 +827,12 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    fun addItem(listId: Long, itemText: String) {
+    fun addItem(listId: Long, itemText: String, onItemCreated: (Long) -> Unit) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch { listMutations.addItem(listId, trimmed) }
+        viewModelScope.launch {
+            onItemCreated(listMutations.addItem(listId, trimmed))
+        }
     }
 
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */

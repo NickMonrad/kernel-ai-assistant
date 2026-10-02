@@ -21,7 +21,8 @@ room = "2.7.1"
 datastore = "1.1.4"
 
 # Hilt
-hilt = "2.59.2"
+# Parses the Kotlin 2.4.0 metadata used by LiteRT-LM 0.17.1.
+hilt = "2.60.1"
 hiltNavigationCompose = "1.2.0"
 
 # Testing
@@ -33,7 +34,8 @@ testRunner = "1.5.2"
 testRules = "1.5.0"
 
 # LiteRT
-litertlm = "0.11.0"
+litertlm = "0.17.1"
+gson = "2.14.0"
 mediapipeTasksText = "0.10.33"
 tflite = "2.17.0"
 onnxruntime = "1.24.3"
@@ -97,6 +99,9 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 
 # LiteRT-LM
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+
+# Gson-backed serialization preserves LiteRT-LM's numeric tool arguments.
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 
 # MediaPipe Tasks Text (TextEmbedder — USE fallback)
 mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }

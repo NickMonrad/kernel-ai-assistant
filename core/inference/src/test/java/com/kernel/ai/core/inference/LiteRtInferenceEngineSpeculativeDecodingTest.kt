@@ -13,6 +13,7 @@ class LiteRtInferenceEngineSpeculativeDecodingTest {
     @AfterEach
     fun tearDown() {
         ExperimentalFlags.enableSpeculativeDecoding = false
+        ExperimentalFlags.enableBenchmark = false
     }
 
     @Test
@@ -77,5 +78,29 @@ class LiteRtInferenceEngineSpeculativeDecodingTest {
         }
 
         assertFalse(ExperimentalFlags.enableSpeculativeDecoding == true)
+    }
+    @Test
+    fun `withBenchmarkingEnabledForInit enables native benchmark only during engine creation`() {
+        assertFalse(ExperimentalFlags.enableBenchmark)
+
+        withBenchmarkingEnabledForInit {
+            assertTrue(ExperimentalFlags.enableBenchmark)
+        }
+
+        assertFalse(ExperimentalFlags.enableBenchmark)
+    }
+
+    @Test
+    fun `withBenchmarkingEnabledForInit resets native benchmark after init failure`() {
+        assertFalse(ExperimentalFlags.enableBenchmark)
+
+        assertThrows(IllegalStateException::class.java) {
+            withBenchmarkingEnabledForInit {
+                assertTrue(ExperimentalFlags.enableBenchmark)
+                throw IllegalStateException("init failed")
+            }
+        }
+
+        assertFalse(ExperimentalFlags.enableBenchmark)
     }
 }
