@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
@@ -216,6 +217,7 @@ fun ListItemsScreen(
 
     // Restores this list's saved sort so reopening never falls back to the default.
     LaunchedEffect(listId) { viewModel.bindItemList(listId) }
+    val itemSortReady = viewModel.itemSortReadyForListId == listId
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
     val collectionId = listEntities.firstOrNull { it.id == listId }?.collectionId
@@ -665,7 +667,14 @@ fun ListItemsScreen(
                 singleLine = true,
             )
 
-            if (allItems.isEmpty()) {
+            if (!itemSortReady) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (allItems.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()

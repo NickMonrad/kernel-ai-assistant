@@ -146,13 +146,16 @@ class ListsItemSortPersistenceTest {
         every { observeAccountConfigured() } returns MutableStateFlow(false)
     }
 
-    private fun viewModelOn(store: DataStore<Preferences>) = ListsViewModel(
+    private fun viewModelOn(
+        store: DataStore<Preferences>,
+        listNameDaoOverride: ListNameDao = listNameDao,
+    ) = ListsViewModel(
         dao,
-        listNameDao,
+        listNameDaoOverride,
         scheduler,
         context,
         listMutations,
-        testListsUiPreferences(dispatcher, store),
+        testListsUiPreferences(dispatcher, store, listNameDaoOverride),
         nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
 
@@ -431,6 +434,32 @@ class ListsItemSortPersistenceTest {
         viewModel.bindItemList(2L)
         gated.release()
 
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+    }
+
+    @Test
+    fun `an explicit choice equal to the temporary sort wins over a slow default restore`() {
+        val gated = GatedPreferencesDataStore()
+        val recipeListNameDao = mockk<ListNameDao>(relaxed = true).apply {
+            coEvery { getById(1L) } returns ListNameEntity(
+                id = 1L,
+                name = "Recipe",
+                defaultItemSort = ItemSort.MANUAL.name,
+            )
+        }
+        val preferences = testListsUiPreferences(dispatcher, gated, recipeListNameDao)
+        val viewModel = viewModelOn(gated, recipeListNameDao)
+
+        viewModel.bindItemList(1L)
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+        assertEquals(null, viewModel.itemSortReadyForListId)
+
+        viewModel.selectItemSort(DEFAULT_ITEM_SORT)
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+        assertEquals(1L, viewModel.itemSortReadyForListId)
+        gated.release()
+
+        assertEquals(DEFAULT_ITEM_SORT, runBlocking { preferences.itemSortFor(1L) })
         assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
     }
 }
