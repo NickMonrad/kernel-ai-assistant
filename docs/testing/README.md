@@ -10,6 +10,7 @@
 | [`.docs/agents/test-evidence-workflow.md`](../../.docs/agents/test-evidence-workflow.md) | Agent guidance on evidence lifecycle — generation, reporting, publishing, dashboard |
 | [`docs/testing/llm-tools-harness.md`](./llm-tools-harness.md) | Deep reference for the `llm_tools` harness phase — markers, assertions, troubleshooting |
 | [`docs/testing/s21-model-readiness.md`](./s21-model-readiness.md) | S21 model readiness preflight — after reinstall, run this before accepting model-backed ADB evidence |
+| [`litertlm-0171-device-validation.md`](./litertlm-0171-device-validation.md) | S21/S23 Ultra baseline-versus-0.17.1 device procedure for issue #31; currently prepared, not run |
 | `scripts/generate_permission_flow_evidence.py` | Converts `permission_flows` connected-test XML into #1113 normalised JSON/CSV/Markdown evidence |
 
 ## Design / specification docs

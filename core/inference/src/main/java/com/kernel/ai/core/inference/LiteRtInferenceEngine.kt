@@ -17,6 +17,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
 import com.google.ai.edge.litertlm.Capabilities
@@ -49,10 +50,12 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONException
 import org.json.JSONObject
+import com.google.gson.GsonBuilder
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "LiteRtInferenceEngine"
+private val toolCallJsonSerializer = GsonBuilder().serializeNulls().create()
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
@@ -122,6 +125,16 @@ internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, 
     }
 }
 
+@OptIn(ExperimentalApi::class)
+internal inline fun <T> withBenchmarkingEnabledForInit(block: () -> T): T {
+    ExperimentalFlags.enableBenchmark = true
+    return try {
+        block()
+    } finally {
+        ExperimentalFlags.enableBenchmark = false
+    }
+}
+
 internal fun resolveSpeculativeDecodingForInit(
     requested: Boolean,
     modelPath: String,
@@ -139,6 +152,23 @@ internal fun resolveSpeculativeDecodingForInit(
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
     Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+
+@OptIn(ExperimentalApi::class)
+private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?) {
+    try {
+        val info = conversation.getBenchmarkInfo()
+        Log.i(
+            TAG,
+            "LiteRT benchmark: init=${info.initTimeInSecond}s, " +
+                "TTFT=${info.timeToFirstTokenInSecond}s, " +
+                "prefill=${info.lastPrefillTokenCount} tokens @ ${info.lastPrefillTokensPerSecond} tokens/s, " +
+                "decode=${info.lastDecodeTokenCount} tokens @ ${info.lastDecodeTokensPerSecond} tokens/s " +
+                "[backend=$backend]",
+        )
+    } catch (e: Exception) {
+        Log.w(TAG, "LiteRT benchmark metrics unavailable: ${e.message}")
+    }
+}
 
 internal suspend fun waitForInteractiveState(
     isInteractive: () -> Boolean,
@@ -165,6 +195,9 @@ internal fun isValidJsonObject(raw: String): Boolean =
     } catch (_: JSONException) {
         false
     }
+
+internal fun serializeToolCallArguments(arguments: Map<String, Any?>): String =
+    toolCallJsonSerializer.toJson(arguments)
 
 internal class JsonObjectAccumulator(
     private val validator: (String) -> Boolean = ::isValidJsonObject,
@@ -1134,7 +1167,7 @@ class LiteRtInferenceEngine @Inject constructor(
         InferenceGenerationService.start(context)
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
-        var outputTokenCount = 0
+        var visibleChunkCount = 0
         var thinkingCharCount = 0
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = ThinkingStreamStateMachine(
@@ -1156,7 +1189,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 firstTokenMs = System.currentTimeMillis() - start
                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
             }
-            outputTokenCount++
+            visibleChunkCount++
             trySend(GenerationResult.Token(delta))
         }
 
@@ -1195,17 +1228,20 @@ class LiteRtInferenceEngine @Inject constructor(
                 override fun onDone() {
                     emitEmission(thinkingStateMachine.finish())
                     val durationMs = System.currentTimeMillis() - start
-                    val generationMs = durationMs - firstTokenMs.coerceAtLeast(0)
-                    val tokensPerSec = if (generationMs > 0 && outputTokenCount > 0) {
-                        outputTokenCount * 1000.0 / generationMs
-                    } else 0.0
+                    logLiteRtBenchmarkInfo(conv, _activeBackend.value)
                     if (thinkingCharCount > 0) {
                         Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
                     }
-                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
-                        "tokens=$outputTokenCount, speed=${"%.1f".format(tokensPerSec)}tok/s [backend=${_activeBackend.value}]")
-                    Log.d(TAG, "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
-                        "callbacks=$outputTokenCount thinkingChars=$thinkingCharCount visibleTokens=$outputTokenCount")
+                    Log.i(
+                        TAG,
+                        "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
+                            "visibleChunks=$visibleChunkCount [backend=${_activeBackend.value}]",
+                    )
+                    Log.d(
+                        TAG,
+                        "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
+                            "callbacks=$visibleChunkCount thinkingChars=$thinkingCharCount",
+                    )
                     trySend(GenerationResult.Complete(durationMs = durationMs))
                     close()
                 }
@@ -1477,7 +1513,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                                             "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
                                                         )
                                                         // Serialize Map → proper JSON (not Kotlin Map.toString())
-                                                        capturedToolJson.set(JSONObject(call.arguments).toString())
+                                                        capturedToolJson.set(serializeToolCallArguments(call.arguments))
                                                         if (finished.compareAndSet(false, true)) {
                                                             latch.complete(capturedToolJson.get()!!)
                                                         }
@@ -1674,8 +1710,11 @@ class LiteRtInferenceEngine @Inject constructor(
                 var engine: Engine? = null
                 try {
                     val initializedEngine = withTimeout(GPU_INIT_TIMEOUT_MS) {
-                        withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                            Engine(engineConfig).also { engine = it }.also { it.initialize() }
+                        // LiteRT reads native benchmark enablement during engine creation.
+                        withBenchmarkingEnabledForInit {
+                            withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                                Engine(engineConfig).also { engine = it }.also { it.initialize() }
+                            }
                         }
                     }
                     Log.i(TAG, "Backend $backendType initialized successfully")
