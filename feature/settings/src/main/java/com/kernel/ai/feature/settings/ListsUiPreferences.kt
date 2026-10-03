@@ -39,17 +39,25 @@ class ListsUiPreferences @Inject constructor(
     /**
      * Saved item sort for [listId], or [DEFAULT_ITEM_SORT] when unset or undecodable.
      *
-     * [listId] is the local row id, so each list remembers its own selection.
+     * When a list with an initial sort is recreated under the same canonical title and default,
+     * its explicit preference is carried forward from the newest deleted row.
      */
     suspend fun itemSortFor(listId: Long): ItemSort = withContext(ioDispatcher) {
-        val stored = preferences()[itemSortKeyOf(listId)]
-        if (stored != null) {
-            ItemSort.entries.firstOrNull { it.name == stored } ?: DEFAULT_ITEM_SORT
-        } else {
-            listNameDao.getById(listId)?.defaultItemSort
-                ?.let { ItemSort.entries.firstOrNull { sort -> sort.name == it } }
-                ?: DEFAULT_ITEM_SORT
+        val storedPreferences = preferences()
+        val stored = storedPreferences[itemSortKeyOf(listId)]
+        if (stored != null) return@withContext decodeItemSort(stored)
+
+        val list = listNameDao.getById(listId) ?: return@withContext DEFAULT_ITEM_SORT
+        val previousStored = list.defaultItemSort?.let { defaultSort ->
+            listNameDao.getDeletedByCanonicalTitleAndDefaultItemSort(list.canonicalTitle, defaultSort)
+                .firstNotNullOfOrNull { previous -> storedPreferences[itemSortKeyOf(previous.id)] }
         }
+        if (previousStored != null) {
+            dataStore.edit { it[itemSortKeyOf(listId)] = previousStored }
+            return@withContext decodeItemSort(previousStored)
+        }
+
+        list.defaultItemSort?.let(::decodeItemSort) ?: DEFAULT_ITEM_SORT
     }
 
     /** Persists [sort] as the item sort for [listId]. */
@@ -69,3 +77,5 @@ class ListsUiPreferences @Inject constructor(
 
 /** Preference key holding one list's saved [ItemSort] name. */
 internal fun itemSortKeyOf(listId: Long) = stringPreferencesKey("item_sort_$listId")
+private fun decodeItemSort(value: String): ItemSort =
+    ItemSort.entries.firstOrNull { it.name == value } ?: DEFAULT_ITEM_SORT

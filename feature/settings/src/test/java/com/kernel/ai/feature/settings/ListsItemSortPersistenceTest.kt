@@ -99,6 +99,62 @@ class ListsUiPreferencesTest {
         assertEquals(ItemSort.NAME_ASC, runBlocking { preferences.itemSortFor(1L) })
     }
 
+    @Test
+    fun `an explicit sort follows a recreated generated list with a new row id`() {
+        val title = "Meal Plan 2026-10-03 (MP-001) Day 1 — Lentil Ragu"
+        val previousProjection = ListNameEntity(
+            id = 15L,
+            name = "$title (deleted)",
+            canonicalTitle = title,
+            lifecycle = ListLifecycle.DELETED.name,
+            defaultItemSort = "MANUAL",
+        )
+        val recreatedProjection = ListNameEntity(
+            id = 17L,
+            name = title,
+            canonicalTitle = title,
+            defaultItemSort = "MANUAL",
+        )
+        val listNameDao = mockk<ListNameDao>(relaxed = true) {
+            coEvery { getById(17L) } returns recreatedProjection
+            coEvery {
+                getDeletedByCanonicalTitleAndDefaultItemSort(title, "MANUAL")
+            } returns listOf(previousProjection)
+        }
+        val store = FakePreferencesDataStore()
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+
+        runBlocking {
+            preferences.setItemSort(15L, ItemSort.NAME_DESC)
+
+            assertEquals(ItemSort.NAME_DESC, preferences.itemSortFor(17L))
+            assertEquals("NAME_DESC", store.state.value[itemSortKeyOf(17L)])
+        }
+    }
+
+    @Test
+    fun `ordinary lists do not inherit generated projection sort preferences`() {
+        val title = "weeknight shopping"
+        val listNameDao = mockk<ListNameDao>(relaxed = true) {
+            coEvery { getById(17L) } returns ListNameEntity(
+                id = 17L,
+                name = title,
+                canonicalTitle = title,
+            )
+        }
+        val store = FakePreferencesDataStore()
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+
+        runBlocking {
+            preferences.setItemSort(15L, ItemSort.NAME_DESC)
+
+            assertEquals(ItemSort.CREATED_NEWEST, preferences.itemSortFor(17L))
+        }
+        coVerify(exactly = 0) {
+            listNameDao.getDeletedByCanonicalTitleAndDefaultItemSort(any(), any())
+        }
+    }
+
     private fun listNameDaoReturning(defaultItemSort: String?): ListNameDao = mockk(relaxed = true) {
         coEvery { getById(any()) } returns ListNameEntity(id = 1L, name = "Recipe", defaultItemSort = defaultItemSort)
     }
