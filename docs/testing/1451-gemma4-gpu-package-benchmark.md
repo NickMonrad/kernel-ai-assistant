@@ -40,28 +40,97 @@ The fixed functional prompts cover:
 
 The fixture tools are test-only deterministic substitutes with no device side effects. The corpus checks package/template/tool-schema handling through the existing `LiteRtInferenceEngine` and `ModelConfig` seams; it does not claim to qualify every production tool's external service.
 
-The JSON records exact model path/bytes/hash, source commit, device/build/API, first engine initialization (process-cold only; the OS/page cache is not flushed), same-process warm reload, background/resume reload, selected backend, requested/resolved context token capacity, first-visible-callback TTFT for streamed generation cases, callback chunks, visible-character throughput, thinking characters, structured-output duration, cancellation completion, PSS, `/proc/self/status` RSS/high-water RSS, and thermal status samples during three repeated generations. The SHA-256 is calculated after measured generation so hashing does not pre-warm file pages ahead of initialization/TTFT measurements. Pass `expected_sha256` for pinned GPU candidates; the report always contains the observed hash when the test can finish cleanup.
+The JSON records the exact model path, expected and actual byte counts and SHA-256 values before initialization and after the benchmark, the full app source head and supplied `source_commit`, device/build/API, first engine initialization, same-process warm reload, background/resume reload, selected backend, requested/resolved context token capacity, first-visible-callback TTFT for streamed generation cases, callback chunks, visible-character throughput, thinking characters, structured-output duration, cancellation completion, PSS, `/proc/self/status` RSS/high-water RSS, and thermal status samples during three repeated generations. The required preflight hashes the entire model before constructing the runtime, so it reads the entire file and may warm the OS page cache. `first_engine_init_ms` is process-cold but follows this preflight read; cache state may remain warm or be partially evicted. Do not describe it as cold-disk initialization. Apply the same preflight to both A/B arms. The post-run check records the same pins and fails if the file changed.
 
 For each completed streamed generation, `LiteRtInferenceEngine` logs `LiteRT benchmark: init=..., TTFT=..., prefill=... tokens @ ... tokens/s, decode=... tokens @ ... tokens/s [backend=...]` from `Conversation.getBenchmarkInfo()`. `initTimeInSecond` is the native engine-plus-conversation initialization phase sum; the `*_engine_init_ms` report fields are app wall-clock durations around `engine.initialize()`. Capture the native values with the corresponding JSON using the logcat command below.
+
+Both A/B arms fix `ModelConfig.speculativeDecodingEnabled=false`. Preserve the existing `LiteRtInferenceEngine` `Speculative decoding: requested=..., active=...` log line alongside each report so requested and resolved state are auditable.
 
 `BenchmarkInfo` does not include KV allocation/peak or GPU delegate-utilization; the benchmark does not collect embedded tokenizer/template/capability metadata. Do not relabel callback count as tokens/s. Package load, thinking, tool/schema behavior, context, reset/cancel and selected GPU backend must be determined by the instrumented run.
 
 ## Later device procedure (not run in this preparation)
 
 1. Re-verify both exact HF candidates and host cache checksums. Check device free storage/memory and keep the screen interactive. Use S21 for the current E2B baseline vs E2B GPU candidate; S23 Ultra for current E4B vs E4B GPU. Include Honor Magic 8 Pro for the E4B comparison only when the existing tier policy selects E4B there. Do not force an unsupported model tier.
-2. Build artifacts from the reviewed commit with `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`; install both APKs later using `adb install -r`. Never clear app data. Install is a later device step, not part of preparation.
-3. Current packages live under `getExternalFilesDir("models")`, normally `/sdcard/Android/data/com.kernel.ai.debug/files/models/`: `gemma-4-E2B-it.litertlm` and `gemma-4-E4B-it.litertlm`. Push the corresponding `-gpu.litertlm` file to that same directory under its exact HF filename. Keep the installed current package in place for its baseline run.
-4. Run each pair in counterbalanced order (baseline→GPU, then GPU→baseline), with a consistent cool starting state and a unique run ID. Repeat at least three paired runs per applicable device/family. Force the GPU backend in both runs; a CPU fallback is a failed GPU-evidence run, not a successful candidate result.
+2. From the exact reviewed commit, build the app and test APKs with `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PversionCode=3302 -Ppr1451BenchmarkIsolation=true`. The source head is embedded in the debug app; the runner requires the supplied full `source_commit` to match it. Release builds hard-disable this isolation flag.
+3. Run the strict APK metadata check below before installing either APK. It requires the debug app package/variant and versionCode ≥3302, plus the matching AndroidTest package/variant/output metadata (versionCode 0).
+4. Only after the metadata check passes, install both APKs later with `adb install -r`. Never clear app data. The debug startup gate cancels backfill/Nextcloud work while preserving archive cleanup.
+5. Before any benchmark invocation, place the exact GPU candidate beside the current baseline in `getExternalFilesDir("models")`. Verify the local candidate against its live HF size/hash before pushing it.
+6. Measure the current baseline and staged GPU file on-device before either arm runs, and compare each measured byte count/SHA-256 against its trusted source. This identical pre-run read warms both model files; if either digest is untrusted or mismatched, stop. Supply both exact pins on every invocation.
+7. Run every baseline and GPU invocation with both expected pins, counterbalanced order (baseline→GPU, then GPU→baseline), a consistent cool starting state, and unique run IDs. Repeat at least three paired runs per applicable device/family. Force the GPU backend in both runs; a CPU fallback is a failed GPU-evidence run, not a successful candidate result.
 
-Example E2B GPU run; replace the device model path only for the paired baseline run. These commands are for the later authorized device phase, not executed here:
+The metadata check is fail-closed; it verifies the exact APK files that will be installed:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+def verify(path, application_id, variant, output_name, required_version_code):
+    metadata = json.loads(path.read_text())
+    assert metadata["applicationId"] == application_id, metadata
+    assert metadata["variantName"] == variant, metadata
+    matches = [item for item in metadata["elements"] if item["outputFile"] == output_name]
+    assert len(matches) == 1, metadata
+    element = matches[0]
+    assert int(element["versionCode"]) >= required_version_code, element
+    apk = path.parent / output_name
+    assert apk.is_file(), apk
+    return {
+        "applicationId": metadata["applicationId"],
+        "variantName": metadata["variantName"],
+        "versionCode": int(element["versionCode"]),
+        "apk": str(apk),
+    }
+
+root = Path("app/build/outputs/apk")
+app = verify(
+    root / "debug/output-metadata.json",
+    "com.kernel.ai.debug",
+    "debug",
+    "app-debug.apk",
+    3302,
+)
+test = verify(
+    root / "androidTest/debug/output-metadata.json",
+    "com.kernel.ai.debug.test",
+    "debugAndroidTest",
+    "app-debug-androidTest.apk",
+    0,
+)
+assert test["versionCode"] == 0, test
+print(json.dumps({"app": app, "androidTest": test}, indent=2))
+PY
+```
+
+After the metadata check passes, install the APKs:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+```
+
+After installation and before either benchmark arm, stage the E2B GPU candidate and read both current/GPU package sizes and hashes. These checks prepare the exact pins; they do not invoke the benchmark:
+
+```bash
+adb push /home/lokhor/.cache/jandal-1451/gemma-4-E2B-it-gpu.litertlm \
+  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm
+adb shell run-as com.kernel.ai.debug wc -c \
+  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it.litertlm
+adb shell run-as com.kernel.ai.debug sha256sum \
+  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it.litertlm
+adb shell run-as com.kernel.ai.debug wc -c \
+  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm
+adb shell run-as com.kernel.ai.debug sha256sum \
+  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm
+```
+
+For E4B, push and measure `gemma-4-E4B-it-gpu.litertlm` and `gemma-4-E4B-it.litertlm` the same way. Compare both measured identities with their trusted sources, and record them before running. If no independent trusted digest is available for either package, stop instead of generating a post-run pin.
+
+Example E2B GPU invocation. For the paired baseline, replace `model_path`, `candidate`, `expected_bytes`, `expected_sha256`, and `run_id` with that baseline's pre-verified values. These commands are for the later authorized device phase, not executed here:
 
 ```bash
 SOURCE_COMMIT=$(git rev-parse HEAD)
 
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-adb push /home/lokhor/.cache/jandal-1451/gemma-4-E2B-it-gpu.litertlm \
-  /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm
 adb shell am force-stop com.kernel.ai.debug
 adb shell am instrument -w \
   -e class com.kernel.ai.Gemma4GpuPackageBenchmarkDeviceTest \
@@ -77,16 +146,16 @@ adb exec-out run-as com.kernel.ai.debug cat files/1451/s21-e2b-gpu-pair1.json \
 adb logcat -d -s LiteRtInferenceEngine Gemma4Package1451
 ```
 
-For the E4B candidate use `gemma-4-E4B-it-gpu.litertlm`, `2969059328`, SHA-256 `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff`, and a unique device/run label. The current generic baseline files are `gemma-4-E2B-it.litertlm` (2,583,085,056 B in `KernelModel`) and `gemma-4-E4B-it.litertlm` (3,654,467,584 B). Let the test report each installed baseline's SHA-256, then pin that digest on subsequent repeats. Retrieve every JSON report and preserve the corresponding logcat, APK commit, live HF metadata, start/end thermal status, and run order together.
+For the E4B candidate use `gemma-4-E4B-it-gpu.litertlm`, `2969059328`, SHA-256 `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff`, and a unique device/run label. The current generic baseline files are `gemma-4-E2B-it.litertlm` (reference 2,583,085,056 B in `KernelModel`) and `gemma-4-E4B-it.litertlm` (reference 3,654,467,584 B). Acquire and verify each installed baseline SHA-256 before instrumentation; never use an unpinned run report to establish its own pin. Retrieve every JSON report and preserve the corresponding logcat, APK commit, live HF metadata, start/end thermal status, and run order together.
 | Later run | `model_path` | `candidate` | `expected_bytes` | `expected_sha256` |
 |---|---|---|---:|---|
-| S21 current E2B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it.litertlm` | `e2b-current` | omit to record the installed size | omit on first baseline run; pin the report hash on repeats |
+| S21 current E2B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it.litertlm` | `e2b-current` | `2583085056` (confirm before run) | required trusted pre-run SHA-256; never omit |
 | S21 GPU E2B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm` | `e2b-gpu` | `2008432640` | `a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5` |
-| S23 Ultra current E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it.litertlm` | `e4b-current` | omit to record the installed size | omit on first baseline run; pin the report hash on repeats |
+| S23 Ultra current E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it.litertlm` | `e4b-current` | `3654467584` (confirm before run) | required trusted pre-run SHA-256; never omit |
 | S23 Ultra GPU E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it-gpu.litertlm` | `e4b-gpu` | `2969059328` | `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff` |
 | Honor Magic 8 Pro | Use the same current/GPU E4B paths only if its existing tier policy selects E4B. | Use `e4b-current` / `e4b-gpu` with Honor-specific run IDs. | As above. | As above. |
 
-For each row, replace the example command's `model_path`, `candidate`, expected size/hash, `source_commit`, and `run_id`. On first baseline run, retain the reported file hash and pass it as `expected_sha256` for subsequent repeats. GPU rows always pass both pinned size and hash. Do not compare runs with different app commits, LiteRT-LM runtime, backend selection, device tier, or corpus.
+Every row requires both `expected_bytes` and `expected_sha256` on every invocation, including the first baseline. Acquire baseline pins before any benchmark and pass those exact values; GPU rows always use the artifact-table pins. Do not compare runs with different app commits, LiteRT-LM runtime, backend selection, device tier, or corpus.
 
 ## TEST-READY blockers and stop line
 

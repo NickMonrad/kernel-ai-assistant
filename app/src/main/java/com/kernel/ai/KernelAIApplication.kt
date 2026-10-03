@@ -23,6 +23,7 @@ import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggable
 import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
 import dagger.hilt.android.HiltAndroidApp
+import dagger.Lazy
 import com.kernel.ai.assistant.WakeWordService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -44,7 +45,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
-    @Inject lateinit var nextcloudSyncScheduler: NextcloudSyncScheduler
+    @Inject lateinit var nextcloudSyncScheduler: Lazy<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
 
     override val workManagerConfiguration: Configuration
@@ -70,24 +71,37 @@ class KernelAIApplication : Application(), Configuration.Provider {
         try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
-        WorkManager.getInstance(this).enqueueUniqueWork(
-            WORK_NAME_BACKFILL,
-            ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<MemoryEmbeddingWorker>().build(),
-        )
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            WORK_NAME_ARCHIVE_CLEANUP,
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<ArchiveCleanupWorker>(1, TimeUnit.DAYS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiresBatteryNotLow(true)
+        val workManager = WorkManager.getInstance(this)
+        Pr1451StartupWorkGate.schedule(
+            isolationEnabled = BuildConfig.PR1451_BENCHMARK_ISOLATION,
+            cancelUniqueWork = { workManager.cancelUniqueWork(it) },
+            enqueueMemoryBackfill = {
+                workManager.enqueueUniqueWork(
+                    WORK_NAME_BACKFILL,
+                    ExistingWorkPolicy.KEEP,
+                    OneTimeWorkRequestBuilder<MemoryEmbeddingWorker>().build(),
+                )
+            },
+            enqueueArchiveCleanup = {
+                workManager.enqueueUniquePeriodicWork(
+                    WORK_NAME_ARCHIVE_CLEANUP,
+                    ExistingPeriodicWorkPolicy.KEEP,
+                    PeriodicWorkRequestBuilder<ArchiveCleanupWorker>(1, TimeUnit.DAYS)
+                        .setConstraints(
+                            Constraints.Builder()
+                                .setRequiresBatteryNotLow(true)
+                                .build(),
+                        )
                         .build(),
                 )
-                .build(),
+            },
+            enqueueNextcloud = {
+                nextcloudSyncScheduler.get().apply {
+                    enqueuePeriodic()
+                    enqueueNow()
+                }
+            },
         )
-        nextcloudSyncScheduler.enqueuePeriodic()
-        nextcloudSyncScheduler.enqueueNow()
         // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
         // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
         // coroutine scope is intentional here (Application lifecycle = process lifetime).
