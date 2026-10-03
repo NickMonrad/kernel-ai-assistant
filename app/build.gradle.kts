@@ -16,6 +16,21 @@ val gitSha: String by lazy {
     }
     result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
 }
+val gitShaFull: String by lazy {
+    val result = providers.exec {
+        commandLine("git", "rev-parse", "HEAD")
+        isIgnoreExitValue = true
+    }
+    result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
+}
+
+val pr1451BenchmarkIsolation = when (
+    val property = providers.gradleProperty("pr1451BenchmarkIsolation").orNull
+) {
+    null, "false" -> false
+    "true" -> true
+    else -> error("pr1451BenchmarkIsolation must be true or false")
+}
 
 android {
     namespace = "com.kernel.ai"
@@ -33,6 +48,8 @@ android {
         buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        buildConfigField("String", "GIT_SHA_FULL", "\"$gitShaFull\"")
+        buildConfigField("boolean", "PR1451_BENCHMARK_ISOLATION", "false")
         buildConfigField("String", "BUILD_TIMESTAMP", "\"${Instant.now()}\"")
     }
 
@@ -49,6 +66,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            buildConfigField("boolean", "PR1451_BENCHMARK_ISOLATION", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -59,6 +77,7 @@ android {
             applicationIdSuffix = ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
             buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai.debug://oauth/callback\"")
+            buildConfigField("boolean", "PR1451_BENCHMARK_ISOLATION", pr1451BenchmarkIsolation.toString())
         }
     }
 

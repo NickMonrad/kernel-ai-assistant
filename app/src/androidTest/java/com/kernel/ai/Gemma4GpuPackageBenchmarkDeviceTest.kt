@@ -8,6 +8,8 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
@@ -17,6 +19,9 @@ import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.StructuredOutputSpec
+import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
+import com.kernel.ai.core.memory.worker.WORK_NAME_NEXTCLOUD_SYNC
+import com.kernel.ai.core.memory.worker.WORK_NAME_NEXTCLOUD_SYNC_PERIODIC
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -26,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,10 +42,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
-import java.io.FileInputStream
-import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Repeatable, test-only #1451 A/B runner. Run once per current or GPU package with identical
@@ -58,23 +63,33 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue(
-            "Optional #1451 benchmark skipped; pass model_path, candidate, and source_commit instrumentation args.",
-            !args.getString("model_path").isNullOrBlank() &&
-                !args.getString("candidate").isNullOrBlank() &&
-                !args.getString("source_commit").isNullOrBlank(),
+        val benchmarkArgumentNames = listOf(
+            "model_path",
+            "candidate",
+            "source_commit",
+            "expected_bytes",
+            "expected_sha256",
         )
-        val modelFile = File(requireNotNull(args.getString("model_path")) { "Pass -e model_path=<absolute path>" })
-        val candidate = requireNotNull(args.getString("candidate")) { "Pass -e candidate=<label>" }
-        val sourceCommit = requireNotNull(args.getString("source_commit")) { "Pass -e source_commit=<40-character git SHA>" }
-        require(sourceCommit.matches(Regex("[0-9a-fA-F]{40}"))) { "source_commit must be a full git SHA" }
-        val expectedSha256 = args.getString("expected_sha256")?.lowercase()?.takeIf(String::isNotBlank)
+        assumeTrue(
+            "Optional #1451 benchmark skipped; pass explicit model, source, and both artifact pins.",
+            benchmarkArgumentNames.any { !args.getString(it).isNullOrBlank() },
+        )
+        val modelPathArgument = args.getString("model_path")
+        val candidate = args.getString("candidate").orEmpty()
+        val sourceCommit = args.getString("source_commit")
+        val expectedSha256 = args.getString("expected_sha256")
         val expectedBytesArgument = args.getString("expected_bytes")
         val expectedBytes = expectedBytesArgument?.toLongOrNull()
-        require(expectedBytesArgument == null || expectedBytes != null) { "expected_bytes must be an integer" }
-        require(!candidate.endsWith("-gpu") || (expectedBytes != null && expectedSha256 != null)) {
-            "GPU candidates require pinned expected_bytes and expected_sha256"
+        require(!modelPathArgument.isNullOrBlank()) { "Pass -e model_path=<absolute path>" }
+        require(candidate.isNotBlank()) { "Pass -e candidate=<label>" }
+        require(!sourceCommit.isNullOrBlank()) { "Pass -e source_commit=<full app git SHA>" }
+        require(expectedBytes != null && expectedBytes > 0L) { "Pass -e expected_bytes=<positive byte count>" }
+        require(!expectedSha256.isNullOrBlank()) { "Pass -e expected_sha256=<64-character SHA-256>" }
+        require(BuildConfig.PR1451_BENCHMARK_ISOLATION) {
+            "Build with -Ppr1451BenchmarkIsolation=true for #1451 startup isolation"
         }
+
+        val modelFile = File(requireNotNull(modelPathArgument))
         val runId = (args.getString("run_id") ?: "${System.currentTimeMillis()}")
             .replace(Regex("[^A-Za-z0-9_-]"), "-")
         val outputDir = File(context.filesDir, "1451").apply { check(mkdirs() || isDirectory) }
@@ -84,16 +99,21 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             .put("issue", 1451)
             .put("run_id", runId)
             .put("candidate", candidate)
-            .put("source_commit", sourceCommit)
+            .put("source_commit", sourceCommit ?: JSONObject.NULL)
+            .put("app_source_head", BuildConfig.GIT_SHA_FULL)
             .put("model_path", modelFile.absolutePath)
-            .put("model_bytes", modelFile.length())
+            .put("model_bytes", modelFile.takeIf(File::isFile)?.length() ?: JSONObject.NULL)
             .put("expected_bytes", expectedBytes ?: JSONObject.NULL)
+            .put("expected_bytes_argument", expectedBytesArgument ?: JSONObject.NULL)
             .put("expected_sha256", expectedSha256 ?: JSONObject.NULL)
             .put("device_model", android.os.Build.MODEL)
             .put("device_build", android.os.Build.DISPLAY)
             .put("sdk", android.os.Build.VERSION.SDK_INT)
             .put("runtime", "LiteRT-LM Android 0.17.1")
             .put("requested_backend", BackendType.GPU.name)
+            .put("startup_work_isolation", BuildConfig.PR1451_BENCHMARK_ISOLATION)
+            .put("startup_work_quiesced", false)
+            .put("speculative_decoding_requested", false)
             .put("requested_max_tokens", REQUESTED_MAX_TOKENS)
             .put("native_benchmark_info_source", "LiteRtInferenceEngine logcat from Conversation.getBenchmarkInfo()")
             .put(
@@ -113,25 +133,45 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
                 "native_metrics_note",
                 "Native initTimeInSecond is the native initialization phase sum, distinct from app wall-clock engine initialization. Native TTFT and prefill/decode token counts and rates are emitted after completed streamed generations; capture LiteRtInferenceEngine logcat. Callback chunks are not model tokens; visible-character throughput remains separate. BenchmarkInfo does not include KV allocation/peak or GPU delegate-utilization; this benchmark does not collect embedded package capability/template metadata.",
             )
-            .put("status", "running")
+            .put("status", "preflight_pending")
         caseResults = JSONArray()
         reportFile = File(outputDir, "$runId.json")
         peakPssMiB = 0.0
         peakRssHwmMiB = 0.0
 
-        val engine = LiteRtInferenceEngine(context, HardwareProfileDetector(context))
+        saveReport()
+
+        var artifactPreflight: Pr1451ArtifactCheck? = null
+        var engineForCleanup: LiteRtInferenceEngine? = null
         val baseConfig = ModelConfig(
             modelPath = modelFile.absolutePath,
             backendType = BackendType.GPU,
             maxTokens = REQUESTED_MAX_TOKENS,
             systemPrompt = TEST_SYSTEM_PROMPT,
             thinkingEnabled = false,
+            speculativeDecodingEnabled = false,
         )
 
         try {
-            assertTrue("Model file missing: ${modelFile.absolutePath}", modelFile.isFile)
-            assertTrue("Model file is empty: ${modelFile.absolutePath}", modelFile.length() > 0L)
-            expectedBytes?.let { assertEquals("Unexpected model byte size", it, modelFile.length()) }
+            awaitPr1451StartupWorkQuiescence(context)
+            report.put("startup_work_quiesced", true)
+            saveReport()
+            val verifiedRuntime = Pr1451ArtifactVerifier.verifyBeforeRuntime(
+                file = modelFile,
+                appSourceHead = BuildConfig.GIT_SHA_FULL,
+                suppliedSourceCommit = sourceCommit,
+                expectedBytes = expectedBytes,
+                expectedSha256 = expectedSha256,
+                recordPreflight = { check ->
+                    artifactPreflight = check
+                    recordPreflight(check)
+                    saveReport()
+                },
+                createRuntime = { LiteRtInferenceEngine(context, HardwareProfileDetector(context)) },
+            )
+            val engine = verifiedRuntime.runtime
+            engineForCleanup = engine
+            report.put("status", "running")
             report.put("memory_before_init", memorySnapshot())
             saveReport()
 
@@ -325,12 +365,18 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             report.put("thermal_run", thermal)
             report.put("memory_peak", JSONObject().put("pss_mib", peakPssMiB).put("rss_hwm_mib", peakRssHwmMiB))
 
-            val modelSha = sha256(modelFile)
-            report.put("model_sha256", modelSha)
-            report.put("sha256_matches_expected", expectedSha256 == null || modelSha.equals(expectedSha256, ignoreCase = true))
+            val postRunCheck = Pr1451ArtifactVerifier.verifyUnchangedAfterRun(
+                file = modelFile,
+                appSourceHead = BuildConfig.GIT_SHA_FULL,
+                suppliedSourceCommit = sourceCommit,
+                expectedBytes = expectedBytes,
+                expectedSha256 = expectedSha256,
+                preflight = requireNotNull(artifactPreflight),
+            )
+            recordPostRun(postRunCheck)
             assertTrue(
-                "Model SHA-256 mismatch: expected=$expectedSha256 actual=$modelSha",
-                expectedSha256 == null || modelSha.equals(expectedSha256, ignoreCase = true),
+                "Model artifact pins changed during benchmark: ${postRunCheck.artifactCheck.failureMessage()}",
+                postRunCheck.passed,
             )
             report.put("status", "passed")
         } catch (failure: Throwable) {
@@ -340,12 +386,25 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             Log.e(TAG, "PR1451 benchmark failed: ${failure.message}", failure)
             throw failure
         } finally {
-            runCatching { withTimeout(SHUTDOWN_TIMEOUT_MS) { engine.shutdown() } }
-                .onFailure { report.put("shutdown_failure", it.message ?: it::class.java.name) }
-            if (!report.has("model_sha256") && modelFile.isFile) {
-                runCatching { sha256(modelFile) }
-                    .onSuccess { report.put("model_sha256", it) }
-                    .onFailure { report.put("model_hash_failure", it.message ?: it::class.java.name) }
+            engineForCleanup?.let { engine ->
+                runCatching { withTimeout(SHUTDOWN_TIMEOUT_MS) { engine.shutdown() } }
+                    .onFailure { report.put("shutdown_failure", it.message ?: it::class.java.name) }
+            }
+            if (artifactPreflight?.passed == true && !report.has("model_sha256_after_run")) {
+                runCatching {
+                    Pr1451ArtifactVerifier.verifyUnchangedAfterRun(
+                        file = modelFile,
+                        appSourceHead = BuildConfig.GIT_SHA_FULL,
+                        suppliedSourceCommit = sourceCommit,
+                        expectedBytes = expectedBytes,
+                        expectedSha256 = expectedSha256,
+                        preflight = requireNotNull(artifactPreflight),
+                    )
+                }.onSuccess(::recordPostRun)
+                    .onFailure {
+                        report.put("post_run_artifact_failure", it.message ?: it::class.java.name)
+                        report.put("status", "failed")
+                    }
             }
             report.put("memory_peak", JSONObject().put("pss_mib", peakPssMiB).put("rss_hwm_mib", peakRssHwmMiB))
             saveReport()
@@ -476,6 +535,71 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         assertEquals("GPU run fell back or selected another backend", BackendType.GPU, engine.activeBackend.value)
     }
 
+    private suspend fun awaitPr1451StartupWorkQuiescence(context: Context) {
+        check(BuildConfig.PR1451_BENCHMARK_ISOLATION) {
+            "PR1451 startup-work isolation must be enabled before quiescence checks"
+        }
+        val workManager = WorkManager.getInstance(context)
+        val uniqueWorkNames = listOf(
+            WORK_NAME_BACKFILL,
+            WORK_NAME_NEXTCLOUD_SYNC,
+            WORK_NAME_NEXTCLOUD_SYNC_PERIODIC,
+        )
+        withContext(Dispatchers.IO) {
+            val deadline = SystemClock.elapsedRealtime() + STARTUP_WORK_QUIESCENCE_TIMEOUT_MS
+            uniqueWorkNames.forEach { name ->
+                workManager.cancelUniqueWork(name).result.get(WORK_MANAGER_OPERATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
+            while (true) {
+                val unfinished = uniqueWorkNames.flatMap { name ->
+                    workManager.getWorkInfosForUniqueWork(name)
+                        .get(WORK_MANAGER_QUERY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        .filterNot { workInfo ->
+                            workInfo.state == WorkInfo.State.SUCCEEDED ||
+                                workInfo.state == WorkInfo.State.FAILED ||
+                                workInfo.state == WorkInfo.State.CANCELLED
+                        }
+                        .map { "$name:${it.state}" }
+                }
+                if (unfinished.isEmpty()) return@withContext
+                check(SystemClock.elapsedRealtime() < deadline) {
+                    "PR1451 startup work did not quiesce: ${unfinished.joinToString()}"
+                }
+                Thread.sleep(STARTUP_WORK_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun recordPreflight(check: Pr1451ArtifactCheck) {
+        report.put("app_source_head", check.appSourceHead)
+        report.put("app_source_head_valid", check.appSourceHeadValid)
+        report.put("source_commit", check.suppliedSourceCommit ?: JSONObject.NULL)
+        report.put("source_commit_valid", check.suppliedSourceCommitValid)
+        report.put("source_commit_matches_app_head", check.sourceCommitMatches)
+        report.put("expected_bytes", check.expectedBytes ?: JSONObject.NULL)
+        report.put("expected_bytes_valid", check.expectedBytesValid)
+        report.put("model_bytes_before_init", check.actualBytes ?: JSONObject.NULL)
+        report.put("model_size_matches_expected", check.sizeMatches)
+        report.put("expected_sha256", check.expectedSha256 ?: JSONObject.NULL)
+        report.put("expected_sha256_valid", check.expectedSha256Valid)
+        report.put("model_sha256_before_init", check.actualSha256 ?: JSONObject.NULL)
+        report.put("sha256_matches_expected_before_init", check.sha256Matches)
+        report.put("artifact_preflight_passed", check.passed)
+        report.put("artifact_preflight_failure", if (check.passed) JSONObject.NULL else check.failureMessage())
+    }
+
+    private fun recordPostRun(check: Pr1451PostRunCheck) {
+        val artifact = check.artifactCheck
+        report.put("model_bytes_after_run", artifact.actualBytes ?: JSONObject.NULL)
+        report.put("model_sha256_after_run", artifact.actualSha256 ?: JSONObject.NULL)
+        report.put("model_sha256", artifact.actualSha256 ?: JSONObject.NULL)
+        report.put("sha256_matches_expected", artifact.sha256Matches)
+        report.put("model_unchanged_since_preflight", check.unchangedSincePreflight)
+        report.put("artifact_post_run_passed", check.passed)
+        report.put("artifact_post_run_failure", if (check.passed) JSONObject.NULL else artifact.failureMessage())
+        if (!check.passed) report.put("status", "failed")
+    }
+
     private fun memorySnapshot(): JSONObject {
         val info = Debug.MemoryInfo()
         Debug.getMemoryInfo(info)
@@ -504,19 +628,6 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         return values["rss"] to values["hwm"]
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        FileInputStream(file).use { input ->
-            val buffer = ByteArray(HASH_BUFFER_BYTES)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
     private fun saveReport() {
         report.put("cases", caseResults)
         reportFile.writeText(report.toString(2))
@@ -543,7 +654,10 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         const val BACKGROUND_HOLD_MS = 1_500L
         const val UI_IDLE_TIMEOUT_MS = 10_000L
         const val THERMAL_GENERATIONS = 3
-        const val HASH_BUFFER_BYTES = 1024 * 1024
+        const val STARTUP_WORK_QUIESCENCE_TIMEOUT_MS = 30_000L
+        const val WORK_MANAGER_OPERATION_TIMEOUT_MS = 5_000L
+        const val WORK_MANAGER_QUERY_TIMEOUT_MS = 5_000L
+        const val STARTUP_WORK_POLL_INTERVAL_MS = 100L
         const val TEST_SYSTEM_PROMPT = "You are a concise on-device assistant. Follow tool instructions and answer directly."
     }
 }

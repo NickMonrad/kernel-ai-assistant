@@ -30,7 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 const val WORK_NAME_NEXTCLOUD_SYNC = "nextcloud_lists_sync"
-private const val WORK_NAME_NEXTCLOUD_SYNC_PERIODIC = "nextcloud_lists_sync_periodic"
+const val WORK_NAME_NEXTCLOUD_SYNC_PERIODIC = "nextcloud_lists_sync_periodic"
 
 @HiltWorker
 class NextcloudSyncWorker @AssistedInject constructor(
