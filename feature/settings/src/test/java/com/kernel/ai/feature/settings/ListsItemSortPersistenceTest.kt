@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -81,6 +82,82 @@ class ListsUiPreferencesTest {
 
         assertEquals(ItemSort.CREATED_NEWEST, runBlocking { preferences.itemSortFor(1L) })
     }
+    @Test
+    fun `a list default sort is used when no explicit preference is set`() {
+        val preferences = testListsUiPreferences(
+            dispatcher,
+            listNameDao = listNameDaoReturning("MANUAL"),
+        )
+        assertEquals(ItemSort.MANUAL, runBlocking { preferences.itemSortFor(1L) })
+    }
+
+    @Test
+    fun `an explicit preference overrides the list default sort`() {
+        val listNameDao = listNameDaoReturning("MANUAL")
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+        runBlocking { preferences.setItemSort(1L, ItemSort.NAME_ASC) }
+        assertEquals(ItemSort.NAME_ASC, runBlocking { preferences.itemSortFor(1L) })
+    }
+
+    @Test
+    fun `an explicit sort follows a recreated generated list with a new row id`() {
+        val title = "Meal Plan 2026-10-03 (MP-001) Day 1 — Lentil Ragu"
+        val previousProjection = ListNameEntity(
+            id = 15L,
+            name = "$title (deleted)",
+            canonicalTitle = title,
+            lifecycle = ListLifecycle.DELETED.name,
+            defaultItemSort = "MANUAL",
+        )
+        val recreatedProjection = ListNameEntity(
+            id = 17L,
+            name = title,
+            canonicalTitle = title,
+            defaultItemSort = "MANUAL",
+        )
+        val listNameDao = mockk<ListNameDao>(relaxed = true) {
+            coEvery { getById(17L) } returns recreatedProjection
+            coEvery {
+                getDeletedByCanonicalTitleAndDefaultItemSort(title, "MANUAL")
+            } returns listOf(previousProjection)
+        }
+        val store = FakePreferencesDataStore()
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+
+        runBlocking {
+            preferences.setItemSort(15L, ItemSort.NAME_DESC)
+
+            assertEquals(ItemSort.NAME_DESC, preferences.itemSortFor(17L))
+            assertEquals("NAME_DESC", store.state.value[itemSortKeyOf(17L)])
+        }
+    }
+
+    @Test
+    fun `ordinary lists do not inherit generated projection sort preferences`() {
+        val title = "weeknight shopping"
+        val listNameDao = mockk<ListNameDao>(relaxed = true) {
+            coEvery { getById(17L) } returns ListNameEntity(
+                id = 17L,
+                name = title,
+                canonicalTitle = title,
+            )
+        }
+        val store = FakePreferencesDataStore()
+        val preferences = testListsUiPreferences(dispatcher, store, listNameDao)
+
+        runBlocking {
+            preferences.setItemSort(15L, ItemSort.NAME_DESC)
+
+            assertEquals(ItemSort.CREATED_NEWEST, preferences.itemSortFor(17L))
+        }
+        coVerify(exactly = 0) {
+            listNameDao.getDeletedByCanonicalTitleAndDefaultItemSort(any(), any())
+        }
+    }
+
+    private fun listNameDaoReturning(defaultItemSort: String?): ListNameDao = mockk(relaxed = true) {
+        coEvery { getById(any()) } returns ListNameEntity(id = 1L, name = "Recipe", defaultItemSort = defaultItemSort)
+    }
 }
 
 /** Preferences store whose reads block until [release], to exercise restore ordering. */
@@ -125,13 +202,16 @@ class ListsItemSortPersistenceTest {
         every { observeAccountConfigured() } returns MutableStateFlow(false)
     }
 
-    private fun viewModelOn(store: DataStore<Preferences>) = ListsViewModel(
+    private fun viewModelOn(
+        store: DataStore<Preferences>,
+        listNameDaoOverride: ListNameDao = listNameDao,
+    ) = ListsViewModel(
         dao,
-        listNameDao,
+        listNameDaoOverride,
         scheduler,
         context,
         listMutations,
-        testListsUiPreferences(dispatcher, store),
+        testListsUiPreferences(dispatcher, store, listNameDaoOverride),
         nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
 
@@ -410,6 +490,32 @@ class ListsItemSortPersistenceTest {
         viewModel.bindItemList(2L)
         gated.release()
 
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+    }
+
+    @Test
+    fun `an explicit choice equal to the temporary sort wins over a slow default restore`() {
+        val gated = GatedPreferencesDataStore()
+        val recipeListNameDao = mockk<ListNameDao>(relaxed = true).apply {
+            coEvery { getById(1L) } returns ListNameEntity(
+                id = 1L,
+                name = "Recipe",
+                defaultItemSort = ItemSort.MANUAL.name,
+            )
+        }
+        val preferences = testListsUiPreferences(dispatcher, gated, recipeListNameDao)
+        val viewModel = viewModelOn(gated, recipeListNameDao)
+
+        viewModel.bindItemList(1L)
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+        assertEquals(null, viewModel.itemSortReadyForListId)
+
+        viewModel.selectItemSort(DEFAULT_ITEM_SORT)
+        assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+        assertEquals(1L, viewModel.itemSortReadyForListId)
+        gated.release()
+
+        assertEquals(DEFAULT_ITEM_SORT, runBlocking { preferences.itemSortFor(1L) })
         assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
     }
 }

@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.emptyPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.kernel.ai.core.memory.dao.ListNameDao
+import io.mockk.mockk
 
 /**
  * In-memory [DataStore] covering the preference surface the Lists screen uses.
@@ -35,4 +37,5 @@ open class FakePreferencesDataStore(
 fun testListsUiPreferences(
     dispatcher: CoroutineDispatcher,
     store: DataStore<Preferences> = FakePreferencesDataStore(),
-): ListsUiPreferences = ListsUiPreferences(store).apply { ioDispatcher = dispatcher }
+    listNameDao: ListNameDao = mockk(relaxed = true),
+): ListsUiPreferences = ListsUiPreferences(store, listNameDao).apply { ioDispatcher = dispatcher }
