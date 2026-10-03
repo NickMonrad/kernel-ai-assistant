@@ -35,6 +35,8 @@ import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
 import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
 import com.kernel.ai.core.memory.mealplan.jsonArrayToStringList
 import com.kernel.ai.core.memory.mealplan.toJsonArrayString
+import com.kernel.ai.core.memory.lists.OrderKey
+
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -51,6 +53,7 @@ import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+private const val RECIPE_LIST_DEFAULT_ITEM_SORT = "MANUAL" // matches ItemSort.MANUAL; recipe projections open in canonical order (#1549).
 
 class MealPlanIngredientDataUnavailableException(
     val dayIndex: Int,
@@ -129,7 +132,13 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun recreateRecipeList(sessionId: String, dayIndex: Int): String = database.withTransaction {
         val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
         val targetName = nextAvailableListName(recipeVersion.title.ifBlank { "Recipe" })
-        listMutations.createCollectionWithItems(targetName, buildRecipeListTexts(recipeVersion))
+        val listId = listMutations.createCollection(targetName)
+        writeRecipeHierarchy(
+            listId = listId,
+            ingredients = jsonToIngredients(recipeVersion.ingredientsJson),
+            methodSteps = jsonToMethodSteps(recipeVersion.methodStepsJson),
+        )
+        listNameDao.updateDefaultItemSort(listId, RECIPE_LIST_DEFAULT_ITEM_SORT)
         targetName
     }
 
@@ -680,16 +689,7 @@ class MealPlanSessionRepository @Inject constructor(
         val targetName = recipeListName(session, dayIndex, recipeVersion.title)
         val ingredients = jsonToIngredients(recipeVersion.ingredientsJson)
         val methodSteps = jsonToMethodSteps(recipeVersion.methodStepsJson)
-        val recipeListItems = buildList<Pair<String, String>> {
-            add("day:$dayId:recipe:${recipeVersion.id}:section:ingredients" to "Ingredients")
-            ingredients.forEachIndexed { index, ingredient ->
-                add("day:$dayId:recipe:${recipeVersion.id}:ingredient:$index" to ingredient.originalText)
-            }
-            add("day:$dayId:recipe:${recipeVersion.id}:section:method" to "Method")
-            methodSteps.forEachIndexed { index, step ->
-                add("day:$dayId:recipe:${recipeVersion.id}:step:$index" to "${step.stepNumber}. ${step.text}")
-            }
-        }
+        val sourceKeys = recipeProjectionSourceKeys(dayId, recipeVersion, ingredients, methodSteps)
         database.withTransaction {
             val oldTargets = projectionWriteDao.getActiveTargetNamesForSourcePrefix(
                 sessionId = session.id,
@@ -707,9 +707,11 @@ class MealPlanSessionRepository @Inject constructor(
                 sourceKeyPrefix = sourcePrefix,
                 timestamp = projectedAt,
             )
-            listMutations.createCollectionWithItems(targetName, recipeListItems.map { it.second })
+            val listId = listMutations.createCollection(targetName)
+            writeRecipeHierarchy(listId, ingredients, methodSteps)
+            listNameDao.updateDefaultItemSort(listId, RECIPE_LIST_DEFAULT_ITEM_SORT)
             projectionWriteDao.insertAll(
-                recipeListItems.map { (sourceKey, _) ->
+                sourceKeys.map { sourceKey ->
                     MealPlanProjectionWriteEntity(
                         id = UUID.randomUUID().toString(),
                         mealPlanSessionId = session.id,
@@ -905,11 +907,39 @@ class MealPlanSessionRepository @Inject constructor(
         return day to recipeVersion
     }
 
-    private fun buildRecipeListTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> = buildList {
-        add("Ingredients")
-        addAll(buildRecipeIngredientTexts(recipeVersion))
-        add("Method")
-        addAll(buildRecipeMethodTexts(recipeVersion))
+    private fun recipeProjectionSourceKeys(
+        dayId: String,
+        recipeVersion: MealPlanRecipeVersionEntity,
+        ingredients: List<RecipeDraftIngredient>,
+        methodSteps: List<RecipeDraftMethodStep>,
+    ): List<String> = buildList {
+        add("day:$dayId:recipe:${recipeVersion.id}:section:ingredients")
+        ingredients.forEachIndexed { index, _ -> add("day:$dayId:recipe:${recipeVersion.id}:ingredient:$index") }
+        add("day:$dayId:recipe:${recipeVersion.id}:section:method")
+        methodSteps.forEachIndexed { index, _ -> add("day:$dayId:recipe:${recipeVersion.id}:step:$index") }
+    }
+
+    /**
+     * Writes the canonical two-level recipe hierarchy through the authoritative list mutation seam:
+     * an Ingredients parent with each ingredient as a direct child in canonical order, followed by a
+     * Method parent with each numbered step as a direct child in canonical step order. Stable
+     * parentItemId/orderKey keeps the projection in Manual order when opened (#1549).
+     */
+    private suspend fun writeRecipeHierarchy(
+        listId: Long,
+        ingredients: List<RecipeDraftIngredient>,
+        methodSteps: List<RecipeDraftMethodStep>,
+    ) {
+        val ingredientsParentId = listItemDao.getById(listMutations.addItem(listId, "Ingredients"))!!.itemId
+        ingredients.forEachIndexed { index, ingredient ->
+            val childId = listMutations.addItem(listId, ingredient.originalText)
+            listMutations.setItemPlacement(childId, ingredientsParentId, OrderKey.forIndex(index))
+        }
+        val methodParentId = listItemDao.getById(listMutations.addItem(listId, "Method"))!!.itemId
+        methodSteps.forEachIndexed { index, step ->
+            val childId = listMutations.addItem(listId, "${step.stepNumber}. ${step.text}")
+            listMutations.setItemPlacement(childId, methodParentId, OrderKey.forIndex(index))
+        }
     }
 
     private fun buildRecipeIngredientTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =

@@ -11,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
@@ -151,10 +152,7 @@ class MealPlanSessionRepositoryAndroidTest {
             listOf("500 g chicken thigh", "2 onions"),
             listItemDao.getByList(shoppingListId).map { it.text },
         )
-        assertEquals(
-            listOf("Ingredients", "placeholder ingredient", "Method", "1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
-            listItemDao.getByList(recipeListId).map { it.text },
-        )
+        assertRecipeHierarchy(recipeListId, listOf("placeholder ingredient"), listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."))
         assertEquals(2, projectionCount(updated.sessionId, "PLAN_SHOPPING_LIST", superseded = null))
         assertEquals(5, projectionCount(updated.sessionId, "RECIPE_LIST", superseded = null))
     }
@@ -303,7 +301,7 @@ class MealPlanSessionRepositoryAndroidTest {
         assertEquals(2, regenerated.days.single().currentRecipeVersion)
         assertFalse(currentListNames.contains(originalRecipeListName))
         assertEquals(listOf("1 lemon"), listItemDao.getByList(shoppingListId).map { it.text })
-        assertEquals(listOf("Ingredients", "placeholder ingredient", "Method", "1. Roast the chicken with lemon."), listItemDao.getByList(regeneratedRecipeListId).map { it.text })
+        assertRecipeHierarchy(regeneratedRecipeListId, listOf("placeholder ingredient"), listOf("1. Roast the chicken with lemon."))
         assertEquals(1, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
         assertEquals(2, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
         assertEquals(4, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = false))
@@ -421,7 +419,7 @@ class MealPlanSessionRepositoryAndroidTest {
         val restoredShoppingListId = rebuiltLists.single { it.name == shoppingListName }.id
         val restoredRecipeListId = rebuiltLists.single { it.name == firstRecipeListName }.id
         assertEquals(listOf("500 g chicken thigh", "1 block tofu"), listItemDao.getByList(restoredShoppingListId).map { it.text })
-        assertEquals(listOf("Ingredients", "placeholder ingredient", "Method", "1. Prep vegetables."), listItemDao.getByList(restoredRecipeListId).map { it.text })
+        assertRecipeHierarchy(restoredRecipeListId, listOf("placeholder ingredient"), listOf("1. Prep vegetables."))
     }
 
     @Test
@@ -589,16 +587,16 @@ class MealPlanSessionRepositoryAndroidTest {
         assertEquals("Chicken Stir Fry (2)", secondListName)
         val firstListId = requireNotNull(listNameDao.getByName(firstListName)).id
         val secondListId = requireNotNull(listNameDao.getByName(secondListName)).id
-        val expectedItems = listOf(
-            "Ingredients",
-            "placeholder ingredient",
-            "Method",
-            "1. Slice the vegetables.",
-            "2. Stir-fry everything until glossy.",
+        assertRecipeHierarchy(
+            firstListId,
+            expectedIngredients = listOf("placeholder ingredient"),
+            expectedSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
         )
-
-        assertEquals(expectedItems, listItemDao.getByList(firstListId).map { it.text })
-        assertEquals(expectedItems, listItemDao.getByList(secondListId).map { it.text })
+        assertRecipeHierarchy(
+            secondListId,
+            expectedIngredients = listOf("placeholder ingredient"),
+            expectedSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
     }
 
     @Test
@@ -798,6 +796,32 @@ class MealPlanSessionRepositoryAndroidTest {
             cursor.moveToFirst()
             cursor.getInt(0)
         }
+    }
+    /**
+     * Asserts a recipe projection list uses the canonical two-level hierarchy (an Ingredients parent
+     * followed by a Method parent, each with its children in canonical order) and opens in the Manual
+     * item sort by default (#1549).
+     */
+    private suspend fun assertRecipeHierarchy(
+        listId: Long,
+        expectedIngredients: List<String>,
+        expectedSteps: List<String>,
+    ) {
+        val items = listItemDao.getAllByListUnordered(listId)
+        val topLevel = items.filter { it.parentItemId == null }
+        val ingredients = topLevel.single { it.text == "Ingredients" }
+        val method = topLevel.single { it.text == "Method" }
+        assertTrue(
+            "Ingredients section must sort before Method section",
+            OrderKey.compare(ingredients.orderKey, method.orderKey) < 0,
+        )
+        val ingredientChildren = items.filter { it.parentItemId == ingredients.itemId }
+            .sortedBy { it.orderKey }
+        val methodChildren = items.filter { it.parentItemId == method.itemId }
+            .sortedBy { it.orderKey }
+        assertEquals(expectedIngredients, ingredientChildren.map { it.text })
+        assertEquals(expectedSteps, methodChildren.map { it.text })
+        assertEquals("MANUAL", listNameDao.getById(listId)?.defaultItemSort)
     }
 
     private fun projectionRowsForSession(sessionId: String): Int {

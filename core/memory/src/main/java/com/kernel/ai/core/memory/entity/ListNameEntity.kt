@@ -33,6 +33,8 @@ data class ListNameEntity(
     val lifecycle: String = "ACTIVE",
     val titleLogicalClock: Long = 0L,
     val titleStampActorId: String = "",
+    /** Per-list initial item sort; when set, the list opens in this sort until the user picks another. Recipe projections set MANUAL (#1549). */
+    val defaultItemSort: String? = null,
     val lifecycleLogicalClock: Long = 0L,
     val lifecycleStampActorId: String = "",
 )

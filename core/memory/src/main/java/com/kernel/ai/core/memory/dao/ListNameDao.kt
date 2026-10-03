@@ -76,6 +76,22 @@ abstract class ListNameDao {
 
     @Query("UPDATE lists SET archivedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
     abstract suspend fun restoreList(id: Long, updatedAt: Long)
+    @Query("UPDATE lists SET defaultItemSort = :sort WHERE id = :listId")
+    abstract suspend fun updateDefaultItemSort(listId: Long, sort: String?)
+
+    @Query(
+        """
+        SELECT * FROM lists
+        WHERE canonicalTitle = :canonicalTitle
+          AND defaultItemSort = :defaultItemSort
+          AND lifecycle = 'DELETED'
+        ORDER BY id DESC
+        """,
+    )
+    abstract suspend fun getDeletedByCanonicalTitleAndDefaultItemSort(
+        canonicalTitle: String,
+        defaultItemSort: String,
+    ): List<ListNameEntity>
 
     @Query("SELECT * FROM lists WHERE lifecycle = 'ACTIVE' AND archivedAt IS NOT NULL ORDER BY archivedAt DESC")
     abstract fun observeArchivedLists(): Flow<List<ListNameEntity>>

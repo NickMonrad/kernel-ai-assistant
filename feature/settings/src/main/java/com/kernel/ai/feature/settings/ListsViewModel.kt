@@ -174,13 +174,17 @@ class ListsViewModel @Inject constructor(
     /**
      * Sort order for the drill-in item screen of the currently bound list.
      *
-     * Restored per list by [bindItemList]; stays [DEFAULT_ITEM_SORT] until a list is bound.
+     * Restored per list by [bindItemList]; consumers gate display until [itemSortReadyForListId]
+     * matches the bound list.
      */
     var itemSort by mutableStateOf(DEFAULT_ITEM_SORT)
         private set
 
     /** List whose drill-in sort preference is bound, or null when no drill-in screen is open. */
     private var boundItemListId: Long? = null
+    /** List whose item sort is ready to display; null while the bound list's preference restores. */
+    var itemSortReadyForListId by mutableStateOf<Long?>(null)
+        private set
 
     private var itemSortLoadJob: Job? = null
 
@@ -206,10 +210,14 @@ class ListsViewModel @Inject constructor(
     fun bindItemList(listId: Long) {
         if (boundItemListId == listId) return
         boundItemListId = listId
+        itemSortReadyForListId = null
         itemSortLoadJob?.cancel()
         itemSortLoadJob = viewModelScope.launch {
             val saved = listsUiPreferences.itemSortFor(listId)
-            if (boundItemListId == listId) itemSort = saved
+            if (boundItemListId == listId) {
+                itemSort = saved
+                itemSortReadyForListId = listId
+            }
         }
     }
 
@@ -219,11 +227,15 @@ class ListsViewModel @Inject constructor(
      * This preference is local presentation state: it never emits a sync change record.
      */
     fun selectItemSort(sort: ItemSort) {
-        if (itemSort == sort) return
+        val listId = boundItemListId
+        val restorePending = listId != null && itemSortReadyForListId != listId
+        if (itemSort == sort && !restorePending) return
         // An explicit choice supersedes any restore still in flight for this list.
         itemSortLoadJob?.cancel()
+        itemSortLoadJob = null
         itemSort = sort
-        val listId = boundItemListId ?: return
+        if (listId == null) return
+        itemSortReadyForListId = listId
         viewModelScope.launch { listsUiPreferences.setItemSort(listId, sort) }
     }
 
