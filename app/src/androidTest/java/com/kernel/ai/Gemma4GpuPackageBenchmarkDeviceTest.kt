@@ -389,6 +389,10 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
                 "Model artifact pins changed during benchmark: ${postRunCheck.artifactCheck.failureMessage()}",
                 postRunCheck.passed,
             )
+            assertTrue(
+                "Diagnostic reload initialization did not complete: ${runSummary.reloadGpuStabilityStatus}",
+                runSummary.armStatus == "passed",
+            )
         } catch (failure: Throwable) {
             report.put("status", "failed")
             report.put("failure_type", failure::class.java.name)
@@ -577,39 +581,54 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         legacyReloadPrefix: String,
     ): Pr1451ReloadObservation {
         reloadOrderGate.requireDiagnosticReloadAllowed()
-        var initStartedNanos: Long? = null
-        var initialized = false
+        var initializationElapsedMs: Double? = null
         var failureMessage: String? = null
         var availableMemoryFailure: String? = null
-        var preInitAvailableMemoryMiB: Long? = null
-        try {
+        val reloadCapture = try {
             val shutdownCompleted = withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
                 engine.shutdown()
                 true
             } ?: false
             check(shutdownCompleted) { "Timed out shutting down before $reportPrefix" }
-            preInitAvailableMemoryMiB = try {
-                availableSystemMemoryMiB(context)
-            } catch (failure: Exception) {
-                availableMemoryFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
-                null
-            }
-
-            initStartedNanos = SystemClock.elapsedRealtimeNanos()
-            val initializationCompleted = withTimeoutOrNull(INIT_TIMEOUT_MS) {
-                engine.initialize(baseConfig)
-                true
-            } ?: false
-            check(initializationCompleted) { "Timed out initializing $reportPrefix" }
-            initialized = true
+            capturePr1451Reload(
+                sampleAvailableSystemMemoryMiB = {
+                    try {
+                        availableSystemMemoryMiB(context)
+                    } catch (failure: Exception) {
+                        availableMemoryFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+                        null
+                    }
+                },
+                initialize = {
+                    val initStartedNanos = SystemClock.elapsedRealtimeNanos()
+                    try {
+                        initializePr1451ReloadWithTimeout(
+                            timeoutMs = INIT_TIMEOUT_MS,
+                            phase = reportPrefix,
+                        ) {
+                            engine.initialize(baseConfig)
+                        }
+                    } finally {
+                        initializationElapsedMs = elapsedMs(initStartedNanos)
+                    }
+                },
+                capturePostInitState = {
+                    Pr1451ReloadPostInitState(
+                        engineReady = engine.isReady.value,
+                        activeBackend = engine.activeBackend.value?.name,
+                    )
+                },
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             failureMessage = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+            null
         }
-        val initializationElapsedMs = initStartedNanos?.let(::elapsedMs)
-        val engineReady = engine.isReady.value
-        val activeBackend = if (initialized) engine.activeBackend.value?.name else null
+        failureMessage = reloadCapture?.failureMessage ?: failureMessage
+        val preInitAvailableMemoryMiB = reloadCapture?.preInitAvailableSystemMemoryMiB
+        val engineReady = reloadCapture?.postInitState?.engineReady
+        val activeBackend = reloadCapture?.postInitState?.activeBackend
 
         var memorySnapshotFailure: String? = null
         val memoryAfterReload = try {
