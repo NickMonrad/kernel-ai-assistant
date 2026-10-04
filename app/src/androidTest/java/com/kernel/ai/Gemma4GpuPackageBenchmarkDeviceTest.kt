@@ -1,5 +1,6 @@
 package com.kernel.ai
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.ActivityManager
 import android.app.Instrumentation
 import android.content.Context
@@ -8,6 +9,7 @@ import android.os.Debug
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import androidx.work.WorkInfo
@@ -555,7 +557,25 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         engine: LiteRtInferenceEngine,
     ): JSONObject {
         val uiDevice = UiDevice.getInstance(instrumentation)
-        assertTrue("Could not send app to background", uiDevice.pressHome())
+        val backgroundWait = awaitPr1451Background(
+            targetPackageName = context.packageName,
+            applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
+            timeoutMs = BACKGROUND_STATE_TIMEOUT_MS,
+            pollIntervalMs = BACKGROUND_STATE_POLL_INTERVAL_MS,
+            pressHome = { uiDevice.pressHome() },
+            snapshotWindows = { captureForegroundWindowSnapshot(instrumentation) },
+            elapsedRealtimeMs = { SystemClock.elapsedRealtime() },
+            sleep = { SystemClock.sleep(it) },
+        )
+        val backgroundWindow = backgroundWait.backgroundWindow
+        val backgroundConfirmed = backgroundWindow != null
+        val backgroundDiagnostic = backgroundWait.failureMessage(
+            targetPackageName = context.packageName,
+            timeoutMs = BACKGROUND_STATE_TIMEOUT_MS,
+        )
+        Log.i(TAG, "background_state_check: $backgroundDiagnostic; confirmed=$backgroundConfirmed")
+        assertTrue(backgroundDiagnostic, backgroundConfirmed)
+
         SystemClock.sleep(BACKGROUND_HOLD_MS)
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         assertNotNull("Debug app has no launcher activity", launchIntent)
@@ -564,12 +584,71 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         val powerManager = context.getSystemService(PowerManager::class.java)
         assertTrue("Screen did not return to interactive state", powerManager.isInteractive)
         return JSONObject()
-            .put("home_pressed", true)
-            .put("resumed_package", context.packageName)
+            .put("home_accessibility_event_observed", backgroundWait.homeAccessibilityEventObserved)
+            .put("background_confirmed", backgroundConfirmed)
+            .put("background_wait_ms", backgroundWait.elapsedMs)
+            .put("background_windows_before_home", foregroundWindowSnapshotJson(backgroundWait.beforeHome))
+            .put("background_windows_confirmed", foregroundWindowSnapshotJson(backgroundWait.lastSnapshot))
+            .put("background_observed_package", backgroundWindow?.packageName ?: JSONObject.NULL)
             .put("screen_interactive", powerManager.isInteractive)
             .put("engine_ready_before_reload", engine.isReady.value)
             .put("backend_before_reload", engine.activeBackend.value?.name ?: JSONObject.NULL)
     }
+
+    private fun captureForegroundWindowSnapshot(
+        instrumentation: Instrumentation,
+    ): Pr1451ForegroundWindowSnapshot {
+        val uiAutomation = instrumentation.uiAutomation
+        return try {
+            val serviceInfo = requireNotNull(uiAutomation.serviceInfo)
+            if ((serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) == 0) {
+                serviceInfo.flags =
+                    serviceInfo.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                uiAutomation.serviceInfo = serviceInfo
+            }
+            val windows = uiAutomation.windows
+            val evidence = try {
+                windows.map { window ->
+                    val root = window.root
+                    try {
+                        Pr1451ForegroundWindowEvidence(
+                            packageName = root?.packageName?.toString(),
+                            type = window.type,
+                            focused = window.isFocused,
+                            active = window.isActive,
+                        )
+                    } finally {
+                        root?.recycle()
+                    }
+                }
+            } finally {
+                windows.forEach { it.recycle() }
+            }
+            Pr1451ForegroundWindowSnapshot(windows = evidence)
+        } catch (failure: Exception) {
+            Pr1451ForegroundWindowSnapshot(
+                windows = emptyList(),
+                readError = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}",
+            )
+        }
+    }
+
+    private fun foregroundWindowSnapshotJson(
+        snapshot: Pr1451ForegroundWindowSnapshot,
+    ): JSONObject = JSONObject()
+        .put("read_error", snapshot.readError ?: JSONObject.NULL)
+        .put(
+            "windows",
+            JSONArray(
+                snapshot.windows.map { window ->
+                    JSONObject()
+                        .put("package_name", window.packageName ?: JSONObject.NULL)
+                        .put("type", window.type ?: JSONObject.NULL)
+                        .put("focused", window.focused)
+                        .put("active", window.active)
+                },
+            ),
+        )
 
     private suspend fun captureDiagnosticReload(
         context: Context,
@@ -793,6 +872,8 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         const val CANCELLATION_WAIT_MS = 500L
         const val BACKGROUND_HOLD_MS = 1_500L
         const val UI_IDLE_TIMEOUT_MS = 10_000L
+        const val BACKGROUND_STATE_TIMEOUT_MS = 5_000L
+        const val BACKGROUND_STATE_POLL_INTERVAL_MS = 100L
         const val THERMAL_GENERATIONS = 3
         const val STARTUP_WORK_QUIESCENCE_TIMEOUT_MS = 30_000L
         const val WORK_MANAGER_OPERATION_TIMEOUT_MS = 5_000L
