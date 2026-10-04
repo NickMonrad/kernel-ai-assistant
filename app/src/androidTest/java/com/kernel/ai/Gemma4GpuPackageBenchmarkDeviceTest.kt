@@ -580,12 +580,20 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         var initStartedNanos: Long? = null
         var initialized = false
         var failureMessage: String? = null
+        var availableMemoryFailure: String? = null
+        var preInitAvailableMemoryMiB: Long? = null
         try {
             val shutdownCompleted = withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
                 engine.shutdown()
                 true
             } ?: false
             check(shutdownCompleted) { "Timed out shutting down before $reportPrefix" }
+            preInitAvailableMemoryMiB = try {
+                availableSystemMemoryMiB(context)
+            } catch (failure: Exception) {
+                availableMemoryFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+                null
+            }
 
             initStartedNanos = SystemClock.elapsedRealtimeNanos()
             val initializationCompleted = withTimeoutOrNull(INIT_TIMEOUT_MS) {
@@ -599,6 +607,9 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         } catch (failure: Exception) {
             failureMessage = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
         }
+        val initializationElapsedMs = initStartedNanos?.let(::elapsedMs)
+        val engineReady = engine.isReady.value
+        val activeBackend = if (initialized) engine.activeBackend.value?.name else null
 
         var memorySnapshotFailure: String? = null
         val memoryAfterReload = try {
@@ -607,21 +618,15 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             memorySnapshotFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
             JSONObject()
         }
-        var availableMemoryFailure: String? = null
-        val availableMemoryMiB = try {
-            availableSystemMemoryMiB(context)
-        } catch (failure: Exception) {
-            availableMemoryFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
-            null
-        }
         val observation = Pr1451ReloadEvidence.assess(
-            backend = if (initialized) engine.activeBackend.value?.name else null,
-            availableSystemMemoryMiB = availableMemoryMiB,
+            backend = activeBackend,
+            preInitAvailableSystemMemoryMiB = preInitAvailableMemoryMiB,
+            engineReady = engineReady,
             processPssMiB = (memoryAfterReload.opt("pss_mib") as? Number)?.toDouble(),
             processRssMiB = (memoryAfterReload.opt("rss_mib") as? Number)?.toDouble(),
             failureMessage = failureMessage,
         )
-        report.put(timingField, initStartedNanos?.let(::elapsedMs) ?: JSONObject.NULL)
+        report.put(timingField, initializationElapsedMs ?: JSONObject.NULL)
         report.put("backend_after_$legacyReloadPrefix", observation.backend ?: JSONObject.NULL)
         report.put("gpu_backend_confirmed_after_$legacyReloadPrefix", observation.gpuRetained == true)
         report.put("memory_after_$legacyReloadPrefix", memoryAfterReload)
@@ -629,15 +634,16 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             report.put(key, value ?: JSONObject.NULL)
         }
         report.put("${reportPrefix}_memory_snapshot_failure", memorySnapshotFailure ?: JSONObject.NULL)
-        report.put("${reportPrefix}_available_memory_read_failure", availableMemoryFailure ?: JSONObject.NULL)
+        report.put("${reportPrefix}_pre_init_available_memory_read_failure", availableMemoryFailure ?: JSONObject.NULL)
         saveReport()
         Log.i(
             TAG,
             "PR1451_RELOAD phase=$reportPrefix backend=${observation.backend ?: "unknown"} " +
-                "available_mib=${observation.availableSystemMemoryMiB} " +
+                "engine_ready=${observation.engineReady} elapsed_ms=$initializationElapsedMs " +
+                "pre_init_available_mib=${observation.preInitAvailableSystemMemoryMiB} " +
                 "gpu_headroom_mib=${observation.gpuMemoryHeadroomMiB} " +
-                "pss_mib=${observation.processPssMiB} rss_mib=${observation.processRssMiB} " +
                 "gpu_retained=${observation.gpuRetained} outcome=${observation.outcome} " +
+                "pss_mib=${observation.processPssMiB} rss_mib=${observation.processRssMiB} " +
                 "failure=${observation.failureMessage}",
         )
         return observation

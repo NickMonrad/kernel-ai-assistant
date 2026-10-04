@@ -2,7 +2,8 @@ package com.kernel.ai
 
 internal data class Pr1451ReloadObservation(
     val backend: String?,
-    val availableSystemMemoryMiB: Long?,
+    val preInitAvailableSystemMemoryMiB: Long?,
+    val engineReady: Boolean?,
     val processPssMiB: Double?,
     val processRssMiB: Double?,
     val gpuMinimumAvailableMemoryMiB: Long,
@@ -13,7 +14,8 @@ internal data class Pr1451ReloadObservation(
 ) {
     fun reportFields(prefix: String): Map<String, Any?> = mapOf(
         "${prefix}_backend" to backend,
-        "${prefix}_available_system_memory_mib" to availableSystemMemoryMiB,
+        "${prefix}_pre_init_available_system_memory_mib" to preInitAvailableSystemMemoryMiB,
+        "${prefix}_engine_ready" to engineReady,
         "${prefix}_gpu_minimum_available_memory_mib" to gpuMinimumAvailableMemoryMiB,
         "${prefix}_gpu_memory_headroom_mib" to gpuMemoryHeadroomMiB,
         "${prefix}_process_pss_mib" to processPssMiB,
@@ -54,7 +56,8 @@ internal object Pr1451ReloadEvidence {
 
     fun assess(
         backend: String?,
-        availableSystemMemoryMiB: Long?,
+        preInitAvailableSystemMemoryMiB: Long?,
+        engineReady: Boolean?,
         processPssMiB: Double?,
         processRssMiB: Double?,
         failureMessage: String? = null,
@@ -73,11 +76,12 @@ internal object Pr1451ReloadEvidence {
         }
         return Pr1451ReloadObservation(
             backend = backend,
-            availableSystemMemoryMiB = availableSystemMemoryMiB,
+            preInitAvailableSystemMemoryMiB = preInitAvailableSystemMemoryMiB,
+            engineReady = engineReady,
             processPssMiB = processPssMiB,
             processRssMiB = processRssMiB,
             gpuMinimumAvailableMemoryMiB = GPU_MINIMUM_AVAILABLE_MEMORY_MIB,
-            gpuMemoryHeadroomMiB = availableSystemMemoryMiB?.minus(GPU_MINIMUM_AVAILABLE_MEMORY_MIB),
+            gpuMemoryHeadroomMiB = preInitAvailableSystemMemoryMiB?.minus(GPU_MINIMUM_AVAILABLE_MEMORY_MIB),
             gpuRetained = gpuRetained,
             outcome = outcome,
             failureMessage = failureMessage,

@@ -11,28 +11,34 @@ class Pr1451ReloadEvidenceTest {
     fun gpuReloadIsReportedAsRetained() {
         val observation = Pr1451ReloadEvidence.assess(
             backend = "GPU",
-            availableSystemMemoryMiB = 2_300L,
+            preInitAvailableSystemMemoryMiB = 2_300L,
+            engineReady = true,
             processPssMiB = 2_036.0,
             processRssMiB = 2_100.0,
         )
+        val fields = observation.reportFields("warm_reload")
 
         assertEquals("gpu_retained", observation.outcome)
         assertEquals(true, observation.gpuRetained)
         assertEquals(2_048L, observation.gpuMinimumAvailableMemoryMiB)
         assertEquals(252L, observation.gpuMemoryHeadroomMiB)
+        assertEquals(2_300L, fields["warm_reload_pre_init_available_system_memory_mib"])
+        assertEquals(true, fields["warm_reload_engine_ready"])
     }
 
     @Test
     fun cpuReloadReportsNegativeHeadroomAndDoesNotFailCompletedArm() {
         val cpuReload = Pr1451ReloadEvidence.assess(
             backend = "CPU",
-            availableSystemMemoryMiB = 1_925L,
+            preInitAvailableSystemMemoryMiB = 1_925L,
+            engineReady = false,
             processPssMiB = 2_036.0,
             processRssMiB = 2_100.0,
         )
         val gpuReload = Pr1451ReloadEvidence.assess(
             backend = "GPU",
-            availableSystemMemoryMiB = 2_300L,
+            preInitAvailableSystemMemoryMiB = 2_300L,
+            engineReady = true,
             processPssMiB = 2_000.0,
             processRssMiB = 2_050.0,
         )
@@ -43,8 +49,9 @@ class Pr1451ReloadEvidenceTest {
         assertEquals(false, cpuReload.gpuRetained)
         assertEquals(-123L, cpuReload.gpuMemoryHeadroomMiB)
         assertEquals("CPU", fields["warm_reload_backend"])
-        assertEquals(1_925L, fields["warm_reload_available_system_memory_mib"])
+        assertEquals(1_925L, fields["warm_reload_pre_init_available_system_memory_mib"])
         assertEquals(-123L, fields["warm_reload_gpu_memory_headroom_mib"])
+        assertEquals(false, fields["warm_reload_engine_ready"])
         assertEquals(2_036.0, fields["warm_reload_process_pss_mib"])
         assertEquals(2_100.0, fields["warm_reload_process_rss_mib"])
         assertEquals(false, fields["warm_reload_gpu_retained"])
@@ -57,13 +64,15 @@ class Pr1451ReloadEvidenceTest {
     fun unrecognizedReloadBackendRemainsUnknownRatherThanCpuFailure() {
         val unknownReload = Pr1451ReloadEvidence.assess(
             backend = "NPU",
-            availableSystemMemoryMiB = null,
+            preInitAvailableSystemMemoryMiB = null,
+            engineReady = null,
             processPssMiB = 2_036.0,
             processRssMiB = 2_100.0,
         )
         val gpuReload = Pr1451ReloadEvidence.assess(
             backend = "GPU",
-            availableSystemMemoryMiB = 2_300L,
+            preInitAvailableSystemMemoryMiB = 2_300L,
+            engineReady = true,
             processPssMiB = 2_000.0,
             processRssMiB = 2_050.0,
         )
@@ -101,14 +110,16 @@ class Pr1451ReloadEvidenceTest {
     fun reloadErrorsAreDiagnosticAndKeepArmStatusSeparate() {
         val failedReload = Pr1451ReloadEvidence.assess(
             backend = null,
-            availableSystemMemoryMiB = null,
+            preInitAvailableSystemMemoryMiB = null,
+            engineReady = false,
             processPssMiB = null,
             processRssMiB = null,
             failureMessage = "initialization timed out",
         )
         val gpuReload = Pr1451ReloadEvidence.assess(
             backend = "GPU",
-            availableSystemMemoryMiB = 2_300L,
+            preInitAvailableSystemMemoryMiB = 2_300L,
+            engineReady = true,
             processPssMiB = 2_000.0,
             processRssMiB = 2_050.0,
         )
