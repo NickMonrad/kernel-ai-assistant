@@ -1,5 +1,7 @@
 package com.kernel.ai
 
+import android.app.ActivityManager
+import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import android.os.Debug
@@ -23,6 +25,7 @@ import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import com.kernel.ai.core.memory.worker.WORK_NAME_NEXTCLOUD_SYNC
 import com.kernel.ai.core.memory.worker.WORK_NAME_NEXTCLOUD_SYNC_PERIODIC
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -33,9 +36,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -153,6 +156,8 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
         )
 
         try {
+            val reloadOrderGate = Pr1451ReloadOrderGate()
+
             awaitPr1451StartupWorkQuiescence(context)
             report.put("startup_work_quiesced", true)
             saveReport()
@@ -175,7 +180,7 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             report.put("memory_before_init", memorySnapshot())
             saveReport()
 
-            var loadStart = SystemClock.elapsedRealtimeNanos()
+            val loadStart = SystemClock.elapsedRealtimeNanos()
             withTimeout(INIT_TIMEOUT_MS) { engine.initialize(baseConfig) }
             report.put("first_engine_init_ms", elapsedMs(loadStart))
             report.put("first_init_scope", "first initialize in this process; OS/page cache is not flushed")
@@ -185,16 +190,6 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             report.put("gpu_backend_confirmed_after_first_init", engine.activeBackend.value == BackendType.GPU)
             assertGpuBackend(engine)
             report.put("memory_after_cold_init", memorySnapshot())
-            saveReport()
-
-            withTimeout(SHUTDOWN_TIMEOUT_MS) { engine.shutdown() }
-            loadStart = SystemClock.elapsedRealtimeNanos()
-            withTimeout(INIT_TIMEOUT_MS) { engine.initialize(baseConfig) }
-            report.put("warm_engine_reload_ms", elapsedMs(loadStart))
-            report.put("backend_after_warm_reload", engine.activeBackend.value?.name)
-            report.put("gpu_backend_confirmed_after_warm_reload", engine.activeBackend.value == BackendType.GPU)
-            assertGpuBackend(engine)
-            report.put("memory_after_warm_reload", memorySnapshot())
             saveReport()
 
             val normal = captureGeneration(
@@ -297,7 +292,7 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             )
             val structuredBackend = engine.activeBackend.value
             report.put("backend_before_structured_schema_case", structuredBackend?.name)
-            assertEquals("GPU run fell back or selected another backend", BackendType.GPU, structuredBackend)
+            Pr1451ReloadEvidence.requireGpuBackend(structuredBackend?.name)
             val structuredStart = SystemClock.elapsedRealtimeNanos()
             val structuredJson = withTimeout(GENERATION_TIMEOUT_MS) {
                 engine.generateStructuredOnce(
@@ -334,36 +329,44 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
             )
             assertTrue("Engine did not generate after reset/reuse", resetReuse.visibleText.isNotBlank())
 
-            val uiDevice = UiDevice.getInstance(instrumentation)
-            assertTrue("Could not send app to background", uiDevice.pressHome())
-            SystemClock.sleep(BACKGROUND_HOLD_MS)
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            assertNotNull("Debug app has no launcher activity", launchIntent)
-            context.startActivity(requireNotNull(launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            uiDevice.waitForIdle(UI_IDLE_TIMEOUT_MS)
-            val powerManager = context.getSystemService(PowerManager::class.java)
-            report.put(
-                "background_resume",
-                JSONObject()
-                    .put("home_pressed", true)
-                    .put("resumed_package", context.packageName)
-                    .put("screen_interactive", powerManager.isInteractive)
-                    .put("engine_ready_before_reload", engine.isReady.value),
+            val backgroundResume = resumeApplication(context, instrumentation, engine)
+            report.put("background_resume", backgroundResume)
+            saveReport()
+            val postResumeSameSession = captureGeneration(
+                engine,
+                "post_resume_same_initial_gpu_session",
+                "Reply with only the word RESUMED.",
             )
-            assertTrue("Screen did not return to interactive state", powerManager.isInteractive)
-
-            withTimeout(SHUTDOWN_TIMEOUT_MS) { engine.shutdown() }
-            loadStart = SystemClock.elapsedRealtimeNanos()
-            withTimeout(INIT_TIMEOUT_MS) { engine.initialize(baseConfig) }
-            report.put("background_resume_engine_reload_ms", elapsedMs(loadStart))
-            report.put("backend_after_background_resume_reload", engine.activeBackend.value?.name)
-            report.put("gpu_backend_confirmed_after_background_resume_reload", engine.activeBackend.value == BackendType.GPU)
-            assertGpuBackend(engine)
-            captureGeneration(engine, "post_resume_reload", "Reply with only the word RESUMED.")
+            assertTrue("Engine did not generate after same-session background/resume", postResumeSameSession.visibleText.isNotBlank())
 
             val thermal = captureThermalRun(context, engine)
             report.put("thermal_run", thermal)
+            reloadOrderGate.markInitialGpuMeasurementsComplete()
+
+            val warmReload = captureDiagnosticReload(
+                context = context,
+                engine = engine,
+                baseConfig = baseConfig,
+                reloadOrderGate = reloadOrderGate,
+                reportPrefix = "warm_reload",
+                timingField = "warm_engine_reload_ms",
+                legacyReloadPrefix = "warm_reload",
+            )
+
+            val backgroundResumeBeforeReload = resumeApplication(context, instrumentation, engine)
+            report.put("background_resume_before_diagnostic_reload", backgroundResumeBeforeReload)
+            saveReport()
+            val backgroundReload = captureDiagnosticReload(
+                context = context,
+                engine = engine,
+                baseConfig = baseConfig,
+                reloadOrderGate = reloadOrderGate,
+                reportPrefix = "background_reload",
+                timingField = "background_resume_engine_reload_ms",
+                legacyReloadPrefix = "background_resume_reload",
+            )
             report.put("memory_peak", JSONObject().put("pss_mib", peakPssMiB).put("rss_hwm_mib", peakRssHwmMiB))
+            saveReport()
 
             val postRunCheck = Pr1451ArtifactVerifier.verifyUnchangedAfterRun(
                 file = modelFile,
@@ -374,11 +377,18 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
                 preflight = requireNotNull(artifactPreflight),
             )
             recordPostRun(postRunCheck)
+            val runSummary = Pr1451ReloadEvidence.summarize(
+                armStatus = if (postRunCheck.passed) "passed" else "failed",
+                warmReload = warmReload,
+                backgroundReload = backgroundReload,
+            )
+            report.put("reload_gpu_stability_status", runSummary.reloadGpuStabilityStatus)
+            report.put("status", runSummary.armStatus)
+            saveReport()
             assertTrue(
                 "Model artifact pins changed during benchmark: ${postRunCheck.artifactCheck.failureMessage()}",
                 postRunCheck.passed,
             )
-            report.put("status", "passed")
         } catch (failure: Throwable) {
             report.put("status", "failed")
             report.put("failure_type", failure::class.java.name)
@@ -419,7 +429,7 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
     ): GenerationCapture {
         val activeBackend = engine.activeBackend.value
         report.put("backend_before_$caseName", activeBackend?.name)
-        assertEquals("GPU run fell back or selected another backend", BackendType.GPU, activeBackend)
+        Pr1451ReloadEvidence.requireGpuBackend(activeBackend?.name)
         val started = SystemClock.elapsedRealtimeNanos()
         var ttftMs: Double? = null
         var visibleChunks = 0
@@ -468,7 +478,7 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
     private suspend fun captureCancellation(engine: LiteRtInferenceEngine): JSONObject = coroutineScope {
         val activeBackend = engine.activeBackend.value
         report.put("backend_before_cancellation", activeBackend?.name)
-        assertEquals("GPU run fell back or selected another backend", BackendType.GPU, activeBackend)
+        Pr1451ReloadEvidence.requireGpuBackend(activeBackend?.name)
         val chunks = Collections.synchronizedList(mutableListOf<String>())
         val completed = async(Dispatchers.Default) {
             engine.generate(
@@ -532,7 +542,112 @@ class Gemma4GpuPackageBenchmarkDeviceTest {
     }
 
     private fun assertGpuBackend(engine: LiteRtInferenceEngine) {
-        assertEquals("GPU run fell back or selected another backend", BackendType.GPU, engine.activeBackend.value)
+        Pr1451ReloadEvidence.requireGpuBackend(engine.activeBackend.value?.name)
+    }
+
+    private fun resumeApplication(
+        context: Context,
+        instrumentation: Instrumentation,
+        engine: LiteRtInferenceEngine,
+    ): JSONObject {
+        val uiDevice = UiDevice.getInstance(instrumentation)
+        assertTrue("Could not send app to background", uiDevice.pressHome())
+        SystemClock.sleep(BACKGROUND_HOLD_MS)
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        assertNotNull("Debug app has no launcher activity", launchIntent)
+        context.startActivity(requireNotNull(launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        uiDevice.waitForIdle(UI_IDLE_TIMEOUT_MS)
+        val powerManager = context.getSystemService(PowerManager::class.java)
+        assertTrue("Screen did not return to interactive state", powerManager.isInteractive)
+        return JSONObject()
+            .put("home_pressed", true)
+            .put("resumed_package", context.packageName)
+            .put("screen_interactive", powerManager.isInteractive)
+            .put("engine_ready_before_reload", engine.isReady.value)
+            .put("backend_before_reload", engine.activeBackend.value?.name ?: JSONObject.NULL)
+    }
+
+    private suspend fun captureDiagnosticReload(
+        context: Context,
+        engine: LiteRtInferenceEngine,
+        baseConfig: ModelConfig,
+        reloadOrderGate: Pr1451ReloadOrderGate,
+        reportPrefix: String,
+        timingField: String,
+        legacyReloadPrefix: String,
+    ): Pr1451ReloadObservation {
+        reloadOrderGate.requireDiagnosticReloadAllowed()
+        var initStartedNanos: Long? = null
+        var initialized = false
+        var failureMessage: String? = null
+        try {
+            val shutdownCompleted = withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
+                engine.shutdown()
+                true
+            } ?: false
+            check(shutdownCompleted) { "Timed out shutting down before $reportPrefix" }
+
+            initStartedNanos = SystemClock.elapsedRealtimeNanos()
+            val initializationCompleted = withTimeoutOrNull(INIT_TIMEOUT_MS) {
+                engine.initialize(baseConfig)
+                true
+            } ?: false
+            check(initializationCompleted) { "Timed out initializing $reportPrefix" }
+            initialized = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            failureMessage = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+        }
+
+        var memorySnapshotFailure: String? = null
+        val memoryAfterReload = try {
+            memorySnapshot()
+        } catch (failure: Exception) {
+            memorySnapshotFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+            JSONObject()
+        }
+        var availableMemoryFailure: String? = null
+        val availableMemoryMiB = try {
+            availableSystemMemoryMiB(context)
+        } catch (failure: Exception) {
+            availableMemoryFailure = "${failure::class.java.simpleName}: ${failure.message.orEmpty()}"
+            null
+        }
+        val observation = Pr1451ReloadEvidence.assess(
+            backend = if (initialized) engine.activeBackend.value?.name else null,
+            availableSystemMemoryMiB = availableMemoryMiB,
+            processPssMiB = (memoryAfterReload.opt("pss_mib") as? Number)?.toDouble(),
+            processRssMiB = (memoryAfterReload.opt("rss_mib") as? Number)?.toDouble(),
+            failureMessage = failureMessage,
+        )
+        report.put(timingField, initStartedNanos?.let(::elapsedMs) ?: JSONObject.NULL)
+        report.put("backend_after_$legacyReloadPrefix", observation.backend ?: JSONObject.NULL)
+        report.put("gpu_backend_confirmed_after_$legacyReloadPrefix", observation.gpuRetained == true)
+        report.put("memory_after_$legacyReloadPrefix", memoryAfterReload)
+        observation.reportFields(reportPrefix).forEach { (key, value) ->
+            report.put(key, value ?: JSONObject.NULL)
+        }
+        report.put("${reportPrefix}_memory_snapshot_failure", memorySnapshotFailure ?: JSONObject.NULL)
+        report.put("${reportPrefix}_available_memory_read_failure", availableMemoryFailure ?: JSONObject.NULL)
+        saveReport()
+        Log.i(
+            TAG,
+            "PR1451_RELOAD phase=$reportPrefix backend=${observation.backend ?: "unknown"} " +
+                "available_mib=${observation.availableSystemMemoryMiB} " +
+                "gpu_headroom_mib=${observation.gpuMemoryHeadroomMiB} " +
+                "pss_mib=${observation.processPssMiB} rss_mib=${observation.processRssMiB} " +
+                "gpu_retained=${observation.gpuRetained} outcome=${observation.outcome} " +
+                "failure=${observation.failureMessage}",
+        )
+        return observation
+    }
+
+    private fun availableSystemMemoryMiB(context: Context): Long? {
+        val activityManager = context.getSystemService(ActivityManager::class.java) ?: return null
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        return memoryInfo.availMem / (1024L * 1024L)
     }
 
     private suspend fun awaitPr1451StartupWorkQuiescence(context: Context) {
