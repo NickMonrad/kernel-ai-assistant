@@ -34,9 +34,9 @@ Use it when you need:
 
 Policy:
 
-- **S21 first** (`s21-exynos`)
-- **Do not use the S23U by default**
-- if no S21 / ADB device is available, stop on on-device validation rather than faking success
+- **This runner's first-slice permission scenarios target S21** (`s21-exynos`); this runner-specific scope does not set Jandal's global test-device default.
+- For an unspecified physical-device task, use S23 Ultra. Follow any explicit issue/acceptance device or tier requirement.
+- If the required S21 / ADB device is unavailable for this S21-specific run, stop on on-device validation rather than faking success.
 
 See [`docs/testing/permission-scenario-runner.md`](./testing/permission-scenario-runner.md) for
 the local run command, explicit publish flow, stale-report protections, and artifact layout.
@@ -67,9 +67,10 @@ reliability evidence or qualification. Wake-word reliability remains governed
 by the dedicated controlled acoustic reliability harness and its stricter
 methodology.
 
-The default device policy remains S21-first. Issue-specific paired acoustic
-validation may use S23U when the local report records the source/target
-topology. Existing Quick Actions scenario IDs and behavior remain unchanged.
+The documented first-slice permission scenarios target S21. The paired acoustic
+scenario group above uses its explicitly documented S23U path when the local
+report records source/target topology; this does not establish a general S23U
+automation mode. Existing Quick Actions scenario IDs and behavior remain unchanged.
 
 ## ADB regression harness
 
@@ -382,10 +383,12 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 
 | Device | SoC | RAM | Inference backend | Role |
 |--------|-----|-----|-------------------|------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Reference device — primary target |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Experimental reference candidate (Android API 36) |
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Standard/default physical Android test device |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Constrained/low-end test device; tracked reliability signal — see #1089 / #684 |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Supplemental high-memory/modern-flagship device; experimental reference candidate (Android API 36) |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
+
+**Test-device roles:** Samsung Galaxy S23 Ultra is the standard/default physical device for an unnamed "test on device" task. Use Samsung Galaxy S21 for lower-memory/performance compatibility, degraded-device checks, or explicit S21 requirements; it is not the general default. Honor Magic8 Pro is supplemental high-memory/modern-flagship coverage, not the default. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.
