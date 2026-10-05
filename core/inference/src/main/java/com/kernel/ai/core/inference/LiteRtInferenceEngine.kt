@@ -939,6 +939,79 @@ class LiteRtInferenceEngine @Inject constructor(
 
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
+    /**
+     * Serializes terminal callbacks against cancellation so late LiteRT callbacks cannot emit
+     * after cancellation has claimed the stream.
+     */
+    private inner class ActiveStreamGeneration(
+        private val conv: Conversation,
+        private val closeFlow: (Throwable?) -> Unit,
+    ) {
+        private val terminalLock = Any()
+        private var terminal = false
+
+        fun whileActive(block: () -> Unit): Boolean = synchronized(terminalLock) {
+            if (terminal) {
+                false
+            } else {
+                block()
+                true
+            }
+        }
+
+        fun finish(block: () -> Unit): Boolean = synchronized(terminalLock) {
+            if (terminal) {
+                false
+            } else {
+                terminal = true
+                block()
+                true
+            }
+        }
+
+        fun cancelAndClose(): Boolean {
+            val claimed = synchronized(terminalLock) {
+                if (terminal) {
+                    false
+                } else {
+                    terminal = true
+                    true
+                }
+            }
+            if (!claimed) return false
+
+            _isGenerating.value = false
+            cancelNative()
+            closeFlow(null)
+            return true
+        }
+
+        fun cancelFromCollector() {
+            val claimed = synchronized(terminalLock) {
+                if (terminal) {
+                    false
+                } else {
+                    terminal = true
+                    true
+                }
+            }
+            if (claimed) {
+                _isGenerating.value = false
+                cancelNative()
+            }
+        }
+
+        private fun cancelNative() {
+            try {
+                conv.cancelProcess()
+            } catch (e: Exception) {
+                Log.w(TAG, "cancelProcess failed while cancelling stream — ignoring", e)
+            }
+        }
+    }
+
+    private val activeStreamGeneration = AtomicReference<ActiveStreamGeneration?>(null)
+
 
     /** Tracks conversation resets on GPU to trigger periodic full engine restart (#1293).
      *  Reset to 0 after each full engine restart or after switching away from GPU backend.
@@ -1076,7 +1149,7 @@ class LiteRtInferenceEngine @Inject constructor(
             // Signal any active generation to stop so it releases generationMutex promptly.
             if (_isGenerating.value) {
                 Log.d(TAG, "resetConversation: signalling cancellation to active generation")
-                conversation?.cancelProcess()
+                cancelGeneration()
             }
 
             // Wait for generationMutex so we don't close the conversation while
@@ -1156,15 +1229,27 @@ class LiteRtInferenceEngine @Inject constructor(
 
     override fun generate(userMessage: String): Flow<GenerationResult> = callbackFlow {
         generationMutex.lock()
+        val lockReleased = AtomicBoolean(false)
+        var serviceStarted = false
+
+        fun releaseGenerationLock(stream: ActiveStreamGeneration?) {
+            if (!lockReleased.compareAndSet(false, true)) return
+            activeStreamGeneration.compareAndSet(stream, null)
+            _isGenerating.value = false
+            try {
+                if (serviceStarted) InferenceGenerationService.stop(context)
+            } finally {
+                generationMutex.unlock()
+            }
+        }
+
         val conv = conversation
         if (conv == null) {
-            generationMutex.unlock()
             close(InferenceException("Engine not initialized — call initialize() first"))
+            releaseGenerationLock(null)
             return@callbackFlow
         }
 
-        _isGenerating.value = true
-        InferenceGenerationService.start(context)
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
         var visibleChunkCount = 0
@@ -1204,82 +1289,101 @@ class LiteRtInferenceEngine @Inject constructor(
 
         val thinkingContext: Map<String, Any> =
             if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
+        val stream = ActiveStreamGeneration(conv) { cause -> close(cause) }
+        activeStreamGeneration.set(stream)
 
         try {
-            conv.sendMessageAsync(
-                Contents.of(Content.Text(userMessage)),
-                object : MessageCallback {
-                override fun onMessage(message: Message) {
-                    val channelDelta = message.channels["thought"]
-                    val raw = message.toString()
-                    Log.d(TAG, "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=callback " +
-                        "channels=${message.channels.keys.sorted()} " +
-                        "thought=\"${channelDelta.orEmpty().replace("\n","\\n").replace("\"","\\\"").take(256)}\" " +
-                        "raw=\"${raw.replace("\n","\\n").replace("\"","\\\"").take(256)}\" " +
-                        "toolCalls=${message.toolCalls.joinToString(";") { it.name }}")
-                    emitEmission(
-                        thinkingStateMachine.consume(
-                            channelDelta = channelDelta,
-                            rawMessage = raw,
-                        ),
-                    )
+            if (stream.whileActive {
+                    InferenceGenerationService.start(context)
+                    serviceStarted = true
+                    _isGenerating.value = true
                 }
+            ) {
+                stream.whileActive {
+                    conv.sendMessageAsync(
+                        Contents.of(Content.Text(userMessage)),
+                        object : MessageCallback {
+                            override fun onMessage(message: Message) {
+                                stream.whileActive {
+                                    val channelDelta = message.channels["thought"]
+                                    val raw = message.toString()
+                                    Log.d(
+                                        TAG,
+                                        "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=callback " +
+                                            "channels=${message.channels.keys.sorted()} " +
+                                            "thought=\"${channelDelta.orEmpty().replace("\n", "\\n").replace("\"", "\\\"").take(256)}\" " +
+                                            "raw=\"${raw.replace("\n", "\\n").replace("\"", "\\\"").take(256)}\" " +
+                                            "toolCalls=${message.toolCalls.joinToString(";") { it.name }}",
+                                    )
+                                    emitEmission(
+                                        thinkingStateMachine.consume(
+                                            channelDelta = channelDelta,
+                                            rawMessage = raw,
+                                        ),
+                                    )
+                                }
+                            }
 
-                override fun onDone() {
-                    emitEmission(thinkingStateMachine.finish())
-                    val durationMs = System.currentTimeMillis() - start
-                    logLiteRtBenchmarkInfo(conv, _activeBackend.value)
-                    if (thinkingCharCount > 0) {
-                        Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
-                    }
-                    Log.i(
-                        TAG,
-                        "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
-                            "visibleChunks=$visibleChunkCount [backend=${_activeBackend.value}]",
-                    )
-                    Log.d(
-                        TAG,
-                        "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
-                            "callbacks=$visibleChunkCount thinkingChars=$thinkingCharCount",
-                    )
-                    trySend(GenerationResult.Complete(durationMs = durationMs))
-                    close()
-                }
+                            override fun onDone() {
+                                stream.finish {
+                                    try {
+                                        emitEmission(thinkingStateMachine.finish())
+                                        val durationMs = System.currentTimeMillis() - start
+                                        logLiteRtBenchmarkInfo(conv, _activeBackend.value)
+                                        if (thinkingCharCount > 0) {
+                                            Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
+                                        }
+                                        Log.i(
+                                            TAG,
+                                            "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
+                                                "visibleChunks=$visibleChunkCount [backend=${_activeBackend.value}]",
+                                        )
+                                        Log.d(
+                                            TAG,
+                                            "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
+                                                "callbacks=$visibleChunkCount thinkingChars=$thinkingCharCount",
+                                        )
+                                        trySend(GenerationResult.Complete(durationMs = durationMs))
+                                    } finally {
+                                        close()
+                                    }
+                                }
+                            }
 
-                override fun onError(throwable: Throwable) {
-                    _isGenerating.value = false
-                    InferenceGenerationService.stop(context)
-                    if (throwable is CancellationException) {
-                        Log.i(TAG, "Generation cancelled by user")
-                        close()
-                    } else {
-                        Log.e(TAG, "Generation error", throwable)
-                        close(InferenceException("Generation failed: ${throwable.message}", throwable))
-                    }
+                            override fun onError(throwable: Throwable) {
+                                stream.finish {
+                                    if (throwable is CancellationException) {
+                                        Log.i(TAG, "Generation cancelled by user")
+                                        close()
+                                    } else {
+                                        Log.e(TAG, "Generation error", throwable)
+                                        close(InferenceException("Generation failed: ${throwable.message}", throwable))
+                                    }
+                                }
+                            }
+                        },
+                        thinkingContext,
+                    )
                 }
-            },
-            thinkingContext,
-        )
+            }
         } catch (e: Exception) {
-            _isGenerating.value = false
-            InferenceGenerationService.stop(context)
-            generationMutex.unlock()
-            close(InferenceException("sendMessageAsync failed: ${e.message}", e))
-            return@callbackFlow
+            stream.finish {
+                close(InferenceException("sendMessageAsync failed: ${e.message}", e))
+            }
         }
 
-        // When the Flow collector cancels (e.g. user navigates away), stop inference.
         awaitClose {
-            _isGenerating.value = false
-            InferenceGenerationService.stop(context)
-            try { conv.cancelProcess() } catch (e: Exception) {
-                Log.w(TAG, "cancelProcess failed in awaitClose — ignoring", e)
-            }
-            generationMutex.unlock()
+            stream.cancelFromCollector()
+            releaseGenerationLock(stream)
         }
     }.flowOn(LlmDispatcher)
 
     override fun cancelGeneration() {
+        val activeStream = activeStreamGeneration.get()
+        if (activeStream != null) {
+            activeStream.cancelAndClose()
+            return
+        }
         conversation?.cancelProcess()
         _isGenerating.value = false
         InferenceGenerationService.stop(context)
@@ -1638,7 +1742,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
         if (_isGenerating.value) {
             Log.d(TAG, "resetConversationForConfig: signalling cancellation to active generation")
-            conversation?.cancelProcess()
+            cancelGeneration()
         }
 
         generationMutex.withLock {
