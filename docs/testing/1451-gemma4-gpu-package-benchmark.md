@@ -17,7 +17,13 @@ This is the preparation and device-evidence handoff for issue [#1451](https://gi
 | E2B | [`b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1) (2026-08-31) | [`gemma-4-E2B-it-gpu.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/commit/6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94) — `6b78abd019e61a1ca4cbe3b212d2c9ce8ff38a94` | 2,008,432,640 B | `a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5` | HF upload commit dated 2026-08-07, correcting the 2026-08-10 date in #1451's issue body; live commit history is authoritative. |
 | E4B | [`2eee7ac325f20eb8c9ac1d0e972f7c84663062da`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/commit/2eee7ac325f20eb8c9ac1d0e972f7c84663062da) | [`gemma-4-E4B-it-gpu.litertlm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/commit/2eee7ac325f20eb8c9ac1d0e972f7c84663062da) — `2eee7ac325f20eb8c9ac1d0e972f7c84663062da` | 2,969,059,328 B | `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff` | HF upload/current repo head dated 2026-08-07. |
 
-The exact blobs were downloaded outside git to `/home/lokhor/.cache/jandal-1451/` and SHA-256 checked. Do not copy model binaries into this repository. Recheck the live HF tree, commit and hash immediately before later device runs.
+### E4B current baseline verified for this preparation
+
+| Repository | Baseline file / upload commit | Size | SHA-256 / LFS OID |
+|---|---|---:|---|
+| [`litert-community/gemma-4-E4B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) | [`gemma-4-E4B-it.litertlm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/blob/28299f30ee4d43294517a4ac93abd6163412f07f/gemma-4-E4B-it.litertlm) — `28299f30ee4d43294517a4ac93abd6163412f07f` | 3,659,530,240 B | `0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0` |
+
+The E2B/E4B GPU candidates and E4B current baseline are cached outside git at `/home/lokhor/.cache/jandal-1451/` and SHA-256 checked. Do not copy model binaries into this repository. Recheck the live HF tree, commit and hash immediately before later device runs.
 
 Both HF cards declare **Apache-2.0** and identify the corresponding Google Gemma 4 E2B/E4B instruct base. The cards describe generic CPU XNNPack and GPU ML Drift backend optimization and family-level context up to 32K; they do not specify a candidate-specific LiteRT-LM minimum or package KV-cache limit. The current HF trees expose a 11,995-byte `chat_template.jinja`, but no sibling tokenizer/config JSON or `prompt_templates` metadata. This external template contains the old `standard_keys` filter for `description`, `type`, `properties`, `required`, and `nullable`; it is not proof of the template embedded in either `.litertlm` package. Upstream LiteRT-LM commit [`38390524`](https://github.com/google-ai-edge/LiteRT-LM/commit/38390524aba95b145ef55aa8934c7cd642dc8edf) removes the filter and adds the schema-key regression case; both candidate uploads predate that fix.
 
@@ -55,8 +61,8 @@ Both A/B arms fix `ModelConfig.speculativeDecodingEnabled=false`. Preserve the e
 ## Device procedure
 
 1. Re-verify both exact HF candidates and host cache checksums. Check device free storage/memory and keep the screen interactive. Use S21 for the current E2B baseline vs E2B GPU candidate; S23 Ultra for current E4B vs E4B GPU. Include Honor Magic 8 Pro for the E4B comparison only when the existing tier policy selects E4B there. Do not force an unsupported model tier.
-2. From the exact reviewed commit, build the app and test APKs with `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PversionCode=3303 -Ppr1451BenchmarkIsolation=true`. The source head is embedded in the debug app; the runner requires the supplied full `source_commit` to match it. Release builds hard-disable this isolation flag.
-3. Run the strict APK metadata check below before installing either APK. It requires the debug app package/variant and versionCode ≥3303, plus the matching AndroidTest package/variant/output metadata (versionCode 0).
+2. From the exact reviewed commit, build the app and test APKs with `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PversionCode=3304 -Ppr1451BenchmarkIsolation=true`. The source head is embedded in the debug app; the runner requires the supplied full `source_commit` to match it. Release builds hard-disable this isolation flag.
+3. Run the strict APK metadata check below before installing either APK. It requires the debug app package/variant and versionCode ≥3304, plus the matching AndroidTest package/variant/output metadata (versionCode 0).
 4. Only after the metadata check passes, install both APKs later with `adb install -r`. Never clear app data. The debug startup gate cancels backfill/Nextcloud work while preserving archive cleanup.
 5. Before any benchmark invocation, place the exact GPU candidate beside the current baseline in `getExternalFilesDir("models")`. Verify the local candidate against its live HF size/hash before pushing it.
 6. Measure the current baseline and staged GPU file on-device before either arm runs, and compare each measured byte count/SHA-256 against its trusted source. This identical pre-run read warms both model files; if either digest is untrusted or mismatched, stop. Supply both exact pins on every invocation.
@@ -96,7 +102,7 @@ app = verify(
     "com.kernel.ai.debug",
     "debug",
     "app-debug.apk",
-    3303,
+    3304,
 )
 test = verify(
     root / "androidTest/debug/output-metadata.json",
@@ -154,12 +160,13 @@ adb exec-out run-as com.kernel.ai.debug cat files/1451/s21-e2b-gpu-pair1.json \
 adb logcat -d -s LiteRtInferenceEngine Gemma4Package1451
 ```
 
-For the E4B candidate use `gemma-4-E4B-it-gpu.litertlm`, `2969059328`, SHA-256 `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff`, and a unique device/run label. The current generic baseline files are `gemma-4-E2B-it.litertlm` (reference 2,583,085,056 B in `KernelModel`) and `gemma-4-E4B-it.litertlm` (reference 3,654,467,584 B). Acquire and verify each installed baseline SHA-256 before instrumentation; never use an unpinned run report to establish its own pin. Retrieve every JSON report and preserve the corresponding logcat, APK commit, live HF metadata, start/end thermal status, and run order together.
+For the E4B GPU candidate use `gemma-4-E4B-it-gpu.litertlm`, `2969059328`, SHA-256 `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff`, and upload commit `2eee7ac325f20eb8c9ac1d0e972f7c84663062da`. For the S23 Ultra current E4B baseline use `gemma-4-E4B-it.litertlm`, `3659530240`, SHA-256 `0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0`, and upload commit `28299f30ee4d43294517a4ac93abd6163412f07f`.
+The current generic E2B baseline remains `gemma-4-E2B-it.litertlm` (reference 2,583,085,056 B in `KernelModel`). Acquire and verify each installed baseline SHA-256 before instrumentation; never use an unpinned run report to establish its own pin. Retrieve every JSON report and preserve the corresponding logcat, APK commit, live HF metadata, start/end thermal status, and run order together.
 | Later run | `model_path` | `candidate` | `expected_bytes` | `expected_sha256` |
 |---|---|---|---:|---|
 | S21 current E2B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it.litertlm` | `e2b-current` | `2583085056` (confirm before run) | required trusted pre-run SHA-256; never omit |
 | S21 GPU E2B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E2B-it-gpu.litertlm` | `e2b-gpu` | `2008432640` | `a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5` |
-| S23 Ultra current E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it.litertlm` | `e4b-current` | `3654467584` (confirm before run) | required trusted pre-run SHA-256; never omit |
+| S23 Ultra current E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it.litertlm` | `e4b-current` | `3659530240` | `0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0` |
 | S23 Ultra GPU E4B | `/sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it-gpu.litertlm` | `e4b-gpu` | `2969059328` | `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff` |
 | Honor Magic 8 Pro | Use the same current/GPU E4B paths only if its existing tier policy selects E4B. | Use `e4b-current` / `e4b-gpu` with Honor-specific run IDs. | As above. | As above. |
 
