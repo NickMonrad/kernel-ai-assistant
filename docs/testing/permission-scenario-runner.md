@@ -20,11 +20,10 @@ This runner is **not CI evidence**. It is **local physical-device evidence** onl
 
 ## Device policy
 
-- **Default target:** S21 (`s21-exynos`)
-- **Do not use the S23U by default.** It is a targeted/reference device only when a
-  device-specific follow-up explicitly requires it.
-- If no S21 / ADB device is available, do not fake coverage. Capture the blocker and
-  stop the on-device validation step.
+- **Global Jandal default:** Samsung Galaxy S23 Ultra for an unspecified physical-device task; explicit issue/acceptance device or tier requirements override it.
+- **This runner's implemented first slice:** S21 (`s21-exynos`) for the currently documented permission scenarios; this runner-specific scope does not set the global default.
+- The paired-acoustic scenarios below have a documented S23U path, but a general S23U automation mode remains unimplemented.
+- If the device/ADB required by the selected scenarios is unavailable, do not fake coverage. Capture the blocker and stop that on-device validation step.
 
 ## Scope in the first slice
 
@@ -312,11 +311,11 @@ python3 scripts/run_permission_scenarios.py \
   --out-dir scripts/test-reports/permissions
 ```
 
-The default device policy remains S21-first. This issue's paired acoustic
-validation is a targeted S23U exception; use the exact device topology and
-fixture IDs recorded in the local run report. If the source fixture or paired
-ADB pathway is unavailable, the voice scenarios are blocked rather than
-reported as passed.
+Within this runner, the documented first-slice permission scenarios target S21.
+The paired-acoustic group above uses its specific S23U path; record the exact
+source/target topology and fixture IDs in the local run report. This does not
+establish a general S23U automation mode. If the source fixture or paired ADB
+pathway is unavailable, the voice scenarios are blocked rather than reported as passed.
 
 ## Notifications/exact alarms/clock scenario group
 

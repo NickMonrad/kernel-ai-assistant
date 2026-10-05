@@ -2,10 +2,12 @@
 
 | Device | Chip | RAM | Backend | Tier | Role |
 |--------|------|-----|---------|------|------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Reference device — primary target |
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Standard/default physical Android test device |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Experimental reference candidate (Android API 36) |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Constrained/low-end test device; tracked reliability signal — see #1089 / #684 |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Supplemental high-memory/modern-flagship device; experimental reference candidate (Android API 36) |
+
+**Test-device roles:** Samsung Galaxy S23 Ultra is the standard/default physical device for an unnamed "test on device" task. Use Samsung Galaxy S21 for lower-memory/performance compatibility, degraded-device checks, or explicit S21 requirements; it is not the general default. Honor Magic8 Pro is supplemental high-memory/modern-flagship coverage, not the default. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
 
 ---
 
@@ -333,11 +335,9 @@ Gemma downloads, or S23 Ultra-only behaviour.
 
 ### Device requirement
 
-- **Default device:** Samsung Galaxy S21 (`s21-exynos`, physical). Use this for
-  PR evidence unless the issue explicitly asks for another device.
-- **Optional secondary device:** S23 Ultra only for OEM/API-specific validation.
-- **If the S21 is unavailable:** stop and ask Nick for ADB access. Do not mark
-  device validation complete without S21 evidence.
+- **This suite's documented target:** Samsung Galaxy S21 (`s21-exynos`, physical); current `permission_flows` coverage is S21-specific.
+- This suite-specific target does not change the global default: unnamed physical-device tasks use S23 Ultra. Follow explicit issue/acceptance device or tier requirements.
+- If this S21-specific run is required but S21 is unavailable, stop and ask Nick for ADB access; do not mark validation complete without S21 evidence.
 
 ### Permission/appops reset
 
