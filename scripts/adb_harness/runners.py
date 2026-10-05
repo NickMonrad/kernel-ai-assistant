@@ -27,6 +27,8 @@ from adb_harness.config import (
     LLM_TOOLS_SKILL_RESULT_PATTERN,
     LLM_TOOLS_MESSAGE_SAVED_PATTERN,
     LLM_TOOLS_RETRY_PATTERN,
+    LLM_TOOLS_TOOL_SEQUENCE_PATTERN,
+    LLM_TOOLS_TOOL_CHIP_PATTERN,
     LLM_TOOLS_SLOT_FILL_PATTERN,
     INTENT_MATCH_PATTERN,
     MARKER_TIMEOUT_PATTERN,
@@ -53,6 +55,9 @@ from adb_harness.device import (
     clear_logcat,
     dismiss_notifications,
     extract_intent,
+    extract_llm_tool_events,
+    extract_llm_tool_sequence,
+    validate_llm_tool_sequence,
     extract_profile_result,
     extract_reply,
     logcat_restart,
@@ -159,6 +164,42 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
         for fv in re.finditer(r"(\w+):<\\?\|\\?\"\\?\|>(.+?)<\\?\|\\?\"\\?\|>", raw):
             result[fv.group(1)] = fv.group(2)
     return result
+
+
+def _extract_nested_intent(
+    native_data: dict[str, str],
+    legacy_data: dict[str, str],
+) -> str | None:
+    """Return the intent_name carried by run_intent's native/legacy request."""
+    for data in (native_data, legacy_data):
+        intent = data.get("intent_name") or data.get("nested_intent")
+        if intent:
+            return intent
+    return None
+
+
+def _contains_raw_tool_content(reply: str) -> bool:
+    """Detect tool protocol or loaded run_intent instructions in a visible reply."""
+    lowered = reply.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "<|tool_call",
+            "<|tool_result",
+            "llm_tools_",
+            "event_seq:",
+            "run_intent: perform a native android device action",
+            "available model-callable intents:",
+            "parameters (pass as json",
+        )
+    ) or bool(
+        re.search(
+            r"(?:load_skill\s*\(|runintent\s*\(\s*intentname\s*=|"
+            r'\{\s*"name"\s*:\s*"(?:load_skill|run_intent)")',
+            reply,
+            re.IGNORECASE,
+        )
+    )
 
 def _poll_for_all_markers(
     patterns: dict[str, re.Pattern[str]],
@@ -367,7 +408,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             "skill_result": LLM_TOOLS_SKILL_RESULT_PATTERN,
             "message_saved": LLM_TOOLS_MESSAGE_SAVED_PATTERN,
         }
+        if tc.expected_tool_sequence is not None:
+            patterns["tool_chip"] = LLM_TOOLS_TOOL_CHIP_PATTERN
+            patterns["tool_sequence"] = LLM_TOOLS_TOOL_SEQUENCE_PATTERN
         markers, final_log = _poll_for_all_markers(patterns, timeout=120)
+        tool_events = extract_llm_tool_events(final_log)
+        actual_tool_sequence, tool_sequence_marker = extract_llm_tool_sequence(final_log)
         route_marker = markers["route"]
         native_tool = markers["native_tool"]
         legacy_tool = markers["legacy_tool"]
@@ -380,7 +426,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         native_data = _parse_tool_marker(native_tool)
         legacy_data = _parse_tool_marker(legacy_tool)
         actual_top_level = native_data.get("tool") or legacy_data.get("tool")
-        actual_nested = native_data.get("nested_intent") or legacy_data.get("nested_intent")
+        actual_nested = _extract_nested_intent(native_data, legacy_data)
 
         # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
         chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
@@ -492,6 +538,26 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             mode = skill_data.get("mode", "unknown")
             if mode != tc.expected_result_mode:
                 failures_list.append(f"result mode: expected {tc.expected_result_mode!r}, got {mode!r}")
+        if tc.expected_tool_sequence is not None:
+            failures_list.extend(
+                validate_llm_tool_sequence(
+                    tc.expected_tool_sequence,
+                    actual_tool_sequence,
+                    tool_events,
+                )
+            )
+            skill_data = _parse_tool_marker(skill_result)
+            if skill_data.get("success", "").lower() != "true":
+                failures_list.append("Terminal skill_result marker did not report success")
+            if chip_text != tc.expected_top_level_tool:
+                failures_list.append(
+                    f"terminal tool chip: expected {tc.expected_top_level_tool!r}, got {chip_text!r}"
+                )
+            if not reply_text:
+                failures_list.append("No final user-visible reply found")
+            elif _contains_raw_tool_content(reply_text):
+                failures_list.append("Final reply exposed raw tool protocol or internal instructions")
+
 
         passed = len(failures_list) == 0
         result = LLMToolsResult(
@@ -517,6 +583,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             log_contains_match=log_contains_match,
             expected_reply_terms=tc.expected_reply_contains,
             reply_terms_match=reply_terms_match,
+            expected_tool_sequence=(
+                list(tc.expected_tool_sequence) if tc.expected_tool_sequence is not None else None
+            ),
+            actual_tool_sequence=actual_tool_sequence,
+            tool_sequence_marker=tool_sequence_marker,
+            tool_event_evidence=tool_events,
         )
         results.append(result)
 

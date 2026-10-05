@@ -832,6 +832,93 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
     return fallback[-1].group(1), {}
 
 
+_LLM_TOOL_EVENT_PATTERN = re.compile(
+    r"event_seq:\s+(?P<event>tool_call|tool_result)\s+name=(?P<name>\S+)"
+    r"(?:\s+resultType=(?P<result_type>\S+)\s+directReply=(?P<direct_reply>true|false)"
+    r"\s+returnedToGemma=(?P<returned_to_gemma>true|false))?"
+)
+_LLM_TOOL_SEQUENCE_PATTERN = re.compile(r"llm_tools_tool_sequence:\s*(.+)")
+
+
+def extract_llm_tool_events(logcat_output: str) -> list[dict[str, str | bool]]:
+    """Extract ordered, non-sensitive tool-call/result metadata from logcat."""
+    events: list[dict[str, str | bool]] = []
+    for match in _LLM_TOOL_EVENT_PATTERN.finditer(logcat_output):
+        event: dict[str, str | bool] = {
+            "event": match.group("event"),
+            "name": match.group("name"),
+        }
+        if match.group("result_type") is not None:
+            event["result_type"] = match.group("result_type")
+            event["direct_reply"] = match.group("direct_reply") == "true"
+            event["returned_to_gemma"] = match.group("returned_to_gemma") == "true"
+        events.append(event)
+    return events
+
+
+def extract_llm_tool_sequence(logcat_output: str) -> tuple[list[str], str | None]:
+    """Return the last turn-level tool sequence and its safe summary marker."""
+    matches = list(_LLM_TOOL_SEQUENCE_PATTERN.finditer(logcat_output))
+    if not matches:
+        return [], None
+    summary = matches[-1].group(1).strip()
+    turn = re.search(r"(?:^|\s)turn=([^\s]+)", summary)
+    if turn is None:
+        return [], summary
+    sequence = [] if turn.group(1) == "none" else turn.group(1).split(">")
+    return sequence, summary
+
+
+def validate_llm_tool_sequence(
+    expected: tuple[str, ...],
+    actual_sequence: list[str],
+    events: list[dict[str, str | bool]],
+) -> list[str]:
+    """Validate ordered calls, matching results, discovery handoff, and terminal success."""
+    failures: list[str] = []
+    if actual_sequence != list(expected):
+        failures.append(
+            f"turn tool sequence: expected {list(expected)!r}, got {actual_sequence!r}"
+        )
+
+    call_indices = [i for i, event in enumerate(events) if event["event"] == "tool_call"]
+    called_names = [str(events[i]["name"]) for i in call_indices]
+    if called_names != list(expected):
+        failures.append(f"tool_call order: expected {list(expected)!r}, got {called_names!r}")
+    result_names = [
+        str(event["name"]) for event in events if event["event"] == "tool_result"
+    ]
+    if result_names != list(expected):
+        failures.append(f"tool_result order: expected {list(expected)!r}, got {result_names!r}")
+
+    for position, (call_index, name) in enumerate(zip(call_indices, expected)):
+        next_call_index = call_indices[position + 1] if position + 1 < len(call_indices) else len(events)
+        result = next(
+            (
+                event for event in events[call_index + 1:next_call_index]
+                if event["event"] == "tool_result"
+            ),
+            None,
+        )
+        if result is None:
+            failures.append(f"missing tool_result for {name}")
+            continue
+        if result["name"] != name:
+            failures.append(f"tool_result mismatch: expected {name}, got {result['name']}")
+            continue
+        if name == "load_skill":
+            if result.get("result_type") != "Success":
+                failures.append("load_skill result was not successful")
+            if result.get("returned_to_gemma") is not True:
+                failures.append("load_skill result did not return to Gemma")
+        elif position == len(expected) - 1:
+            if result.get("result_type") not in {"Success", "DirectReply"}:
+                failures.append(f"terminal tool {name} did not succeed")
+            elif result.get("result_type") == "DirectReply" and result.get("direct_reply") is not True:
+                failures.append(f"terminal tool {name} did not report a direct reply")
+    return failures
+
+
 def extract_reply(logcat_output: str) -> str | None:
     """Extract the latest reply text from logcat, if any.
     Checks both DirectReply (native intent) and llm_tools_assistant_reply (LLM fallthrough) markers.

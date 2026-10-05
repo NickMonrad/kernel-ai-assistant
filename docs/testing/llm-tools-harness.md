@@ -18,7 +18,7 @@ It does **not** test:
 
 ## What it validates
 
-For each of the 3 golden prompts, the harness checks:
+For every selected golden prompt, the harness checks:
 
 1. **Route to Gemma** — the harness confirms a `llm_tools_route` marker was emitted,
    indicating the query reached Gemma (via fallthrough from deterministic QIR/classifier paths)
@@ -37,7 +37,9 @@ For each of the 3 golden prompts, the harness checks:
 |------|--------|--------------|------------------|
 | `query_wikipedia_natural` | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True` |
 | `save_memory_durable_fact` | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field must be present and non-empty |
-| `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Same, no tool arguments expected |
+| `run_intent_stopwatch_status_direct` | "Tell me whether my stopwatch is running now. Do not start, pause, or reset it." | `run_intent` | Nested action `get_stopwatch_status`; ordered sequence `run_intent`; successful `direct_reply` |
+| `run_intent_get_list_items_after_skill_load` | "Load the run_intent instructions, then use the action that lists items in my shopping list and tell me what is on it." | `run_intent` | Ordered sequence `load_skill → run_intent`; `load_skill` succeeds and returns to Gemma; nested action `get_list_items`; successful `direct_reply` |
+| `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
 
 ## Runtime markers
 
@@ -52,6 +54,36 @@ These are the structured logcat markers the harness reads. They are emitted by t
 | `llm_tools_skill_result` | `skill_result_marker` | `skill=... mode=<mode> success=<bool>` | `skill={"name":"query_wikipedia",...} mode=direct_reply success=true` |
 | `llm_tools_message_toolcall_saved` | `message_saved_marker` | `id=<uuid> tool=<name>` | `id=7e195582-... tool=query_wikipedia` |
 | `tool_chip_visible` | `chip_text` | `tool=<name>` | `tool=query_wikipedia` |
+| `event_seq` | `tool_event_evidence` | `tool_call` or `tool_result` name and safe result fields | `tool_result name=load_skill resultType=Success ...` |
+| `llm_tools_tool_sequence` | `tool_sequence_marker` | `attempt=<tool> turn=<ordered tools> terminal=<tool>` | `attempt=run_intent turn=load_skill>run_intent terminal=run_intent` |
+
+## Ordered tool-sequence evidence (#1593)
+
+The `run_intent_stopwatch_status_direct` case checks the direct-call path for a user-callable
+`run_intent` action. The `run_intent_get_list_items_after_skill_load` case requests the full
+`run_intent` instructions before reading the shopping list, exercising the intended
+`load_skill → run_intent` discovery path without mutating list state.
+`get_system_info_natural` remains a separate dedicated top-level SDK-tool control.
+
+For cases with `expected_tool_sequence`, the runner requires:
+
+- the last `llm_tools_tool_sequence` marker's `turn=` value to equal the expected order;
+- matching ordered `event_seq: tool_call` and `event_seq: tool_result` records;
+- `load_skill` to return `resultType=Success` and `returnedToGemma=true`;
+- the terminal result and `llm_tools_skill_result` to succeed, the terminal tool chip to
+  match, and a non-empty final reply with no raw tool protocol or loaded instructions.
+
+The report stores `tool_sequence_marker` and sanitized `tool_event_evidence`. Event evidence
+contains only event name, tool name, result type, direct-reply flag, and handoff flag; it
+omits `args` and result `content` so loaded instructions are not copied into this evidence.
+
+The runtime log forms are:
+
+```text
+event_seq: tool_call name=load_skill args=<omitted>
+event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=<omitted>
+llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
+```
 
 ## Result mode assertions
 
@@ -60,12 +92,12 @@ Each case expects a specific result mode, encoded in the `llm_tools_skill_result
 | Mode | Meaning | Expected for |
 |------|---------|-------------|
 | `success` | Tool executed and returned a result | `save_memory` |
-| `direct_reply` | Tool result was streamed directly as a chat reply | `query_wikipedia`, `get_system_info` |
+| `direct_reply` | Tool result was streamed directly as a chat reply | `query_wikipedia`, `get_system_info`, `run_intent` |
 | `failure` | Tool execution failed | Not expected for golden prompts; seen during development |
 
-The `query_wikipedia` and `get_system_info` cases expect `direct_reply` because the tool
-execution result is streamed directly as a chat reply. The `save_memory` case expects
-`success` because the memory save operation confirms persistence.
+The `query_wikipedia`, `get_system_info`, and read-only `run_intent` cases expect
+`direct_reply` because their tool execution result is streamed directly as a chat reply.
+The `save_memory` case expects `success` because the memory save operation confirms persistence.
 
 ## Report format
 
@@ -87,6 +119,10 @@ Key `llm_tools`-specific report fields:
 | `slot_fill_seen` | bool | Whether a slot-fill/confirmation marker was found |
 | `chip_text` | string or null | UI chip text for the tool call |
 | `failures` | array of strings | Descriptive failure messages |
+| `expected_tool_sequence` | array of tool names or null | Required ordered SDK calls for the case |
+| `actual_tool_sequence` | array of tool names or null | Parsed from the last turn-level sequence marker |
+| `tool_sequence_marker` | string or null | Safe `attempt`/`turn`/`terminal` summary from the last sequence marker |
+| `tool_event_evidence` | array of sanitized objects | Ordered `tool_call`/`tool_result` names and safe result metadata; excludes raw arguments/content |
 
 
 ## Local diagnostic transcripts

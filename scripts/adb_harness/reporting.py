@@ -74,6 +74,10 @@ def save_llm_tools_report(
                 "log_contains_match": r.log_contains_match,
                 "expected_reply_terms": r.expected_reply_terms,
                 "reply_terms_match": r.reply_terms_match,
+                "expected_tool_sequence": r.expected_tool_sequence,
+                "actual_tool_sequence": r.actual_tool_sequence,
+                "tool_sequence_marker": r.tool_sequence_marker,
+                "tool_event_evidence": r.tool_event_evidence,
             }
             for r in results
         ],

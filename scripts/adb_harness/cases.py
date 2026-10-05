@@ -780,6 +780,26 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_classifier_match=True,
         expected_result_mode="success",
     ),
+    # ── Model-action discovery contract (#1593) ────────────────────────────
+    LLMToolsTestCase(
+        name="run_intent_stopwatch_status_direct",
+        message="Tell me whether my stopwatch is running now. Do not start, pause, or reset it.",
+        expected_top_level_tool="run_intent",
+        expected_nested_intent="get_stopwatch_status",
+        expected_result_mode="direct_reply",
+        expected_tool_sequence=("run_intent",),
+    ),
+    LLMToolsTestCase(
+        name="run_intent_get_list_items_after_skill_load",
+        message=(
+            "Load the run_intent instructions, then use the action that lists items "
+            "in my shopping list and tell me what is on it."
+        ),
+        expected_top_level_tool="run_intent",
+        expected_nested_intent="get_list_items",
+        expected_result_mode="direct_reply",
+        expected_tool_sequence=("load_skill", "run_intent"),
+    ),
     LLMToolsTestCase(
         name="get_system_info_natural",
         # Must avoid "battery" (triggers get_battery regex), "storage"/"ram"/"memory"
@@ -790,6 +810,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
         expected_result_mode="direct_reply",
+        expected_tool_sequence=("get_system_info",),
     ),
 ]
 

@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -246,5 +247,41 @@ class RunIntentSkillTest {
         val failure = result as? SkillResult.Failure
         assertNotNull(failure) { "Expected Failure, got $result" }
         assertEquals("run_intent/set_timer", failure!!.skillName)
+    }
+
+    @Test
+    fun `model discovery covers callable handler intents and documents exclusions`() {
+        val callable = RunIntentSkill.MODEL_CALLABLE_INTENTS
+        val callableSet = callable.toSet()
+        val exclusions = RunIntentSkill.MODEL_EXCLUDED_INTENTS
+        val dedicatedTools = setOf("get_weather", "get_system_info", "save_memory", "convert_currency")
+        val unavailableStubs = setOf("smart_home_on", "smart_home_off")
+
+        assertEquals(callable.size, callableSet.size, "The model action definition must not contain duplicates")
+        assertEquals(dedicatedTools + unavailableStubs, exclusions.keys)
+        assertEquals(NativeIntentHandler.KNOWN_INTENTS, callableSet + exclusions.keys)
+        assertTrue(callableSet.intersect(exclusions.keys).isEmpty())
+        dedicatedTools.forEach {
+            assertTrue(exclusions.getValue(it).startsWith("Dedicated top-level SDK tool"))
+        }
+        unavailableStubs.forEach {
+            assertTrue(exclusions.getValue(it).startsWith("Non-callable stub"))
+        }
+
+        assertEquals(callable, skill.schema.parameters.getValue("intent_name").enum)
+        val instructions = skill.fullInstructions
+        callable.forEach { intent ->
+            assertTrue("  $intent — params:" in instructions, "$intent missing from detailed discovery")
+        }
+        exclusions.forEach { (intent, reason) ->
+            assertTrue("  $intent — $reason" in instructions, "$intent exclusion missing from detailed discovery")
+        }
+
+        val exampleIntentPattern = Regex("intentName=\\\"([^\\\"]+)\\\"")
+        val exampleIntents = skill.examples.flatMap { example ->
+            exampleIntentPattern.findAll(example).map { it.groupValues[1] }.toList()
+        }
+        assertTrue(exampleIntents.isNotEmpty())
+        assertTrue(exampleIntents.all { it in callableSet }, "Examples must not advertise excluded intents")
     }
 }
