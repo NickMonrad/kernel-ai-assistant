@@ -166,6 +166,12 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     return result
 
 
+def _extract_tool_chip_name(log: str) -> str | None:
+    """Extract the tool value from ChatViewModel's tool-chip marker."""
+    match = LLM_TOOLS_TOOL_CHIP_PATTERN.search(log)
+    return match.group(1) if match else None
+
+
 def _extract_nested_intent(
     native_data: dict[str, str],
     legacy_data: dict[str, str],
@@ -428,9 +434,8 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         actual_top_level = native_data.get("tool") or legacy_data.get("tool")
         actual_nested = _extract_nested_intent(native_data, legacy_data)
 
-        # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
-        chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
-        chip_text = chip_match.group(1) if chip_match else None
+        # Parse ChatViewModel's `tool=<name>` chip marker to the bare tool name.
+        chip_text = _extract_tool_chip_name(final_log)
 
         # Extract reply
         reply_text = extract_reply(final_log)

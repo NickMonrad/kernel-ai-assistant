@@ -20,6 +20,7 @@ from adb_harness.device import (
 from adb_harness.runners import (
     _contains_raw_tool_content,
     _extract_nested_intent,
+    _extract_tool_chip_name,
     _parse_tool_marker,
 )
 
@@ -171,6 +172,14 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
             _extract_nested_intent(native_data, {}),
         )
         self.assertEqual("legacy_action", _extract_nested_intent({}, {"nested_intent": "legacy_action"}))
+
+    def test_tool_chip_parser_extracts_value_from_chatviewmodel_marker(self) -> None:
+        log_line = (
+            "10-06 10:00:00.000 1234 5678 D KernelAI: "
+            "tool_chip_visible: tool=run_intent"
+        )
+
+        self.assertEqual("run_intent", _extract_tool_chip_name(log_line))
 
     def test_user_reply_guard_blocks_protocol_but_allows_plain_language(self) -> None:
         self.assertFalse(_contains_raw_tool_content("Your stopwatch is not running."))
