@@ -378,9 +378,9 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent). Call only when the required parameters or intent names for that skill are unclear.")
+    @Tool(description = "Loads full instructions for a gateway skill (meal_planner, run_js, run_intent). Call when the user asks for those instructions or when the intent/parameters are unclear; after loading, follow them to complete the request.")
     fun loadSkill(
-        @ToolParam(description = "The skill name to load.") skillName: String,
+        @ToolParam(description = "The gateway skill name to load, such as run_intent.") skillName: String,
     ): Map<String, String> {
         val diagnosticOrder = recordToolCall(
             LOAD_SKILL_NAME,
@@ -393,10 +393,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles. NOT for weather, web search, or memory — use other tools for those. Call run_intent directly when the required intent name and parameters are clear. Call load_skill(\"run_intent\") only when the supported intent name or required parameters are unclear.")
+    @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles, plus list/note operations including read-only retrieval. Use memory tools only for personal facts, not list/note contents. NOT for weather, system info, web search, or currency; use dedicated top-level tools. Call run_intent directly when intent and parameters are clear; if the user explicitly asks to load run_intent instructions first, call load_skill first, then run_intent.")
     fun runIntent(
-        @ToolParam(description = "The intent action name. Call run_intent directly when the intent is known (e.g. 'set_alarm', 'create_calendar_event', 'send_sms'). Only call load_skill first when unsure which intent or parameters to use.") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, provide parameters directly when known. Call load_skill only when the supported intent or required parameters are unclear.") parameters: String,
+        @ToolParam(description = "The intent action name (e.g. set_alarm, create_calendar_event, send_sms, get_list_items). Call run_intent directly when known; if the user explicitly requests instructions first, call load_skill before run_intent.") intentName: String,
+        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, provide parameters directly when known. Call load_skill only when the supported intent or required parameters are unclear, unless the user explicitly requests its instructions first; in that case, load_skill, then follow them before run_intent.") parameters: String,
     ): Map<String, String> {
         val diagnosticOrder = recordToolCall(
             "run_intent",

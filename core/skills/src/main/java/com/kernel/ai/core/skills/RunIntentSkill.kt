@@ -144,8 +144,7 @@ class RunIntentSkill @Inject constructor(
     private val validationRegistry: SlotValidationRegistry by lazy { SlotValidationRegistry() }
     override val name = "run_intent"
     override val description =
-        "Perform a supported native Android action from the intent_name choices. Weather, system info, " +
-            "memory, and currency conversion use dedicated top-level tools instead."
+        "Native actions, lists/notes; weather/system/memory/currency use dedicated tools."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -304,6 +303,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("List rule: 'create a list called X', 'add a list called X', 'make a shopping list' → runIntent with intentName=create_list, parameters='{\"list_name\":\"X\"}'.")
         appendLine("'Add X to my shopping list', 'put X on the grocery list' → runIntent with intentName=add_to_list, parameters='{\"item\":\"X\",\"list_name\":\"shopping\"}'.")
         appendLine("'Show my shopping list', 'what is on my shopping list' → runIntent with intentName=get_list_items, parameters='{\"list_name\":\"shopping\"}'.")
+        appendLine("Lists are stored separately from memories: never use search_memory to answer list-content requests.")
         appendLine("'Is my stopwatch running?', 'check the stopwatch status' → runIntent with intentName=get_stopwatch_status.")
         appendLine()
         appendLine("Examples:")

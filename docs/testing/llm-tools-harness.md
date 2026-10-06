@@ -37,8 +37,8 @@ For every selected golden prompt, the harness checks:
 |------|--------|--------------|------------------|
 | `query_wikipedia_natural` | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True` |
 | `save_memory_durable_fact` | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field must be present and non-empty |
-| `run_intent_stopwatch_status_direct` | "Tell me whether my stopwatch is running now. Do not start, pause, or reset it." | `run_intent` | Nested action `get_stopwatch_status`; ordered sequence `run_intent`; successful `direct_reply` |
-| `run_intent_get_list_items_after_skill_load` | "Load the run_intent instructions, then use the action that lists items in my shopping list and tell me what is on it." | `run_intent` | Ordered sequence `load_skill → run_intent`; `load_skill` succeeds and returns to Gemma; nested action `get_list_items`; successful `direct_reply` |
+| `run_intent_date_diff_direct` | "Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; return the day difference." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; nested action `get_date_diff`; ordered sequence `run_intent`; successful `direct_reply` |
+| `run_intent_get_list_items_after_skill_load` | "Load the run_intent instructions, then use the action that lists items in my shopping list and tell me what is on it." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_list_items`; successful `direct_reply` |
 | `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
 
 ## Runtime markers
@@ -59,10 +59,11 @@ These are the structured logcat markers the harness reads. They are emitted by t
 
 ## Ordered tool-sequence evidence (#1593)
 
-The `run_intent_stopwatch_status_direct` case checks the direct-call path for a user-callable
-`run_intent` action. The `run_intent_get_list_items_after_skill_load` case requests the full
-`run_intent` instructions before reading the shopping list, exercising the intended
-`load_skill → run_intent` discovery path without mutating list state.
+The former stopwatch prompt could not reach Gemma: `get_stopwatch_status` is in
+QIR's `FAST_PATH_INTENTS`. The replacement direct golden still asserts a direct,
+read-only `run_intent` action. The `run_intent_get_list_items_after_skill_load`
+case requests the full `run_intent` instructions before reading the shopping list,
+exercising the intended `load_skill → run_intent` path without mutating list state.
 `get_system_info_natural` remains a separate dedicated top-level SDK-tool control.
 
 For cases with `expected_tool_sequence`, the runner requires:

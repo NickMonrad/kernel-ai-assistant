@@ -163,12 +163,12 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
     def test_direct_run_intent_reads_intent_name_from_native_request(self) -> None:
         marker = (
             'tool=run_intent '
-            'request={"intent_name":"get_stopwatch_status","parameters":{}}'
+            'request={"intent_name":"get_date_diff","parameters":{}}'
         )
         native_data = _parse_tool_marker(marker)
 
         self.assertEqual(
-            "get_stopwatch_status",
+            "get_date_diff",
             _extract_nested_intent(native_data, {}),
         )
         self.assertEqual("legacy_action", _extract_nested_intent({}, {"nested_intent": "legacy_action"}))
@@ -192,8 +192,15 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
 
         self.assertEqual(
             ("run_intent",),
-            cases["run_intent_stopwatch_status_direct"].expected_tool_sequence,
+            cases["run_intent_date_diff_direct"].expected_tool_sequence,
         )
+        self.assertEqual("get_date_diff", cases["run_intent_date_diff_direct"].expected_nested_intent)
+        self.assertEqual("run_intent", cases["run_intent_date_diff_direct"].expected_top_level_tool)
+        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_regex_match)
+        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_classifier_match)
+        self.assertEqual("direct_reply", cases["run_intent_date_diff_direct"].expected_result_mode)
+        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_slot_fill)
+        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_retry)
         self.assertEqual(
             ("load_skill", "run_intent"),
             cases["run_intent_get_list_items_after_skill_load"].expected_tool_sequence,
@@ -202,11 +209,19 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
             "get_list_items",
             cases["run_intent_get_list_items_after_skill_load"].expected_nested_intent,
         )
+        self.assertEqual("run_intent", cases["run_intent_get_list_items_after_skill_load"].expected_top_level_tool)
+        discovery = cases["run_intent_get_list_items_after_skill_load"]
+        self.assertTrue(discovery.expect_no_regex_match)
+        self.assertTrue(discovery.expect_no_classifier_match)
+        self.assertTrue(discovery.expect_no_slot_fill)
+        self.assertTrue(discovery.expect_no_retry)
+        self.assertEqual("direct_reply", discovery.expected_result_mode)
         self.assertEqual(
             ("get_system_info",),
             cases["get_system_info_natural"].expected_tool_sequence,
         )
-
+        self.assertEqual("get_system_info", cases["get_system_info_natural"].expected_top_level_tool)
+        self.assertEqual("direct_reply", cases["get_system_info_natural"].expected_result_mode)
 
 if __name__ == "__main__":
     unittest.main()

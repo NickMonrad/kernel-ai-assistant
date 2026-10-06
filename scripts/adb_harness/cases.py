@@ -782,10 +782,13 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     ),
     # ── Model-action discovery contract (#1593) ────────────────────────────
     LLMToolsTestCase(
-        name="run_intent_stopwatch_status_direct",
-        message="Tell me whether my stopwatch is running now. Do not start, pause, or reset it.",
+        name="run_intent_date_diff_direct",
+        message=(
+            "Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; "
+            "return the day difference."
+        ),
         expected_top_level_tool="run_intent",
-        expected_nested_intent="get_stopwatch_status",
+        expected_nested_intent="get_date_diff",
         expected_result_mode="direct_reply",
         expected_tool_sequence=("run_intent",),
     ),

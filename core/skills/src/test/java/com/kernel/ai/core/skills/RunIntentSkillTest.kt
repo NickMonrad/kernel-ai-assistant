@@ -283,5 +283,7 @@ class RunIntentSkillTest {
         }
         assertTrue(exampleIntents.isNotEmpty())
         assertTrue(exampleIntents.all { it in callableSet }, "Examples must not advertise excluded intents")
+        assertTrue(skill.description.contains("lists/notes") && skill.description.contains("dedicated tools"))
+        assertTrue(instructions.contains("never use search_memory to answer list-content requests"))
     }
 }

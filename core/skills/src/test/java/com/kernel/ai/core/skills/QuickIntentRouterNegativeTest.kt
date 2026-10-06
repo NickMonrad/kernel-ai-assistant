@@ -34,6 +34,9 @@ class QuickIntentRouterNegativeTest {
             // General knowledge / chat — no structural intent
             Arguments.of("tell me about jazz music"),
             Arguments.of("what do you think about that"),
+
+            // The direct tool golden must bypass regex routing; device evidence also rejects classifier routes.
+            Arguments.of("Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; return the day difference."),
         )
     }
 }
