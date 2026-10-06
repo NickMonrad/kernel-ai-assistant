@@ -18,9 +18,9 @@ core/inference/src/main/java/com/kernel/ai/core/inference/JandalPersona.kt
 ```
 Line near the top:
 ```kotlin
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v31"
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v33"
 ```
-**Bump the version number every time you change the corpus.** On next app launch, the app detects the new key, wipes all existing `agent_identity` memories, and reseeds from scratch.
+**Bump the version number every time you change the corpus.** On next app launch, the app clears existing `jandal_persona` NZ entries from the Kiwi and legacy core-memory tables, resets the Kiwi vector index, and reseeds the corpus.
 
 ---
 
@@ -136,17 +136,17 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 4. **Bump the seed guard** in `JandalPersona.kt`:
    ```kotlin
    // Before:
-   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v31"
-   // After:
    private const val KEY_TRUTHS_SEEDED = "truths_seeded_v32"
+   // After:
+   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v33"
    ```
    Add a comment explaining what changed.
 
 5. **Build and install** the app. On first launch after update, logcat will show:
    ```
-   JandalPersona: Loaded 145 NZ truth entries
+   JandalPersona: Loaded 144 NZ truth entries
    ChatViewModel: Seeding NZ truth memories...
-   ChatViewModel: Seeded 145 NZ truth memories
+   ChatViewModel: Seeded 144 NZ truth memories
    ```
 
 5. **Test** by asking Jandal something related to your new entry. Check logcat for:
@@ -289,3 +289,5 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v12`–`v29` | Incremental fixes, vibe tuning, and migration to `kiwi_memories` table (see git log for details) |
 | `truths_seeded_v30` | #736: nz_001 "gas station" → "petrol station"; new entries nz_140–nz_144 (Kumara, Wharepaku, Chocka, Hundies, Taniwha) with rich definitions, cultural context, and expanded vector_text. Corpus 138 → 143 |
 | `truths_seeded_v31` | #736: Added nz_145 (Yeah nah) corpus entry; added kumara, chocka, hundies to jandal_vocab.json (vocab←→corpus sync). Corpus 143 → 144 |
+| `truths_seeded_v32` | Reindexed nz_140–nz_145 embeddings after the sweet potato/kumara recall fix |
+| `truths_seeded_v33` | #1595: Corrected the Dairy definition for a New Zealand neighbourhood shop |

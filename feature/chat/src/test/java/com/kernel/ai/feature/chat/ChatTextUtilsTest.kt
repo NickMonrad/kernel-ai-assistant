@@ -61,6 +61,36 @@ class ChatTextUtilsTest {
             vectorText = "Kumara. Sweet potato. Māori food. Hāngī. Sunday roast. New Zealand. Aotearoa. Owairaka. Toka Toka. Beauregard. Root vegetable.",
             metadataJson = """{}""",
         ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_010",
+            term = "Monique says you're dumb",
+            category = "meme",
+            definition = "NZ cultural phrase from the 2011 NZTA Ghost Chips ad. Whenever the user mentions Monique, respond with: 'Monique says you're dumb.'",
+            triggerContext = "When the user mentions Monique.",
+            vibeLevel = 2,
+            vectorText = "Monique. Ghost Chips NZTA ad. Monique says you are dumb. Kiwi catchphrase.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_098",
+            term = "Dairy",
+            category = "daily_life",
+            definition = "A small neighbourhood shop, also called a corner store or convenience store.",
+            triggerContext = "When the user asks about a New Zealand dairy shop.",
+            vibeLevel = 2,
+            vectorText = "Dairy. Corner store. Convenience store. New Zealand shop.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_033",
+            term = "The Haka",
+            category = "te_ao_maori",
+            definition = "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
+            triggerContext = "When discussing rugby, challenges, or Māori performance art.",
+            vibeLevel = 2,
+            vectorText = "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
+            metadataJson = """{}""",
+        ),
     )
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -1269,91 +1299,62 @@ class ChatTextUtilsTest {
     inner class KnownNzTermDetectionTests {
 
 
+
         @Test
-        fun `detects wharepaku in question`() {
-            val result = detectKnownNzTerm("what is a wharepaku", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
+        fun `detects direct definition questions for #1074 terms`() {
+            assertEquals("Wharepaku", detectKnownNzTerm("what is a wharepaku", sampleEntries)?.term)
+            assertEquals("Chocka", detectKnownNzTerm("what is chocka", sampleEntries)?.term)
+            assertEquals("Taniwha", detectKnownNzTerm("tell me about taniwha", sampleEntries)?.term)
+            assertEquals("Kumara", detectKnownNzTerm("what is kumara", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects chocka in sentence`() {
-            val result = detectKnownNzTerm("the pub is chocka tonight", sampleEntries)
-            assertEquals("Chocka", result?.term)
+        fun `detects direct Dairy definition with a New Zealand qualifier`() {
+            assertEquals("Dairy", detectKnownNzTerm("What is a dairy in New Zealand?", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects taniwha in query`() {
-            val result = detectKnownNzTerm("tell me about taniwha", sampleEntries)
-            assertEquals("Taniwha", result?.term)
+        fun `matches article-prefixed NZ terms before stripping the article`() {
+            assertEquals("The Haka", detectKnownNzTerm("what is the haka?", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects kumara in cooking question`() {
-            val result = detectKnownNzTerm("how do you cook kumara", sampleEntries)
-            assertEquals("Kumara", result?.term)
+        fun `maps direct Monique speech questions to the catchphrase`() {
+            assertEquals("Monique says you're dumb", detectKnownNzTerm("what does monique say", sampleEntries)?.term)
+            assertEquals(
+                "Monique says you're dumb",
+                detectKnownNzTerm("what did Monique say when I left my scooter outside the dairy", sampleEntries)?.term,
+            )
         }
 
         @Test
-        fun `detects term with capital letters`() {
-            val result = detectKnownNzTerm("Tell me about Taniwha", sampleEntries)
-            assertEquals("Taniwha", result?.term)
+        fun `does not select Dairy from an incidental mention`() {
+            assertNull(detectKnownNzTerm("I left my scooter outside the dairy", sampleEntries))
+            assertNull(detectKnownNzTerm("the dairy is next to the pub", sampleEntries))
         }
 
         @Test
-        fun `returns first match when multiple terms present`() {
-            val result = detectKnownNzTerm("kumara and taniwha", sampleEntries)
-            // Should find Kumara first (it's earlier in the list)
-            assertNotNull(result)
-            assertTrue(result?.term == "Kumara" || result?.term == "Taniwha")
+        fun `does not choose a corpus-order result for a multi-term question`() {
+            assertNull(detectKnownNzTerm("what is kumara and taniwha", sampleEntries))
         }
 
         @Test
-        fun `returns null for non-NZ text`() {
-            val result = detectKnownNzTerm("What is the capital of France?", sampleEntries)
-            assertNull(result)
+        fun `does not intercept an explicit Wikipedia lookup`() {
+            val query = "look up wharepaku on Wikipedia"
+            assertNull(detectKnownNzTerm(query, sampleEntries))
+            assertEquals("wharepaku", extractExplicitWikipediaQuery(query))
         }
 
         @Test
-        fun `returns null for non-NZ query that mentions Wikipedia`() {
-            // This proves detectKnownNzTerm does not itself short-circuit on
-            // the word "Wikipedia" — Battle of Hastings is simply not an NZ term.
-            val result = detectKnownNzTerm("look up the Battle of Hastings on Wikipedia", sampleEntries)
-            assertNull(result)
+        fun `returns null for unrelated or non-definition text`() {
+            assertNull(detectKnownNzTerm("What is the capital of France?", sampleEntries))
+            assertNull(detectKnownNzTerm("how do you cook kumara", sampleEntries))
         }
 
         @Test
-        fun `detects wharepaku even when Wikipedia is explicitly requested`() {
-            // detectKnownNzTerm does not understand Wikipedia intent — it only
-            // checks term presence. The Wikipedia bypass is handled by the caller
-            // (ChatViewModel) which checks extractExplicitWikipediaQuery first.
-            val result = detectKnownNzTerm("look up wharepaku on Wikipedia", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
-        }
-
-        @Test
-        fun `detects taniwha even when Wikipedia is explicitly requested`() {
-            val result = detectKnownNzTerm("look up taniwha on Wikipedia", sampleEntries)
-            assertEquals("Taniwha", result?.term)
-        }
-
-        @Test
-        fun `returns null for blank text`() {
-            val result = detectKnownNzTerm("", sampleEntries)
-            assertNull(result)
-        }
-
-        @Test
-        fun `returns null for whitespace text`() {
-            val result = detectKnownNzTerm("   ", sampleEntries)
-            assertNull(result)
-        }
-
-        @Test
-        fun `detects wharepaku in STT normalised follow-up`() {
-            // After TranscriptNormaliser, "fattybaku" becomes "wharepaku",
-            // so the downstream detection should find "wharepaku".
-            val result = detectKnownNzTerm("where is the wharepaku", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
+        fun `returns null for blank or whitespace text`() {
+            assertNull(detectKnownNzTerm("", sampleEntries))
+            assertNull(detectKnownNzTerm("   ", sampleEntries))
         }
 
         @Test
@@ -1368,10 +1369,10 @@ class ChatTextUtilsTest {
                 vectorText = "NZ. New Zealand.",
                 metadataJson = "{}",
             )
-            val result = detectKnownNzTerm("I live in NZ", listOf(shortEntry))
-            assertNull(result)
+            assertNull(detectKnownNzTerm("what is NZ", listOf(shortEntry)))
         }
     }
+
 
     @Nested
     inner class BuildKnownNzContextReplyTests {

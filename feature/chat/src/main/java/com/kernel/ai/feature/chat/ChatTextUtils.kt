@@ -705,25 +705,53 @@ internal fun looksLikePersonalFact(text: String): Boolean {
 }
 
 /**
- * Deterministically checks if [text] mentions a known NZ truth memory term.
- * Returns the first matching [JandalPersona.NzTruthEntry] from [nzTruths], or null if no match.
+ * Returns the NZ truth entry explicitly requested by a direct definition query or a direct
+ * "what does/did <name> say" question. Incidental mentions are left for semantic retrieval.
  *
- * This is used as a deterministic pre-model check so that known NZ/Māori cultural terms get
- * their seeded NZ context before the model can choose query_wikipedia (#1074).
- *
- * Matching is case-insensitive and uses word-boundary checks on the canonical term name.
- * After STT normalisation ([com.kernel.ai.core.voice.TranscriptNormaliser]), voice-input
- * aliases have already been replaced with canonical terms, so only canonical forms are matched.
+ * Explicit Wikipedia routing remains the caller's responsibility; ChatViewModel checks that
+ * intent before using this deterministic lookup.
  */
+private val LEADING_NZ_DEFINITION_ARTICLE = Regex(
+    """^(?:a|an|the)\s+""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val DIRECT_NZ_DEFINITION_QUERY = Regex(
+    """^\s*(?:what\s+is|what's|tell\s+me\s+about|define|explain)\s+(.+?)(?:\s+in\s+(?:nz|new\s+zealand))?\s*[?.!]*\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val DIRECT_NZ_SAY_QUERY = Regex(
+    """^\s*what\s+(?:does|did)\s+([\p{L}][\p{L}'-]*)\s+say(?:\s+.+)?\s*[?.!]*\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
 internal fun detectKnownNzTerm(
     text: String,
     nzTruths: List<JandalPersona.NzTruthEntry>,
 ): JandalPersona.NzTruthEntry? {
     if (text.isBlank()) return null
-    val lower = text.lowercase()
-    return nzTruths.firstOrNull { entry ->
-        val term = entry.term.lowercase()
-        term.length >= 3 && Regex("""\b${Regex.escape(term)}\b""").containsMatchIn(lower)
+
+    val query = text.trim()
+    val saySubject = DIRECT_NZ_SAY_QUERY.matchEntire(query)?.groupValues?.get(1)
+    if (saySubject != null) {
+        val requestedPrefix = "$saySubject says "
+        return nzTruths.singleOrNull { entry ->
+            entry.term.trim().length >= 3 && entry.term.startsWith(requestedPrefix, ignoreCase = true)
+        }
+    }
+
+    val requestedTerm = DIRECT_NZ_DEFINITION_QUERY.matchEntire(query)?.groupValues?.get(1)?.trim()
+        ?: return null
+    val exactMatch = nzTruths.singleOrNull { entry ->
+        entry.term.trim().length >= 3 && entry.term.equals(requestedTerm, ignoreCase = true)
+    }
+    if (exactMatch != null) return exactMatch
+
+    val fallbackTerm = LEADING_NZ_DEFINITION_ARTICLE.replaceFirst(requestedTerm, "").trim()
+    if (fallbackTerm == requestedTerm) return null
+    return nzTruths.singleOrNull { entry ->
+        entry.term.trim().length >= 3 && entry.term.equals(fallbackTerm, ignoreCase = true)
     }
 }
 

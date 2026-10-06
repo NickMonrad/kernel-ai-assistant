@@ -707,6 +707,36 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_log_contains="Deterministic NZ context answered locally",
         expected_reply_contains=["sweet potato", "hāngī", "hangi", "Sunday roast", "Māori"],
     ),
+    LLMToolsTestCase(
+        name="nz_dairy_direct_definition",
+        message="what is a dairy in New Zealand",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["neighbourhood shop", "corner store", "convenience store"],
+    ),
+    LLMToolsTestCase(
+        name="nz_monique_direct_question",
+        message="what does monique say",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["Monique says you're dumb"],
+    ),
+    LLMToolsTestCase(
+        name="nz_monique_incidental_dairy",
+        message="what did monique say when i left my scooter outside the dairy",
+        expected_top_level_tool="no_tool_call",
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_tool_call=True,
+        expect_log_contains="Deterministic NZ context answered locally",
+        expected_reply_contains=["Monique says you're dumb"],
+    ),
     # ── Explicit Wikipedia Control (#1074) ─────────────────────────────────
     # Explicit Wikipedia requests must still reach query_wikipedia.
     LLMToolsTestCase(
