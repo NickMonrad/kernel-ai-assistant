@@ -17,6 +17,7 @@ val KernelModel.capabilities: ModelCapabilities
     get() = when (this) {
         KernelModel.GEMMA_4_E2B,
         KernelModel.GEMMA_4_E4B,
+        KernelModel.GEMMA_4_E4B_GPU_TEST,
         -> ModelCapabilities(
             supportsThinking = true,
             supportsImageInput = false,

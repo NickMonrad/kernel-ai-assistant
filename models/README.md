@@ -70,6 +70,7 @@ For manual setup without a host machine:
 |------|--------------|----------|--------|
 | `gemma-4-E2B-it.litertlm` | ~2.4 GB | Yes, launch-compatible tier | [litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) |
 | `gemma-4-E4B-it.litertlm` | ~3.4 GB | Optional flagship tier | [litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
+| `gemma-4-E4B-it-gpu.litertlm` | 2,969,059,328 bytes | Optional; debug-only manual A/B test | [pinned GPU artifact](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/2eee7ac325f20eb8c9ac1d0e972f7c84663062da/gemma-4-E4B-it-gpu.litertlm) · SHA-256 `4912bb5a9c30993c51a7711f763212077458529312175df0573a78323a2bb7ff` |
 | `mobile_actions_q8_ekv1024.litertlm` | ~289 MB | Optional / experimental | [litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
 
 ### Arctic Embed M v1.5 (`.tflite` + `vocab.txt`)

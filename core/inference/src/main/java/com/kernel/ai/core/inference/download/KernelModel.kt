@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference.download
 
 import android.content.Context
+import com.kernel.ai.core.inference.BuildConfig
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import java.io.File
 
@@ -73,6 +74,18 @@ enum class KernelModel(
         preferredForTier = HardwareTier.FLAGSHIP,
         isGated = false,
         licenceUrl = null,
+    ),
+
+    GEMMA_4_E4B_GPU_TEST(
+        displayName = "Gemma 4 E-4B GPU (Test)",
+        fileName = "gemma-4-E4B-it-gpu.litertlm",
+        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/2eee7ac325f20eb8c9ac1d0e972f7c84663062da/gemma-4-E4B-it-gpu.litertlm",
+        approxSizeBytes = 2_969_059_328L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = null,
+        showInModelManagement = BuildConfig.DEBUG,
     ),
 
     ARCTIC_EMBED_M_V1_5(

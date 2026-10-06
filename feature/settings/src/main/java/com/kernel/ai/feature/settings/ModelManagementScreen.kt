@@ -203,6 +203,9 @@ fun ModelManagementScreen(
             item {
                 val e2bState = uiState.models.find { it.model == KernelModel.GEMMA_4_E2B }?.downloadState
                 val e4bState = uiState.models.find { it.model == KernelModel.GEMMA_4_E4B }?.downloadState
+                val e4bGpuTest = uiState.models.find {
+                    it.model == KernelModel.GEMMA_4_E4B_GPU_TEST
+                }
                 val e2bDownloaded = e2bState is DownloadState.Downloaded
                 val e4bDownloaded = e4bState is DownloadState.Downloaded
 
@@ -283,6 +286,43 @@ fun ModelManagementScreen(
                     },
                 )
                 HorizontalDivider()
+                e4bGpuTest?.let { gpuTest ->
+                    val downloaded = gpuTest.downloadState is DownloadState.Downloaded
+                    ListItem(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = downloaded) {
+                                viewModel.setPreferredModel(gpuTest.model)
+                            },
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(gpuTest.model.displayName)
+                                if (!downloaded) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "(not downloaded)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        },
+                        supportingContent = {
+                            Text("Dedicated GPU package for manual A/B testing · 2.97 GB")
+                        },
+                        leadingContent = {
+                            RadioButton(
+                                selected = uiState.preferredModel == gpuTest.model,
+                                onClick = {
+                                    if (downloaded) viewModel.setPreferredModel(gpuTest.model)
+                                },
+                                enabled = downloaded,
+                            )
+                        },
+                    )
+                    HorizontalDivider()
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
             }
 

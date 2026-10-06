@@ -10,6 +10,7 @@ class ModelCapabilitiesTest {
     fun `gemma conversation models expose shared capability metadata`() {
         val e2b = KernelModel.GEMMA_4_E2B.capabilities
         val e4b = KernelModel.GEMMA_4_E4B.capabilities
+        val e4bGpuTest = KernelModel.GEMMA_4_E4B_GPU_TEST.capabilities
 
         assertTrue(e2b.supportsThinking)
         assertTrue(e2b.supportsSpeculativeDecoding)
@@ -18,6 +19,9 @@ class ModelCapabilitiesTest {
         assertTrue(e4b.supportsThinking)
         assertTrue(e4b.supportsSpeculativeDecoding)
         assertFalse(e4b.supportsAttachments)
+        assertTrue(e4bGpuTest.supportsThinking)
+        assertTrue(e4bGpuTest.supportsSpeculativeDecoding)
+        assertFalse(e4bGpuTest.supportsAttachments)
     }
 
     @Test
