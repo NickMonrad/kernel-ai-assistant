@@ -711,8 +711,13 @@ internal fun looksLikePersonalFact(text: String): Boolean {
  * Explicit Wikipedia routing remains the caller's responsibility; ChatViewModel checks that
  * intent before using this deterministic lookup.
  */
+private val LEADING_NZ_DEFINITION_ARTICLE = Regex(
+    """^(?:a|an|the)\s+""",
+    RegexOption.IGNORE_CASE,
+)
+
 private val DIRECT_NZ_DEFINITION_QUERY = Regex(
-    """^\s*(?:what\s+is|what's|tell\s+me\s+about|define|explain)\s+(?:(?:a|an|the)\s+)?(.+?)(?:\s+in\s+(?:nz|new\s+zealand))?\s*[?.!]*\s*$""",
+    """^\s*(?:what\s+is|what's|tell\s+me\s+about|define|explain)\s+(.+?)(?:\s+in\s+(?:nz|new\s+zealand))?\s*[?.!]*\s*$""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -738,8 +743,15 @@ internal fun detectKnownNzTerm(
 
     val requestedTerm = DIRECT_NZ_DEFINITION_QUERY.matchEntire(query)?.groupValues?.get(1)?.trim()
         ?: return null
-    return nzTruths.singleOrNull { entry ->
+    val exactMatch = nzTruths.singleOrNull { entry ->
         entry.term.trim().length >= 3 && entry.term.equals(requestedTerm, ignoreCase = true)
+    }
+    if (exactMatch != null) return exactMatch
+
+    val fallbackTerm = LEADING_NZ_DEFINITION_ARTICLE.replaceFirst(requestedTerm, "").trim()
+    if (fallbackTerm == requestedTerm) return null
+    return nzTruths.singleOrNull { entry ->
+        entry.term.trim().length >= 3 && entry.term.equals(fallbackTerm, ignoreCase = true)
     }
 }
 

@@ -81,6 +81,16 @@ class ChatTextUtilsTest {
             vectorText = "Dairy. Corner store. Convenience store. New Zealand shop.",
             metadataJson = """{}""",
         ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_033",
+            term = "The Haka",
+            category = "te_ao_maori",
+            definition = "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
+            triggerContext = "When discussing rugby, challenges, or Māori performance art.",
+            vibeLevel = 2,
+            vectorText = "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
+            metadataJson = """{}""",
+        ),
     )
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -1301,6 +1311,11 @@ class ChatTextUtilsTest {
         @Test
         fun `detects direct Dairy definition with a New Zealand qualifier`() {
             assertEquals("Dairy", detectKnownNzTerm("What is a dairy in New Zealand?", sampleEntries)?.term)
+        }
+
+        @Test
+        fun `matches article-prefixed NZ terms before stripping the article`() {
+            assertEquals("The Haka", detectKnownNzTerm("what is the haka?", sampleEntries)?.term)
         }
 
         @Test
