@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills
 
+import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import dagger.Lazy
 import io.mockk.coEvery
@@ -85,6 +86,17 @@ class KernelAIToolSetTest {
 
         assertTrue(toolSet.wasToolCalled())
         assertEquals("load_skill", toolSet.lastToolName())
+    }
+
+    @Test
+    fun `loadSkill metadata directs RunIntent continuation`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("loadSkill", String::class.java)
+            .getAnnotation(Tool::class.java)
+            .description
+
+        assertTrue("call run_intent on the original request next" in description)
+        assertTrue("do not stop after reading the instructions" in description)
     }
 
     @Test

@@ -70,7 +70,9 @@ optional earlier date. The golden compares April 11 against April 8.
 `run_intent_date_diff_after_skill_load` asks for the RunIntent instructions without naming
 the `load_skill` tool in the user text; its existing tool description maps that request
 to a single successful `load_skill` before the same read-only `get_date_diff` action.
-It isolates the discovery handoff without exposing list contents.
+It isolates the discovery handoff without exposing list contents. The `load_skill`
+metadata and returned instructions both direct the model to continue with `run_intent`
+on the same request instead of stopping after loading.
 
 The user wording avoids the literal `load_skill` because QIR's existing unanchored
 kill-device pattern matches the `kill ` substring inside `skill`; the route regression
