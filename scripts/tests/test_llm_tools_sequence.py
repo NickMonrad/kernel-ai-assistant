@@ -190,38 +190,47 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
     def test_llm_cases_cover_direct_discovery_chain_and_dedicated_tool(self) -> None:
         cases = {case.name: case for case in LLM_TOOLS_CASES}
 
-        self.assertEqual(
-            ("run_intent",),
-            cases["run_intent_date_diff_direct"].expected_tool_sequence,
-        )
-        self.assertEqual("get_date_diff", cases["run_intent_date_diff_direct"].expected_nested_intent)
-        self.assertEqual("run_intent", cases["run_intent_date_diff_direct"].expected_top_level_tool)
-        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_regex_match)
-        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_classifier_match)
-        self.assertEqual("direct_reply", cases["run_intent_date_diff_direct"].expected_result_mode)
-        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_slot_fill)
-        self.assertTrue(cases["run_intent_date_diff_direct"].expect_no_retry)
-        self.assertEqual(
-            ("load_skill", "run_intent"),
-            cases["run_intent_get_list_items_after_skill_load"].expected_tool_sequence,
-        )
-        self.assertEqual(
-            "get_list_items",
-            cases["run_intent_get_list_items_after_skill_load"].expected_nested_intent,
-        )
-        self.assertEqual("run_intent", cases["run_intent_get_list_items_after_skill_load"].expected_top_level_tool)
-        discovery = cases["run_intent_get_list_items_after_skill_load"]
+        direct = cases["run_intent_date_diff_direct"]
+        self.assertEqual(("run_intent",), direct.expected_tool_sequence)
+        self.assertEqual("get_date_diff", direct.expected_nested_intent)
+        self.assertEqual("run_intent", direct.expected_top_level_tool)
+        self.assertTrue(direct.expect_no_regex_match)
+        self.assertTrue(direct.expect_no_classifier_match)
+        self.assertTrue(direct.expect_no_slot_fill)
+        self.assertTrue(direct.expect_no_retry)
+        self.assertEqual("direct_reply", direct.expected_result_mode)
+        self.assertEqual(["3 days"], direct.expected_reply_contains)
+
+        discovery = cases["run_intent_date_diff_after_skill_load"]
+        self.assertEqual(("load_skill", "run_intent"), discovery.expected_tool_sequence)
+        self.assertEqual("get_date_diff", discovery.expected_nested_intent)
+        self.assertEqual("run_intent", discovery.expected_top_level_tool)
         self.assertTrue(discovery.expect_no_regex_match)
         self.assertTrue(discovery.expect_no_classifier_match)
         self.assertTrue(discovery.expect_no_slot_fill)
         self.assertTrue(discovery.expect_no_retry)
         self.assertEqual("direct_reply", discovery.expected_result_mode)
-        self.assertEqual(
-            ("get_system_info",),
-            cases["get_system_info_natural"].expected_tool_sequence,
-        )
-        self.assertEqual("get_system_info", cases["get_system_info_natural"].expected_top_level_tool)
-        self.assertEqual("direct_reply", cases["get_system_info_natural"].expected_result_mode)
+        self.assertEqual(["3 days"], discovery.expected_reply_contains)
+
+        system_info = cases["get_system_info_natural"]
+        self.assertEqual(("get_system_info",), system_info.expected_tool_sequence)
+        self.assertEqual("get_system_info", system_info.expected_top_level_tool)
+        self.assertEqual("direct_reply", system_info.expected_result_mode)
+
+    def test_discovery_case_prompt_is_distinct_from_direct_fallback(self) -> None:
+        cases = {case.name: case for case in LLM_TOOLS_CASES}
+        direct = cases["run_intent_date_diff_direct"]
+        discovery = cases["run_intent_date_diff_after_skill_load"]
+
+        self.assertNotEqual(direct.message, discovery.message)
+        self.assertIn("get_date_diff", direct.message.lower())
+        self.assertIn("April 8, 2026", direct.message)
+        self.assertIn("April 11, 2026", direct.message)
+        self.assertIn("RunIntent instructions", discovery.message)
+        self.assertNotIn("skill", discovery.message.lower())
+        self.assertIn("run_intent", discovery.message.lower())
+        self.assertIn("April 8, 2026", discovery.message)
+        self.assertIn("April 11, 2026", discovery.message)
 
 if __name__ == "__main__":
     unittest.main()

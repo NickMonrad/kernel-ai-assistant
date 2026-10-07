@@ -37,8 +37,8 @@ For every selected golden prompt, the harness checks:
 |------|--------|--------------|------------------|
 | `query_wikipedia_natural` | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True` |
 | `save_memory_durable_fact` | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field must be present and non-empty |
-| `run_intent_date_diff_direct` | "Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; return the day difference." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; nested action `get_date_diff`; ordered sequence `run_intent`; successful `direct_reply` |
-| `run_intent_get_list_items_after_skill_load` | "Load the run_intent instructions, then use the action that lists items in my shopping list and tell me what is on it." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_list_items`; successful `direct_reply` |
+| `run_intent_date_diff_direct` | "Use `run_intent` with the `get_date_diff` action to compare April 8, 2026 and April 11, 2026. State the day difference." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; nested action `get_date_diff`; reply includes `3 days`; ordered sequence `run_intent`; successful `direct_reply` |
+| `run_intent_date_diff_after_skill_load` | "Read the RunIntent instructions first. Then use `run_intent` with the `get_date_diff` action to compare April 8, 2026 and April 11, 2026. State the day difference." | `run_intent` | Same route guards; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_date_diff`; reply includes `3 days`; successful `direct_reply` |
 | `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
 
 ## Runtime markers
@@ -60,10 +60,18 @@ These are the structured logcat markers the harness reads. They are emitted by t
 ## Ordered tool-sequence evidence (#1593)
 
 The former stopwatch prompt could not reach Gemma: `get_stopwatch_status` is in
-QIR's `FAST_PATH_INTENTS`. The replacement direct golden still asserts a direct,
-read-only `run_intent` action. The `run_intent_get_list_items_after_skill_load`
-case requests the full `run_intent` instructions before reading the shopping list,
-exercising the intended `load_skill → run_intent` path without mutating list state.
+QIR's `FAST_PATH_INTENTS`. The direct `get_date_diff` golden is a safe model-fallback
+case that asserts the native action result (`3 days`), not a stopwatch status.
+
+`run_intent_date_diff_after_skill_load` asks for the RunIntent instructions without naming
+the `load_skill` tool in the user text; its existing tool description maps that request
+to a single successful `load_skill` before the same read-only `get_date_diff` action.
+It isolates the discovery handoff without exposing list contents.
+
+The user wording avoids the literal `load_skill` because QIR's existing unanchored
+kill-device pattern matches the `kill ` substring inside `skill`; the route regression
+keeps this natural-instruction prompt on model fallback without changing QIR.
+
 `get_system_info_natural` remains a separate dedicated top-level SDK-tool control.
 
 For cases with `expected_tool_sequence`, the runner requires:

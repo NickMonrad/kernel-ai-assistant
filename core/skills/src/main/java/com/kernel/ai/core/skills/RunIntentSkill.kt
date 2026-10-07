@@ -217,6 +217,7 @@ class RunIntentSkill @Inject constructor(
 
     override val fullInstructions: String = buildString {
         appendLine("run_intent: Perform a native Android device action.")
+        appendLine("After load_skill returns these instructions, continue the same request with the relevant run_intent action; do not call load_skill(\"run_intent\") again for that request.")
         appendLine()
         appendLine("Parameters (pass as JSON in the 'parameters' argument):")
         appendLine("- intent_name (required, string): The action to perform.")
@@ -257,7 +258,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("CRITICAL: NEVER say 'I've put that in the diary', 'I've added it to your calendar', ")
         appendLine("or any similar confirmation without calling runIntent(create_calendar_event) first. ")
         appendLine("You MUST call the tool — do NOT confirm the event was created without the tool having been called. ")
-        appendLine("If you are uncertain about the exact parameters, call load_skill(\"run_intent\") first. ")
+        appendLine("If exact parameters remain unclear after reading these instructions, ask the user; do not call load_skill again.")
         appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")
         appendLine()
         appendLine("DND rule: 'turn on do not disturb', 'enable DND', 'silence notifications' →")

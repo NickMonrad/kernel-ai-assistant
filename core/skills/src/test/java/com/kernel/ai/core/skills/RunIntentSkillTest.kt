@@ -276,6 +276,9 @@ class RunIntentSkillTest {
         exclusions.forEach { (intent, reason) ->
             assertTrue("  $intent — $reason" in instructions, "$intent exclusion missing from detailed discovery")
         }
+        assertTrue(instructions.contains("After load_skill returns these instructions, continue the same request with the relevant run_intent action"))
+        assertTrue(instructions.contains("do not call load_skill(\"run_intent\") again for that request"))
+        assertTrue(instructions.contains("ask the user; do not call load_skill again"))
 
         val exampleIntentPattern = Regex("intentName=\\\"([^\\\"]+)\\\"")
         val exampleIntents = skill.examples.flatMap { example ->

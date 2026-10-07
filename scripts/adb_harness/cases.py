@@ -784,23 +784,25 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     LLMToolsTestCase(
         name="run_intent_date_diff_direct",
         message=(
-            "Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; "
-            "return the day difference."
+            "Use run_intent with the get_date_diff action to compare April 8, 2026 and "
+            "April 11, 2026. State the day difference."
         ),
         expected_top_level_tool="run_intent",
         expected_nested_intent="get_date_diff",
         expected_result_mode="direct_reply",
+        expected_reply_contains=["3 days"],
         expected_tool_sequence=("run_intent",),
     ),
     LLMToolsTestCase(
-        name="run_intent_get_list_items_after_skill_load",
+        name="run_intent_date_diff_after_skill_load",
         message=(
-            "Load the run_intent instructions, then use the action that lists items "
-            "in my shopping list and tell me what is on it."
+            "Read the RunIntent instructions first. Then use run_intent with the get_date_diff action "
+            "to compare April 8, 2026 and April 11, 2026. State the day difference."
         ),
         expected_top_level_tool="run_intent",
-        expected_nested_intent="get_list_items",
+        expected_nested_intent="get_date_diff",
         expected_result_mode="direct_reply",
+        expected_reply_contains=["3 days"],
         expected_tool_sequence=("load_skill", "run_intent"),
     ),
     LLMToolsTestCase(

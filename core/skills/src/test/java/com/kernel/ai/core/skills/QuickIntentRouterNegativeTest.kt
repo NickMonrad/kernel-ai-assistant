@@ -35,8 +35,9 @@ class QuickIntentRouterNegativeTest {
             Arguments.of("tell me about jazz music"),
             Arguments.of("what do you think about that"),
 
-            // The direct tool golden must bypass regex routing; device evidence also rejects classifier routes.
-            Arguments.of("Use run_intent.get_date_diff to compare 2026-04-08 with 2026-04-11; return the day difference."),
+            // Direct and discovery date-difference goldens must bypass regex routing.
+            Arguments.of("Use run_intent with the get_date_diff action to compare April 8, 2026 and April 11, 2026. State the day difference."),
+            Arguments.of("Read the RunIntent instructions first. Then use run_intent with the get_date_diff action to compare April 8, 2026 and April 11, 2026. State the day difference."),
         )
     }
 }

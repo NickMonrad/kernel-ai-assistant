@@ -230,8 +230,13 @@ class ChatViewModelToolUsePromptTest {
     @Test
     fun `buildToolUsePrompt honors explicit skill discovery requests`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("user explicitly asks for skill instructions") && p.contains("call load_skill first"),
-            "Missing explicit load_skill discovery path\n$p")
+        assertTrue(
+            p.contains("user explicitly asks for skill instructions") &&
+                p.contains("call load_skill before any other tool") &&
+                p.contains("at most once for that skill in this request") &&
+                p.contains("Do not reload it; if parameters remain unclear, ask the user."),
+            "Missing one-time explicit load_skill discovery path\n$p"
+        )
     }
 
     @Test

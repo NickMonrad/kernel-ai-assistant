@@ -891,7 +891,7 @@ class ChatViewModel @Inject constructor(
             append("Rules:\n")
             append("1. Choose the most relevant native tool for the user's request.\n")
             append("2. Call that tool directly when its name and parameters are clear from the request.\n")
-            append("3. If the user explicitly asks for skill instructions, or you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
+            append("3. If the user explicitly asks for skill instructions, or the intent/parameters need gateway-specific rules, call load_skill before any other tool (at most once for that skill in this request), then use its returned instructions to complete the request. Do not reload it; if parameters remain unclear, ask the user.\n")
             append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
             append("5. Output ONLY the final user-facing result when successful.\n")
             append("6. CRITICAL — Device actions and list/note requests MUST use run_intent: When the user asks you to PERFORM a device action\n")
