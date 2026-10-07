@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-09-29 (made the near-term public execution sequence explicit)
+> **Last updated:** 2026-10-07 (retargeted LiteRT-LM runtime validation to 0.18.0)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -696,6 +696,6 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | Gemma-4 E-4B (LiteRT) | [huggingface.co/litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
 | Arctic Embed M v1.5 | [Snowflake/snowflake-arctic-embed-m-v1.5](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v1.5) (Apache-2.0; temporary runtime host is the public rolling [Jandal GitHub release](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current); long-term community publication tracked in #1563) |
 | FunctionGemma-270M Mobile Actions | [huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
-| LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) |
+| LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) — stable target 0.18.0 tracked in #31 |
 | sqlite-vec | [github.com/asg017/sqlite-vec](https://github.com/asg017/sqlite-vec) |
 | Chicory (Wasm) | [github.com/nickkmonrad/chicory](https://github.com/nickkmonrad/chicory) |
