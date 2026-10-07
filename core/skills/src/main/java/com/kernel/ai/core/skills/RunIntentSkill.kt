@@ -26,6 +26,10 @@ class RunIntentSkill @Inject constructor(
 ) : Skill {
 
     companion object {
+        internal const val GET_DATE_DIFF_PARAMETER_HELP =
+            "target_date (required, later date, YYYY-MM-DD), " +
+                "from_date (optional, earlier date, YYYY-MM-DD); " +
+                "example: {\"target_date\":\"2026-04-11\",\"from_date\":\"2026-04-08\"}"
         private val MODEL_ACTION_CATEGORIES = listOf(
             RunIntentModelCategory("FLASHLIGHT", listOf(
                 RunIntentModelAction("toggle_flashlight_on", "no params"),
@@ -112,7 +116,7 @@ class RunIntentSkill @Inject constructor(
                 RunIntentModelAction("add_reminder", "item, day, time"),
             )),
             RunIntentModelCategory("DATE AND MATH", listOf(
-                RunIntentModelAction("get_date_diff", "target_date, from_date (optional)"),
+                RunIntentModelAction("get_date_diff", GET_DATE_DIFF_PARAMETER_HELP),
                 RunIntentModelAction("calculate_arithmetic", "expression"),
                 RunIntentModelAction("convert_units", "value, from_unit, to_unit"),
                 RunIntentModelAction("convert_cooking_measure", "amount, from_unit, ingredient, to_unit (optional)"),

@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills
 
+import com.google.ai.edge.litertlm.ToolParam
 import dagger.Lazy
 import io.mockk.coEvery
 import io.mockk.every
@@ -84,6 +85,18 @@ class KernelAIToolSetTest {
 
         assertTrue(toolSet.wasToolCalled())
         assertEquals("load_skill", toolSet.lastToolName())
+    }
+
+    @Test
+    fun `runIntent parameter metadata documents get_date_diff keys and format`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("runIntent", String::class.java, String::class.java)
+            .parameterAnnotations[1]
+            .filterIsInstance<ToolParam>()
+            .single()
+            .description
+
+        assertTrue(RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP in description)
     }
 
     @Test

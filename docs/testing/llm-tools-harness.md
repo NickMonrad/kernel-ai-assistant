@@ -63,6 +63,10 @@ The former stopwatch prompt could not reach Gemma: `get_stopwatch_status` is in
 QIR's `FAST_PATH_INTENTS`. The direct `get_date_diff` golden is a safe model-fallback
 case that asserts the native action result (`3 days`), not a stopwatch status.
 
+Both direct tool metadata and loaded RunIntent instructions document the same date
+contract: `target_date` is the later ISO `YYYY-MM-DD` date; `from_date` is the
+optional earlier date. The golden compares April 11 against April 8.
+
 `run_intent_date_diff_after_skill_load` asks for the RunIntent instructions without naming
 the `load_skill` tool in the user text; its existing tool description maps that request
 to a single successful `load_skill` before the same read-only `get_date_diff` action.

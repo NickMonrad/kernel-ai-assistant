@@ -273,6 +273,7 @@ class RunIntentSkillTest {
         callable.forEach { intent ->
             assertTrue("  $intent — params:" in instructions, "$intent missing from detailed discovery")
         }
+        assertTrue(RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP in instructions)
         exclusions.forEach { (intent, reason) ->
             assertTrue("  $intent — $reason" in instructions, "$intent exclusion missing from detailed discovery")
         }
