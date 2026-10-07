@@ -20,7 +20,7 @@ import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.OpenApiTool
@@ -151,7 +151,9 @@ internal fun resolveSpeculativeDecodingForInit(
 }
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
-    Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+    ModelInfo.from(modelPath).use { modelInfo ->
+        modelInfo is ModelInfo.Llm && modelInfo.hasSpeculativeDecodingSupport()
+    }
 
 @OptIn(ExperimentalApi::class)
 private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?) {
@@ -1800,7 +1802,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
-                // createConversation() time. Check Capabilities first to guard unsupported models.
+                // createConversation() time. Use package ModelInfo to guard unsupported models.
                 val speculativeDecoding = resolveSpeculativeDecodingForInit(
                     requested = config.speculativeDecodingEnabled,
                     modelPath = config.modelPath,
