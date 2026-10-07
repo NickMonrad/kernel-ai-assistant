@@ -126,6 +126,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -224,6 +225,102 @@ internal fun decideAddedItemReveal(
     }
 }
 
+private sealed interface ActiveHierarchyEntry {
+    val key: Any
+
+    data class Item(
+        val row: ListItemEntity,
+        val isChild: Boolean,
+        val dropTarget: HierarchyDropTarget?,
+    ) : ActiveHierarchyEntry {
+        override val key: Any get() = row.id
+    }
+
+    data class Insertion(
+        val target: HierarchyDropTarget,
+        val isChild: Boolean,
+    ) : ActiveHierarchyEntry {
+        override val key: Any = target.stableKey()
+    }
+}
+
+/**
+ * Frozen at drag start so every target recomputes from the original projected hierarchy, not the
+ * previous preview.
+ */
+private data class HierarchyDragBaseline(
+    val visibleGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    val completeGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    val collapsedParentItemIds: Set<String>,
+)
+
+private fun HierarchyDropTarget.stableKey(): String = when (this) {
+    is HierarchyDropTarget.TopLevelInsertion ->
+        "drop_top_${beforeParentRowId ?: "end"}"
+    is HierarchyDropTarget.ChildInsertion ->
+        "drop_child_${parentRowId}_${beforeChildRowId ?: "end"}"
+    is HierarchyDropTarget.ParentRow -> "drop_parent_$parentRowId"
+}
+
+private fun activeHierarchyEntries(
+    groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    hierarchyEditingEnabled: Boolean,
+    activeParentRowTargetId: Long?,
+): List<ActiveHierarchyEntry> = buildList {
+    groups.forEach { group ->
+        if (hierarchyEditingEnabled) {
+            add(
+                ActiveHierarchyEntry.Insertion(
+                    HierarchyDropTarget.TopLevelInsertion(group.parent.id),
+                    isChild = false,
+                ),
+            )
+        }
+        add(
+            ActiveHierarchyEntry.Item(
+                row = group.parent,
+                isChild = false,
+                dropTarget = if (hierarchyEditingEnabled) {
+                    HierarchyDropTarget.ParentRow(group.parent.id)
+                } else null,
+            ),
+        )
+        group.children.forEach { child ->
+            if (hierarchyEditingEnabled) {
+                add(
+                    ActiveHierarchyEntry.Insertion(
+                        HierarchyDropTarget.ChildInsertion(group.parent.id, child.id),
+                        isChild = true,
+                    ),
+                )
+            }
+            add(
+                ActiveHierarchyEntry.Item(
+                    row = child,
+                    isChild = true,
+                    dropTarget = null,
+                ),
+            )
+        }
+        if (hierarchyEditingEnabled) {
+            val finalChildTarget = if (activeParentRowTargetId == group.parent.id) {
+                HierarchyDropTarget.ParentRow(group.parent.id)
+            } else {
+                HierarchyDropTarget.ChildInsertion(group.parent.id, beforeChildRowId = null)
+            }
+            add(ActiveHierarchyEntry.Insertion(finalChildTarget, isChild = true))
+        }
+    }
+    if (hierarchyEditingEnabled && groups.isNotEmpty()) {
+        add(
+            ActiveHierarchyEntry.Insertion(
+                HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = null),
+                isChild = false,
+            ),
+        )
+    }
+}
+
 // ── Screen ───────────────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -247,6 +344,8 @@ fun ListItemsScreen(
     // Restores this list's saved sort so reopening never falls back to the default.
     LaunchedEffect(listId) { viewModel.bindItemList(listId) }
     val itemSortReady = viewModel.itemSortReadyForListId == listId
+    val collapsedPreferencesReady = viewModel.collapsedParentPreferencesReadyForListId == listId
+    val hierarchyPreferencesReady = itemSortReady && collapsedPreferencesReady
 
     val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
     val collectionId = listEntities.firstOrNull { it.id == listId }?.collectionId
@@ -275,9 +374,25 @@ fun ListItemsScreen(
     )
     val activeGroups = displayedHierarchy.activeGroups
     val completedGroups = displayedHierarchy.completedGroups
-    val sortedActive = activeGroups.flatMap { listOf(it.parent) + it.children }
+    val completeGroups = remember(displayedHierarchy.sourceItems) {
+        completeEffectiveGroups(displayedHierarchy.sourceItems)
+    }
+    val completeActiveGroups = completeGroups.filterNot { it.parent.checked }
+    val completeParentItemIds = completeGroups
+        .filter { it.children.isNotEmpty() }
+        .map { it.parent.itemId }
+        .toSet()
+    val collapsedParentItemIds = if (collapsedPreferencesReady) {
+        viewModel.collapsedParentItemIds
+    } else {
+        emptySet()
+    }
+    val visibleActiveGroups = visibleHierarchyGroups(activeGroups, collapsedParentItemIds, searchQuery)
+    val visibleCompletedGroups = visibleHierarchyGroups(completedGroups, collapsedParentItemIds, searchQuery)
+    val sortedActive = visibleActiveGroups.flatMap { listOf(it.parent) + it.children }
     val sortedCompleted = completedGroups.flatMap { listOf(it.parent) + it.children }
-    val allItems = sortedActive + sortedCompleted
+    val visibleSortedCompleted = visibleCompletedGroups.flatMap { listOf(it.parent) + it.children }
+    val allItems = activeGroups.flatMap { listOf(it.parent) + it.children } + sortedCompleted
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -286,10 +401,32 @@ fun ListItemsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
+    var addSubItemParentId by remember(listId) { mutableStateOf<String?>(null) }
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+
+    fun visibleChildRowIdsToHide(parentItemId: String? = null): Set<Long> {
+        if (searchQuery.isNotBlank()) return emptySet()
+        val renderedGroups = visibleActiveGroups +
+            if (completedExpanded) visibleCompletedGroups else emptyList()
+        return renderedGroups.asSequence()
+            .filter { parentItemId == null || it.parent.itemId == parentItemId }
+            .flatMap { it.children.asSequence() }
+            .map { it.id }
+            .toSet()
+    }
 
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
+
+    LaunchedEffect(collapsedParentItemIds, searchQuery, selectedItemIds, completeGroups) {
+        if (searchQuery.isNotBlank()) return@LaunchedEffect
+        val collapsedChildIds = completeGroups.asSequence()
+            .filter { it.parent.itemId in collapsedParentItemIds }
+            .flatMap { it.children.asSequence() }
+            .map { it.id }
+            .toSet()
+        viewModel.deselectItems(selectedItemIds intersect collapsedChildIds)
+    }
     // Content changes are unavailable whenever the provider refuses them: a read-only share, a
     // removed share, or local work already stranded by either (#1548). Local-only fields stay usable.
     val isRemoteReadOnly = nextcloudState != null &&
@@ -300,6 +437,7 @@ fun ListItemsScreen(
             viewModel.exitItemMultiSelect()
             editingItem = null
             showAddDialog = false
+            addSubItemParentId = null
             showRenameDialog = false
             showItemBulkDeleteDialog = false
         }
@@ -326,45 +464,83 @@ fun ListItemsScreen(
             onExternalMessageShown()
         }
     }
-    // ── Hierarchy editing state (#928) ───────────────────────────────────────────────────────────
-    var localActiveItems by remember { mutableStateOf(sortedActive) }
+    // ── Explicit drag targets and shared preview/commit placement (#1581) ─────────────────────────
     var itemDragInProgress by remember { mutableStateOf(false) }
     var dragSourceId by remember { mutableStateOf<Long?>(null) }
-    var dragDestinationGroupId by remember { mutableStateOf<Long?>(null) }
-    var dragStartOrder by remember { mutableStateOf<List<Long>>(emptyList()) }
-    // While a hierarchy interaction is materialising the visible order, the optimistic projection
-    // stays authoritative so the list cannot flash the previous persisted order.
-    LaunchedEffect(activeGroups, viewModel.isHierarchyTransitionPending) {
-        if (!itemDragInProgress && !viewModel.isHierarchyTransitionPending) {
-            localActiveItems = activeGroups.flatMap { listOf(it.parent) + it.children }
-        }
-    }
+    var pendingPlacement by remember(listId) { mutableStateOf<PendingHierarchyPlacement?>(null) }
+    var dragBaseline by remember(listId) { mutableStateOf<HierarchyDragBaseline?>(null) }
+    val previewActiveGroups = visibleHierarchyGroups(
+        pendingPlacement?.resultGroups ?: visibleActiveGroups,
+        collapsedParentItemIds,
+        searchQuery,
+        previewedChildRowId = pendingPlacement
+            ?.takeIf { it.target is HierarchyDropTarget.ParentRow }
+            ?.draggedRowId,
+    )
+    val renderedActiveRows = previewActiveGroups.flatMap { listOf(it.parent) + it.children }
+    val activeParentRowTargetId =
+        (pendingPlacement?.target as? HierarchyDropTarget.ParentRow)?.parentRowId
+    val activeEntries = activeHierarchyEntries(
+        previewActiveGroups,
+        hierarchyEditingEnabled,
+        activeParentRowTargetId,
+    )
 
     val lazyListState = rememberLazyListState()
     val currentDisplayedHierarchy = rememberUpdatedState(displayedHierarchy)
     val currentSortedActive = rememberUpdatedState(sortedActive)
-    val currentLocalActiveItems = rememberUpdatedState(localActiveItems)
+    val currentSearchQuery = rememberUpdatedState(searchQuery)
+    val currentActiveEntries = rememberUpdatedState(activeEntries)
+    val currentVisibleActiveGroups = rememberUpdatedState(visibleActiveGroups)
+    val currentCompleteActiveGroups = rememberUpdatedState(completeActiveGroups)
+    val currentCollapsedParentItemIds = rememberUpdatedState(collapsedParentItemIds)
     val currentCompletedExpanded = rememberUpdatedState(completedExpanded)
+    val currentPendingPlacement = rememberUpdatedState(pendingPlacement)
+
+    LaunchedEffect(pendingPlacement, itemDragInProgress) {
+        val committedPreview = pendingPlacement ?: return@LaunchedEffect
+        if (itemDragInProgress || !committedPreview.changed) return@LaunchedEffect
+        withTimeoutOrNull(10_000) {
+            snapshotFlow {
+                val persistedGroups = completeEffectiveGroups(
+                    currentDisplayedHierarchy.value.sourceItems,
+                ).filterNot { it.parent.checked }
+                !viewModel.isHierarchyTransitionPending &&
+                    viewModel.itemSort == ItemSort.MANUAL &&
+                    persistedGroups.map { it.parent.id to it.children.map(ListItemEntity::id) } ==
+                    committedPreview.resultGroups.map { it.parent.id to it.children.map(ListItemEntity::id) }
+            }.first { it }
+        }
+        if (pendingPlacement == committedPreview) pendingPlacement = null
+    }
 
     LaunchedEffect(listId, pendingCreatedItemIds.firstOrNull()) {
         val itemId = pendingCreatedItemIds.firstOrNull() ?: return@LaunchedEffect
         val decision = snapshotFlow {
             val displayed = currentDisplayedHierarchy.value
             val activeItems = currentSortedActive.value
-            val renderedItems = currentLocalActiveItems.value
+            val entries = currentActiveEntries.value
             val completedGroups = displayed.completedGroups
-            val layoutInfo = lazyListState.layoutInfo
+            val visibleCompletedGroups = visibleHierarchyGroups(
+                completedGroups,
+                currentCollapsedParentItemIds.value,
+                currentSearchQuery.value,
+            )
             val expectedItemCount =
-                renderedItems.size +
+                entries.size +
                     (if (completedGroups.isNotEmpty()) 1 else 0) +
-                    (if (currentCompletedExpanded.value) completedGroups.size else 0) +
+                    (if (currentCompletedExpanded.value) visibleCompletedGroups.size else 0) +
                     1
+            val activeIndex = activeItems.indexOfFirst { it.id == itemId }
+            val renderedIndex = entries.indexOfFirst {
+                it is ActiveHierarchyEntry.Item && it.row.id == itemId
+            }
             decideAddedItemReveal(
                 sourceItemExists = displayed.sourceItems.any { it.id == itemId },
-                displayedActiveIndex = activeItems.indexOfFirst { it.id == itemId },
-                renderedActiveIndex = renderedItems.indexOfFirst { it.id == itemId },
-                itemIsVisible = layoutInfo.visibleItemsInfo.any { it.key == itemId },
-                currentLayoutItemCount = layoutInfo.totalItemsCount,
+                displayedActiveIndex = if (activeIndex < 0) -1 else renderedIndex,
+                renderedActiveIndex = renderedIndex,
+                itemIsVisible = lazyListState.layoutInfo.visibleItemsInfo.any { it.key == itemId },
+                currentLayoutItemCount = lazyListState.layoutInfo.totalItemsCount,
                 expectedLayoutItemCount = expectedItemCount,
             )
         }.first { it != AddedItemRevealDecision.AwaitingProjection }
@@ -380,26 +556,50 @@ fun ListItemsScreen(
         }
         pendingCreatedItemIds.removeAt(0)
     }
+
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         if (!hierarchyEditingEnabled) return@rememberReorderableLazyListState
-        val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
-        val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
-        if (localActiveItems.none { it.id == fromKey } || localActiveItems.none { it.id == toKey }) {
+        val draggedId = from.key as? Long ?: return@rememberReorderableLazyListState
+        val targetEntry = currentActiveEntries.value.firstOrNull { it.key == to.key }
+        if (targetEntry == null) {
+            if (pendingPlacement != null) {
+                pendingPlacement = null
+                awaitLayoutChange(lazyListState)
+            }
             return@rememberReorderableLazyListState
         }
-        val moved = moveHierarchyRows(
-            current = localActiveItems,
-            groups = activeGroups,
-            draggedId = fromKey,
-            targetId = toKey,
+        val target = when (targetEntry) {
+            is ActiveHierarchyEntry.Item -> targetEntry.dropTarget
+            is ActiveHierarchyEntry.Insertion -> targetEntry.target
+        }
+        if (target == null) {
+            if (pendingPlacement != null) {
+                pendingPlacement = null
+                awaitLayoutChange(lazyListState)
+            }
+            return@rememberReorderableLazyListState
+        }
+        val baseline = dragBaseline ?: return@rememberReorderableLazyListState
+        val placement = pendingHierarchyPlacement(
+            completeGroups = baseline.completeGroups,
+            visibleGroups = baseline.visibleGroups,
+            collapsedParentItemIds = baseline.collapsedParentItemIds,
+            draggedRowId = draggedId,
+            target = target,
         )
-        localActiveItems = moved
-        dragDestinationGroupId = crossGroupDestinationRowId(activeGroups, moved, fromKey)
-        // The library draws the dragged item at the reported target's slot until the reordered
-        // layout is published, which assumes a plain adjacent swap. A top-level row or block lands
-        // on a group boundary instead, so let the layout catch up before returning: that window is
-        // the one-frame jump the displaced rows used to snap through.
-        awaitLayoutChange(lazyListState)
+        if (placement == null) {
+            if (pendingPlacement != null) {
+                pendingPlacement = null
+                awaitLayoutChange(lazyListState)
+            }
+            return@rememberReorderableLazyListState
+        }
+        if (placement != pendingPlacement) {
+            pendingPlacement = placement
+            // Recompose the exact target slot before the reorderable modifier applies its layout
+            // compensation, preserving smooth auto-scroll and avoiding a one-frame snap.
+            awaitLayoutChange(lazyListState)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -511,7 +711,7 @@ fun ListItemsScreen(
                                         viewModel.selectAllItems(
                                             visibleSelectableItemIds(
                                                 activeRows = sortedActive,
-                                                completedRows = sortedCompleted,
+                                                completedRows = visibleSortedCompleted,
                                                 completedExpanded = completedExpanded,
                                             ),
                                         )
@@ -567,6 +767,28 @@ fun ListItemsScreen(
                                         { Icon(Icons.Default.Check, contentDescription = null) }
                                     } else null,
                                 )
+                                if (completeParentItemIds.isNotEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Expand all sub-items") },
+                                        enabled = hierarchyPreferencesReady,
+                                        onClick = {
+                                            viewModel.expandAllSubItems(listId)
+                                            showSortMenu = false
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Collapse all sub-items") },
+                                        enabled = hierarchyPreferencesReady,
+                                        onClick = {
+                                            viewModel.collapseAllSubItems(
+                                                listId,
+                                                parentItemIds = completeParentItemIds,
+                                                hiddenChildRowIds = visibleChildRowIdsToHide(),
+                                            )
+                                            showSortMenu = false
+                                        },
+                                    )
+                                }
                                 HorizontalDivider()
                                 // ── Sort section ──────────────────────────────────────────
                                 DropdownMenuItem(
@@ -685,7 +907,12 @@ fun ListItemsScreen(
                     Icon(Icons.Default.Mic, contentDescription = "Voice input")
                 }
                 FloatingActionButton(
-                    onClick = { if (!isRemoteReadOnly) showAddDialog = true },
+                    onClick = {
+                        if (!isRemoteReadOnly) {
+                            addSubItemParentId = null
+                            showAddDialog = true
+                        }
+                    },
                     containerColor = if (isRemoteReadOnly) {
                         MaterialTheme.colorScheme.surfaceVariant
                     } else {
@@ -737,7 +964,7 @@ fun ListItemsScreen(
                 singleLine = true,
             )
 
-            if (!itemSortReady) {
+            if (!hierarchyPreferencesReady) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -769,15 +996,10 @@ fun ListItemsScreen(
                     modifier = Modifier.fillMaxSize(),
                     state = lazyListState,
                 ) {
-                    items(localActiveItems, key = { it.id }) { item ->
+                    items(activeEntries, key = { it.key }) { entry ->
                         ReorderableItem(
                             reorderState,
-                            key = item.id,
-                            enabled = !isInsideDraggedBlock(activeGroups, dragSourceId, item.id),
-                            // Rows displaced by a hierarchy drag travel several slots at once. The
-                            // library's default placement spring covers ~a quarter of that distance
-                            // in its first frame, which reads as a lurch; an eased short tween glides
-                            // instead, while the dragged row still follows the pointer directly.
+                            key = entry.key,
                             animateItemModifier = Modifier.animateItem(
                                 placementSpec = tween(
                                     durationMillis = 250,
@@ -785,110 +1007,136 @@ fun ListItemsScreen(
                                 ),
                             ),
                         ) { isDragging ->
-                            val elevation by animateDpAsState(
-                                if (isDragging) 6.dp else 0.dp,
-                                label = "item_drag_elevation",
-                            )
-                            // Crossing a group boundary or starting a drag changes the row colour.
-                            // Animating it keeps the placement feedback continuous instead of
-                            // snapping the highlight on at the exact crossing frame.
-                            val rowColor by animateColorAsState(
-                                when {
-                                    item.id == dragDestinationGroupId ->
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    isDragging -> MaterialTheme.colorScheme.surfaceVariant
-                                    else -> MaterialTheme.colorScheme.surface
-                                },
-                                label = "item_drag_color",
-                            )
-                            val owningId = owningRowId(activeGroups, item.id)
-                            val isChild = owningId != null && owningId != item.id
-                            val rowIndex = localActiveItems.indexOfFirst { it.id == item.id }
-                            val precedingRow = localActiveItems.getOrNull(rowIndex - 1)
-                            val depthGesturesEnabled = hierarchyEditingEnabled && !itemDragInProgress
-                            Surface(
-                                color = rowColor,
-                                shadowElevation = elevation,
-                            ) {
-                                // The child indent is part of the row's painted surface, so the
-                                // indented strip shows the row colour instead of the layer behind
-                                // it, and it still sits outside the swipe box so the reveal hint
-                                // only covers the row content.
-                                Box(
-                                    modifier = Modifier
-                                        .background(rowColor)
-                                        .then(
-                                            if (isChild) Modifier.padding(start = 24.dp) else Modifier,
-                                        ),
-                                ) {
-                                    SwipeToChangeDepthRow(
-                                        handleGesturesEnabled = depthGesturesEnabled,
-                                        canMakeSubItem = depthGesturesEnabled &&
-                                            canMakeSubItemRow(localActiveItems, activeGroups, item.id),
-                                        canMoveToTopLevel = depthGesturesEnabled &&
-                                            canMoveToTopLevelRow(activeGroups, item.id),
-                                        onMakeSubItem = {
-                                            precedingRow?.let {
-                                                viewModel.makeSubItem(
-                                                    visibleRowIds = localActiveItems.map(ListItemEntity::id),
-                                                    item = item,
-                                                    precedingRow = it,
-                                                )
-                                            }
-                                        },
-                                        onMoveToTopLevel = {
-                                            viewModel.moveToTopLevel(
-                                                visibleRowIds = localActiveItems.map(ListItemEntity::id),
-                                                item = item,
-                                            )
-                                        },
-                                    ) { handleGestureModifier ->
-                                        ListItemRow(
-                                            item = item,
-                                            isMultiSelectMode = isItemMultiSelectMode,
-                                            isSelected = item.id in selectedItemIds,
-                                            interactionsEnabled = !isRemoteReadOnly,
-                                            showDragHandle = hierarchyEditingEnabled,
-                                            containerColor = rowColor,
-                                        dragHandleModifier = if (hierarchyEditingEnabled) {
-                                            // The axis detector is outer, so it sees the gesture
-                                            // first and can consume a horizontal one before the
-                                            // reorderable drag handle claims it.
-                                            handleGestureModifier.draggableHandle(
-                                                onDragStarted = {
-                                                    itemDragInProgress = true
-                                                    dragSourceId = item.id
-                                                    dragDestinationGroupId = null
-                                                    dragStartOrder = localActiveItems.map { it.id }
-                                                },
-                                                onDragStopped = {
-                                                    itemDragInProgress = false
-                                                    val source = dragSourceId
-                                                    val ordered = localActiveItems.map { it.id }
-                                                    // A drag that ends where it started must not write
-                                                    // placements or switch the list to Manual.
-                                                    if (source != null && ordered != dragStartOrder) {
-                                                        viewModel.moveItemFromDrag(
-                                                            orderedRowIds = ordered,
-                                                            draggedId = source,
-                                                        )
-                                                    }
-                                                    dragSourceId = null
-                                                    dragDestinationGroupId = null
-                                                    dragStartOrder = emptyList()
-                                                },
-                                            )
-                                        } else Modifier,
-                                        onToggle = { viewModel.toggleChecked(item) },
-                                        onEdit = { editingItem = item },
-                                        onToggleFavourite = { viewModel.toggleFavourite(item) },
-                                        onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                                        onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                            when (entry) {
+                                is ActiveHierarchyEntry.Insertion -> {
+                                    HierarchyDropIndicator(
+                                        target = entry.target,
+                                        isChild = entry.isChild,
+                                        isActive = pendingPlacement?.target == entry.target,
                                     )
                                 }
+                                is ActiveHierarchyEntry.Item -> {
+                                    val item = entry.row
+                                    val isChild = entry.isChild
+                                    val rowColor by animateColorAsState(
+                                        when {
+                                            (pendingPlacement?.target as? HierarchyDropTarget.ParentRow)
+                                                ?.parentRowId == item.id ->
+                                                MaterialTheme.colorScheme.secondaryContainer
+                                            isDragging -> MaterialTheme.colorScheme.surfaceVariant
+                                            else -> MaterialTheme.colorScheme.surface
+                                        },
+                                        label = "item_drag_color",
+                                    )
+                                    val elevation by animateDpAsState(
+                                        if (isDragging) 4.dp else 0.dp,
+                                        label = "item_drag_elevation",
+                                    )
+                                    val rowIndex = renderedActiveRows.indexOfFirst { it.id == item.id }
+                                    val precedingRow = renderedActiveRows.getOrNull(rowIndex - 1)
+                                    val depthGesturesEnabled = hierarchyEditingEnabled && !itemDragInProgress
+                                    Surface(
+                                        // A translucent overlay keeps the highlighted destination
+                                        // and insertion target visible under the moving row.
+                                        modifier = Modifier.graphicsLayer {
+                                            alpha = if (isDragging) 0.68f else 1f
+                                        },
+                                        color = rowColor,
+                                        shadowElevation = elevation,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(rowColor)
+                                                .then(if (isChild) Modifier.padding(start = 24.dp) else Modifier),
+                                        ) {
+                                            SwipeToChangeDepthRow(
+                                                handleGesturesEnabled = depthGesturesEnabled,
+                                                canMakeSubItem = depthGesturesEnabled &&
+                                                    canMakeSubItemRow(renderedActiveRows, previewActiveGroups, item.id),
+                                                canMoveToTopLevel = depthGesturesEnabled &&
+                                                    canMoveToTopLevelRow(previewActiveGroups, item.id),
+                                                onMakeSubItem = {
+                                                    precedingRow?.let {
+                                                        viewModel.makeSubItem(
+                                                            visibleRowIds = renderedActiveRows.map(ListItemEntity::id),
+                                                            item = item,
+                                                            precedingRow = it,
+                                                        )
+                                                    }
+                                                },
+                                                onMoveToTopLevel = {
+                                                    viewModel.moveToTopLevel(
+                                                        visibleRowIds = renderedActiveRows.map(ListItemEntity::id),
+                                                        item = item,
+                                                    )
+                                                },
+                                            ) { handleGestureModifier ->
+                                                ListItemRow(
+                                                    item = item,
+                                                    isMultiSelectMode = isItemMultiSelectMode,
+                                                    isSelected = item.id in selectedItemIds,
+                                                    interactionsEnabled = !isRemoteReadOnly,
+                                                    showDragHandle = hierarchyEditingEnabled,
+                                                    containerColor = rowColor,
+                                                    showDisclosure = item.itemId in completeParentItemIds,
+                                                    isExpanded = item.itemId !in collapsedParentItemIds,
+                                                    onToggleExpanded = {
+                                                        val collapse = item.itemId !in collapsedParentItemIds
+                                                        viewModel.setParentCollapsed(
+                                                            listId = listId,
+                                                            parentItemId = item.itemId,
+                                                            collapsed = collapse,
+                                                            hiddenChildRowIds = if (collapse) {
+                                                                visibleChildRowIdsToHide(item.itemId)
+                                                            } else {
+                                                                emptySet()
+                                                            },
+                                                        )
+                                                    },
+                                                    dragHandleModifier = if (hierarchyEditingEnabled) {
+                                                        handleGestureModifier.draggableHandle(
+                                                            onDragStarted = {
+                                                                dragBaseline = HierarchyDragBaseline(
+                                                                    visibleGroups = currentVisibleActiveGroups.value,
+                                                                    completeGroups = currentCompleteActiveGroups.value,
+                                                                    collapsedParentItemIds =
+                                                                        currentCollapsedParentItemIds.value,
+                                                                )
+                                                                itemDragInProgress = true
+                                                                dragSourceId = item.id
+                                                                pendingPlacement = null
+                                                            },
+                                                            onDragStopped = {
+                                                                val source = dragSourceId
+                                                                val placement = currentPendingPlacement.value
+                                                                itemDragInProgress = false
+                                                                if (source != null &&
+                                                                    placement?.draggedRowId == source &&
+                                                                    placement.changed
+                                                                ) {
+                                                                    viewModel.moveItemFromDrag(listId, placement)
+                                                                } else {
+                                                                    pendingPlacement = null
+                                                                }
+                                                                dragSourceId = null
+                                                                dragBaseline = null
+                                                            },
+                                                        )
+                                                    } else Modifier,
+                                                    onToggle = { viewModel.toggleChecked(item) },
+                                                    onEdit = { editingItem = item },
+                                                    onToggleFavourite = { viewModel.toggleFavourite(item) },
+                                                    onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                                                    onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = if (isChild) 88.dp else 64.dp),
+                                    )
                                 }
                             }
-                            HorizontalDivider(modifier = Modifier.padding(start = if (isChild) 88.dp else 64.dp))
                         }
                     }
 
@@ -921,13 +1169,29 @@ fun ListItemsScreen(
 
                     // Completed groups (collapsible); child rows retain their parent context.
                     if (completedExpanded) {
-                        items(completedGroups, key = { "done_group_${it.parent.id}" }) { group ->
+                        items(visibleCompletedGroups, key = { "done_group_${it.parent.id}" }) { group ->
                             ListItemRow(
                                 item = group.parent,
                                 isMultiSelectMode = isItemMultiSelectMode,
                                 isSelected = group.parent.id in selectedItemIds,
                                 interactionsEnabled = !isRemoteReadOnly,
                                 showDragHandle = false,
+                                showDisclosure = group.parent.itemId in completeParentItemIds,
+                                isExpanded = group.parent.itemId !in collapsedParentItemIds,
+                                onToggleExpanded = {
+                                    val collapse =
+                                        group.parent.itemId !in collapsedParentItemIds
+                                    viewModel.setParentCollapsed(
+                                        listId = listId,
+                                        parentItemId = group.parent.itemId,
+                                        collapsed = collapse,
+                                        hiddenChildRowIds = if (collapse) {
+                                            visibleChildRowIdsToHide(group.parent.itemId)
+                                        } else {
+                                            emptySet()
+                                        },
+                                    )
+                                },
                                 onToggle = { viewModel.toggleChecked(group.parent) },
                                 onEdit = { editingItem = group.parent },
                                 onToggleFavourite = { viewModel.toggleFavourite(group.parent) },
@@ -970,6 +1234,12 @@ fun ListItemsScreen(
     editingItem?.let { item ->
         EditItemSheet(
             item = item,
+            canAddSubItem = !isRemoteReadOnly && completeGroups.any { it.parent.id == item.id },
+            onAddSubItem = {
+                addSubItemParentId = item.itemId
+                editingItem = null
+                showAddDialog = true
+            },
             onSave = { updated ->
                 viewModel.updateItem(updated)
                 editingItem = null
@@ -995,13 +1265,26 @@ fun ListItemsScreen(
     // ── Add item dialog ──────────────────────────────────────────────────────────────────────────
     if (showAddDialog) {
         AddItemDialog(
+            title = if (addSubItemParentId == null) "Add item" else "Add sub-item",
+            placeholder = if (addSubItemParentId == null) "Item name" else "Sub-item name",
             onConfirm = { text ->
+                val parentItemId = addSubItemParentId
                 showAddDialog = false
-                viewModel.addItem(listId, text) { createdItemId ->
-                    pendingCreatedItemIds.add(createdItemId)
+                addSubItemParentId = null
+                if (parentItemId == null) {
+                    viewModel.addItem(listId, text) { createdItemId ->
+                        pendingCreatedItemIds.add(createdItemId)
+                    }
+                } else {
+                    viewModel.addSubItem(listId, parentItemId, text) { createdItemId ->
+                        pendingCreatedItemIds.add(createdItemId)
+                    }
                 }
             },
-            onDismiss = { showAddDialog = false },
+            onDismiss = {
+                showAddDialog = false
+                addSubItemParentId = null
+            },
         )
     }
     // ── Bulk delete dialog ───────────────────────────────────────────────────────────────────────
@@ -1308,6 +1591,65 @@ private fun rememberDepthHandleGesture(
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
 
+
+@Composable
+internal fun HierarchyDisclosureButton(
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Collapse sub-items" else "Expand sub-items",
+        )
+    }
+}
+
+@Composable
+internal fun HierarchyDropIndicator(
+    target: HierarchyDropTarget,
+    isChild: Boolean,
+    isActive: Boolean,
+) {
+    val label = when (target) {
+        is HierarchyDropTarget.TopLevelInsertion -> "Top-level insertion"
+        is HierarchyDropTarget.ChildInsertion -> "Insert as sub-item"
+        is HierarchyDropTarget.ParentRow -> "Append as last sub-item"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (isActive) 32.dp else 6.dp)
+            .padding(start = if (isChild) 72.dp else 16.dp, end = 16.dp)
+            .testTag(target.stableKey()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (isActive) {
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ListItemRow(
@@ -1317,9 +1659,11 @@ private fun ListItemRow(
     isSelected: Boolean = false,
     interactionsEnabled: Boolean = true,
     showDragHandle: Boolean = false,
-    /** Colour the row paints itself with. The caller passes the animated row colour so a drag or
-     *  destination highlight stays visible. */
+    /** Colour the row paints itself with; callers pass the animated drag/highlight colour. */
     containerColor: Color = ListItemDefaults.containerColor,
+    showDisclosure: Boolean = false,
+    isExpanded: Boolean = true,
+    onToggleExpanded: () -> Unit = {},
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
@@ -1477,6 +1821,12 @@ private fun ListItemRow(
                 maxLines = 1,
             )
         }
+        if (showDisclosure) {
+            HierarchyDisclosureButton(
+                expanded = isExpanded,
+                onClick = onToggleExpanded,
+            )
+        }
         // The star is the entire trailing column, so the text keeps every remaining pixel and the
         // star never moves with the text length. Deletion stays in the long-press multi-select
         // toolbar. The 8.dp gap keeps the text about 20.dp clear of the star glyph while the star
@@ -1513,6 +1863,8 @@ private fun ListItemRow(
 @Composable
 private fun EditItemSheet(
     item: ListItemEntity,
+    canAddSubItem: Boolean,
+    onAddSubItem: () -> Unit,
     onSave: (ListItemEntity) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1565,6 +1917,17 @@ private fun EditItemSheet(
                 urls = descriptionUrls,
                 activateLinks = true,
             )
+
+            if (canAddSubItem) {
+                OutlinedButton(
+                    onClick = onAddSubItem,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add sub-item")
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1802,6 +2165,8 @@ private fun EditItemSheet(
 
 @Composable
 private fun AddItemDialog(
+    title: String,
+    placeholder: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1809,7 +2174,7 @@ private fun AddItemDialog(
     val focusRequester = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add item") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = text,
@@ -1817,7 +2182,7 @@ private fun AddItemDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
-                placeholder = { Text("Item name") },
+                placeholder = { Text(placeholder) },
                 singleLine = true,
             )
         },

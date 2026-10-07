@@ -221,10 +221,17 @@ class ListsViewModelCheckedReminderTest {
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
         val viewModel = testViewModel(preferences)
 
-        viewModel.moveItemFromDrag(
-            orderedRowIds = listOf(newParent.id, dragged.id, oldParent.id),
-            draggedId = dragged.id,
+        val completeGroups = completeEffectiveGroups(rows)
+        val placement = requireNotNull(
+            pendingHierarchyPlacement(
+                completeGroups = completeGroups,
+                visibleGroups = completeGroups,
+                collapsedParentItemIds = emptySet(),
+                draggedRowId = dragged.id,
+                target = HierarchyDropTarget.ParentRow(newParent.id),
+            ),
         )
+        viewModel.moveItemFromDrag(1L, placement)
 
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) { scheduler.cancel(newParent.id) }
         verify(timeout = TimeUnit.SECONDS.toMillis(2)) {

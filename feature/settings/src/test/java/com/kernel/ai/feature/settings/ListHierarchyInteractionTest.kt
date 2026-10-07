@@ -32,247 +32,203 @@ class ListHierarchyInteractionTest {
     }
 
     @Test
-    fun `top-level drag never nests the dragged row`() {
-        val a = item(1)
-        val b = item(2)
-        val c = item(3)
-        val groups = listOf(a, b, c).map { EffectiveHierarchyGroup(it, emptyList()) }
-
-        val moved = moveHierarchyRows(
-            current = listOf(a, b, c),
-            groups = groups,
-            draggedId = c.id,
-            targetId = a.id,
-        )
-
-        assertEquals(listOf(3L, 1L, 2L), moved.map { it.id })
-        assertNull(dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
-    }
-
-    @Test
-    fun `top-level group only lands on another group boundary`() {
-        val frozen = item(1)
-        val iceCream = item(2, parentItemId = frozen.itemId)
-        val peas = item(3, parentItemId = frozen.itemId)
-        val bakery = item(4)
-        val bread = item(5, parentItemId = bakery.itemId)
-        val groups = listOf(
-            EffectiveHierarchyGroup(frozen, listOf(iceCream, peas)),
-            EffectiveHierarchyGroup(bakery, listOf(bread)),
-        )
-
-        val moved = moveHierarchyRows(
-            current = listOf(frozen, iceCream, peas, bakery, bread),
-            groups = groups,
-            draggedId = frozen.id,
-            targetId = bread.id,
-        )
-
-        assertEquals(listOf(4L, 5L, 1L, 2L, 3L), moved.map { it.id })
-    }
-
-    @Test
-    fun `child dragged down one sibling lands directly after it`() {
-        val parent = item(1)
-        val a = item(2, parentItemId = parent.itemId)
-        val b = item(3, parentItemId = parent.itemId)
-        val c = item(4, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
-
-        val moved = moveHierarchyRows(
-            current = listOf(parent, a, b, c),
-            groups = groups,
-            draggedId = a.id,
-            targetId = b.id,
-        )
-
-        assertEquals(listOf(1L, 3L, 2L, 4L), moved.map { it.id })
-        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
-    }
-
-    @Test
-    fun `child dragged down several siblings lands directly after the target`() {
-        val parent = item(1)
-        val a = item(2, parentItemId = parent.itemId)
-        val b = item(3, parentItemId = parent.itemId)
-        val c = item(4, parentItemId = parent.itemId)
-        val d = item(5, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c, d)))
-
-        val moved = moveHierarchyRows(
-            current = listOf(parent, a, b, c, d),
-            groups = groups,
-            draggedId = a.id,
-            targetId = c.id,
-        )
-
-        assertEquals(listOf(1L, 3L, 4L, 2L, 5L), moved.map { it.id })
-        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
-    }
-
-    @Test
-    fun `child dragged up lands directly before the target`() {
-        val parent = item(1)
-        val a = item(2, parentItemId = parent.itemId)
-        val b = item(3, parentItemId = parent.itemId)
-        val c = item(4, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
-
-        val moved = moveHierarchyRows(
-            current = listOf(parent, a, b, c),
-            groups = groups,
-            draggedId = c.id,
-            targetId = b.id,
-        )
-
-        assertEquals(listOf(1L, 2L, 4L, 3L), moved.map { it.id })
-        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
-    }
-
-    @Test
-    fun `child dragged down into another group lands at the indicated sibling slot`() {
+    fun `top-level insertion moves a row to the exact root gap`() {
         val first = item(1)
-        val a = item(2, parentItemId = first.itemId)
-        val b = item(3, parentItemId = first.itemId)
-        val second = item(4)
-        val c = item(5, parentItemId = second.itemId)
-        val d = item(6, parentItemId = second.itemId)
-        val groups = listOf(
-            EffectiveHierarchyGroup(first, listOf(a, b)),
-            EffectiveHierarchyGroup(second, listOf(c, d)),
+        val second = item(2)
+        val dragged = item(3)
+        val groups = listOf(first, second, dragged).map { EffectiveHierarchyGroup(it, emptyList()) }
+
+        val placement = pendingHierarchyPlacement(
+            completeGroups = groups,
+            visibleGroups = groups,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = second.id),
         )
 
-        val moved = moveHierarchyRows(
-            current = listOf(first, a, b, second, c, d),
-            groups = groups,
-            draggedId = a.id,
-            targetId = c.id,
-        )
-
-        assertEquals(listOf(1L, 3L, 4L, 5L, 2L, 6L), moved.map { it.id })
-        assertEquals(second.itemId, dragPlacementFor(moved, topLevelRowIds(groups), a.id)?.parentItemId)
+        assertEquals(listOf(1L, 3L, 2L), placement?.resultGroups?.map { it.parent.id })
+        assertNull(placement?.parentItemId)
+        assertEquals(first.orderKey, placement?.lowerOrderKey)
+        assertEquals(second.orderKey, placement?.upperOrderKey)
     }
 
     @Test
-    fun `child dragged up into another group lands directly before the target`() {
-        val first = item(1)
-        val a = item(2, parentItemId = first.itemId)
-        val b = item(3, parentItemId = first.itemId)
-        val second = item(4)
-        val c = item(5, parentItemId = second.itemId)
-        val d = item(6, parentItemId = second.itemId)
-        val groups = listOf(
-            EffectiveHierarchyGroup(first, listOf(a, b)),
-            EffectiveHierarchyGroup(second, listOf(c, d)),
-        )
-
-        val moved = moveHierarchyRows(
-            current = listOf(first, a, b, second, c, d),
-            groups = groups,
-            draggedId = d.id,
-            targetId = b.id,
-        )
-
-        assertEquals(listOf(1L, 2L, 6L, 3L, 4L, 5L), moved.map { it.id })
-        assertEquals(first.itemId, dragPlacementFor(moved, topLevelRowIds(groups), d.id)?.parentItemId)
-    }
-
-    @Test
-    fun `sibling reorder inside its group stays with the same parent`() {
+    fun `dropping on a collapsed parent appends after its complete hidden child sequence`() {
         val parent = item(1)
-        val a = item(2, parentItemId = parent.itemId)
-        val b = item(3, parentItemId = parent.itemId)
-        val c = item(4, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b, c)))
+        val first = item(2, parentItemId = parent.itemId)
+        val second = item(3, parentItemId = parent.itemId)
+        val dragged = item(4)
+        val complete = listOf(
+            EffectiveHierarchyGroup(parent, listOf(first, second)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
+        )
+        val collapsed = setOf(parent.itemId)
+        val visible = visibleHierarchyGroups(complete, collapsed, "")
 
-        val moved = moveHierarchyRows(
-            current = listOf(parent, a, b, c),
-            groups = groups,
-            draggedId = c.id,
-            targetId = b.id,
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visible,
+            collapsedParentItemIds = collapsed,
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ParentRow(parent.id),
         )
 
-        assertEquals(listOf(1L, 2L, 4L, 3L), moved.map { it.id })
-        assertEquals(parent.itemId, dragPlacementFor(moved, topLevelRowIds(groups), c.id)?.parentItemId)
+        assertEquals(listOf(2L, 3L, 4L), placement?.resultGroups?.first()?.children?.map { it.id })
+        assertEquals(parent.itemId, placement?.parentItemId)
+        assertEquals(second.orderKey, placement?.lowerOrderKey)
+        assertNull(placement?.upperOrderKey)
+        assertTrue(placement?.reparents == true)
+
+        val dragPreview = placement?.resultGroups?.let {
+            visibleHierarchyGroups(
+                it,
+                collapsed,
+                searchQuery = "",
+                previewedChildRowId = dragged.id,
+            )
+        }
+        val committedProjection = placement?.resultGroups?.let {
+            visibleHierarchyGroups(it, collapsed, searchQuery = "")
+        }
+        assertEquals(listOf(dragged.id), dragPreview?.firstOrNull()?.children?.map { it.id })
+        assertEquals(emptyList<Long>(), committedProjection?.firstOrNull()?.children?.map { it.id })
+        assertEquals(setOf(parent.itemId), collapsed)
     }
 
     @Test
-    fun `child dragged into another group reparents to that group parent`() {
-        val frozen = item(1)
-        val iceCream = item(2, parentItemId = frozen.itemId)
-        val bakery = item(4)
-        val bread = item(5, parentItemId = bakery.itemId)
-        val groups = listOf(
-            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
-            EffectiveHierarchyGroup(bakery, listOf(bread)),
+    fun `reparenting an existing child onto a lower collapsed parent appends it last`() {
+        val sourceParent = item(1)
+        val dragged = item(2, parentItemId = sourceParent.itemId)
+        val destinationParent = item(3)
+        val existingChild = item(4, parentItemId = destinationParent.itemId)
+        val complete = listOf(
+            EffectiveHierarchyGroup(sourceParent, listOf(dragged)),
+            EffectiveHierarchyGroup(destinationParent, listOf(existingChild)),
         )
-        val current = listOf(frozen, iceCream, bakery, bread)
+        val collapsed = setOf(destinationParent.itemId)
+        val visible = visibleHierarchyGroups(complete, collapsed, searchQuery = "")
 
-        val moved = moveHierarchyRows(
-            current = current,
-            groups = groups,
-            draggedId = iceCream.id,
-            targetId = bread.id,
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visible,
+            collapsedParentItemIds = collapsed,
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ParentRow(destinationParent.id),
         )
 
-        assertEquals(listOf(1L, 4L, 5L, 2L), moved.map { it.id })
-        assertEquals(bakery.itemId, dragPlacementFor(moved, topLevelRowIds(groups), iceCream.id)?.parentItemId)
-        assertEquals(bakery.id, crossGroupDestinationRowId(groups, moved, iceCream.id))
+        assertEquals(listOf(1L, 3L), placement?.resultGroups?.map { it.parent.id })
+        assertEquals(
+            listOf(existingChild.id, dragged.id),
+            placement?.resultGroups?.last()?.children?.map { it.id },
+        )
+        assertEquals(destinationParent.itemId, placement?.parentItemId)
+        assertEquals(existingChild.orderKey, placement?.lowerOrderKey)
+        assertNull(placement?.upperOrderKey)
+        assertTrue(placement?.reparents == true)
     }
 
     @Test
-    fun `child dropping onto a standalone row makes that row its parent`() {
-        val frozen = item(1)
-        val iceCream = item(2, parentItemId = frozen.itemId)
-        val bakery = item(4)
-        val groups = listOf(
-            EffectiveHierarchyGroup(frozen, listOf(iceCream)),
-            EffectiveHierarchyGroup(bakery, emptyList()),
-        )
-
-        val moved = moveHierarchyRows(
-            current = listOf(frozen, iceCream, bakery),
-            groups = groups,
-            draggedId = iceCream.id,
-            targetId = bakery.id,
-        )
-
-        assertEquals(listOf(1L, 4L, 2L), moved.map { it.id })
-        assertEquals(bakery.itemId, dragPlacementFor(moved, topLevelRowIds(groups), iceCream.id)?.parentItemId)
-        assertEquals(bakery.id, crossGroupDestinationRowId(groups, moved, iceCream.id))
-    }
-
-    @Test
-    fun `a drag that keeps the current parent reports no destination highlight`() {
+    fun `child insertion indicator inserts before the exact expanded sibling`() {
         val parent = item(1)
-        val a = item(2, parentItemId = parent.itemId)
-        val b = item(3, parentItemId = parent.itemId)
-        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(a, b)))
-
-        val moved = moveHierarchyRows(
-            current = listOf(parent, a, b),
-            groups = groups,
-            draggedId = b.id,
-            targetId = a.id,
+        val first = item(2, parentItemId = parent.itemId)
+        val second = item(3, parentItemId = parent.itemId)
+        val dragged = item(4)
+        val groups = listOf(
+            EffectiveHierarchyGroup(parent, listOf(first, second)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
         )
 
-        assertNull(crossGroupDestinationRowId(groups, moved, b.id))
+        val placement = pendingHierarchyPlacement(
+            completeGroups = groups,
+            visibleGroups = groups,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ChildInsertion(parent.id, second.id),
+        )
+
+        assertEquals(listOf(2L, 4L, 3L), placement?.resultGroups?.first()?.children?.map { it.id })
+        assertEquals(parent.itemId, placement?.parentItemId)
+        assertEquals(first.orderKey, placement?.lowerOrderKey)
+        assertEquals(second.orderKey, placement?.upperOrderKey)
     }
 
     @Test
-    fun `a top-level drag never reports a destination highlight`() {
-        val a = item(1)
-        val b = item(2)
-        val groups = listOf(a, b).map { EffectiveHierarchyGroup(it, emptyList()) }
+    fun `moving a child within its parent preserves ownership and exact sibling order`() {
+        val parent = item(1)
+        val first = item(2, parentItemId = parent.itemId)
+        val second = item(3, parentItemId = parent.itemId)
+        val dragged = item(4, parentItemId = parent.itemId)
+        val groups = listOf(EffectiveHierarchyGroup(parent, listOf(first, second, dragged)))
 
-        val moved = moveHierarchyRows(
-            current = listOf(a, b),
-            groups = groups,
-            draggedId = b.id,
-            targetId = a.id,
+        val placement = pendingHierarchyPlacement(
+            completeGroups = groups,
+            visibleGroups = groups,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ChildInsertion(parent.id, first.id),
         )
 
-        assertNull(crossGroupDestinationRowId(groups, moved, b.id))
+        assertEquals(listOf(4L, 2L, 3L), placement?.resultGroups?.single()?.children?.map { it.id })
+        assertEquals(parent.itemId, placement?.parentItemId)
+        assertFalse(placement?.reparents == true)
+    }
+
+    @Test
+    fun `a parent group cannot be implicitly flattened by a child insertion target`() {
+        val parent = item(1)
+        val child = item(2, parentItemId = parent.itemId)
+        val other = item(3)
+        val groups = listOf(
+            EffectiveHierarchyGroup(parent, listOf(child)),
+            EffectiveHierarchyGroup(other, emptyList()),
+        )
+
+        assertNull(
+            pendingHierarchyPlacement(
+                completeGroups = groups,
+                visibleGroups = groups,
+                collapsedParentItemIds = emptySet(),
+                draggedRowId = parent.id,
+                target = HierarchyDropTarget.ParentRow(other.id),
+            ),
+        )
+    }
+
+    @Test
+    fun `collapsed children stay in automatic-sort materialisation while root rows reorder`() {
+        val parent = item(1)
+        val first = item(2, parentItemId = parent.itemId)
+        val second = item(3, parentItemId = parent.itemId)
+        val dragged = item(4)
+        val complete = listOf(
+            EffectiveHierarchyGroup(parent, listOf(first, second)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
+        )
+        val collapsed = setOf(parent.itemId)
+
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visibleHierarchyGroups(complete, collapsed, ""),
+            collapsedParentItemIds = collapsed,
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = parent.id),
+        )
+
+        assertEquals(listOf(4L, 1L), placement?.resultGroups?.map { it.parent.id })
+        assertEquals(listOf(2L, 3L), placement?.resultGroups?.last()?.children?.map { it.id })
+    }
+
+    @Test
+    fun `search reveals matching child rows without changing saved collapse IDs`() {
+        val parent = item(1)
+        val matchingChild = item(2, parentItemId = parent.itemId)
+        val collapsed = setOf(parent.itemId)
+        val searchProjection = listOf(EffectiveHierarchyGroup(parent, listOf(matchingChild)))
+
+        val visible = visibleHierarchyGroups(searchProjection, collapsed, "matching")
+
+        assertEquals(listOf(matchingChild.id), visible.single().children.map { it.id })
+        assertTrue(parent.itemId in collapsed)
     }
 
     @Test
@@ -324,33 +280,6 @@ class ListHierarchyInteractionTest {
         assertTrue(canMoveToTopLevelRow(groups, iceCream.id))
         assertFalse(canMoveToTopLevelRow(groups, frozen.id))
         assertFalse(canMoveToTopLevelRow(groups, bakery.id))
-    }
-
-    @Test
-    fun `rows travelling with a dragged block are never drop targets for it`() {
-        val parent = item(1)
-        val firstChild = item(2, parentItemId = parent.itemId)
-        val secondChild = item(3, parentItemId = parent.itemId)
-        val other = item(4)
-        val groups = listOf(
-            EffectiveHierarchyGroup(parent, listOf(firstChild, secondChild)),
-            EffectiveHierarchyGroup(other, emptyList()),
-        )
-
-        // Dragging the parent blocks its own rows: the block lands on group boundaries, so the
-        // library must not report a move that can never happen.
-        assertTrue(isInsideDraggedBlock(groups, parent.id, parent.id))
-        assertTrue(isInsideDraggedBlock(groups, parent.id, firstChild.id))
-        assertTrue(isInsideDraggedBlock(groups, parent.id, secondChild.id))
-        assertFalse(isInsideDraggedBlock(groups, parent.id, other.id))
-
-        // Dragging a child only blocks that child; its sibling stays a valid sibling target.
-        assertTrue(isInsideDraggedBlock(groups, firstChild.id, firstChild.id))
-        assertFalse(isInsideDraggedBlock(groups, firstChild.id, secondChild.id))
-        assertFalse(isInsideDraggedBlock(groups, firstChild.id, parent.id))
-
-        // Outside a drag every row is a target.
-        assertFalse(isInsideDraggedBlock(groups, null, parent.id))
     }
 
     @Test
@@ -441,6 +370,28 @@ class ListHierarchyInteractionTest {
 
         assertEquals(listOf(1L, 2L), visibleSelectableItemIds(active, completed, completedExpanded = false))
         assertEquals(listOf(1L, 2L, 3L), visibleSelectableItemIds(active, completed, completedExpanded = true))
+    }
+
+    @Test
+    fun `select all excludes children hidden only by a collapsed parent`() {
+        val parent = item(1)
+        val child = item(2, parentItemId = parent.itemId)
+        val standalone = item(3)
+        val completeGroups = listOf(
+            EffectiveHierarchyGroup(parent, listOf(child)),
+            EffectiveHierarchyGroup(standalone, emptyList()),
+        )
+        val collapsedRows = visibleHierarchyGroups(
+            completeGroups,
+            collapsedParentItemIds = setOf(parent.itemId),
+            searchQuery = "",
+        ).flatMap { listOf(it.parent) + it.children }
+
+        assertEquals(
+            listOf(parent.id, standalone.id),
+            visibleSelectableItemIds(collapsedRows, emptyList(), completedExpanded = false),
+        )
+        assertEquals(listOf(child.id), completeGroups.first().children.map { it.id })
     }
 
     private fun item(id: Long, parentItemId: String? = null, checked: Boolean = false) =
