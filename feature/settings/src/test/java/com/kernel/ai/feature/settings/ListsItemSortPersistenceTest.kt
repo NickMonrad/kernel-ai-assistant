@@ -361,7 +361,7 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
-    fun `a top-level drag of a row with a suppressed requested parent is not a reparent`() {
+    fun `an automatic-sort top-level drag of a row with a suppressed requested parent is not a reparent`() {
         val top = row(1L, "stable-a", "0")
         // X requests a parent that is not in the list, so the edge is suppressed and X is presented
         // and dragged as a top-level row.
@@ -395,6 +395,31 @@ class ListsItemSortPersistenceTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `a manual top-level drag of a row with a suppressed requested parent uses the effective parent`() {
+        val top = row(1L, "stable-a", "0")
+        val suppressed = row(2L, "stable-x", "1", parentItemId = "stable-missing")
+        val other = row(3L, "stable-b", "2")
+        val rows = listOf(top, suppressed, other)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.moveItem(any(), any(), any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.MANUAL)
+
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = suppressed.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = null),
+            ),
+        )
+
+        coVerify { listMutations.moveItem(suppressed.id, null, any()) }
+        coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
     }
 
     @Test

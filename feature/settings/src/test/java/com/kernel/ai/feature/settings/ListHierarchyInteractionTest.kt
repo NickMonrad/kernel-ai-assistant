@@ -96,6 +96,36 @@ class ListHierarchyInteractionTest {
     }
 
     @Test
+    fun `child insertion preview keeps the dragged row visible in a collapsed destination`() {
+        val parent = item(1)
+        val hiddenChild = item(2, parentItemId = parent.itemId)
+        val dragged = item(3)
+        val complete = listOf(
+            EffectiveHierarchyGroup(parent, listOf(hiddenChild)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
+        )
+        val collapsed = setOf(parent.itemId)
+        val visible = visibleHierarchyGroups(complete, collapsed, "")
+
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visible,
+            collapsedParentItemIds = collapsed,
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ChildInsertion(parent.id, beforeChildRowId = null),
+        )
+
+        val preview = hierarchyGroupsForDragPreview(
+            placement = placement,
+            visibleGroups = visible,
+            collapsedParentItemIds = collapsed,
+            searchQuery = "",
+        )
+
+        assertEquals(listOf(dragged.id), preview.single().children.map { it.id })
+    }
+
+    @Test
     fun `reparenting an existing child onto a lower collapsed parent appends it last`() {
         val sourceParent = item(1)
         val dragged = item(2, parentItemId = sourceParent.itemId)
@@ -150,6 +180,47 @@ class ListHierarchyInteractionTest {
         assertEquals(parent.itemId, placement?.parentItemId)
         assertEquals(first.orderKey, placement?.lowerOrderKey)
         assertEquals(second.orderKey, placement?.upperOrderKey)
+    }
+
+    @Test
+    fun `prospective parent highlight covers parent-row and reparenting child-insertion targets`() {
+        val sourceParent = item(1)
+        val dragged = item(2, parentItemId = sourceParent.itemId)
+        val destination = item(3)
+        val groups = listOf(
+            EffectiveHierarchyGroup(sourceParent, listOf(dragged)),
+            EffectiveHierarchyGroup(destination, emptyList()),
+        )
+        val crossGroupInsertion = pendingHierarchyPlacement(
+            completeGroups = groups,
+            visibleGroups = groups,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ChildInsertion(destination.id, beforeChildRowId = null),
+        )
+
+        assertTrue(crossGroupInsertion?.reparents == true)
+        assertEquals(destination.id, hierarchyDropTargetHighlightParentRowId(crossGroupInsertion))
+
+        val sameParent = listOf(EffectiveHierarchyGroup(sourceParent, listOf(dragged)))
+        val parentRowTarget = pendingHierarchyPlacement(
+            completeGroups = sameParent,
+            visibleGroups = sameParent,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ParentRow(sourceParent.id),
+        )
+        val sameParentInsertion = pendingHierarchyPlacement(
+            completeGroups = sameParent,
+            visibleGroups = sameParent,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ChildInsertion(sourceParent.id, beforeChildRowId = null),
+        )
+
+        assertFalse(parentRowTarget?.reparents == true)
+        assertEquals(sourceParent.id, hierarchyDropTargetHighlightParentRowId(parentRowTarget))
+        assertNull(hierarchyDropTargetHighlightParentRowId(sameParentInsertion))
     }
 
     @Test

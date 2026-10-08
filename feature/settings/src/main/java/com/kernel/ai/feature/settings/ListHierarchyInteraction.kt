@@ -77,7 +77,10 @@ internal sealed interface HierarchyDropTarget {
 internal data class PendingHierarchyPlacement(
     val draggedRowId: Long,
     val target: HierarchyDropTarget,
-    /** Requested parent to persist; an unchanged effective owner preserves suppressed requests. */
+    /**
+     * Effective destination parent to persist. Automatic materialisation uses [reparents] to
+     * preserve suppressed requests.
+     */
     val parentItemId: String?,
     val lowerOrderKey: String?,
     val upperOrderKey: String?,
@@ -113,6 +116,34 @@ internal fun visibleHierarchyGroups(
         group.copy(children = group.children.filter { it.id == previewedChildRowId })
     } else {
         group
+    }
+}
+
+/**
+ * Builds the visible projection for a pending placement. Keep its dragged child visible even when
+ * the destination parent is collapsed, so the active row remains present during the drag.
+ */
+internal fun hierarchyGroupsForDragPreview(
+    placement: PendingHierarchyPlacement?,
+    visibleGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    collapsedParentItemIds: Set<String>,
+    searchQuery: String,
+): List<EffectiveHierarchyGroup<ListItemEntity>> = visibleHierarchyGroups(
+    groups = placement?.resultGroups ?: visibleGroups,
+    collapsedParentItemIds = collapsedParentItemIds,
+    searchQuery = searchQuery,
+    previewedChildRowId = placement?.draggedRowId,
+)
+
+/** Parent row to highlight as the active drop's destination, if it is a child placement. */
+internal fun hierarchyDropTargetHighlightParentRowId(
+    placement: PendingHierarchyPlacement?,
+): Long? = placement?.let { pending ->
+    when (val target = pending.target) {
+        is HierarchyDropTarget.ParentRow -> target.parentRowId
+        is HierarchyDropTarget.ChildInsertion ->
+            target.parentRowId.takeIf { pending.reparents }
+        is HierarchyDropTarget.TopLevelInsertion -> null
     }
 }
 
@@ -180,7 +211,6 @@ internal fun pendingHierarchyPlacement(
         upper: String?,
     ): PendingHierarchyPlacement {
         val reparents = currentParentItemId != parent
-        val requestedParent = if (reparents) parent else sourceItem.parentItemId
         val unchanged = baseline.size == result.size && baseline.zip(result).all { (before, after) ->
             before.parent.id == after.parent.id &&
                 before.children.map(ListItemEntity::id) == after.children.map(ListItemEntity::id)
@@ -188,7 +218,7 @@ internal fun pendingHierarchyPlacement(
         return PendingHierarchyPlacement(
             draggedRowId = draggedRowId,
             target = target,
-            parentItemId = requestedParent,
+            parentItemId = parent,
             lowerOrderKey = lower,
             upperOrderKey = upper,
             reparents = reparents,

@@ -469,15 +469,14 @@ fun ListItemsScreen(
     var dragSourceId by remember { mutableStateOf<Long?>(null) }
     var pendingPlacement by remember(listId) { mutableStateOf<PendingHierarchyPlacement?>(null) }
     var dragBaseline by remember(listId) { mutableStateOf<HierarchyDragBaseline?>(null) }
-    val previewActiveGroups = visibleHierarchyGroups(
-        pendingPlacement?.resultGroups ?: visibleActiveGroups,
-        collapsedParentItemIds,
-        searchQuery,
-        previewedChildRowId = pendingPlacement
-            ?.takeIf { it.target is HierarchyDropTarget.ParentRow }
-            ?.draggedRowId,
+    val previewActiveGroups = hierarchyGroupsForDragPreview(
+        placement = pendingPlacement,
+        visibleGroups = visibleActiveGroups,
+        collapsedParentItemIds = collapsedParentItemIds,
+        searchQuery = searchQuery,
     )
     val renderedActiveRows = previewActiveGroups.flatMap { listOf(it.parent) + it.children }
+    val highlightedParentRowId = hierarchyDropTargetHighlightParentRowId(pendingPlacement)
     val activeParentRowTargetId =
         (pendingPlacement?.target as? HierarchyDropTarget.ParentRow)?.parentRowId
     val activeEntries = activeHierarchyEntries(
@@ -1020,8 +1019,7 @@ fun ListItemsScreen(
                                     val isChild = entry.isChild
                                     val rowColor by animateColorAsState(
                                         when {
-                                            (pendingPlacement?.target as? HierarchyDropTarget.ParentRow)
-                                                ?.parentRowId == item.id ->
+                                            highlightedParentRowId == item.id ->
                                                 MaterialTheme.colorScheme.secondaryContainer
                                             isDragging -> MaterialTheme.colorScheme.surfaceVariant
                                             else -> MaterialTheme.colorScheme.surface
