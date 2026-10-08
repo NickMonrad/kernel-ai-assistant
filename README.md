@@ -36,7 +36,8 @@ Jandal currently includes:
 - local chat with markdown rendering, multi-conversation management, streaming generation, and model/runtime status;
 - local memory with core memories, episodic summaries, semantic search, and memory management screens;
 - deterministic Android skills for lists, notes, alarms, timers, date arithmetic, media controls, unit/currency conversion, weather, messaging/email flows, navigation, and Wikipedia;
-- local-first Lists with optional bidirectional sync for explicitly selected Lists to a user-configured Nextcloud Tasks server over CalDAV/VTODO; Room-backed local state remains authoritative and usable offline;
+- local-first Lists with two-level parent/child groups and device-local expand/collapse state, plus
+  optional bidirectional sync for explicitly selected Lists to a user-configured Nextcloud Tasks server over CalDAV/VTODO; Room-backed local state remains authoritative and usable offline;
 - drawer-accessible tools such as Lists, Alarms, Notes, Meal plans, and Settings;
 - deterministic meal-planning sessions with plan approval, recipe persistence, favourites, replacement/regeneration, and ingredient export to lists;
 - push-to-talk voice input, optional spoken chat replies, per-message speaker playback, configurable TTS voices, and wake-word/default-assistant infrastructure;

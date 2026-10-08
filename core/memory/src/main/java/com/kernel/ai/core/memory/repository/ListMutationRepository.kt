@@ -53,6 +53,12 @@ class ListMutationBlockedException(
     }
 }
 
+/** Result of atomically creating a child and reconciling its parent's completion state. */
+data class AddedSubItem(
+    val itemId: Long,
+    val checkedStateMutation: CheckedStateMutation,
+)
+
 @Singleton
 class ListMutationRepository @Inject constructor(
     private val database: KernelDatabase,
@@ -211,6 +217,45 @@ class ListMutationRepository @Inject constructor(
         requireContentMutationAllowed(requireList(listId).collectionId)
         texts.map { addItemInternal(listId, it, null, false, null) }
     }
+
+    /** Creates a child at its parent's last sibling position in the same sync-safe transaction. */
+    suspend fun addSubItem(listId: Long, parentItemId: String, text: String): AddedSubItem =
+        database.withTransaction {
+            val list = requireList(listId)
+            requireContentMutationAllowed(list.collectionId)
+            require(text.isNotBlank()) { "Item text cannot be blank" }
+            val active = listItemDao.getAllByListUnordered(listId)
+                .filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            val parent = active.firstOrNull { it.itemId == parentItemId }
+                ?: error("Parent item is not active in this list")
+            val hierarchy = deriveHierarchy(active)
+            require(parent.itemId in hierarchy.topLevelItemIds) {
+                "Only an effective top-level item can own a sub-item"
+            }
+            val lastChild = active
+                .filter { hierarchy.parentByChild[it.itemId] == parentItemId }
+                .maxWithOrNull(orderComparator())
+            val checkedBefore = parent.checked
+            val itemId = addItemInternal(
+                listId = listId,
+                text = text,
+                dueAt = null,
+                checked = false,
+                notificationTime = null,
+                parentItemId = parentItemId,
+                orderKey = OrderKey.between(lastChild?.orderKey, null),
+            )
+            recomputeParentCompletionInternal(parent)
+            val updatedParent = listItemDao.getByItemId(parentItemId) ?: parent
+            val checkedMutation = when {
+                checkedBefore == updatedParent.checked -> CheckedStateMutation()
+                updatedParent.checked -> CheckedStateMutation(checkedIds = setOf(parent.id))
+                else -> CheckedStateMutation(uncheckedIds = setOf(parent.id))
+            }
+            refreshLegacyDisplayOrders(listId)
+            AddedSubItem(itemId, checkedMutation)
+        }
+
     suspend fun setItemChecked(itemId: Long, checked: Boolean) =
         setItemsChecked(listOf(itemId), checked)
 
@@ -1197,11 +1242,19 @@ class ListMutationRepository @Inject constructor(
         )
     }
 
-    private suspend fun addItemInternal(listId: Long, text: String, dueAt: Long?, checked: Boolean, notificationTime: Long?): Long {
+    private suspend fun addItemInternal(
+        listId: Long,
+        text: String,
+        dueAt: Long?,
+        checked: Boolean,
+        notificationTime: Long?,
+        parentItemId: String? = null,
+        orderKey: String? = null,
+    ): Long {
         val list = requireList(listId)
         require(list.lifecycle == ListLifecycle.ACTIVE.name) { "Cannot add to deleted collection" }
         val stamp = nextStamp(list.collectionId)
-        val orderKey = OrderKey.forIndex(listItemDao.getAllByList(listId).size)
+        val placementOrderKey = orderKey ?: OrderKey.forIndex(listItemDao.getAllByList(listId).size)
         val itemId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val item = ListItemEntity(
@@ -1214,8 +1267,9 @@ class ListMutationRepository @Inject constructor(
             updatedAt = now,
             itemId = itemId,
             collectionId = list.collectionId,
-            orderKey = orderKey,
-            displayOrder = orderKey.toLong(),
+            parentItemId = parentItemId,
+            orderKey = placementOrderKey,
+            displayOrder = placementOrderKey.toLongOrNull() ?: 0L,
             textLogicalClock = stamp.logicalClock,
             textStampActorId = stamp.actorId,
             descriptionLogicalClock = stamp.logicalClock,
@@ -1229,7 +1283,20 @@ class ListMutationRepository @Inject constructor(
         )
         listItemDao.insert(item)
         touchList(list.id)
-        recordLocal(list.collectionId, itemId, stamp, ListChangeOperation.CREATE_ITEM, ListChangePayload(text = text, description = "", checked = checked, dueAt = dueAt, orderKey = orderKey))
+        recordLocal(
+            list.collectionId,
+            itemId,
+            stamp,
+            ListChangeOperation.CREATE_ITEM,
+            ListChangePayload(
+                text = text,
+                description = "",
+                checked = checked,
+                dueAt = dueAt,
+                parentItemId = parentItemId,
+                orderKey = placementOrderKey,
+            ),
+        )
         return listItemDao.getByItemId(itemId)?.id ?: error("Failed to create item")
     }
 

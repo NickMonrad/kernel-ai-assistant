@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
@@ -60,9 +61,39 @@ class ListsUiPreferences @Inject constructor(
         list.defaultItemSort?.let(::decodeItemSort) ?: DEFAULT_ITEM_SORT
     }
 
-    /** Persists [sort] as the item sort for [listId]. */
+    /** Saves the explicit sort for [listId] as device-local presentation state. */
     suspend fun setItemSort(listId: Long, sort: ItemSort) {
-        withContext(ioDispatcher) { dataStore.edit { it[itemSortKeyOf(listId)] = sort.name } }
+        withContext(ioDispatcher) {
+            dataStore.edit { it[itemSortKeyOf(listId)] = sort.name }
+        }
+    }
+
+    /** Stable item IDs of locally collapsed parent groups for [listId]. */
+    suspend fun collapsedParentItemIdsFor(listId: Long): Set<String> = withContext(ioDispatcher) {
+        preferences()[collapsedParentItemIdsKeyOf(listId)].orEmpty().toSet()
+    }
+
+    /** Persists the collapsed-parent set as device-local presentation state. */
+    suspend fun setCollapsedParentItemIds(listId: Long, itemIds: Set<String>) {
+        withContext(ioDispatcher) {
+            val key = collapsedParentItemIdsKeyOf(listId)
+            dataStore.edit { preferences ->
+                if (itemIds.isEmpty()) preferences.remove(key) else preferences[key] = itemIds.toSet()
+            }
+        }
+    }
+
+    /** Atomically adds or removes one stable parent ID from the device-local collapsed set. */
+    suspend fun setParentCollapsed(listId: Long, itemId: String, collapsed: Boolean) {
+        withContext(ioDispatcher) {
+            val key = collapsedParentItemIdsKeyOf(listId)
+            dataStore.edit { preferences ->
+                val updated = preferences[key].orEmpty().toMutableSet().apply {
+                    if (collapsed) add(itemId) else remove(itemId)
+                }
+                if (updated.isEmpty()) preferences.remove(key) else preferences[key] = updated
+            }
+        }
     }
 
     private suspend fun preferences(): Preferences = dataStore.data
@@ -74,6 +105,10 @@ class ListsUiPreferences @Inject constructor(
         }
         .first()
 }
+
+/** Preference key holding stable collapsed parent item IDs for one list. */
+internal fun collapsedParentItemIdsKeyOf(listId: Long) =
+    stringSetPreferencesKey("collapsed_parent_item_ids_$listId")
 
 /** Preference key holding one list's saved [ItemSort] name. */
 internal fun itemSortKeyOf(listId: Long) = stringPreferencesKey("item_sort_$listId")

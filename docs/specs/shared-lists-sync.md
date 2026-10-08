@@ -22,7 +22,7 @@
 6. **Deletion is sticky until explicit restore.** Stale offline edits cannot resurrect deleted data.
 7. **Hierarchy is two levels only.** This contract supports #928 without generalising Lists into an arbitrary tree.
 8. **Transport is replaceable.** Package exchange, nearby transfer, CalDAV, or another future transport must consume the same contract rather than inventing provider-specific list semantics.
-9. **Local presentation and automation stay local.** Pinning, archiving, favourites, device notifications, and local collision aliases do not become shared state by accident.
+9. **Local presentation and automation stay local.** Pinning, archiving, favourites, device notifications, local collision aliases, and per-list collapsed-parent item IDs do not become shared state by accident.
 10. **Prefer the smallest complete model.** No generic CRDT framework, event-sourced database, account graph, or hosted sync protocol is required by this contract.
 
 ---

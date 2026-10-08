@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.lists.CheckedStateMutation
 import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
+import com.kernel.ai.core.memory.repository.AddedSubItem
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -21,11 +22,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
-/** Storage contract for the device-local per-list item sort preference. */
+/** Storage contract for device-local list-detail presentation preferences. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListsUiPreferencesTest {
     private val dispatcher = UnconfinedTestDispatcher()
@@ -72,6 +72,31 @@ class ListsUiPreferencesTest {
         assertEquals(ItemSort.MANUAL, runBlocking { preferences.itemSortFor(1L) })
         assertEquals(ItemSort.NAME_ASC, runBlocking { preferences.itemSortFor(2L) })
         assertEquals(ItemSort.CREATED_NEWEST, runBlocking { preferences.itemSortFor(3L) })
+    }
+
+    @Test
+    fun `collapsed parent stable IDs persist independently for each list`() {
+        val collapsedParents = setOf("stable-parent-a", "stable-parent-b")
+        runBlocking {
+            preferences.setCollapsedParentItemIds(1L, collapsedParents)
+            preferences.setCollapsedParentItemIds(2L, setOf("stable-parent-c"))
+        }
+
+        val reloaded = testListsUiPreferences(dispatcher, store)
+
+        assertEquals(collapsedParents, runBlocking { reloaded.collapsedParentItemIdsFor(1L) })
+        assertEquals(setOf("stable-parent-c"), runBlocking { reloaded.collapsedParentItemIdsFor(2L) })
+        assertEquals(emptySet<String>(), runBlocking { reloaded.collapsedParentItemIdsFor(3L) })
+    }
+
+    @Test
+    fun `collapsing and expanding one stable parent preserves other collapsed groups`() {
+        runBlocking {
+            preferences.setCollapsedParentItemIds(1L, setOf("parent-a", "parent-b"))
+            preferences.setParentCollapsed(1L, "parent-a", collapsed = false)
+        }
+
+        assertEquals(setOf("parent-b"), runBlocking { preferences.collapsedParentItemIdsFor(1L) })
     }
 
     @Test
@@ -220,9 +245,9 @@ class ListsItemSortPersistenceTest {
 
     @Test
     fun `a drag under an automatic sort materialises the visible order and switches to manual`() {
-        val a = row(1L, "stable-a", "0")
-        val b = row(2L, "stable-b", "1")
-        val c = row(3L, "stable-c", "2")
+        val a = row(1L, "stable-a", "0", text = "C")
+        val b = row(2L, "stable-b", "1", text = "B")
+        val c = row(3L, "stable-c", "2", text = "A")
         val rows = listOf(c, b, a)
         coEvery { dao.getAllByListUnordered(1L) } returns rows
         rows.forEach { coEvery { dao.getById(it.id) } returns it }
@@ -231,7 +256,15 @@ class ListsItemSortPersistenceTest {
         viewModel.selectItemSort(ItemSort.NAME_ASC)
 
         // The automatic sort shows C, B, A; the drag released as B, C, A.
-        viewModel.moveItemFromDrag(orderedRowIds = listOf(b.id, c.id, a.id), draggedId = c.id)
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = c.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = a.id),
+                visibleParentOrder = listOf(c.id, b.id, a.id),
+            ),
+        )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
         assertEquals(ItemSort.MANUAL, savedItemSort(1L))
@@ -264,9 +297,15 @@ class ListsItemSortPersistenceTest {
         viewModel.selectItemSort(ItemSort.NAME_ASC)
 
         // Second's child was dragged up into the first group, released between the two groups.
+        // The second group's child is explicitly inserted before the first group's child.
         viewModel.moveItemFromDrag(
-            orderedRowIds = listOf(first.id, secondChild.id, firstChild.id, second.id),
-            draggedId = secondChild.id,
+            1L,
+            pendingPlacement(
+                rows = listOf(first, firstChild, second, secondChild),
+                draggedRowId = secondChild.id,
+                target = HierarchyDropTarget.ChildInsertion(first.id, firstChild.id),
+                visibleParentOrder = listOf(first.id, second.id),
+            ),
         )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
@@ -322,7 +361,7 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
-    fun `a top-level drag of a row with a suppressed requested parent is not a reparent`() {
+    fun `an automatic-sort top-level drag of a row with a suppressed requested parent is not a reparent`() {
         val top = row(1L, "stable-a", "0")
         // X requests a parent that is not in the list, so the edge is suppressed and X is presented
         // and dragged as a top-level row.
@@ -336,8 +375,12 @@ class ListsItemSortPersistenceTest {
         viewModel.selectItemSort(ItemSort.NAME_ASC)
 
         viewModel.moveItemFromDrag(
-            orderedRowIds = listOf(top.id, other.id, suppressed.id),
-            draggedId = suppressed.id,
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = suppressed.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = null),
+            ),
         )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
@@ -355,6 +398,31 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
+    fun `a manual top-level drag of a row with a suppressed requested parent uses the effective parent`() {
+        val top = row(1L, "stable-a", "0")
+        val suppressed = row(2L, "stable-x", "1", parentItemId = "stable-missing")
+        val other = row(3L, "stable-b", "2")
+        val rows = listOf(top, suppressed, other)
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { listMutations.moveItem(any(), any(), any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.MANUAL)
+
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = suppressed.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = null),
+            ),
+        )
+
+        coVerify { listMutations.moveItem(suppressed.id, null, any()) }
+        coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
+    }
+
+    @Test
     fun `a same-parent child reorder under an automatic sort is not a reparent`() {
         val parent = row(1L, "stable-parent", "0")
         val first = row(2L, "stable-first", "0", parentItemId = parent.itemId)
@@ -368,8 +436,12 @@ class ListsItemSortPersistenceTest {
 
         // The second child is dragged above the first; it stays in the same group.
         viewModel.moveItemFromDrag(
-            orderedRowIds = listOf(parent.id, second.id, first.id),
-            draggedId = second.id,
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = second.id,
+                target = HierarchyDropTarget.ChildInsertion(parent.id, first.id),
+            ),
         )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
@@ -398,8 +470,13 @@ class ListsItemSortPersistenceTest {
         viewModel.selectItemSort(ItemSort.NAME_ASC)
 
         viewModel.moveItemFromDrag(
-            orderedRowIds = listOf(first.id, second.id, child.id),
-            draggedId = child.id,
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = child.id,
+                target = HierarchyDropTarget.ChildInsertion(second.id, beforeChildRowId = null),
+                visibleParentOrder = listOf(first.id, second.id),
+            ),
         )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
@@ -426,19 +503,213 @@ class ListsItemSortPersistenceTest {
         val viewModel = openList(1L)
         viewModel.selectItemSort(ItemSort.MANUAL)
 
-        viewModel.moveItemFromDrag(orderedRowIds = listOf(b.id, a.id), draggedId = b.id)
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = listOf(a, b),
+                draggedRowId = b.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = a.id),
+            ),
+        )
 
         assertEquals(ItemSort.MANUAL, viewModel.itemSort)
         coVerify { listMutations.moveItem(b.id, null, any()) }
         coVerify(exactly = 0) { listMutations.applyVisibleHierarchyOrder(any(), any()) }
     }
 
+    @Test
+    fun `automatic hierarchy materialisation retains collapsed children during parent-row drop`() {
+        val parent = row(1L, "stable-parent", "0")
+        val hiddenChild = row(2L, "stable-hidden", "0", parentItemId = parent.itemId)
+        val dragged = row(3L, "stable-newcomer", "1")
+        val rows = listOf(parent, hiddenChild, dragged)
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = dragged.id,
+                target = HierarchyDropTarget.ParentRow(parent.id),
+                visibleParentOrder = listOf(dragged.id, parent.id),
+                collapsedParentItemIds = setOf(parent.itemId),
+            ),
+        )
+
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(parent.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(hiddenChild.id, parent.id),
+                    ListMutationRepository.VisibleHierarchyRow(dragged.id, parent.id, reparent = true),
+                ),
+            )
+        }
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+    }
+
+    @Test
+    fun `automatic hierarchy materialisation promotes a child to top level`() {
+        val parent = row(1L, "stable-parent", "0")
+        val child = row(2L, "stable-child", "0", parentItemId = parent.itemId)
+        val other = row(3L, "stable-other", "1")
+        val rows = listOf(parent, child, other)
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = child.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = other.id),
+            ),
+        )
+
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(parent.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(child.id, null, reparent = true),
+                    ListMutationRepository.VisibleHierarchyRow(other.id, null),
+                ),
+            )
+        }
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+    }
+
+    @Test
+    fun `collapse all persists every effective parent including completed groups`() {
+        val activeParent = row(1L, "active-parent", "0")
+        val activeChild = row(2L, "active-child", "0", parentItemId = activeParent.itemId)
+        val completedParent = row(3L, "completed-parent", "1").copy(checked = true)
+        val completedChild = row(
+            4L,
+            "completed-child",
+            "0",
+            parentItemId = completedParent.itemId,
+        ).copy(checked = true)
+
+        val expected = completeEffectiveGroups(
+            listOf(activeParent, activeChild, completedParent, completedChild),
+        ).filter { it.children.isNotEmpty() }
+            .map { it.parent.itemId }
+            .toSet()
+        assertEquals(setOf(activeParent.itemId, completedParent.itemId), expected)
+        val viewModel = openList(1L)
+        viewModel.selectAllItems(
+            listOf(activeParent.id, activeChild.id, completedParent.id, completedChild.id),
+        )
+        viewModel.setParentCollapsed(
+            1L,
+            activeParent.itemId,
+            collapsed = true,
+            hiddenChildRowIds = setOf(activeChild.id),
+        )
+        assertEquals(
+            setOf(activeParent.id, completedParent.id, completedChild.id),
+            viewModel.selectedItemIds,
+        )
+
+        viewModel.collapseAllSubItems(
+            1L,
+            parentItemIds = expected,
+            hiddenChildRowIds = setOf(completedChild.id),
+        )
+        assertEquals(setOf(activeParent.id, completedParent.id), viewModel.selectedItemIds)
+        assertEquals(expected, viewModel.collapsedParentItemIds)
+        assertEquals(
+            expected,
+            runBlocking {
+                testListsUiPreferences(dispatcher, store).collapsedParentItemIdsFor(1L)
+            },
+        )
+
+        viewModel.expandAllSubItems(1L)
+
+        assertEquals(emptySet<String>(), viewModel.collapsedParentItemIds)
+        assertEquals(
+            emptySet<String>(),
+            runBlocking {
+                testListsUiPreferences(dispatcher, store).collapsedParentItemIdsFor(1L)
+            },
+        )
+    }
+
+    @Test
+    fun `adding a sub-item expands its parent without changing sort and reveals the created ID`() {
+        val parent = row(1L, "stable-parent", "0")
+        coEvery {
+            listMutations.addSubItem(1L, parent.itemId, "new child")
+        } returns AddedSubItem(itemId = 42L, checkedStateMutation = CheckedStateMutation())
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.DUE_SOONEST)
+        viewModel.setParentCollapsed(1L, parent.itemId, collapsed = true)
+        viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
+        viewModel.setItemSearchQuery("parent")
+        var createdItemId: Long? = null
+
+        viewModel.addSubItem(1L, parent.itemId, " new child ") { createdItemId = it }
+
+        assertEquals(42L, createdItemId)
+        assertEquals(ItemSort.DUE_SOONEST, viewModel.itemSort)
+        assertEquals(ItemSort.DUE_SOONEST, savedItemSort(1L))
+        assertEquals(ItemFilter.ALL, viewModel.itemFilter)
+        assertEquals("", viewModel.itemSearchQuery.value)
+        assertEquals(emptySet<String>(), viewModel.collapsedParentItemIds)
+        assertEquals(emptySet<String>(), runBlocking { testListsUiPreferences(dispatcher, store).collapsedParentItemIdsFor(1L) })
+        coVerify { listMutations.addSubItem(1L, parent.itemId, "new child") }
+    }
+
+    private fun pendingPlacement(
+        rows: List<ListItemEntity>,
+        draggedRowId: Long,
+        target: HierarchyDropTarget,
+        visibleParentOrder: List<Long> = completeEffectiveGroups(rows).map { it.parent.id },
+        collapsedParentItemIds: Set<String> = emptySet(),
+    ): PendingHierarchyPlacement {
+        val completeGroups = completeEffectiveGroups(rows)
+        val completeByParentId = completeGroups.associateBy { it.parent.id }
+        val orderedGroups = visibleParentOrder.map { parentId ->
+            requireNotNull(completeByParentId[parentId])
+        }
+        return requireNotNull(
+            pendingHierarchyPlacement(
+                completeGroups = completeGroups,
+                visibleGroups = visibleHierarchyGroups(
+                    orderedGroups,
+                    collapsedParentItemIds,
+                    searchQuery = "",
+                ),
+                collapsedParentItemIds = collapsedParentItemIds,
+                draggedRowId = draggedRowId,
+                target = target,
+            ),
+        )
+    }
+
     private fun savedItemSort(listId: Long): ItemSort = runBlocking { testListsUiPreferences(dispatcher, store).itemSortFor(listId) }
 
-    private fun row(id: Long, itemId: String, orderKey: String, parentItemId: String? = null, listId: Long = 1L) = ListItemEntity(
+    private fun row(
+        id: Long,
+        itemId: String,
+        orderKey: String,
+        parentItemId: String? = null,
+        listId: Long = 1L,
+        text: String = itemId,
+    ) = ListItemEntity(
         id = id,
         listId = listId,
-        text = itemId,
+        text = text,
         itemId = itemId,
         parentItemId = parentItemId,
         orderKey = orderKey,
@@ -517,5 +788,30 @@ class ListsItemSortPersistenceTest {
 
         assertEquals(DEFAULT_ITEM_SORT, runBlocking { preferences.itemSortFor(1L) })
         assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+    }
+
+    @Test
+    fun `sort selection during restore still completes collapsed preference restore`() {
+        val gated = GatedPreferencesDataStore()
+        val expectedCollapsed = setOf("stable-parent")
+        runBlocking {
+            testListsUiPreferences(dispatcher, gated)
+                .setCollapsedParentItemIds(1L, expectedCollapsed)
+        }
+        val viewModel = viewModelOn(gated)
+
+        viewModel.bindItemList(1L)
+        assertEquals(null, viewModel.collapsedParentPreferencesReadyForListId)
+
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        assertEquals(1L, viewModel.itemSortReadyForListId)
+        assertEquals(ItemSort.NAME_ASC, viewModel.itemSort)
+        assertEquals(null, viewModel.collapsedParentPreferencesReadyForListId)
+
+        gated.release()
+
+        assertEquals(expectedCollapsed, viewModel.collapsedParentItemIds)
+        assertEquals(1L, viewModel.collapsedParentPreferencesReadyForListId)
     }
 }

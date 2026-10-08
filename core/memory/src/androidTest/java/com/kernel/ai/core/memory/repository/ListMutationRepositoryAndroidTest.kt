@@ -355,6 +355,29 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `adding a sub-item appends through the sync-aware seam and reopens its completed parent`() = runBlocking {
+        val listId = repository.createCollection("Add child")
+        val parentId = repository.addItem(listId, "Parent")
+        val parent = requireNotNull(database.listItemDao().getById(parentId))
+        repository.addSubItem(listId, parent.itemId, "First")
+        repository.addSubItem(listId, parent.itemId, "Second")
+        repository.setItemChecked(parentId, true)
+
+        val result = repository.addSubItem(listId, parent.itemId, "Last")
+        val created = requireNotNull(database.listItemDao().getById(result.itemId))
+        val createChange = repository.pendingChanges().single {
+            it.targetId == created.itemId && it.operation == ListChangeOperation.CREATE_ITEM
+        }
+
+        assertEquals(parent.itemId, created.parentItemId)
+        assertFalse(created.checked)
+        assertEquals(listOf("Parent", "First", "Second", "Last"), effectiveRowTexts(listId))
+        assertEquals(setOf(parentId), result.checkedStateMutation.uncheckedIds)
+        assertEquals(parent.itemId, createChange.payload.parentItemId)
+        assertEquals(created.orderKey, createChange.payload.orderKey)
+    }
+
+    @Test
     fun `swipe right indents a standalone item under the group above it`() = runBlocking {
         val listId = repository.createCollection("Indent standalone")
         val aId = repository.addItem(listId, "A")
@@ -626,6 +649,28 @@ class ListMutationRepositoryAndroidTest {
         assertFalse("new parent gained an open child", database.listItemDao().getById(newParentId)!!.checked)
         assertEquals(setOf(oldParentId), mutation.checkedIds)
         assertEquals(setOf(newParentId), mutation.uncheckedIds)
+    }
+
+    @Test
+    fun `materialising a child at top level clears its parent`() = runBlocking {
+        val listId = repository.createCollection("Visible top-level promotion")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val otherId = repository.addItem(listId, "Other")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+
+        repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(parentId, null),
+                ListMutationRepository.VisibleHierarchyRow(childId, null, reparent = true),
+                ListMutationRepository.VisibleHierarchyRow(otherId, null),
+            ),
+        )
+
+        assertEquals(null, database.listItemDao().getById(childId)!!.parentItemId)
+        assertEquals(listOf("Parent", "Child", "Other"), effectiveRowTexts(listId))
     }
 
     @Test

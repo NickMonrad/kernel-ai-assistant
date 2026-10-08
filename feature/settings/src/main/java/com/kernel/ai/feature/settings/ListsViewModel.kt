@@ -185,8 +185,16 @@ class ListsViewModel @Inject constructor(
     /** List whose item sort is ready to display; null while the bound list's preference restores. */
     var itemSortReadyForListId by mutableStateOf<Long?>(null)
         private set
+    /** List whose collapsed-parent preference is ready to display. */
+    var collapsedParentPreferencesReadyForListId by mutableStateOf<Long?>(null)
+        private set
+
+    /** Stable item IDs collapsed for the currently bound list; local presentation state only. */
+    var collapsedParentItemIds by mutableStateOf<Set<String>>(emptySet())
+        private set
 
     private var itemSortLoadJob: Job? = null
+    private var collapsedParentPreferencesLoadJob: Job? = null
 
     /**
      * True while a hierarchy interaction is materialising the visible order and switching to
@@ -202,21 +210,30 @@ class ListsViewModel @Inject constructor(
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     /**
-     * Binds the drill-in screen to [listId] and restores that list's saved sort.
+     * Binds the drill-in screen to [listId] and restores that list's local sort and collapse state.
      *
-     * Binding by identity is what stops a list inheriting another list's sort, and keeps a late
+     * Binding by identity stops one list inheriting another list's preferences, and keeps a late
      * restore for a previously opened list from overwriting the list that is open now.
      */
     fun bindItemList(listId: Long) {
         if (boundItemListId == listId) return
         boundItemListId = listId
         itemSortReadyForListId = null
+        collapsedParentPreferencesReadyForListId = null
         itemSortLoadJob?.cancel()
+        collapsedParentPreferencesLoadJob?.cancel()
         itemSortLoadJob = viewModelScope.launch {
-            val saved = listsUiPreferences.itemSortFor(listId)
+            val savedSort = listsUiPreferences.itemSortFor(listId)
             if (boundItemListId == listId) {
-                itemSort = saved
+                itemSort = savedSort
                 itemSortReadyForListId = listId
+            }
+        }
+        collapsedParentPreferencesLoadJob = viewModelScope.launch {
+            val savedCollapsed = listsUiPreferences.collapsedParentItemIdsFor(listId)
+            if (boundItemListId == listId) {
+                collapsedParentItemIds = savedCollapsed
+                collapsedParentPreferencesReadyForListId = listId
             }
         }
     }
@@ -237,6 +254,48 @@ class ListsViewModel @Inject constructor(
         if (listId == null) return
         itemSortReadyForListId = listId
         viewModelScope.launch { listsUiPreferences.setItemSort(listId, sort) }
+    }
+
+    /** Changes one parent's device-local disclosure preference. */
+    fun setParentCollapsed(
+        listId: Long,
+        parentItemId: String,
+        collapsed: Boolean,
+        hiddenChildRowIds: Set<Long> = emptySet(),
+    ) {
+        if (boundItemListId != listId) return
+        if (collapsed) selectedItemIds = selectedItemIds - hiddenChildRowIds
+        collapsedParentItemIds = if (collapsed) {
+            collapsedParentItemIds + parentItemId
+        } else {
+            collapsedParentItemIds - parentItemId
+        }
+        viewModelScope.launch {
+            listsUiPreferences.setParentCollapsed(listId, parentItemId, collapsed)
+        }
+    }
+
+    /** Expands every parent group for the bound list, including completed groups. */
+    fun expandAllSubItems(listId: Long) {
+        if (boundItemListId != listId) return
+        collapsedParentItemIds = emptySet()
+        viewModelScope.launch {
+            listsUiPreferences.setCollapsedParentItemIds(listId, emptySet())
+        }
+    }
+
+    /** Collapses every supplied current effective parent group without changing Completed disclosure. */
+    fun collapseAllSubItems(
+        listId: Long,
+        parentItemIds: Set<String>,
+        hiddenChildRowIds: Set<Long> = emptySet(),
+    ) {
+        if (boundItemListId != listId) return
+        selectedItemIds = selectedItemIds - hiddenChildRowIds
+        collapsedParentItemIds = parentItemIds
+        viewModelScope.launch {
+            listsUiPreferences.setCollapsedParentItemIds(listId, parentItemIds)
+        }
     }
 
     /**
@@ -516,6 +575,10 @@ class ListsViewModel @Inject constructor(
 
     fun selectAllItems(ids: List<Long>) { selectedItemIds = ids.toSet() }
 
+    fun deselectItems(ids: Set<Long>) {
+        selectedItemIds = selectedItemIds - ids
+    }
+
     /** Bulk-deletes the currently selected list items. */
     fun deleteSelectedItems() {
         val ids = selectedItemIds.toList()
@@ -664,48 +727,39 @@ class ListsViewModel @Inject constructor(
     // ── Item drag ordering (#928) ────────────────────────────────────────────────────────────────
 
     /**
-     * Persists the placement of a dragged row from the projection it was released in.
-     *
-     * Drag never changes depth: a top-level row stays top-level, and a child stays a child of the
-     * group it was dropped into. [orderedRowIds] is the projected order after the move.
-     *
-     * Only a drag whose effective owner actually changes is a reparent. A top-level reorder of a row
-     * whose requested parent is currently suppressed stays an order-only change, so the retained
-     * requested placement survives it.
-     *
-     * Under an automatic sort that projection also becomes the Manual baseline, in one bounded
-     * mutation, so switching sorts cannot reorder the rows the user did not move.
+     * Commits the exact placement previewed by [pendingPlacement]. Automatic sorts materialise the
+     * complete result hierarchy in one repository transaction; Manual order writes just its slot.
      */
-    fun moveItemFromDrag(orderedRowIds: List<Long>, draggedId: Long) {
-        if (draggedId !in orderedRowIds) return
+    internal fun moveItemFromDrag(listId: Long, pendingPlacement: PendingHierarchyPlacement) {
+        if (!pendingPlacement.changed) return
         viewModelScope.launch {
             isHierarchyTransitionPending = true
             try {
-                val dragged = withContext(ioDispatcher) { dao.getById(draggedId) }
-                val rows = withContext(ioDispatcher) { orderedRowIds.mapNotNull { dao.getById(it) } }
-                if (dragged == null || rows.size != orderedRowIds.size) return@launch
-                if (rows.any { it.listId != dragged.listId }) return@launch
-                val groups = withContext(ioDispatcher) { effectiveGroups(dragged.listId) } ?: return@launch
-                val placement = dragPlacementFor(rows, topLevelRowIds(groups), draggedId) ?: return@launch
-                val desiredOwnerRowId = if (placement.parentItemId == null) {
-                    null
-                } else {
-                    rows.firstOrNull { it.itemId == placement.parentItemId }?.id ?: return@launch
-                }
-                // Effective owners on both sides, with top-level normalised to null. The Manual
-                // branch below keeps its single-placement call: only the materialisation path can
-                // carry a retained requested parent, and the repository rejects a placement whose
-                // parent is not an effective top-level row.
-                val currentOwnerRowId = owningRowId(groups, draggedId)?.takeIf { it != draggedId }
-                val reparentedRow = if (currentOwnerRowId == desiredOwnerRowId) {
-                    null
-                } else {
-                    draggedId to desiredOwnerRowId
-                }
+                val dragged = withContext(ioDispatcher) {
+                    dao.getById(pendingPlacement.draggedRowId)
+                } ?: return@launch
+                if (dragged.listId != listId) return@launch
                 if (itemSort != ItemSort.MANUAL) {
-                    val baseline = visibleOrderBaseline(orderedRowIds, reparentedRow) ?: return@launch
+                    val baselineRows = pendingPlacement.resultGroups.flatMap { group ->
+                        listOf(
+                            ListMutationRepository.VisibleHierarchyRow(
+                                rowId = group.parent.id,
+                                parentRowId = null,
+                                reparent = group.parent.id == pendingPlacement.draggedRowId &&
+                                    pendingPlacement.reparents,
+                            ),
+                        ) +
+                            group.children.map { child ->
+                                ListMutationRepository.VisibleHierarchyRow(
+                                    rowId = child.id,
+                                    parentRowId = group.parent.id,
+                                    reparent = child.id == pendingPlacement.draggedRowId &&
+                                        pendingPlacement.reparents,
+                                )
+                            }
+                    }
                     val mutation = withContext(ioDispatcher) {
-                        listMutations.applyVisibleHierarchyOrder(baseline.listId, baseline.rows)
+                        listMutations.applyVisibleHierarchyOrder(listId, baselineRows)
                     }
                     applyCheckedStateReminderTransitions(mutation)
                     selectItemSort(ItemSort.MANUAL)
@@ -714,8 +768,11 @@ class ListsViewModel @Inject constructor(
                 val mutation = withContext(ioDispatcher) {
                     listMutations.moveItem(
                         dragged.id,
-                        placement.parentItemId,
-                        OrderKey.between(placement.lowerOrderKey, placement.upperOrderKey),
+                        pendingPlacement.parentItemId,
+                        OrderKey.between(
+                            pendingPlacement.lowerOrderKey,
+                            pendingPlacement.upperOrderKey,
+                        ),
                     )
                 }
                 applyCheckedStateReminderTransitions(mutation)
@@ -726,52 +783,45 @@ class ListsViewModel @Inject constructor(
     }
 
     /**
-     * The order the user is currently looking at, as a baseline the repository can materialise.
-     *
-     * Owners come from the effective hierarchy, which is what the visible projection shows for an
-     * indent, an outdent, or a drag that only reordered rows. [reparentedRow] names the single row a
-     * drag dropped into another group, paired with the row that now owns it.
-     *
-     * Returns null when the list is already on Manual, where the visible order is the persisted
-     * order and nothing needs materialising.
+     * Rebuilds an automatic-sort baseline from every effective active group. Rendered top-level and
+     * expanded-child order follows the UI; hidden children of collapsed parents keep their existing
+     * sibling order rather than disappearing from hierarchy materialisation.
      */
     private suspend fun visibleOrderBaseline(
         visibleRowIds: List<Long>,
-        reparentedRow: Pair<Long, Long?>? = null,
     ): ListMutationRepository.VisibleOrderBaseline? {
         if (itemSort == ItemSort.MANUAL) return null
         val listId = withContext(ioDispatcher) {
             visibleRowIds.firstOrNull()?.let { dao.getById(it)?.listId }
         } ?: return null
-        val groups = withContext(ioDispatcher) { effectiveGroups(listId) } ?: return null
-        val rows = visibleRowIds.mapNotNull { rowId ->
-            val isReparented = reparentedRow?.first == rowId
-            val owner = if (isReparented) {
-                reparentedRow.second
-            } else {
-                owningRowId(groups, rowId) ?: return@mapNotNull null
-            }
-            ListMutationRepository.VisibleHierarchyRow(
-                rowId = rowId,
-                parentRowId = owner.takeIf { it != rowId },
-                reparent = isReparented,
-            )
+        val groups = withContext(ioDispatcher) {
+            completeEffectiveGroups(dao.getAllByListUnordered(listId))
+                .filterNot { it.parent.checked }
         }
-        if (rows.isEmpty()) return null
+        if (groups.isEmpty()) return null
+        val groupsByParent = groups.associateBy { it.parent.id }
+        val visibleParentIds = visibleRowIds.filter { it in groupsByParent }.distinct()
+        if (visibleParentIds.toSet() != groupsByParent.keys) return null
+        val visibleIds = visibleRowIds.toSet()
+        val collapsed = if (boundItemListId == listId) collapsedParentItemIds else emptySet()
+        val rows = visibleParentIds.flatMap { parentId ->
+            val group = groupsByParent.getValue(parentId)
+            val children = if (group.parent.itemId in collapsed) {
+                group.children
+            } else {
+                val visibleChildren = visibleRowIds
+                    .mapNotNull { rowId -> group.children.firstOrNull { it.id == rowId } }
+                visibleChildren + group.children.filterNot { it.id in visibleIds }
+            }
+            listOf(ListMutationRepository.VisibleHierarchyRow(group.parent.id, null)) +
+                children.map { child ->
+                    ListMutationRepository.VisibleHierarchyRow(child.id, group.parent.id)
+                }
+        }
         return ListMutationRepository.VisibleOrderBaseline(listId, rows)
     }
 
-    private suspend fun effectiveGroups(listId: Long): List<EffectiveHierarchyGroup<ListItemEntity>>? {
-        val all = dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
-        if (all.isEmpty()) return null
-        return EffectiveHierarchyProjection.derive(
-            all,
-            itemId = { it.itemId },
-            parentItemId = { it.parentItemId },
-            orderKey = { it.orderKey },
-            placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
-        )
-    }
+
     private var itemReorderJob: Job? = null
 
     fun reorderItems(orderedIds: List<Long>) {
@@ -832,6 +882,30 @@ class ListsViewModel @Inject constructor(
         if (trimmed.isBlank()) return
         viewModelScope.launch {
             onItemCreated(listMutations.addItem(listId, trimmed))
+        }
+    }
+
+    /** Creates a child directly under [parentItemId], expands that group, and keeps the sort. */
+    fun addSubItem(
+        listId: Long,
+        parentItemId: String,
+        itemText: String,
+        onItemCreated: (Long) -> Unit,
+    ) {
+        val trimmed = itemText.trim()
+        if (trimmed.isBlank()) return
+        itemFilter = ItemFilter.ALL
+        clearItemSearchQuery()
+        viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                listMutations.addSubItem(listId, parentItemId, trimmed)
+            }
+            applyCheckedStateReminderTransitions(result.checkedStateMutation)
+            if (boundItemListId == listId) {
+                collapsedParentItemIds = collapsedParentItemIds - parentItemId
+            }
+            listsUiPreferences.setParentCollapsed(listId, parentItemId, collapsed = false)
+            if (boundItemListId == listId) onItemCreated(result.itemId)
         }
     }
 
