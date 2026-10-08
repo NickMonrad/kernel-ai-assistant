@@ -250,7 +250,7 @@ class RunIntentSkillTest {
     }
 
     @Test
-    fun `model discovery covers callable handler intents and documents exclusions`() {
+    fun `model callable intent catalog matches native handlers and exclusions`() {
         val callable = RunIntentSkill.MODEL_CALLABLE_INTENTS
         val callableSet = callable.toSet()
         val exclusions = RunIntentSkill.MODEL_EXCLUDED_INTENTS
@@ -261,6 +261,8 @@ class RunIntentSkillTest {
         assertEquals(dedicatedTools + unavailableStubs, exclusions.keys)
         assertEquals(NativeIntentHandler.KNOWN_INTENTS, callableSet + exclusions.keys)
         assertTrue(callableSet.intersect(exclusions.keys).isEmpty())
+        assertTrue("get_date_diff" in callableSet)
+        assertTrue("bulk_add_to_list" in callableSet)
         dedicatedTools.forEach {
             assertTrue(exclusions.getValue(it).startsWith("Dedicated top-level SDK tool"))
         }
@@ -268,7 +270,6 @@ class RunIntentSkillTest {
             assertTrue(exclusions.getValue(it).startsWith("Non-callable stub"))
         }
 
-        assertEquals(callable, skill.schema.parameters.getValue("intent_name").enum)
         val instructions = skill.fullInstructions
         callable.forEach { intent ->
             assertTrue("  $intent — params:" in instructions, "$intent missing from detailed discovery")
@@ -277,9 +278,7 @@ class RunIntentSkillTest {
         exclusions.forEach { (intent, reason) ->
             assertTrue("  $intent — $reason" in instructions, "$intent exclusion missing from detailed discovery")
         }
-        assertTrue(instructions.contains("After load_skill returns these instructions, continue the same request with the relevant run_intent action"))
-        assertTrue(instructions.contains("do not call load_skill(\"run_intent\") again for that request"))
-        assertTrue(instructions.contains("ask the user; do not call load_skill again"))
+        assertEquals(callable, skill.schema.parameters.getValue("intent_name").enum)
 
         val exampleIntentPattern = Regex("intentName=\\\"([^\\\"]+)\\\"")
         val exampleIntents = skill.examples.flatMap { example ->
@@ -289,5 +288,17 @@ class RunIntentSkillTest {
         assertTrue(exampleIntents.all { it in callableSet }, "Examples must not advertise excluded intents")
         assertTrue(skill.description.contains("lists/notes") && skill.description.contains("dedicated tools"))
         assertTrue(instructions.contains("never use search_memory to answer list-content requests"))
+        val catalogHeader = instructions.indexOf("Available model-callable intents:")
+        assertTrue(catalogHeader >= 0)
+        val discoveryPreface = instructions.substring(0, catalogHeader)
+        assertTrue("bulk_add_to_list" in discoveryPreface)
+        assertTrue("items as one JSON array" in discoveryPreface)
+        assertTrue("parameters='{\"items\":[\"apples\",\"oat milk\",\"rice\"],\"list_name\":\"groceries\"}'" in discoveryPreface)
+        assertTrue("After load_skill returns these instructions" in discoveryPreface)
+        assertTrue("before any final response" in discoveryPreface)
+        assertTrue("A successful load_skill only discovers instructions" in discoveryPreface)
+        assertTrue("do not stop after loading" in discoveryPreface)
+        assertTrue("ask the user to repeat the request" in discoveryPreface)
+        assertTrue("or load the skill again for this request" in discoveryPreface)
     }
 }

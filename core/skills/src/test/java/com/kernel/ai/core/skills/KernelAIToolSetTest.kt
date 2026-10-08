@@ -4,8 +4,10 @@ import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import dagger.Lazy
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -95,8 +97,11 @@ class KernelAIToolSetTest {
             .getAnnotation(Tool::class.java)
             .description
 
-        assertTrue("call run_intent on the original request next" in description)
-        assertTrue("do not stop after reading the instructions" in description)
+        val normalizedDescription = description.lowercase()
+        assertTrue("first tool call" in normalizedDescription)
+        assertTrue("wait for success" in normalizedDescription)
+        assertTrue("must be followed by run_intent" in normalizedDescription)
+        assertTrue("before any final reply" in normalizedDescription)
     }
 
     @Test
@@ -154,6 +159,81 @@ class KernelAIToolSetTest {
         assertEquals("ok", result["result"])
         // Should still call the skill but with empty args
         assertTrue(toolSet.wasToolCalled())
+    }
+
+    @Test
+    fun `safe model test sandbox allows run_intent instructions and device date only`() = runTest {
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns "run_intent instructions"
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success("run_intent instructions")
+        every { registry.get("load_skill") } returns loadSkill
+
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("It's 12:00 on Monday")
+        every { registry.get("run_intent") } returns runIntent
+
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
+            assertEquals("It's 12:00 on Monday", toolSet.runIntent("get_date", "{}")["result"])
+            assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
+            assertTrue(toolSet.terminalToolSucceeded())
+            assertTrue(toolSet.terminalToolWasDirectReply())
+        } finally {
+            scope.close()
+        }
+
+        verify(exactly = 1) { registry.get("load_skill") }
+
+        coVerify(exactly = 1) { loadSkill.execute(any()) }
+        coVerify(exactly = 1) { runIntent.execute(any()) }
+        verify(exactly = 1) { registry.get("run_intent") }
+    }
+
+    @Test
+    fun `safe model test sandbox denies other tools before dispatch and closes cleanly`() = runTest {
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals(
+                "Blocked by safe model-test allowlist",
+                toolSet.loadSkill("meal_planner")["error"],
+            )
+            val blockedCalls = listOf(
+                { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
+                { toolSet.runIntent("get_date_diff", "{}") },
+                { toolSet.runIntent("get_date", """{"format":"private"}""") },
+                { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
+                { toolSet.runJs("""{"skill_name":"private","data":{"value":"private test data"}}""") },
+                { toolSet.convertCurrency("10", "USD", "NZD") },
+                { toolSet.getWeather("private test location", "3") },
+                { toolSet.queryWikipedia("private test query") },
+                { toolSet.getSystemInfo() },
+                { toolSet.saveMemory("private test fact") },
+                { toolSet.searchMemory("private test query") },
+            )
+
+            blockedCalls.forEach { call ->
+                toolSet.resetTurnState()
+                assertEquals("Blocked by safe model-test allowlist", call()["error"])
+                assertEquals("{}", toolSet.lastToolRequest())
+                assertFalse(toolSet.lastToolWasDirectReply())
+                assertTrue(toolSet.terminalToolFailed())
+            }
+        } finally {
+            scope.close()
+        }
+
+        verify(exactly = 0) { registry.get(any()) }
+
+        val systemInfo = mockk<Skill>()
+        every { systemInfo.name } returns "get_system_info"
+        coEvery { systemInfo.execute(any()) } returns SkillResult.DirectReply("System status")
+        every { registry.get("get_system_info") } returns systemInfo
+
+        assertEquals("System status", toolSet.getSystemInfo()["result"])
+        verify(exactly = 1) { registry.get("get_system_info") }
     }
 
     // -------------------------------------------------------------------------

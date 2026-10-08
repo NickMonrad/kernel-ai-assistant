@@ -110,7 +110,7 @@ class RunIntentSkill @Inject constructor(
             RunIntentModelCategory("LISTS AND REMINDERS", listOf(
                 RunIntentModelAction("create_list", "list_name"),
                 RunIntentModelAction("add_to_list", "item, list_name"),
-                RunIntentModelAction("bulk_add_to_list", "items (CSV or JSON array), list_name (optional)"),
+                RunIntentModelAction("bulk_add_to_list", "items (JSON array of strings), list_name (optional; defaults to shopping list and creates it if needed)"),
                 RunIntentModelAction("get_list_items", "list_name (optional; defaults to shopping list)"),
                 RunIntentModelAction("remove_from_list", "item, list_name (optional)"),
                 RunIntentModelAction("add_reminder", "item, day, time"),
@@ -220,11 +220,16 @@ class RunIntentSkill @Inject constructor(
     )
 
     override val fullInstructions: String = buildString {
-        appendLine("run_intent: Perform a native Android device action.")
-        appendLine("After load_skill returns these instructions, continue the same request with the relevant run_intent action; do not call load_skill(\"run_intent\") again for that request.")
+        appendLine("run_intent: Perform a supported native Android device action or exact local calculation.")
+        appendLine("If the user explicitly asks for these instructions first, load run_intent and wait for success.")
+        appendLine("After load_skill returns these instructions, continue the same request with the relevant run_intent action before any final response. A successful load_skill only discovers instructions; do not stop after loading, summarize instructions, ask the user to repeat the request, or load the skill again for this request.")
+        appendLine("For a request to put multiple items into a list, after loading call run_intent exactly once with intent_name=bulk_add_to_list and items as one JSON array.")
+        appendLine("Pass the requested list_name; do not call add_to_list repeatedly.")
+        appendLine("Example: run_intent(intent_name=\"bulk_add_to_list\", parameters='{\"items\":[\"apples\",\"oat milk\",\"rice\"],\"list_name\":\"groceries\"}').")
         appendLine()
         appendLine("Parameters (pass as JSON in the 'parameters' argument):")
         appendLine("- intent_name (required, string): The action to perform.")
+        appendLine("Copy intent_name exactly from the catalog, preserving spelling and every underscore.")
         appendLine()
         appendLine("Available model-callable intents:")
         appendLine()

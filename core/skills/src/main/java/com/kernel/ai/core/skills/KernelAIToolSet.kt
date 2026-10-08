@@ -5,9 +5,10 @@ import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
 import dagger.Lazy
-import kotlinx.coroutines.runBlocking
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
 
@@ -68,6 +69,72 @@ data class LocalToolDiagnosticSnapshot(
 class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
+    private val safeModelTestToken = AtomicReference<Any?>(null)
+
+    /**
+     * Restricts one DEBUG model generation to loading run_intent instructions and reading the
+     * device date/time through run_intent.get_date. Callers must close the returned scope.
+     */
+    fun beginSafeModelTestSandbox(): AutoCloseable {
+        val token = Any()
+        check(safeModelTestToken.compareAndSet(null, token)) {
+            "A safe model-test sandbox is already active"
+        }
+        return AutoCloseable { safeModelTestToken.compareAndSet(token, null) }
+    }
+
+    private fun isSafeModelTestActive(): Boolean = safeModelTestToken.get() != null
+
+    private fun isAllowedSafeModelTestRunIntent(intentName: String, parameters: String): Boolean {
+        if (intentName != "get_date") return false
+        if (parameters.isBlank()) return true
+        return try {
+            org.json.JSONObject(parameters).length() == 0
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isAllowedSafeModelTestDispatch(
+        skillName: String,
+        args: Map<String, String>,
+    ): Boolean = when (skillName) {
+        LOAD_SKILL_NAME -> args == mapOf("skill_name" to "run_intent")
+        "run_intent" -> args == mapOf("intent_name" to "get_date")
+        else -> false
+    }
+
+    private fun denyInSafeModelTest(
+        toolName: String,
+        request: String,
+        arguments: Map<String, String>?,
+    ): Map<String, String> {
+        val diagnosticOrder = recordToolCall(toolName, request, arguments)
+        val error = "Blocked by safe model-test allowlist"
+        val toolResult = mapOf("error" to error)
+        lastToolResult = error
+        lastToolPresentation = null
+        lastToolSpokenSummary = null
+        lastToolWasDirectReply = false
+        recordToolOutcome(toolName, succeeded = false)
+        recordLocalToolResult(
+            diagnosticOrder,
+            "Blocked",
+            error,
+            toolResult,
+            succeeded = false,
+            directReply = false,
+            returnedToGemma = true,
+        )
+        if (toolName != LOAD_SKILL_NAME) captureTerminalResult(toolName)
+        Log.d(
+            TAG,
+            "event_seq: tool_result name=$toolName resultType=Failure " +
+                "directReply=false returnedToGemma=true content=\"$error\"",
+        )
+        return toolResult
+    }
+
     enum class ToolExecutionOutcome {
         NOT_CALLED,
         SUCCEEDED,
@@ -378,35 +445,40 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads full instructions for a gateway skill (meal_planner, run_js, run_intent). Call when the user asks for those instructions or when the intent/parameters are unclear. For run_intent, after loading, call run_intent on the original request next; do not stop after reading the instructions. For other gateway skills, follow the returned instructions.")
+    @Tool(description = "Loads full instructions for a gateway skill (meal_planner, run_js, run_intent). Load a relevant skill when parameters or gateway-specific rules are unclear. If the user explicitly asks for skill instructions before acting, load that exact skill as the FIRST tool call even when the action is clear; wait for success, then follow the instructions. For run_intent, a successful load_skill MUST be followed by run_intent for the original request before any final reply; for other gateway skills, follow their returned instructions.")
     fun loadSkill(
         @ToolParam(description = "The gateway skill name to load, such as run_intent.") skillName: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            LOAD_SKILL_NAME,
-            """{"skill_name":"$skillName"}""",
-            if (localDiagnosticCaptureEnabled) mapOf("skill_name" to skillName) else null,
-        )
+        val request = """{"skill_name":"$skillName"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("skill_name" to skillName) else null
+        if (isSafeModelTestActive() && skillName != "run_intent") {
+            return denyInSafeModelTest(LOAD_SKILL_NAME, request, arguments)
+        }
+        val diagnosticOrder = recordToolCall(LOAD_SKILL_NAME, request, arguments)
         Log.d(TAG, "ToolSet: loadSkill($skillName)")
         val result = executeSkill(LOAD_SKILL_NAME, mapOf("skill_name" to skillName), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         return result
     }
 
-    @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles, plus list/note operations including read-only retrieval. Use memory tools only for personal facts, not list/note contents. NOT for weather, system info, web search, or currency; use dedicated top-level tools. Call run_intent directly when intent and parameters are clear; if the user explicitly asks to load run_intent instructions first, call load_skill first, then run_intent.")
+    @Tool(description = "Execute supported native Android actions such as alarms, calendar, media, navigation, contacts, and system toggles, plus list/note operations. If the user asks to read run_intent instructions first, load_skill(skill_name='run_intent') MUST be the first tool call; wait for success, then call run_intent. Otherwise call run_intent directly when clear. Use memory tools only for personal facts, not list/note contents. NOT for weather, system info, web search, or currency; use dedicated top-level tools.")
     fun runIntent(
-        @ToolParam(description = "The intent action name (e.g. set_alarm, create_calendar_event, send_sms, get_list_items). Call run_intent directly when known; if the user explicitly requests instructions first, call load_skill before run_intent.") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For get_date_diff: ${RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP}. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, provide parameters directly when known. Call load_skill only when the supported intent or required parameters are unclear, unless the user explicitly requests its instructions first; in that case, load_skill, then follow them before run_intent.") parameters: String,
+        @ToolParam(description = "The exact model-callable intent identifier; preserve its spelling and every underscore (e.g. set_alarm, create_calendar_event, get_date_diff, bulk_add_to_list). Call run_intent directly when known; if the user explicitly requests instructions first, call load_skill before run_intent.") intentName: String,
+        @ToolParam(description = "A valid JSON object encoded as a string; do not send CSV or separate fields. For get_date_diff: ${RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP}. For bulk_add_to_list, use items as one JSON array of strings and pass the requested list_name. For create_calendar_event use title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, pass required fields directly.") parameters: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "run_intent",
-            """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}""",
-            if (localDiagnosticCaptureEnabled) {
-                mapOf("intent_name" to intentName, "parameters" to parameters)
-            } else {
-                null
-            },
-        )
+        val request =
+            """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("intent_name" to intentName, "parameters" to parameters)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive() &&
+            !isAllowedSafeModelTestRunIntent(intentName, parameters)
+        ) {
+            return denyInSafeModelTest("run_intent", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("run_intent", request, arguments)
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
         val reservedSkillNames = setOf(
@@ -475,11 +547,12 @@ class KernelAIToolSet @Inject constructor(
     fun runJs(
         @ToolParam(description = "A JSON object with skill_name (the JS skill to run) and data (a JSON object with the skill's parameters). Call loadSkill to learn the exact format.") parameters: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "run_js",
-            parameters,
-            if (localDiagnosticCaptureEnabled) mapOf("parameters" to parameters) else null,
-        )
+        val request = parameters
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("parameters" to parameters) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("run_js", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("run_js", request, arguments)
         Log.d(TAG, "ToolSet: runJs(params=$parameters)")
 
         val args = mutableMapOf<String, String>()
@@ -507,15 +580,17 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Source currency code or full name (e.g. 'AUD', 'USD', 'Australian dollars')") fromCurrency: String,
         @ToolParam(description = "Target currency code or full name (e.g. 'INR', 'NZD', 'Indian rupees')") toCurrency: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "convert_currency",
-            """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}""",
-            if (localDiagnosticCaptureEnabled) {
-                mapOf("amount" to amount, "from_currency" to fromCurrency, "to_currency" to toCurrency)
-            } else {
-                null
-            },
-        )
+        val request =
+            """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("amount" to amount, "from_currency" to fromCurrency, "to_currency" to toCurrency)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("convert_currency", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("convert_currency", request, arguments)
         Log.d(TAG, "ToolSet: convertCurrency(amount=$amount, from=$fromCurrency, to=$toCurrency)")
 
         val args = mapOf(
@@ -535,15 +610,16 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
         @ToolParam(description = "Number of forecast days (1-7). Omit or pass 0 for current conditions only.") forecastDays: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "get_weather",
-            """{"location":"$location","forecast_days":"$forecastDays"}""",
-            if (localDiagnosticCaptureEnabled) {
-                mapOf("location" to location, "forecast_days" to forecastDays)
-            } else {
-                null
-            },
-        )
+        val request = """{"location":"$location","forecast_days":"$forecastDays"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("location" to location, "forecast_days" to forecastDays)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("get_weather", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("get_weather", request, arguments)
         Log.d(TAG, "ToolSet: getWeather(location=$location, forecastDays=$forecastDays)")
 
         val args = mutableMapOf<String, String>()
@@ -564,11 +640,12 @@ class KernelAIToolSet @Inject constructor(
     fun queryWikipedia(
         @ToolParam(description = "The topic, entity, or article title to look up on Wikipedia.") query: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "query_wikipedia",
-            """{"query":"${query.replace("\"", "\\\"").take(200)}"}""",
-            if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null,
-        )
+        val request = """{"query":"${query.replace("\"", "\\\"").take(200)}"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("query_wikipedia", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("query_wikipedia", request, arguments)
         Log.d(TAG, "ToolSet: queryWikipedia(${query.take(60)})")
         val result = executeSkill("query_wikipedia", mapOf("query" to query), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
@@ -578,11 +655,12 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Get current date/time and device runtime info including hardware tier, available memory, battery level, and device details. ALWAYS use this for current date, time, or day queries.")
     fun getSystemInfo(): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "get_system_info",
-            "{}",
-            if (localDiagnosticCaptureEnabled) emptyMap() else null,
-        )
+        val request = "{}"
+        val arguments = if (localDiagnosticCaptureEnabled) emptyMap() else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("get_system_info", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("get_system_info", request, arguments)
         Log.d(TAG, "ToolSet: getSystemInfo()")
         val result = executeSkill("get_system_info", emptyMap(), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
@@ -594,11 +672,12 @@ class KernelAIToolSet @Inject constructor(
     fun saveMemory(
         @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it.") content: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "save_memory",
-            """{"content":"${content.replace("\"", "\\\"").take(200)}"}""",
-            if (localDiagnosticCaptureEnabled) mapOf("content" to content) else null,
-        )
+        val request = """{"content":"${content.replace("\"", "\\\"").take(200)}"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("content" to content) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("save_memory", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("save_memory", request, arguments)
         Log.d(TAG, "ToolSet: saveMemory(${content.take(60)})")
         val result = executeSkill("save_memory", mapOf("content" to content), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
@@ -610,11 +689,12 @@ class KernelAIToolSet @Inject constructor(
     fun searchMemory(
         @ToolParam(description = "What to search for in saved memories and past messages.") query: String,
     ): Map<String, String> {
-        val diagnosticOrder = recordToolCall(
-            "search_memory",
-            """{"query":"$query"}""",
-            if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null,
-        )
+        val request = """{"query":"$query"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("search_memory", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("search_memory", request, arguments)
         Log.d(TAG, "ToolSet: searchMemory($query)")
         val result = executeSkill("search_memory", mapOf("query" to query), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
@@ -629,6 +709,20 @@ class KernelAIToolSet @Inject constructor(
         args: Map<String, String>,
         diagnosticOrder: Int?,
     ): Map<String, String> {
+        if (isSafeModelTestActive() && !isAllowedSafeModelTestDispatch(skillName, args)) {
+            recordToolOutcome(skillName, succeeded = false)
+            val toolResult = mapOf("error" to "Blocked by safe model-test allowlist")
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Blocked",
+                toolResult["error"],
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            return toolResult
+        }
         val skill = skillRegistry.get().get(skillName)
             ?: run {
                 recordToolOutcome(skillName, succeeded = false)

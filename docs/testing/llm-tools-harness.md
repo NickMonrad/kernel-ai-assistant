@@ -26,7 +26,8 @@ For every selected golden prompt, the harness checks:
    text-format tool call
 3. **Correct tool** — the expected top-level tool name matches the actual tool called
 4. **Result observability** — the tool execution result is logged via `llm_tools_skill_result`
-5. **Message persistence** — the tool call message is saved in chat history
+5. **Persistence policy** — normal cases require a saved tool-call message; isolated safe probes
+   require no persisted marker.
 6. **UI evidence** — a chip for the tool call is visible on screen
 7. **No retry** — no unexpected hallucination retry path was triggered
 8. **No slot fill** — no QIR slot-fill or confirmation path was used
@@ -37,9 +38,12 @@ For every selected golden prompt, the harness checks:
 |------|--------|--------------|------------------|
 | `query_wikipedia_natural` | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True` |
 | `save_memory_durable_fact` | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field must be present and non-empty |
-| `run_intent_date_diff_direct` | "Use `run_intent` with the `get_date_diff` action to compare April 8, 2026 and April 11, 2026. State the day difference." | `run_intent` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True`; nested action `get_date_diff`; reply includes `3 days`; ordered sequence `run_intent`; successful `direct_reply` |
-| `run_intent_date_diff_after_skill_load` | "Read the RunIntent instructions first. Then use `run_intent` with the `get_date_diff` action to compare April 8, 2026 and April 11, 2026. State the day difference." | `run_intent` | Same route guards; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_date_diff`; reply includes `3 days`; successful `direct_reply` |
+| `run_intent_get_date_direct` | "Can you tell me the day, date, and exact local time right now on this device? Please use the read-only run_intent get_date action rather than an estimate." | `run_intent` | Debug-only isolated probe; nested action `get_date`; ordered sequence `run_intent`; successful `direct_reply` contains the device-local date/time |
+| `run_intent_get_date_after_skill_load` | "Please read the run_intent instructions first; then use its get_date action to tell me the current local date and time." | `run_intent` | Same controlled fallthrough guard; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_date`; successful `direct_reply` contains the device-local date/time |
 | `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
+
+The #1593 cases use the read-only `get_date` action. Do not use `get_date_diff` for
+this safety acceptance: its native implementation may consult Important Dates.
 
 ## Runtime markers
 
@@ -57,40 +61,57 @@ These are the structured logcat markers the harness reads. They are emitted by t
 | `event_seq` | `tool_event_evidence` | `tool_call` or `tool_result` name and safe result fields | `tool_result name=load_skill resultType=Success ...` |
 | `llm_tools_tool_sequence` | `tool_sequence_marker` | `attempt=<tool> turn=<ordered tools> terminal=<tool>` | `attempt=run_intent turn=load_skill>run_intent terminal=run_intent` |
 
+## Fresh per-case log boundary
+
+Before each prompt, the harness force-stops the app, emits a unique boundary marker, waits for the persistent logcat reader to observe it, and seeds that synchronized snapshot into the marker poll.
+Each case requires exactly one `ADB_INTENT_TRACE` input marker matching that prompt's logged 120-character prefix. Polling stops immediately on a mismatched or duplicate prompt; a missing marker fails closed at timeout. This excludes delayed preflight output and prevents another session's prompt/tool events from being attributed to the case.
+
 ## Ordered tool-sequence evidence (#1593)
 
 The former stopwatch prompt could not reach Gemma: `get_stopwatch_status` is in
-QIR's `FAST_PATH_INTENTS`. The direct `get_date_diff` golden is a safe model-fallback
-case that asserts the native action result (`3 days`), not a stopwatch status.
+QIR's `FAST_PATH_INTENTS`. The earlier `get_date_diff` device probe is not used for
+the personal-data-safe path because its native handler may consult Important Dates.
+Its date parameter contract remains documented by `RunIntentSkill`; the natural
+date-difference prompts remain in `QuickIntentRouterNegativeTest`.
 
-Both direct tool metadata and loaded RunIntent instructions document the same date
-contract: `target_date` is the later ISO `YYYY-MM-DD` date; `from_date` is the
-optional earlier date. The golden compares April 11 against April 8.
+The safe direct and discovery probes use read-only `get_date` with no parameters.
+The direct probe requires `run_intent`; the discovery probe requires successful
+`load_skill("run_intent")` returned to Gemma before `run_intent`. The natural
+`get_system_info_natural` case remains a separate dedicated top-level SDK-tool control.
 
-`run_intent_date_diff_after_skill_load` asks for the RunIntent instructions without naming
-the `load_skill` tool in the user text; its existing tool description maps that request
-to a single successful `load_skill` before the same read-only `get_date_diff` action.
-It isolates the discovery handoff without exposing list contents. The `load_skill`
-metadata and returned instructions both direct the model to continue with `run_intent`
-on the same request instead of stopping after loading.
+For these two cases only, the runner prefixes the selected prompt with
+`__orchtest:safe_run_intent:`. The DEBUG-only chat path strips the prefix before model input,
+resets model context, omits profile/date/history/RAG context, and forces a recorded
+`FallThrough` without invoking QIR. It requires the model to be ready; it does not initialize
+the model or read the active conversation for the probe. During generation, the tool set allows
+only `load_skill("run_intent")` and `run_intent("get_date", {})`; all other tools and actions
+fail closed before skill lookup.
 
-The user wording avoids the literal `load_skill` because QIR's existing unanchored
-kill-device pattern matches the `kill ` substring inside `skill`; the route regression
-keeps this natural-instruction prompt on model fallback without changing QIR.
+These probes validate real-model tool execution under controlled debug fallthrough. They do not
+claim an ordinary prompt naturally misses QIR or the classifier; normal routing is unchanged.
+Issue #1593's natural device-routing acceptance remains pending.
 
-`get_system_info_natural` remains a separate dedicated top-level SDK-tool control.
+The sandbox closes on every inference exit. Probe messages and the tool chip remain in memory:
+the path does not persist them, index them in RAG, or distil the active conversation on close.
+The runner fails if either safe case emits a saved-message marker.
+
+The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
+controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
 
 For cases with `expected_tool_sequence`, the runner requires:
 
 - the last `llm_tools_tool_sequence` marker's `turn=` value to equal the expected order;
 - matching ordered `event_seq: tool_call` and `event_seq: tool_result` records;
+- the expected `load_skill.skill_name` and `run_intent.intent_name` targets;
 - `load_skill` to return `resultType=Success` and `returnedToGemma=true`;
 - the terminal result and `llm_tools_skill_result` to succeed, the terminal tool chip to
-  match, and a non-empty final reply with no raw tool protocol or loaded instructions.
+  match, and a non-empty final reply with no raw tool protocol or loaded instructions;
+- every `expected_reply_contains_all` term to appear in the final reply.
 
 The report stores `tool_sequence_marker` and sanitized `tool_event_evidence`. Event evidence
-contains only event name, tool name, result type, direct-reply flag, and handoff flag; it
-omits `args` and result `content` so loaded instructions are not copied into this evidence.
+contains event name, tool name, `skill_name` only for `load_skill`, and `intent_name` only
+for `run_intent`, plus result type, direct-reply flag, and handoff flag. It omits raw
+arguments and result content.
 
 The runtime log forms are:
 

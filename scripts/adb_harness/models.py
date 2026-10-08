@@ -95,8 +95,12 @@ class LLMToolsTestCase:
     # When set, the final assistant reply must contain at least one of these
     # substrings (case-insensitive). Proves seeded context influenced the reply. (#1074)
     expected_reply_contains: list[str] | None = None
+    # When set, every listed substring must appear in the final reply (case-insensitive).
+    expected_reply_contains_all: list[str] | None = None
     # Expected ordered SDK tool calls for discovery-chain regression cases (#1593).
     expected_tool_sequence: tuple[str, ...] | None = None
+    expected_load_skill_name: str | None = None
+    safe_run_intent_test: bool = False
 
 
 @dataclass
@@ -327,6 +331,8 @@ class LLMToolsResult:
     # Reply content assertion (#1074)
     expected_reply_terms: list[str] | None = None
     reply_terms_match: bool = False
+    expected_reply_terms_all: list[str] | None = None
+    reply_terms_all_match: bool = False
     expected_tool_sequence: list[str] | None = None
     actual_tool_sequence: list[str] | None = None
     tool_sequence_marker: str | None = None

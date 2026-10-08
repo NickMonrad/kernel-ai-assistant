@@ -8,6 +8,7 @@ from ``ANDROID_SERIAL`` / ``ADB_SERIAL`` at call time, not at import time.
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import re
 import shlex
@@ -834,6 +835,7 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
 
 _LLM_TOOL_EVENT_PATTERN = re.compile(
     r"event_seq:\s+(?P<event>tool_call|tool_result)\s+name=(?P<name>\S+)"
+    r"(?:\s+args=(?P<args>[^\n]+))?"
     r"(?:\s+resultType=(?P<result_type>\S+)\s+directReply=(?P<direct_reply>true|false)"
     r"\s+returnedToGemma=(?P<returned_to_gemma>true|false))?"
 )
@@ -841,13 +843,23 @@ _LLM_TOOL_SEQUENCE_PATTERN = re.compile(r"llm_tools_tool_sequence:\s*(.+)")
 
 
 def extract_llm_tool_events(logcat_output: str) -> list[dict[str, str | bool]]:
-    """Extract ordered, non-sensitive tool-call/result metadata from logcat."""
+    """Extract ordered, sanitized tool-call/result metadata from logcat."""
     events: list[dict[str, str | bool]] = []
     for match in _LLM_TOOL_EVENT_PATTERN.finditer(logcat_output):
         event: dict[str, str | bool] = {
             "event": match.group("event"),
             "name": match.group("name"),
         }
+        if event["event"] == "tool_call" and event["name"] in {"load_skill", "run_intent"}:
+            try:
+                args = json.loads(match.group("args") or "")
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            argument_name = "skill_name" if event["name"] == "load_skill" else "intent_name"
+            argument_value = args.get(argument_name) if isinstance(args, dict) else None
+            if isinstance(argument_value, str):
+                evidence_name = "skill_name" if event["name"] == "load_skill" else "intent_name"
+                event[evidence_name] = argument_value
         if match.group("result_type") is not None:
             event["result_type"] = match.group("result_type")
             event["direct_reply"] = match.group("direct_reply") == "true"
@@ -873,8 +885,10 @@ def validate_llm_tool_sequence(
     expected: tuple[str, ...],
     actual_sequence: list[str],
     events: list[dict[str, str | bool]],
+    expected_load_skill_name: str | None = None,
+    expected_nested_intent: str | None = None,
 ) -> list[str]:
-    """Validate ordered calls, matching results, discovery handoff, and terminal success."""
+    """Validate ordered calls, safe targets, handoff, and terminal success."""
     failures: list[str] = []
     if actual_sequence != list(expected):
         failures.append(
@@ -890,7 +904,35 @@ def validate_llm_tool_sequence(
     ]
     if result_names != list(expected):
         failures.append(f"tool_result order: expected {list(expected)!r}, got {result_names!r}")
+    if expected_load_skill_name is not None:
+        load_skill_call = next(
+            (
+                event for event in events
+                if event["event"] == "tool_call" and event["name"] == "load_skill"
+            ),
+            None,
+        )
+        actual_skill_name = load_skill_call.get("skill_name") if load_skill_call else None
+        if actual_skill_name != expected_load_skill_name:
+            failures.append(
+                "load_skill target: expected "
+                f"{expected_load_skill_name!r}, got {actual_skill_name!r}"
+            )
 
+    if expected_nested_intent is not None:
+        run_intent_call = next(
+            (
+                event for event in events
+                if event["event"] == "tool_call" and event["name"] == "run_intent"
+            ),
+            None,
+        )
+        actual_nested_intent = run_intent_call.get("intent_name") if run_intent_call else None
+        if actual_nested_intent != expected_nested_intent:
+            failures.append(
+                "run_intent action: expected "
+                f"{expected_nested_intent!r}, got {actual_nested_intent!r}"
+            )
     for position, (call_index, name) in enumerate(zip(call_indices, expected)):
         next_call_index = call_indices[position + 1] if position + 1 < len(call_indices) else len(events)
         result = next(

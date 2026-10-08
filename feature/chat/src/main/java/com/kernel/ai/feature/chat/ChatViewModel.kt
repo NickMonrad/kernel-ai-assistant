@@ -126,6 +126,7 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
+private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 
 /** Stop phrases that terminate the back-and-forth voice loop (#754). */
 private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
@@ -305,7 +306,10 @@ class ChatViewModel @Inject constructor(
      */
     private var commandIdSequence = AtomicInteger(0)
 
-    // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
+    // Safe debug model-test output stays in memory and is never flushed to the current chat.
+    private var activeStreamingPersistenceDisabled = false
+    // A safe probe must not distil the active personal conversation when its screen closes.
+    private var suppressCloseDistillationForSafeProbe = false
     private var activeStreamingMsgId: String? = null
     private var activeStreamingContent = StringBuilder()
     private var activeStreamingThinking = StringBuilder()
@@ -814,14 +818,21 @@ class ChatViewModel @Inject constructor(
         historyTurns: List<Pair<String, String>> = emptyList(),
         isFirstReply: Boolean = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT },
         identityTier: IdentityTier = IdentityTier.FULL,
+        includeCurrentDateTime: Boolean = true,
+        includeProfile: Boolean = true,
     ): String {
-        val profile = userProfileRepository.get()
+        val profile = if (includeProfile) userProfileRepository.get() else ""
         val personaMode = jandalPersona.currentPersonaMode
-        val now = LocalDateTime.now()
-        val dateTime = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
-        // ISO date injected alongside the human-readable date so the model can copy it directly
-        // when generating calendar event dates without having to reformat the year.
-        val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
+        val dateTime = if (includeCurrentDateTime) {
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
+        } else {
+            ""
+        }
+        val isoDate = if (includeCurrentDateTime) {
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
+        } else {
+            ""
+        }
         return buildString {
             when (identityTier) {
                 IdentityTier.FULL -> {
@@ -850,7 +861,9 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             }
-            append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
+            if (includeCurrentDateTime) {
+                append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
+            }
             // Skip profile and history for minimal (Actions) tier to save tokens
             if (identityTier == IdentityTier.FULL) {
                 // Prefer structured YAML injection (compact, ~200 tokens) over raw text (~750 tokens).
@@ -890,8 +903,8 @@ class ChatViewModel @Inject constructor(
             append("\n\n")
             append("Rules:\n")
             append("1. Choose the most relevant native tool for the user's request.\n")
-            append("2. Call that tool directly when its name and parameters are clear from the request.\n")
-            append("3. If the user explicitly asks for skill instructions, or the intent/parameters need gateway-specific rules, call load_skill before any other tool (at most once for that skill in this request), then use its returned instructions to complete the request. Do not reload it; if parameters remain unclear, ask the user.\n")
+            append("2. Call that tool directly when its name and parameters are clear, unless the user explicitly asks for skill instructions first; in that case, Rule 3 takes priority.\n")
+            append("3. If the user explicitly asks for skill instructions, call load_skill as the FIRST tool call and wait for success before any action tool. Use the returned instructions to complete the request; do not reload the same skill during this request. If parameters remain unclear, ask the user. Otherwise, when parameters are unclear or gateway-specific rules are needed, load the relevant skill before acting.\n")
             append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
             append("5. Output ONLY the final user-facing result when successful.\n")
             append("6. CRITICAL — Device actions and list/note requests MUST use run_intent: When the user asks you to PERFORM a device action\n")
@@ -1212,6 +1225,7 @@ class ChatViewModel @Inject constructor(
         shouldIndex: Boolean = true,
         spokenSummary: String? = null,
         speak: Boolean = true,
+        persist: Boolean = true,
     ) {
         val msgId = UUID.randomUUID().toString()
         val msg = ChatMessage(
@@ -1220,8 +1234,10 @@ class ChatViewModel @Inject constructor(
             content = content,
         )
         _messages.update { it + msg }
-        val savedId = conversationRepository.addMessage(convId, "assistant", content)
-        if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
+        if (persist) {
+            val savedId = conversationRepository.addMessage(convId, "assistant", content)
+            if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
+        }
         if (speak) {
             speakAssistantReplyIfNeeded(content, spokenSummary)
         }
@@ -1263,6 +1279,7 @@ class ChatViewModel @Inject constructor(
         presentation: ToolPresentation? = null,
         spokenSummary: String? = null,
         speak: Boolean = true,
+        persist: Boolean = true,
     ) {
         val msgId = UUID.randomUUID().toString()
         val toolCall = ToolCallInfo(
@@ -1280,11 +1297,13 @@ class ChatViewModel @Inject constructor(
             toolCall = toolCall,
         )
         _messages.update { it + msg }
-        val savedId = conversationRepository.addMessage(
-            convId, "assistant", content,
-            toolCallJson = toolCall.toJsonString(),
-        )
-        if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
+        if (persist) {
+            val savedId = conversationRepository.addMessage(
+                convId, "assistant", content,
+                toolCallJson = toolCall.toJsonString(),
+            )
+            if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
+        }
         if (speak) {
             speakAssistantReplyIfNeeded(content, spokenSummary)
         }
@@ -1800,7 +1819,14 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun sendMessage(submitMode: SubmitMode) {
-        val text = _inputText.value.trim()
+        val submittedText = _inputText.value.trim()
+        val safeRunIntentTest = BuildConfig.DEBUG &&
+            submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX)
+        val text = if (safeRunIntentTest) {
+            submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
+        } else {
+            submittedText
+        }
         if (text.isBlank()) {
             if (submitMode == SubmitMode.Voice) {
                 _voiceMode.value = null
@@ -1809,6 +1835,7 @@ class ChatViewModel @Inject constructor(
             }
             return
         }
+
         // Voice mode: if generating or loading, reset voice state and return (preserves original behaviour)
         if (submitMode == SubmitMode.Voice && (inferenceEngine.isGenerating.value || _isLoadingModel.value)) {
             _voiceMode.value = null
@@ -1819,6 +1846,8 @@ class ChatViewModel @Inject constructor(
         suppressVoiceOutputForCurrentResponse = false
         _inputText.value = ""
         val convId = conversationId ?: return
+
+        if (safeRunIntentTest) suppressCloseDistillationForSafeProbe = true
         pendingVoiceReply = submitMode == SubmitMode.Voice
 
         // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
@@ -1849,13 +1878,16 @@ class ChatViewModel @Inject constructor(
             // - pendingConfirmationIntent (#621 classifier confirmation)
             // - needsHistoryReplay (GPU backend set-this flag per-turn)
             // - estimatedTokensUsed / turnsSinceReset (token tracking from prior command)
-            if (needsConversationReset) {
+            if (needsConversationReset || safeRunIntentTest) {
                 needsConversationReset = false
                 wasConversationReset = true
-                forceMinimalContextForNextMessage = false
-                slotFillerManager.cancel()
-                pendingConfirmationIntent = null
-                needsHistoryReplay = false
+                if (!safeRunIntentTest) {
+                    forceMinimalContextForNextMessage = false
+                    savedStateHandle["minimalContext"] = false
+                    slotFillerManager.cancel()
+                    pendingConfirmationIntent = null
+                }
+                needsHistoryReplay = safeRunIntentTest
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
                 if (inferenceEngine.isReady.value) {
@@ -1864,9 +1896,9 @@ class ChatViewModel @Inject constructor(
                 }
             }
             var isDeviceActionExchange = false
-            // Actions-tab fallthroughs temporarily swap the system prompt to MINIMAL; mark the
-            // next turn for a history replay so normal chat can restore the full prompt safely.
-            var restoreFullPromptAfterTurn = false
+            // Actions-tab fallthroughs and safe debug probes temporarily use a MINIMAL prompt;
+            // mark the next turn for replay so normal chat restores the full prompt safely.
+            var restoreFullPromptAfterTurn = safeRunIntentTest
             // Suppressed system-only tool leaks also require a replay so the next turn does not
             // inherit hidden retry/correction state that was never persisted to Room.
             var forceHistoryReplayAfterTurn = false
@@ -1882,14 +1914,18 @@ class ChatViewModel @Inject constructor(
                 content = text,
             )
             _messages.update { it + userMessage }
-            savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
-            // User message indexing is deferred to the LLM Complete handler — skipped if any
-            // non-indexable tool (run_intent, weather, etc.) is called during inference.
+            savedUserMsgId = if (safeRunIntentTest) {
+                ""
+            } else {
+                conversationRepository.addMessage(convId, "user", text)
+            }
+            // User indexing is deferred to the LLM Complete handler — skipped for non-indexable
+            // device tools and safe debug probes.
 
             // After the very first user message, immediately set a placeholder title from the
             // first ~40 characters of the message so the conversation list never shows a blank
             // title. The smart-title generation (after the 2nd exchange) will overwrite this.
-            if (_messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
+            if (!safeRunIntentTest && _messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
                 val placeholder = text.trim().replace('\n', ' ').take(40) + "…"
                 conversationRepository.renameConversation(convId, placeholder)
                 _conversationTitle.value = placeholder
@@ -1902,7 +1938,11 @@ class ChatViewModel @Inject constructor(
             // gracefully handles this (returns NotActionable → E4B fallback). Classifier picks
             // up subsequent messages once phrase vectors finish building.
 
-            val mealPlannerRoute = quickIntentRouter.route(text)
+            val mealPlannerRoute = if (safeRunIntentTest) {
+                QuickIntentRouter.RouteResult.FallThrough(input = text)
+            } else {
+                quickIntentRouter.route(text)
+            }
             val explicitMealPlannerStart = when (mealPlannerRoute) {
                 is QuickIntentRouter.RouteResult.RegexMatch ->
                     mealPlannerRoute.intent.intentName == "start_meal_planner"
@@ -1910,8 +1950,9 @@ class ChatViewModel @Inject constructor(
                     mealPlannerRoute.intent.intentName == "start_meal_planner" && !mealPlannerRoute.needsConfirmation
                 else -> false
             }
-            val hasActiveMealPlanSession = mealPlanSessionRepository.hasActiveSessionForConversation(convId)
-            if (hasActiveMealPlanSession || explicitMealPlannerStart) {
+            val hasActiveMealPlanSession = !safeRunIntentTest &&
+                mealPlanSessionRepository.hasActiveSessionForConversation(convId)
+            if (!safeRunIntentTest && (hasActiveMealPlanSession || explicitMealPlannerStart)) {
                 if (!inferenceEngine.isReady.value) {
                     initGemma4()
                     if (!inferenceEngine.isReady.value) {
@@ -1950,7 +1991,7 @@ class ChatViewModel @Inject constructor(
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
             // param for this conversation, route the user's reply here before touching QIR or the LLM.
-            if (slotFillerManager.hasPendingFor(convId)) {
+            if (!safeRunIntentTest && slotFillerManager.hasPendingFor(convId)) {
                 when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
                         // P0 gate: recovered slot-fill for medium/high risk intents requires confirmation
@@ -2031,7 +2072,7 @@ class ChatViewModel @Inject constructor(
             // Confirmation shortcut (#621): if the user affirms a classifier match that
             // needed confirmation, dispatch zero-param intents directly. Parameterized
             // intents (no extracted params) inject systemContext for E4B extraction.
-            val pendingConfirmation = pendingConfirmationIntent
+            val pendingConfirmation = if (safeRunIntentTest) null else pendingConfirmationIntent
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
@@ -2149,15 +2190,18 @@ class ChatViewModel @Inject constructor(
                 // Non-affirmation — user moved on; clear the pending confirmation
                 pendingConfirmationIntent = null
             }
-            val weatherFollowUpLocation = WeatherConversationReferenceResolver.resolveLocation(
-                query = text,
-                messages = _messages.value.dropLast(1),
-            )
+            val weatherFollowUpLocation = if (safeRunIntentTest) {
+                null
+            } else {
+                WeatherConversationReferenceResolver.resolveLocation(
+                    query = text,
+                    messages = _messages.value.dropLast(1),
+                )
+            }
             var routeResult = mealPlannerRoute
-            // Debug override: __orchtest:<intent>:<real_input> bypasses QIR
-            // and forces a FallThrough so the orchestrator handles the recovery.
+            // Existing debug recovery tests retain their explicit non-sandboxed override.
             val effectiveText: String
-            if (BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
+            if (!safeRunIntentTest && BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
                 val clean = text.removePrefix("__orchtest:")
                 val colon = clean.indexOf(':')
                 val forcedIntent = if (colon > 0) clean.substring(0, colon) else "create_calendar_event"
@@ -2172,7 +2216,7 @@ class ChatViewModel @Inject constructor(
             } else {
                 effectiveText = text
             }
-            val explicitWikipediaQuery = extractExplicitWikipediaQuery(text)
+            val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
                 QuickIntentRouter.MatchedIntent(
                     intentName = "query_wikipedia",
@@ -2529,12 +2573,20 @@ class ChatViewModel @Inject constructor(
                 } // end else (non-calendar or calendar with params)
             }
 
-            val directBypassHistory = _messages.value.dropLast(1) // exclude just-added user message
+            val directBypassHistory = if (safeRunIntentTest) {
+                emptyList()
+            } else {
+                _messages.value.dropLast(1) // exclude just-added user message
+            }
             val previousBypassUser = directBypassHistory.lastOrNull { it.role == ChatMessage.Role.USER }?.content
-            val priorImportantDateIntent = when (val priorRoute = previousBypassUser?.let { quickIntentRouter.route(it) }) {
-                is QuickIntentRouter.RouteResult.RegexMatch ->
-                    priorRoute.intent.takeIf { it.intentName == "save_important_date" }
-                else -> null
+            val priorImportantDateIntent = if (safeRunIntentTest) {
+                null
+            } else {
+                when (val priorRoute = previousBypassUser?.let { quickIntentRouter.route(it) }) {
+                    is QuickIntentRouter.RouteResult.RegexMatch ->
+                        priorRoute.intent.takeIf { it.intentName == "save_important_date" }
+                    else -> null
+                }
             }
             val anaphoricIntent = when {
                 !isAnaphoricSaveRequest(text) || previousBypassUser == null -> null
@@ -2601,7 +2653,7 @@ class ChatViewModel @Inject constructor(
             // #1074: Deterministic local NZ answer — bypass inference/model init for known
             // NZ/Māori terms when no explicit Wikipedia request or stronger app action exists.
             // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
-            if (explicitWikipediaQuery == null && matchedIntent == null) {
+            if (!safeRunIntentTest && explicitWikipediaQuery == null && matchedIntent == null) {
                 val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
                 if (localNzEntry != null) {
                     val localReply = buildKnownNzContextReply(localNzEntry)
@@ -2617,10 +2669,16 @@ class ChatViewModel @Inject constructor(
             }
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
-                initGemma4()
+                if (!safeRunIntentTest) initGemma4()
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
-                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
+                    appendAssistantMessage(
+                        convId,
+                        "Still loading the AI model, please try again in a moment.",
+                        shouldIndex = false,
+                        speak = !safeRunIntentTest,
+                        persist = !safeRunIntentTest,
+                    )
                     return@launch
                 }
             }
@@ -2630,7 +2688,7 @@ class ChatViewModel @Inject constructor(
             // 2. Gemma-4 streaming inference path.
             // Capture isFirstReply before adding the streaming placeholder — once the placeholder
             // is in _messages the ASSISTANT check would always return false.
-            val isFirstReply = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT }
+            val isFirstReply = safeRunIntentTest || _messages.value.none { it.role == ChatMessage.Role.ASSISTANT }
             assistantMsgId = UUID.randomUUID().toString()
             val streamingPlaceholder = ChatMessage(
                 id = assistantMsgId,
@@ -2644,6 +2702,7 @@ class ChatViewModel @Inject constructor(
             accumulatedThinking = StringBuilder()
 
             // Register active streaming state so cancel/onCleared can flush to Room.
+            activeStreamingPersistenceDisabled = safeRunIntentTest
             activeStreamingMsgId = assistantMsgId
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
@@ -2664,23 +2723,30 @@ class ChatViewModel @Inject constructor(
             // or the query matches known tool-trigger keywords, strip the Jandal personality
             // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
             // fallthroughs also force this path because the transcript may already be garbled.
-            val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+            val priorMessages = if (safeRunIntentTest) {
+                emptyList()
+            } else {
+                _messages.value.dropLast(2) // exclude just-added user + placeholder
+            }
             val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
-            val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
+            val isToolFollowUp = !safeRunIntentTest &&
+                looksLikeToolFollowUp(text, previousUser, previousAssistant)
 
 
-            val forceMinimalContext = forceMinimalContextForNextMessage
-            if (forceMinimalContext) {
+            val forceMinimalContext = safeRunIntentTest || forceMinimalContextForNextMessage
+            if (forceMinimalContextForNextMessage && !safeRunIntentTest) {
                 forceMinimalContextForNextMessage = false
                 savedStateHandle["minimalContext"] = false
             }
-            val isToolQuery = forceMinimalContext ||
+            val isToolQuery = safeRunIntentTest ||
+                forceMinimalContext ||
                 (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
                 looksLikeToolQuery(text) ||
                 isToolFollowUp
             isToolQueryForTurn = isToolQuery
-            val preferImmediateContext = prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
+            val preferImmediateContext =
+                !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             var effectiveRagContext: String
             var effectiveRagTokenCost: Int
@@ -2718,7 +2784,9 @@ class ChatViewModel @Inject constructor(
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
-            val anaphoraContext: String = if ((isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) || preferImmediateContext) {
+            val anaphoraContext: String = if (safeRunIntentTest) {
+                ""
+            } else if ((isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) || preferImmediateContext) {
                 val lastPair = priorMessages.takeLast(2)
                 if (lastPair.isEmpty()) "" else buildString {
                     append("[Context: previous exchange]\n")
@@ -2733,7 +2801,7 @@ class ChatViewModel @Inject constructor(
             // turns, causing Status Code 13 on subsequent generations (#684, #1089).
             // Force a fresh conversation per turn so history is injected via the
             // system prompt rather than relying on KV cache across turns.
-            if (inferenceEngine.activeBackend.value == BackendType.GPU) {
+            if (safeRunIntentTest || inferenceEngine.activeBackend.value == BackendType.GPU) {
                 needsHistoryReplay = true
             }
 
@@ -2758,7 +2826,13 @@ class ChatViewModel @Inject constructor(
                 }
                 val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
-                val systemPromptWithHistory = buildSystemPrompt(selected, isFirstReply = isFirstReply, identityTier = effectiveIdentityTier)
+                val systemPromptWithHistory = buildSystemPrompt(
+                    selected,
+                    isFirstReply = isFirstReply,
+                    identityTier = effectiveIdentityTier,
+                    includeCurrentDateTime = !safeRunIntentTest,
+                    includeProfile = !safeRunIntentTest,
+                )
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {
@@ -2768,7 +2842,12 @@ class ChatViewModel @Inject constructor(
             } else {
                 if (forceMinimalContext) {
                     inferenceEngine.updateSystemPrompt(
-                        buildSystemPrompt(isFirstReply = isFirstReply, identityTier = IdentityTier.MINIMAL)
+                        buildSystemPrompt(
+                            isFirstReply = isFirstReply,
+                            identityTier = IdentityTier.MINIMAL,
+                            includeCurrentDateTime = !safeRunIntentTest,
+                            includeProfile = !safeRunIntentTest,
+                        )
                     )
                     restoreFullPromptAfterTurn = true
                 }
@@ -2805,7 +2884,11 @@ class ChatViewModel @Inject constructor(
                 _isLoadingModel.value = false
             }
 
+            var safeModelTestScope: AutoCloseable? = null
             try {
+                if (safeRunIntentTest) {
+                    safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
+                }
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
@@ -2823,11 +2906,13 @@ class ChatViewModel @Inject constructor(
                             } else it
                         }
                     }
-                    conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    if (!safeRunIntentTest) {
+                        conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    }
                     finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
                     activeStreamingMsgId = null
+                    activeStreamingPersistenceDisabled = false
                     activeStreamingContent = StringBuilder()
-                    activeStreamingThinking = StringBuilder()
                 }
 
             do {
@@ -2951,7 +3036,9 @@ class ChatViewModel @Inject constructor(
                                             if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
                                         }
                                     }
-                                    conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    if (!safeRunIntentTest) {
+                                        conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    }
                                     // Index the user message so this exchange isn't silently orphaned
                                     // from semantic search — only the fallback assistant text is skipped.
                                     if (savedUserMsgId.isNotBlank()) {
@@ -2960,8 +3047,8 @@ class ChatViewModel @Inject constructor(
                                     finalizeVoicePlaybackForResponse(fallback)
                                     // Clear streaming tracking — mirrors the normal Complete path.
                                     activeStreamingMsgId = null
+                                    activeStreamingPersistenceDisabled = false
                                     activeStreamingContent = StringBuilder()
-                                    activeStreamingThinking = StringBuilder()
                                 }
                                 return@collect
                             }
@@ -3079,29 +3166,34 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
-                                // Persist with toolCallJson when the tool call should stay user-visible.
-                                val savedId = conversationRepository.addMessage(
-                                    convId, "assistant", resultContent,
-                                    thinkingText = thinking,
-                                    toolCallJson = toolCall.toJsonString(),
-                                )
-                                // E2E marker: message persisted with tool call
-                                Log.d(
-                                    "KernelAI",
-                                    "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
-                                )
-                                // E2E marker: chip visible evidence
+                                // Persist only normal turns; safe model probes retain an ephemeral UI chip.
+                                val savedId = if (safeRunIntentTest) {
+                                    null
+                                } else {
+                                    conversationRepository.addMessage(
+                                        convId, "assistant", resultContent,
+                                        thinkingText = thinking,
+                                        toolCallJson = toolCall.toJsonString(),
+                                    )
+                                }
+                                if (savedId != null) {
+                                    // E2E marker: message persisted with tool call
+                                    Log.d(
+                                        "KernelAI",
+                                        "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
+                                    )
+                                }
+                                // E2E marker: chip attached to the visible in-memory message.
                                 Log.d(
                                     "KernelAI",
                                     "tool_chip_visible: tool=${toolCall.skillName}",
                                 )
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
-                                if (shouldIndexToolCallResult(toolCall.skillName)) {
+                                if (savedId != null && shouldIndexToolCallResult(toolCall.skillName)) {
                                     ragRepository.indexMessage(savedId, convId, resultContent)
                                 } else {
-                                    // LLM called a device/ephemeral tool — suppress indexing of
-                                    // the user message and final response too.
+                                    // Device actions and safe probes are ephemeral/non-indexable.
                                     isDeviceActionExchange = true
                                 }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
@@ -3185,13 +3277,17 @@ class ChatViewModel @Inject constructor(
                                 _messages.update { msgs ->
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
-                                val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
+                                val savedAssistantMsgId = if (safeRunIntentTest) {
+                                    null
+                                } else {
+                                    conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
+                                }
                                 // Don't index hallucination error messages — they're noise (#614).
                                 // Don't index LLM wrappers around device actions — stale device state
                                 // ("The light's on!") poisons future RAG retrievals (#614).
                                 // Also index the user message here (deferred from sendMessage entry)
                                 // so we can skip it too if a device tool was called during inference.
-                                if (!isHallucination && !isRawToolCall && !isDeviceActionExchange) {
+                                if (savedAssistantMsgId != null && !isHallucination && !isRawToolCall && !isDeviceActionExchange) {
                                     if (savedUserMsgId.isNotBlank()) {
                                         ragRepository.indexMessage(savedUserMsgId, convId, text)
                                     }
@@ -3206,8 +3302,8 @@ class ChatViewModel @Inject constructor(
 
                             // Clear streaming tracking now that the message is fully persisted.
                             activeStreamingMsgId = null
+                            activeStreamingPersistenceDisabled = false
                             activeStreamingContent = StringBuilder()
-                            activeStreamingThinking = StringBuilder()
 
                             // Auto-title after the 2nd complete exchange (≥4 messages),
                             // but only if the conversation is still untitled (or holds a
@@ -3216,7 +3312,7 @@ class ChatViewModel @Inject constructor(
                             // Small delay lets the generate() flow fully release the
                             // single-threaded LlmDispatcher before generateOnce() claims it.
                             val messageCount = _messages.value.size
-                            if (messageCount >= 4 && (_conversationTitle.value == null || titleIsPlaceholder) && !titleGenerationStarted) {
+                            if (!safeRunIntentTest && messageCount >= 4 && (_conversationTitle.value == null || titleIsPlaceholder) && !titleGenerationStarted) {
                                 titleGenerationStarted = true
                                 viewModelScope.launch {
                                     kotlinx.coroutines.delay(500L)
@@ -3239,8 +3335,8 @@ class ChatViewModel @Inject constructor(
                             }
                             _error.value = result.message
                             activeStreamingMsgId = null
+                            activeStreamingPersistenceDisabled = false
                             activeStreamingContent = StringBuilder()
-                            activeStreamingThinking = StringBuilder()
                         }
                     }
                 }
@@ -3267,9 +3363,10 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 activeStreamingMsgId = null
+                activeStreamingPersistenceDisabled = false
                 activeStreamingContent = StringBuilder()
-                activeStreamingThinking = StringBuilder()
             } finally {
+                safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
                 }
@@ -3296,7 +3393,7 @@ class ChatViewModel @Inject constructor(
         }
 
         // Persist partial content to Room if we have anything streamed.
-        if (partialContent.isNotBlank() && convId != null) {
+        if (partialContent.isNotBlank() && convId != null && !activeStreamingPersistenceDisabled) {
             viewModelScope.launch {
                 val savedId = conversationRepository.addMessage(convId, "assistant", partialContent, partialThinking)
                 ragRepository.indexMessage(savedId, convId, partialContent)
@@ -3305,8 +3402,8 @@ class ChatViewModel @Inject constructor(
 
         // Clear streaming tracking.
         activeStreamingMsgId = null
+        activeStreamingPersistenceDisabled = false
         activeStreamingContent = StringBuilder()
-        activeStreamingThinking = StringBuilder()
 
         // Reset LiteRT conversation — cancelProcess() leaves it in a partial state.
         // Mark needsHistoryReplay so the next message re-injects prior context.
@@ -3632,13 +3729,13 @@ class ChatViewModel @Inject constructor(
         val content = activeStreamingContent.toString()
         val thinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
         val convId = conversationId
-        if (content.isNotBlank() && convId != null) {
+        if (content.isNotBlank() && convId != null && !activeStreamingPersistenceDisabled) {
             runBlocking {
                 conversationRepository.addMessage(convId, "assistant", content, thinking)
             }
         }
         // Fire-and-forget episodic distillation on conversation close.
-        if (convId != null) {
+        if (convId != null && !suppressCloseDistillationForSafeProbe) {
             val lastDistilled = lastDistilledAt
             val hasMealPlannerHistory = runBlocking {
                 mealPlanSessionRepository.hasAnySessionForConversation(convId)
