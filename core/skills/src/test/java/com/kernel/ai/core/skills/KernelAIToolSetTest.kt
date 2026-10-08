@@ -304,4 +304,67 @@ class KernelAIToolSetTest {
         assertNull(toolSet.terminalToolName())
     }
 
+
+    @Test
+    fun `local diagnostic capture preserves ordered calls and generation attempts`() = runTest {
+        val instructions = "full skill instructions " + "i".repeat(500)
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns instructions
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success(instructions)
+        every { registry.get("load_skill") } returns loadSkill
+
+        val query = "long query " + "q".repeat(500)
+        val response = "full wikipedia response " + "r".repeat(700)
+        val wikipedia = mockk<Skill>()
+        every { wikipedia.name } returns "query_wikipedia"
+        coEvery { wikipedia.execute(any()) } returns SkillResult.DirectReply(response)
+        every { registry.get("query_wikipedia") } returns wikipedia
+
+        toolSet.queryWikipedia(query)
+        toolSet.recordLocalGenerationAttempt(StringBuilder("unarmed output"), StringBuilder("unarmed thinking"))
+        val unarmedSnapshot = toolSet.finishLocalDiagnosticCapture()
+        assertTrue(unarmedSnapshot.calls.isEmpty())
+        assertTrue(unarmedSnapshot.generationAttempts.isEmpty())
+
+        toolSet.beginLocalDiagnosticCapture()
+        toolSet.recordLocalGenerationAttempt(StringBuilder("first output"), StringBuilder("first thinking"))
+        toolSet.recordLocalGenerationAttempt(StringBuilder("second output"), StringBuilder("second thinking"))
+        toolSet.loadSkill("query_wikipedia")
+        toolSet.queryWikipedia(query)
+
+        val snapshot = toolSet.finishLocalDiagnosticCapture()
+        assertEquals(listOf("load_skill", "query_wikipedia"), snapshot.calls.map { it.name })
+        assertEquals(listOf(0, 1), snapshot.generationAttempts.map { it.order })
+        assertEquals(
+            listOf("first output", "second output"),
+            snapshot.generationAttempts.map { it.fullContent },
+        )
+        assertEquals(
+            listOf("first thinking", "second thinking"),
+            snapshot.generationAttempts.map { it.rawThinking },
+        )
+        assertEquals(0, snapshot.calls[0].order)
+        assertFalse(snapshot.calls[0].terminal)
+        assertEquals("query_wikipedia", snapshot.calls[0].arguments["skill_name"])
+        assertEquals(instructions, snapshot.calls[0].resultContent)
+        assertEquals(mapOf("result" to instructions), snapshot.calls[0].toolResult)
+        assertTrue(snapshot.calls[0].returnedToGemma == true)
+
+        val terminalCall = snapshot.terminalCall
+        assertEquals(1, terminalCall?.order)
+        assertEquals(query, terminalCall?.arguments?.get("query"))
+        assertEquals(response, terminalCall?.resultContent)
+        assertEquals(mapOf("result" to response), terminalCall?.toolResult)
+        assertTrue(terminalCall?.directReply == true)
+        assertFalse(terminalCall?.returnedToGemma == true)
+        assertTrue(terminalCall?.succeeded == true)
+
+        toolSet.recordLocalGenerationAttempt(StringBuilder("after finish"), StringBuilder("after finish"))
+        val secondSnapshot = toolSet.finishLocalDiagnosticCapture()
+        assertTrue(secondSnapshot.calls.isEmpty())
+        assertNull(secondSnapshot.terminalCall)
+        assertTrue(secondSnapshot.generationAttempts.isEmpty())
+    }
+
 }

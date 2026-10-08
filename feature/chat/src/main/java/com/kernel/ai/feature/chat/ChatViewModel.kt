@@ -45,6 +45,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
@@ -184,6 +185,7 @@ class ChatViewModel @Inject constructor(
     private val slotFillerManager: SlotFillerManager,
     private val slotValidationRegistry: SlotValidationRegistry,
     private val kernelAIToolSet: KernelAIToolSet,
+    private val localToolDiagnosticCapture: LocalToolDiagnosticCapture = LocalToolDiagnosticCapture(kernelAIToolSet),
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
     private val voiceInputController: VoiceInputController,
@@ -2866,6 +2868,7 @@ class ChatViewModel @Inject constructor(
                                 kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
                                 Log.w("KernelAI", "load_skill_failed")
                                 persistHonestActionFailure(thinking)
                                 return@collect
@@ -2876,6 +2879,7 @@ class ChatViewModel @Inject constructor(
                             if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
                                 if (!incompleteChainRetryAttempted) {
                                     incompleteChainRetryAttempted = true
                                     Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
@@ -2906,6 +2910,7 @@ class ChatViewModel @Inject constructor(
                             if (incompleteChainRetryAttempted &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
                                 Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
                                 persistHonestActionFailure(thinking)
                                 needsHallucinationRetry = false
@@ -2918,6 +2923,7 @@ class ChatViewModel @Inject constructor(
                             // self-heals by resetting the session (#841).
                             // Retry once without RAG context (stripped prompt) before showing fallback.
                             if (fullContent.isBlank()) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
                                 if (!blankResponseRetryAttempted) {
                                     blankResponseRetryAttempted = true
                                     // Preserve thinking from first attempt — the retry runs without RAG
@@ -3016,6 +3022,7 @@ class ChatViewModel @Inject constructor(
                                 val isSystemOnlyTool = rawToolCall.isSuccess && isSystemOnlyToolCall(rawToolCall.skillName)
                                 val leakedSystemToolContent = isSystemOnlyTool && looksLikeRawToolCall(fullContent)
                                 if (leakedSystemToolContent) {
+                                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
                                     forceHistoryReplayAfterTurn = true
                                     val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
                                     if (!systemOnlyToolRetryAttempted && budgetOk) {
@@ -3108,6 +3115,9 @@ class ChatViewModel @Inject constructor(
                             } else {
                                 val isHallucination = looksLikeToolConfirmation(fullContent)
                                 val isRawToolCall = isToolQueryForTurn && looksLikeRawToolCall(fullContent)
+                                if (isHallucination || isRawToolCall) {
+                                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                }
 
                                 // C2 (#487): Single automatic retry before falling to C1 failure.
                                 // If the model hallucinated a tool confirmation and we haven't

@@ -24,6 +24,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
@@ -215,9 +216,11 @@ class ChatViewModelRetryStateMachineTest {
      */
     private fun toolChainFlow(
         tokens: List<String> = emptyList(),
+        thinkingTokens: List<String> = emptyList(),
         chain: suspend () -> Unit = {},
     ): Flow<GenerationResult> = flow {
         chain()
+        thinkingTokens.forEach { emit(GenerationResult.Thinking(it)) }
         tokens.forEach { emit(GenerationResult.Token(it)) }
         emit(GenerationResult.Complete(durationMs = 0))
     }
@@ -242,6 +245,7 @@ class ChatViewModelRetryStateMachineTest {
         slotFillerManager = slotFillerManager,
         slotValidationRegistry = slotValidationRegistry,
         kernelAIToolSet = realToolSet,
+        localToolDiagnosticCapture = LocalToolDiagnosticCapture(realToolSet),
         toolProvider = toolProvider,
         embeddingEngine = embeddingEngine,
         voiceInputController = voiceInputController,
@@ -397,10 +401,12 @@ class ChatViewModelRetryStateMachineTest {
         )
         coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
 
+        val firstAttemptThinking = "FIRST_ATTEMPT_PRIVATE_THINKING"
         coEvery { inferenceEngine.generate(any()) } returnsMany listOf(
             toolChainFlow(
                 tokens = listOf("I have the instructions ready."),
                 chain = { realToolSet.loadSkill("run_intent") },
+                thinkingTokens = listOf(firstAttemptThinking),
             ),
             toolChainFlow(
                 tokens = listOf("Done."),
@@ -412,11 +418,19 @@ class ChatViewModelRetryStateMachineTest {
         advanceUntilIdle()
 
         viewModel.onInputChanged("set an alarm for 7 AM")
+        realToolSet.beginLocalDiagnosticCapture()
         viewModel.sendMessage()
         advanceUntilIdle()
-
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
         // Exactly two attempts
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertEquals(
+            listOf(
+                "I have the instructions ready." to firstAttemptThinking,
+                "Done." to "",
+            ),
+            snapshot.generationAttempts.map { it.fullContent to it.rawThinking },
+        )
 
         // Honest failure — "Done." is NOT persisted
         val lastContent = savedContents.last()
@@ -425,6 +439,9 @@ class ChatViewModelRetryStateMachineTest {
 
         // No load_skill chip — terminalToolName is null
         assertNull(realToolSet.terminalToolName())
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(any(), eq("assistant"), any(), eq(firstAttemptThinking), any())
+        }
     }
 
     // -----------------------------------------------------------------------

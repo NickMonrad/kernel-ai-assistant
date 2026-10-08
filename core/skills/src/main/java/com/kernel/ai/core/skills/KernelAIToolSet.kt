@@ -11,6 +11,33 @@ import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
 
+data class LocalToolCallDiagnostic(
+    val order: Int,
+    val name: String,
+    /** Exact values received by the typed @Tool entry point; nested JSON strings remain unmodified. */
+    val arguments: Map<String, String>,
+    val terminal: Boolean,
+    val resultType: String? = null,
+    val resultContent: String? = null,
+    /** Exact map returned by the @Tool method to LiteRT-LM. */
+    val toolResult: Map<String, String>? = null,
+    val succeeded: Boolean? = null,
+    val directReply: Boolean? = null,
+    val returnedToGemma: Boolean? = null,
+)
+
+data class LocalGenerationAttemptDiagnostic(
+    val order: Int,
+    val fullContent: String,
+    val rawThinking: String,
+)
+
+data class LocalToolDiagnosticSnapshot(
+    val calls: List<LocalToolCallDiagnostic>,
+    val terminalCall: LocalToolCallDiagnostic?,
+    val generationAttempts: List<LocalGenerationAttemptDiagnostic>,
+)
+
 /**
  * Native LiteRT-LM tool set exposing 5 gateway functions to the SDK.
  *
@@ -89,6 +116,52 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var terminalToolSpokenSummary: String? = null
     @Volatile private var terminalToolWasDirectReply: Boolean = false
     @Volatile private var terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
+
+    // Full diagnostic data is retained only while the debug llm_tools harness explicitly arms capture.
+    private val localDiagnosticLock = Any()
+    private val localDiagnosticCalls = mutableListOf<LocalToolCallDiagnostic>()
+    private val localDiagnosticGenerationAttempts = mutableListOf<LocalGenerationAttemptDiagnostic>()
+    @Volatile private var localDiagnosticCaptureEnabled = false
+
+    fun beginLocalDiagnosticCapture() {
+        synchronized(localDiagnosticLock) {
+            localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
+            localDiagnosticCaptureEnabled = true
+        }
+    }
+
+    /** Retains exact per-attempt model output only while the debug harness has armed capture. */
+    fun recordLocalGenerationAttempt(fullContent: CharSequence, rawThinking: CharSequence) {
+        if (!localDiagnosticCaptureEnabled) return
+        synchronized(localDiagnosticLock) {
+            if (localDiagnosticCaptureEnabled) {
+                localDiagnosticGenerationAttempts += LocalGenerationAttemptDiagnostic(
+                    order = localDiagnosticGenerationAttempts.size,
+                    fullContent = fullContent.toString(),
+                    rawThinking = rawThinking.toString(),
+                )
+            }
+        }
+    }
+
+    /** Stops capture and clears the tool set's copy of the sensitive diagnostic data. */
+    fun finishLocalDiagnosticCapture(): LocalToolDiagnosticSnapshot {
+        val (calls, generationAttempts) = synchronized(localDiagnosticLock) {
+            localDiagnosticCaptureEnabled = false
+            val calls = localDiagnosticCalls.toList()
+            val generationAttempts = localDiagnosticGenerationAttempts.toList()
+            localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
+            calls to generationAttempts
+        }
+        return LocalToolDiagnosticSnapshot(
+            calls = calls,
+            terminalCall = calls.lastOrNull { it.terminal },
+            generationAttempts = generationAttempts,
+        )
+    }
+
     fun resetTurnState() {
         toolCalledInThisTurn = false
         lastToolName = null
@@ -197,8 +270,12 @@ class KernelAIToolSet @Inject constructor(
     // Internal tool-call tracking helpers
     // -------------------------------------------------------------------------
 
-    /** Records a tool call for per-attempt, per-turn, and terminal tracking. */
-    private fun recordToolCall(name: String, request: String) {
+    /** Records a tool call for per-attempt, per-turn, terminal, and opt-in local diagnostics. */
+    private fun recordToolCall(
+        name: String,
+        request: String,
+        arguments: Map<String, String>?,
+    ): Int? {
         toolCalledInThisTurn = true
         setLastToolCall(name, request)
         attemptToolNames.add(name)
@@ -207,6 +284,44 @@ class KernelAIToolSet @Inject constructor(
             attemptLoadSkillCalled = true
         } else {
             attemptTerminalToolCalled = true
+        }
+        val diagnosticArguments = arguments ?: return null
+        return synchronized(localDiagnosticLock) {
+            if (!localDiagnosticCaptureEnabled) {
+                null
+            } else {
+                val order = localDiagnosticCalls.size
+                localDiagnosticCalls += LocalToolCallDiagnostic(
+                    order = order,
+                    name = name,
+                    arguments = diagnosticArguments,
+                    terminal = name != LOAD_SKILL_NAME,
+                )
+                order
+            }
+        }
+    }
+
+    private fun recordLocalToolResult(
+        order: Int?,
+        resultType: String,
+        resultContent: String?,
+        toolResult: Map<String, String>,
+        succeeded: Boolean,
+        directReply: Boolean,
+        returnedToGemma: Boolean,
+    ) {
+        if (order == null) return
+        synchronized(localDiagnosticLock) {
+            val call = localDiagnosticCalls.getOrNull(order) ?: return@synchronized
+            localDiagnosticCalls[order] = call.copy(
+                resultType = resultType,
+                resultContent = resultContent,
+                toolResult = toolResult.toMap(),
+                succeeded = succeeded,
+                directReply = directReply,
+                returnedToGemma = returnedToGemma,
+            )
         }
     }
 
@@ -267,9 +382,13 @@ class KernelAIToolSet @Inject constructor(
     fun loadSkill(
         @ToolParam(description = "The skill name to load.") skillName: String,
     ): Map<String, String> {
-        recordToolCall(LOAD_SKILL_NAME, """{"skill_name":"$skillName"}""")
+        val diagnosticOrder = recordToolCall(
+            LOAD_SKILL_NAME,
+            """{"skill_name":"$skillName"}""",
+            if (localDiagnosticCaptureEnabled) mapOf("skill_name" to skillName) else null,
+        )
         Log.d(TAG, "ToolSet: loadSkill($skillName)")
-        val result = executeSkill(LOAD_SKILL_NAME, mapOf("skill_name" to skillName))
+        val result = executeSkill(LOAD_SKILL_NAME, mapOf("skill_name" to skillName), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         return result
     }
@@ -279,7 +398,15 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "The intent action name. Call run_intent directly when the intent is known (e.g. 'set_alarm', 'create_calendar_event', 'send_sms'). Only call load_skill first when unsure which intent or parameters to use.") intentName: String,
         @ToolParam(description = "Additional parameters as key:value pairs in JSON. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, provide parameters directly when known. Call load_skill only when the supported intent or required parameters are unclear.") parameters: String,
     ): Map<String, String> {
-        recordToolCall("run_intent", """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}""")
+        val diagnosticOrder = recordToolCall(
+            "run_intent",
+            """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}""",
+            if (localDiagnosticCaptureEnabled) {
+                mapOf("intent_name" to intentName, "parameters" to parameters)
+            } else {
+                null
+            },
+        )
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
         val reservedSkillNames = setOf(
@@ -299,7 +426,17 @@ class KernelAIToolSet @Inject constructor(
             lastToolResult = error
             recordToolOutcome("run_intent", succeeded = false)
             captureTerminalResult("run_intent")
-            return mapOf("status" to "error", "error" to error)
+            val toolResult = mapOf("status" to "error", "error" to error)
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Rejected",
+                error,
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            return toolResult
         }
 
         val args = mutableMapOf("intent_name" to intentName)
@@ -313,12 +450,22 @@ class KernelAIToolSet @Inject constructor(
                 lastToolResult = error
                 recordToolOutcome("run_intent", succeeded = false)
                 captureTerminalResult("run_intent")
-                return mapOf("status" to "error", "error" to error)
+                val toolResult = mapOf("status" to "error", "error" to error)
+                recordLocalToolResult(
+                    diagnosticOrder,
+                    "Rejected",
+                    error,
+                    toolResult,
+                    succeeded = false,
+                    directReply = false,
+                    returnedToGemma = true,
+                )
+                return toolResult
             }
             Log.w(TAG, "ToolSet: runIntent blank params parse, using empty: ${e.message}")
         }
 
-        val result = executeSkill("run_intent", args)
+        val result = executeSkill("run_intent", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("run_intent")
         return result
@@ -328,7 +475,11 @@ class KernelAIToolSet @Inject constructor(
     fun runJs(
         @ToolParam(description = "A JSON object with skill_name (the JS skill to run) and data (a JSON object with the skill's parameters). Call loadSkill to learn the exact format.") parameters: String,
     ): Map<String, String> {
-        recordToolCall("run_js", parameters)
+        val diagnosticOrder = recordToolCall(
+            "run_js",
+            parameters,
+            if (localDiagnosticCaptureEnabled) mapOf("parameters" to parameters) else null,
+        )
         Log.d(TAG, "ToolSet: runJs(params=$parameters)")
 
         val args = mutableMapOf<String, String>()
@@ -344,7 +495,7 @@ class KernelAIToolSet @Inject constructor(
             Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
         }
 
-        val result = executeSkill("run_js", args)
+        val result = executeSkill("run_js", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("run_js")
         return result
@@ -356,7 +507,15 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Source currency code or full name (e.g. 'AUD', 'USD', 'Australian dollars')") fromCurrency: String,
         @ToolParam(description = "Target currency code or full name (e.g. 'INR', 'NZD', 'Indian rupees')") toCurrency: String,
     ): Map<String, String> {
-        recordToolCall("convert_currency", """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}""")
+        val diagnosticOrder = recordToolCall(
+            "convert_currency",
+            """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}""",
+            if (localDiagnosticCaptureEnabled) {
+                mapOf("amount" to amount, "from_currency" to fromCurrency, "to_currency" to toCurrency)
+            } else {
+                null
+            },
+        )
         Log.d(TAG, "ToolSet: convertCurrency(amount=$amount, from=$fromCurrency, to=$toCurrency)")
 
         val args = mapOf(
@@ -365,7 +524,7 @@ class KernelAIToolSet @Inject constructor(
             "to_currency" to toCurrency,
         )
 
-        val result = executeSkill("convert_currency", args)
+        val result = executeSkill("convert_currency", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("convert_currency")
         return result
@@ -376,7 +535,15 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
         @ToolParam(description = "Number of forecast days (1-7). Omit or pass 0 for current conditions only.") forecastDays: String,
     ): Map<String, String> {
-        recordToolCall("get_weather", """{"location":"$location","forecast_days":"$forecastDays"}""")
+        val diagnosticOrder = recordToolCall(
+            "get_weather",
+            """{"location":"$location","forecast_days":"$forecastDays"}""",
+            if (localDiagnosticCaptureEnabled) {
+                mapOf("location" to location, "forecast_days" to forecastDays)
+            } else {
+                null
+            },
+        )
         Log.d(TAG, "ToolSet: getWeather(location=$location, forecastDays=$forecastDays)")
 
         val args = mutableMapOf<String, String>()
@@ -387,7 +554,7 @@ class KernelAIToolSet @Inject constructor(
             args["forecast_days"] = forecastDays
         }
 
-        val result = executeSkill("get_weather_gps", args)
+        val result = executeSkill("get_weather_gps", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_weather")
         return result
@@ -397,9 +564,13 @@ class KernelAIToolSet @Inject constructor(
     fun queryWikipedia(
         @ToolParam(description = "The topic, entity, or article title to look up on Wikipedia.") query: String,
     ): Map<String, String> {
-        recordToolCall("query_wikipedia", """{"query":"${query.replace("\"", "\\\"").take(200)}"}""")
+        val diagnosticOrder = recordToolCall(
+            "query_wikipedia",
+            """{"query":"${query.replace("\"", "\\\"").take(200)}"}""",
+            if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null,
+        )
         Log.d(TAG, "ToolSet: queryWikipedia(${query.take(60)})")
-        val result = executeSkill("query_wikipedia", mapOf("query" to query))
+        val result = executeSkill("query_wikipedia", mapOf("query" to query), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("query_wikipedia")
         return result
@@ -407,9 +578,13 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Get current date/time and device runtime info including hardware tier, available memory, battery level, and device details. ALWAYS use this for current date, time, or day queries.")
     fun getSystemInfo(): Map<String, String> {
-        recordToolCall("get_system_info", "{}")
+        val diagnosticOrder = recordToolCall(
+            "get_system_info",
+            "{}",
+            if (localDiagnosticCaptureEnabled) emptyMap() else null,
+        )
         Log.d(TAG, "ToolSet: getSystemInfo()")
-        val result = executeSkill("get_system_info", emptyMap())
+        val result = executeSkill("get_system_info", emptyMap(), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_system_info")
         return result
@@ -419,9 +594,13 @@ class KernelAIToolSet @Inject constructor(
     fun saveMemory(
         @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it.") content: String,
     ): Map<String, String> {
-        recordToolCall("save_memory", """{"content":"${content.replace("\"", "\\\"").take(200)}"}""")
+        val diagnosticOrder = recordToolCall(
+            "save_memory",
+            """{"content":"${content.replace("\"", "\\\"").take(200)}"}""",
+            if (localDiagnosticCaptureEnabled) mapOf("content" to content) else null,
+        )
         Log.d(TAG, "ToolSet: saveMemory(${content.take(60)})")
-        val result = executeSkill("save_memory", mapOf("content" to content))
+        val result = executeSkill("save_memory", mapOf("content" to content), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("save_memory")
         return result
@@ -431,9 +610,13 @@ class KernelAIToolSet @Inject constructor(
     fun searchMemory(
         @ToolParam(description = "What to search for in saved memories and past messages.") query: String,
     ): Map<String, String> {
-        recordToolCall("search_memory", """{"query":"$query"}""")
+        val diagnosticOrder = recordToolCall(
+            "search_memory",
+            """{"query":"$query"}""",
+            if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null,
+        )
         Log.d(TAG, "ToolSet: searchMemory($query)")
-        val result = executeSkill("search_memory", mapOf("query" to query))
+        val result = executeSkill("search_memory", mapOf("query" to query), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("search_memory")
         return result
@@ -441,21 +624,33 @@ class KernelAIToolSet @Inject constructor(
 
     // -------------------------------------------------------------------------
     // Internal dispatch
-    private fun executeSkill(skillName: String, args: Map<String, String>): Map<String, String> {
+    private fun executeSkill(
+        skillName: String,
+        args: Map<String, String>,
+        diagnosticOrder: Int?,
+    ): Map<String, String> {
         val skill = skillRegistry.get().get(skillName)
             ?: run {
                 recordToolOutcome(skillName, succeeded = false)
-                return mapOf("error" to "Unknown skill: $skillName")
+                val toolResult = mapOf("error" to "Unknown skill: $skillName")
+                recordLocalToolResult(
+                    diagnosticOrder,
+                    "UnknownSkill",
+                    toolResult["error"],
+                    toolResult,
+                    succeeded = false,
+                    directReply = false,
+                    returnedToGemma = true,
+                )
+                return toolResult
             }
 
         return try {
             val result = runBlocking {
                 skill.execute(SkillCall(skillName = skillName, arguments = args))
             }
-            recordToolOutcome(
-                skillName,
-                succeeded = result is SkillResult.Success || result is SkillResult.DirectReply,
-            )
+            val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
+            recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
@@ -479,7 +674,7 @@ class KernelAIToolSet @Inject constructor(
                 "directReply=$lastToolWasDirectReply " +
                 "returnedToGemma=$returnedToGemma " +
                 "content=\"${resultContent.take(256).replace("\n","\\n").replace("\"","\\\"")}\"")
-            when (result) {
+            val toolResult = when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
                 is SkillResult.Failure -> mapOf("error" to result.error)
@@ -491,12 +686,33 @@ class KernelAIToolSet @Inject constructor(
                     "contextParams" to result.contextParams.entries.joinToString(",") { "${it.key}=${it.value}" },
                 )
             }
+            recordLocalToolResult(
+                diagnosticOrder,
+                result::class.simpleName ?: "Unknown",
+                resultContent,
+                toolResult,
+                succeeded = succeeded,
+                directReply = lastToolWasDirectReply,
+                returnedToGemma = returnedToGemma,
+            )
+            toolResult
         } catch (e: Exception) {
             recordToolOutcome(skillName, succeeded = false)
             lastToolPresentation = null
             lastToolSpokenSummary = null
             Log.e(TAG, "ToolSet: $skillName execution failed", e)
-            mapOf("error" to (e.message ?: "Unknown error executing $skillName"))
+            val error = e.message ?: "Unknown error executing $skillName"
+            val toolResult = mapOf("error" to error)
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Exception",
+                error,
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            toolResult
         }
     }
 }
