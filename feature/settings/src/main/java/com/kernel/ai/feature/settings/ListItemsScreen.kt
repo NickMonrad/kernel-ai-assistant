@@ -9,7 +9,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -1017,6 +1016,7 @@ fun ListItemsScreen(
                                 is ActiveHierarchyEntry.Item -> {
                                     val item = entry.row
                                     val isChild = entry.isChild
+                                    val isDragHandlePressed = remember(entry.key) { mutableStateOf(false) }
                                     val rowColor by animateColorAsState(
                                         when {
                                             highlightedParentRowId == item.id ->
@@ -1053,6 +1053,7 @@ fun ListItemsScreen(
                                                     canMakeSubItemRow(renderedActiveRows, previewActiveGroups, item.id),
                                                 canMoveToTopLevel = depthGesturesEnabled &&
                                                     canMoveToTopLevelRow(previewActiveGroups, item.id),
+                                                onHandlePointerChanged = { isDragHandlePressed.value = it },
                                                 onMakeSubItem = {
                                                     precedingRow?.let {
                                                         viewModel.makeSubItem(
@@ -1071,6 +1072,7 @@ fun ListItemsScreen(
                                             ) { handleGestureModifier ->
                                                 ListItemRow(
                                                     item = item,
+                                                    isDragHandlePressed = isDragHandlePressed.value,
                                                     isMultiSelectMode = isItemMultiSelectMode,
                                                     isSelected = item.id in selectedItemIds,
                                                     interactionsEnabled = !isRemoteReadOnly,
@@ -1092,7 +1094,8 @@ fun ListItemsScreen(
                                                         )
                                                     },
                                                     dragHandleModifier = if (hierarchyEditingEnabled) {
-                                                        handleGestureModifier.draggableHandle(
+                                                        handleGestureModifier
+                                                            .draggableHandle(
                                                             onDragStarted = {
                                                                 dragBaseline = HierarchyDragBaseline(
                                                                     visibleGroups = currentVisibleActiveGroups.value,
@@ -1439,10 +1442,11 @@ private val HANDLE_DEPTH_COMMIT_DISTANCE = 48.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeToChangeDepthRow(
+internal fun SwipeToChangeDepthRow(
     handleGesturesEnabled: Boolean,
     canMakeSubItem: Boolean,
     canMoveToTopLevel: Boolean,
+    onHandlePointerChanged: (Boolean) -> Unit,
     onMakeSubItem: () -> Unit,
     onMoveToTopLevel: () -> Unit,
     content: @Composable (handleGestureModifier: Modifier) -> Unit,
@@ -1491,6 +1495,7 @@ private fun SwipeToChangeDepthRow(
                     enabled = handleGesturesEnabled,
                     canMakeSubItem = canMakeSubItem,
                     canMoveToTopLevel = canMoveToTopLevel,
+                    onHandlePointerChanged = onHandlePointerChanged,
                     onDelta = { delta -> handleDragX += delta },
                     onCommit = { permitted ->
                         handleDragX = 0f
@@ -1538,50 +1543,59 @@ private fun rememberDepthHandleGesture(
     canMoveToTopLevel: Boolean,
     onDelta: (Float) -> Unit,
     onCommit: (Float) -> Unit,
+    onHandlePointerChanged: (Boolean) -> Unit,
 ): Modifier {
     val currentEnabled by rememberUpdatedState(enabled)
     val currentCanMakeSubItem by rememberUpdatedState(canMakeSubItem)
     val currentCanMoveToTopLevel by rememberUpdatedState(canMoveToTopLevel)
     val currentOnDelta by rememberUpdatedState(onDelta)
     val currentOnCommit by rememberUpdatedState(onCommit)
+    val currentOnHandlePointerChanged by rememberUpdatedState(onHandlePointerChanged)
     return remember {
         Modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                var totalX = 0f
-                var totalY = 0f
-                // Cumulative displacement this row is permitted to show, so a reversal retracts.
-                var depthX = 0f
-                var axis = MoveAxis.Undecided
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change == null || !change.pressed) break
-                    val delta = change.position - change.previousPosition
-                    totalX += delta.x
-                    totalY += delta.y
-                    if (axis == MoveAxis.Undecided) {
-                        if (!currentEnabled) break
-                        axis = moveAxisFor(totalX, totalY, viewConfiguration.touchSlop)
-                    }
-                    when (axis) {
-                        MoveAxis.Horizontal -> {
-                            val permitted = permittedDepthDisplacement(
-                                totalX,
-                                currentCanMakeSubItem,
-                                currentCanMoveToTopLevel,
-                            )
-                            if (permitted != depthX) {
-                                currentOnDelta(permitted - depthX)
-                                depthX = permitted
-                            }
-                            change.consume()
+                currentOnHandlePointerChanged(true)
+                try {
+                    var totalX = 0f
+                    var totalY = 0f
+                    // Cumulative displacement this row is permitted to show, so a reversal retracts.
+                    var depthX = 0f
+                    var axis = MoveAxis.Undecided
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || !change.pressed) break
+                        val delta = change.position - change.previousPosition
+                        totalX += delta.x
+                        totalY += delta.y
+                        if (axis == MoveAxis.Undecided) {
+                            if (!currentEnabled) break
+                            axis = moveAxisFor(totalX, totalY, viewConfiguration.touchSlop)
                         }
-                        MoveAxis.Vertical -> break
-                        MoveAxis.Undecided -> Unit
+                        when (axis) {
+                            MoveAxis.Horizontal -> {
+                                val permitted = permittedDepthDisplacement(
+                                    totalX,
+                                    currentCanMakeSubItem,
+                                    currentCanMoveToTopLevel,
+                                )
+                                if (permitted != depthX) {
+                                    currentOnDelta(permitted - depthX)
+                                    depthX = permitted
+                                }
+                                change.consume()
+                            }
+                            MoveAxis.Vertical -> {
+                                break
+                            }
+                            MoveAxis.Undecided -> Unit
+                        }
                     }
+                    if (axis == MoveAxis.Horizontal && depthX != 0f) currentOnCommit(depthX)
+                } finally {
+                    currentOnHandlePointerChanged(false)
                 }
-                if (axis == MoveAxis.Horizontal && depthX != 0f) currentOnCommit(depthX)
             }
         }
     }
@@ -1637,26 +1651,20 @@ internal fun HierarchyDropIndicator(
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.primary,
             )
-        } else {
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            )
-        }
     }
+}
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ListItemRow(
+internal fun ListItemRow(
     item: ListItemEntity,
     dragHandleModifier: Modifier = Modifier,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
     interactionsEnabled: Boolean = true,
     showDragHandle: Boolean = false,
+    isDragHandlePressed: Boolean = false,
     /** Colour the row paints itself with; callers pass the animated drag/highlight colour. */
     containerColor: Color = ListItemDefaults.containerColor,
     showDisclosure: Boolean = false,
@@ -1687,8 +1695,13 @@ private fun ListItemRow(
                 onClick = {
                     if (isMultiSelectMode) onSelectToggle() else onEdit()
                 },
-                onLongClick = {
-                    if (!isMultiSelectMode) onLongClick()
+                // The handle's reorder recognizer owns its press; multi-select long-press remains on row content.
+                onLongClick = if (isDragHandlePressed) {
+                    null
+                } else {
+                    {
+                        if (!isMultiSelectMode) onLongClick()
+                    }
                 },
             )
             .padding(horizontal = 8.dp, vertical = 12.dp),
@@ -1697,13 +1710,8 @@ private fun ListItemRow(
         if (showDragHandle) {
             // The handle owns its whole gesture surface, and it carries vertical reorder plus both
             // horizontal depth gestures, so it keeps a 48.dp target around the 24.dp icon.
-            // Absorbing the long press stops the row's multi-select click from winning on it.
             Box(
-                modifier = dragHandleModifier
-                    .pointerInput(Unit) {
-                        detectTapGestures(onLongPress = { /* absorb */ })
-                    }
-                    .size(48.dp),
+                modifier = dragHandleModifier.size(48.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
