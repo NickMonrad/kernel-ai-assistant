@@ -250,6 +250,12 @@ class RunIntentSkillTest {
     }
 
     @Test
+    fun `run_intent discovery instructions fit bounded context`() {
+        assertTrue(skill.fullInstructions.length <= 4500)
+        assertTrue(skill.examples.size <= 4)
+    }
+
+    @Test
     fun `model callable intent catalog matches native handlers and exclusions`() {
         val callable = RunIntentSkill.MODEL_CALLABLE_INTENTS
         val callableSet = callable.toSet()
@@ -264,7 +270,7 @@ class RunIntentSkillTest {
         assertTrue("get_date_diff" in callableSet)
         assertTrue("bulk_add_to_list" in callableSet)
         dedicatedTools.forEach {
-            assertTrue(exclusions.getValue(it).startsWith("Dedicated top-level SDK tool"))
+            assertTrue(exclusions.getValue(it).startsWith("Dedicated top-level tool"))
         }
         unavailableStubs.forEach {
             assertTrue(exclusions.getValue(it).startsWith("Non-callable stub"))
@@ -272,11 +278,11 @@ class RunIntentSkillTest {
 
         val instructions = skill.fullInstructions
         callable.forEach { intent ->
-            assertTrue("  $intent — params:" in instructions, "$intent missing from detailed discovery")
+            assertTrue("$intent(" in instructions.substringBefore("Excluded:"), "$intent missing from compact catalogue")
         }
         assertTrue(RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP in instructions)
         exclusions.forEach { (intent, reason) ->
-            assertTrue("  $intent — $reason" in instructions, "$intent exclusion missing from detailed discovery")
+            assertTrue("$intent: $reason" in instructions, "$intent exclusion missing from discovery")
         }
         assertEquals(callable, skill.schema.parameters.getValue("intent_name").enum)
 
@@ -288,17 +294,23 @@ class RunIntentSkillTest {
         assertTrue(exampleIntents.all { it in callableSet }, "Examples must not advertise excluded intents")
         assertTrue(skill.description.contains("lists/notes") && skill.description.contains("dedicated tools"))
         assertTrue(instructions.contains("never use search_memory to answer list-content requests"))
-        val catalogHeader = instructions.indexOf("Available model-callable intents:")
+        val catalogHeader = instructions.indexOf("FLASHLIGHT:")
         assertTrue(catalogHeader >= 0)
         val discoveryPreface = instructions.substring(0, catalogHeader)
         assertTrue("bulk_add_to_list" in discoveryPreface)
-        assertTrue("items as one JSON array" in discoveryPreface)
-        assertTrue("parameters='{\"items\":[\"apples\",\"oat milk\",\"rice\"],\"list_name\":\"groceries\"}'" in discoveryPreface)
-        assertTrue("After load_skill returns these instructions" in discoveryPreface)
-        assertTrue("before any final response" in discoveryPreface)
-        assertTrue("A successful load_skill only discovers instructions" in discoveryPreface)
-        assertTrue("do not stop after loading" in discoveryPreface)
-        assertTrue("ask the user to repeat the request" in discoveryPreface)
-        assertTrue("or load the skill again for this request" in discoveryPreface)
+        assertTrue("all items as a JSON array" in discoveryPreface)
+        assertTrue("the requested list_name" in discoveryPreface)
+        assertTrue(
+            skill.examples.any { "bulk_add_to_list" in it && "\"items\":[" in it },
+        )
+        assertTrue("After successful load_skill, call run_intent once" in discoveryPreface)
+        assertTrue("wait for success" in discoveryPreface)
+        assertTrue("before replying" in discoveryPreface)
+        assertTrue("do not stop, reload, summarize" in discoveryPreface)
+        assertTrue("ask the user to repeat" in discoveryPreface)
+        assertTrue("for alarms, issue only the tool call" in instructions)
+        assertTrue("Alarm: use set_alarm" in instructions)
+        assertTrue("Calendar: create_calendar_event" in instructions)
+        assertTrue("Never claim alarm/calendar success" in instructions)
     }
 }

@@ -5,6 +5,7 @@ import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
 import dagger.Lazy
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,11 +71,11 @@ class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
     private val safeModelTestToken = AtomicReference<Any?>(null)
-    private val safeModelTestRunIntents = setOf("get_date", "get_stopwatch_status")
+    private val safeModelTestRunIntents = setOf("get_stopwatch_status")
 
     /**
      * Restricts one DEBUG model generation to loading run_intent instructions and invoking
-     * allowlisted read-only date and stopwatch-status actions. Callers must close the returned scope.
+     * the allowlisted read-only stopwatch-status action. Callers must close the returned scope.
      */
     fun beginSafeModelTestSandbox(): AutoCloseable {
         val token = Any()
@@ -158,6 +159,20 @@ class KernelAIToolSet @Inject constructor(
     companion object {
         /** The single non-terminal internal-only tool name. */
         private const val LOAD_SKILL_NAME = "load_skill"
+        internal fun resolveRunIntentName(
+            intentName: String,
+            callableIntents: List<String> = RunIntentSkill.MODEL_CALLABLE_INTENTS,
+        ): String {
+            if (intentName in callableIntents) return intentName
+            val normalized = normalizeIntentName(intentName)
+            val matches = callableIntents.filter { normalizeIntentName(it) == normalized }
+            return matches.singleOrNull() ?: intentName
+        }
+
+        private fun normalizeIntentName(intentName: String): String =
+            intentName.lowercase(Locale.ROOT).filterNot {
+                it == '_' || it == '-' || it.isWhitespace()
+            }
     }
 
     // -------------------------------------------------------------------------
@@ -465,9 +480,13 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Execute supported native Android actions such as alarms, calendar, media, navigation, contacts, and system toggles, plus list/note operations. If the user asks to read run_intent instructions first, load_skill(skill_name='run_intent') MUST be the first tool call; wait for success, then call run_intent. Otherwise call run_intent directly when clear. Use memory tools only for personal facts, not list/note contents. NOT for weather, system info, web search, or currency; use dedicated top-level tools.")
     fun runIntent(
-        @ToolParam(description = "The exact model-callable intent identifier; preserve its spelling and every underscore (e.g. set_alarm, create_calendar_event, get_date_diff, bulk_add_to_list). Call run_intent directly when known; if the user explicitly requests instructions first, call load_skill before run_intent.") intentName: String,
+        @ToolParam(description = "The model-callable intent identifier; use its exact catalogue spelling (unique case/separator variants are normalized).") intentName: String,
         @ToolParam(description = "A valid JSON object encoded as a string; do not send CSV or separate fields. For get_date_diff: ${RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP}. For bulk_add_to_list, use items as one JSON array of strings and pass the requested list_name. For create_calendar_event use title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, pass required fields directly.") parameters: String,
     ): Map<String, String> {
+        val resolvedIntentName = resolveRunIntentName(intentName)
+        if (resolvedIntentName != intentName) {
+            Log.i(TAG, "ToolSet: normalized run_intent '$intentName' to '$resolvedIntentName'")
+        }
         val request =
             """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}"""
         val arguments = if (localDiagnosticCaptureEnabled) {
@@ -476,7 +495,7 @@ class KernelAIToolSet @Inject constructor(
             null
         }
         if (isSafeModelTestActive() &&
-            !isAllowedSafeModelTestRunIntent(intentName, parameters)
+            !isAllowedSafeModelTestRunIntent(resolvedIntentName, parameters)
         ) {
             return denyInSafeModelTest("run_intent", request, arguments)
         }
@@ -495,8 +514,8 @@ class KernelAIToolSet @Inject constructor(
             "search_memory",
             "get_system_info",
         )
-        if (intentName in reservedSkillNames) {
-            val error = "Invalid run_intent call: '$intentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
+        if (resolvedIntentName in reservedSkillNames) {
+            val error = "Invalid run_intent call: '$resolvedIntentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
             lastToolResult = error
             recordToolOutcome("run_intent", succeeded = false)
             captureTerminalResult("run_intent")
@@ -513,7 +532,7 @@ class KernelAIToolSet @Inject constructor(
             return toolResult
         }
 
-        val args = mutableMapOf("intent_name" to intentName)
+        val args = mutableMapOf("intent_name" to resolvedIntentName)
         try {
             val json = org.json.JSONObject(parameters.ifBlank { "{}" })
             json.keys().forEach { key -> args[key] = json.optString(key) }

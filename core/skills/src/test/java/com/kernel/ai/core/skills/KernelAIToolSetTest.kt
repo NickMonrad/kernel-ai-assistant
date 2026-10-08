@@ -148,6 +148,51 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `runIntent resolves unique separator variants before execution`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch status")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("GET STOP-WATCH STATUS", "{}")
+        assertEquals("Stopwatch status", result["result"])
+
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+    }
+
+    @Test
+    fun `intent name resolution leaves ambiguous and unknown names unchanged`() {
+        val ambiguousNames = listOf("get_stopwatch_status", "get-stopwatch-status")
+        val ambiguousInput = "get_stop_watch_status"
+
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(ambiguousInput, ambiguousNames),
+        )
+        assertEquals(
+            "unknown_action",
+            KernelAIToolSet.resolveRunIntentName("unknown_action"),
+        )
+    }
+
+    @Test
+    fun `unknown runIntent name still fails through skill validation`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.Failure("run_intent", "Unknown intent")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("unknown_action", "{}")
+
+        assertEquals("Unknown intent", result["error"])
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "unknown_action")))
+        }
+    }
+
+    @Test
     fun `runJs fails closed on invalid JSON parameters`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_js"
@@ -162,7 +207,7 @@ class KernelAIToolSetTest {
     }
 
     @Test
-    fun `safe model test sandbox allows run_intent instructions, date, and stopwatch status`() = runTest {
+    fun `safe model test sandbox allows run_intent instructions and stopwatch status`() = runTest {
         val loadSkill = mockk<Skill>()
         every { loadSkill.name } returns "load_skill"
         every { loadSkill.description } returns "run_intent instructions"
@@ -171,15 +216,17 @@ class KernelAIToolSetTest {
 
         val runIntent = mockk<Skill>()
         every { runIntent.name } returns "run_intent"
-        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("It's 12:00 on Monday")
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch is not running")
         every { registry.get("run_intent") } returns runIntent
 
         val scope = toolSet.beginSafeModelTestSandbox()
         try {
             assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
-            assertEquals("It's 12:00 on Monday", toolSet.runIntent("get_date", "{}")["result"])
+            assertEquals(
+                "Stopwatch is not running",
+                toolSet.runIntent("get_stop_watch_status", "{}")["result"],
+            )
             assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
-            assertEquals("It's 12:00 on Monday", toolSet.runIntent("get_stopwatch_status", "{}")["result"])
             assertTrue(toolSet.terminalToolSucceeded())
             assertTrue(toolSet.terminalToolWasDirectReply())
         } finally {
@@ -187,10 +234,11 @@ class KernelAIToolSetTest {
         }
 
         verify(exactly = 1) { registry.get("load_skill") }
-
         coVerify(exactly = 1) { loadSkill.execute(any()) }
-        coVerify(exactly = 2) { runIntent.execute(any()) }
-        verify(exactly = 2) { registry.get("run_intent") }
+        coVerify(exactly = 1) {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+        verify(exactly = 1) { registry.get("run_intent") }
     }
 
     @Test
@@ -208,8 +256,8 @@ class KernelAIToolSetTest {
                     { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
                 """{"intent_name":"get_date_diff","parameters":{}}""" to
                     { toolSet.runIntent("get_date_diff", "{}") },
-                """{"intent_name":"get_date","parameters":{"format":"private"}}""" to
-                    { toolSet.runIntent("get_date", """{"format":"private"}""") },
+                """{"intent_name":"get_date","parameters":{}}""" to
+                    { toolSet.runIntent("get_date", "{}") },
                 """{"intent_name":"get_stopwatch_status","parameters":{"format":"private"}}""" to
                     { toolSet.runIntent("get_stopwatch_status", """{"format":"private"}""") },
                 """{"intent_name":"get_list_items","parameters":{}}""" to

@@ -288,7 +288,7 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
         prompt = next(
             case.message
             for case in LLM_TOOLS_CASES
-            if case.name == "run_intent_get_date_direct"
+            if case.name == "run_intent_get_stopwatch_status_direct"
         )
         self.assertGreater(len(prompt), 120)
 
@@ -303,7 +303,7 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
         prompt = next(
             case.message
             for case in LLM_TOOLS_CASES
-            if case.name == "run_intent_get_date_direct"
+            if case.name == "run_intent_get_stopwatch_status_direct"
         )
         log = "\n".join((
             f"ADB_INTENT_TRACE commandId=case-1 input={prompt} submitMode=Text",
@@ -332,9 +332,9 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
     def test_llm_cases_cover_direct_discovery_chain_and_dedicated_tool(self) -> None:
         cases = {case.name: case for case in LLM_TOOLS_CASES}
 
-        direct = cases["run_intent_get_date_direct"]
+        direct = cases["run_intent_get_stopwatch_status_direct"]
         self.assertEqual(("run_intent",), direct.expected_tool_sequence)
-        self.assertEqual("get_date", direct.expected_nested_intent)
+        self.assertEqual("get_stopwatch_status", direct.expected_nested_intent)
         self.assertEqual("run_intent", direct.expected_top_level_tool)
         self.assertTrue(direct.safe_run_intent_test)
         self.assertTrue(direct.expect_no_regex_match)
@@ -342,23 +342,12 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
         self.assertTrue(direct.expect_no_slot_fill)
         self.assertTrue(direct.expect_no_retry)
         self.assertEqual("direct_reply", direct.expected_result_mode)
-        self.assertEqual(["It's", "on"], direct.expected_reply_contains_all)
-        stopwatch = cases["run_intent_get_stopwatch_status_direct"]
-        self.assertEqual(("run_intent",), stopwatch.expected_tool_sequence)
-        self.assertEqual("get_stopwatch_status", stopwatch.expected_nested_intent)
-        self.assertEqual("run_intent", stopwatch.expected_top_level_tool)
-        self.assertTrue(stopwatch.safe_run_intent_test)
-        self.assertTrue(stopwatch.expect_no_regex_match)
-        self.assertTrue(stopwatch.expect_no_classifier_match)
-        self.assertTrue(stopwatch.expect_no_slot_fill)
-        self.assertTrue(stopwatch.expect_no_retry)
-        self.assertEqual("direct_reply", stopwatch.expected_result_mode)
-        self.assertEqual(["stopwatch"], stopwatch.expected_reply_contains_all)
+        self.assertEqual(["stopwatch"], direct.expected_reply_contains_all)
 
-        discovery = cases["run_intent_get_date_after_skill_load"]
+        discovery = cases["run_intent_get_stopwatch_status_after_skill_load"]
         self.assertEqual(("load_skill", "run_intent"), discovery.expected_tool_sequence)
         self.assertEqual("run_intent", discovery.expected_load_skill_name)
-        self.assertEqual("get_date", discovery.expected_nested_intent)
+        self.assertEqual("get_stopwatch_status", discovery.expected_nested_intent)
         self.assertEqual("run_intent", discovery.expected_top_level_tool)
         self.assertTrue(discovery.safe_run_intent_test)
         self.assertTrue(discovery.expect_no_regex_match)
@@ -366,26 +355,30 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
         self.assertTrue(discovery.expect_no_slot_fill)
         self.assertTrue(discovery.expect_no_retry)
         self.assertEqual("direct_reply", discovery.expected_result_mode)
-        self.assertEqual(["It's", "on"], discovery.expected_reply_contains_all)
+        self.assertEqual(["stopwatch"], discovery.expected_reply_contains_all)
+        self.assertNotIn("run_intent_get_date_direct", cases)
+        self.assertNotIn("run_intent_get_date_after_skill_load", cases)
 
         dedicated = cases["get_system_info_natural"]
         self.assertEqual(("get_system_info",), dedicated.expected_tool_sequence)
         self.assertEqual("get_system_info", dedicated.expected_top_level_tool)
         self.assertEqual("direct_reply", dedicated.expected_result_mode)
 
+        probes = (direct, discovery)
         self.assertTrue(all(
             case.expect_no_regex_match and case.expect_no_classifier_match
-            for case in (direct, discovery, stopwatch)
+            for case in probes
         ))
-        self.assertIn("get_date", direct.message)
-        self.assertIn("get_stopwatch_status", stopwatch.message)
-        self.assertIn("empty parameters", stopwatch.message)
+        self.assertIn("get_stopwatch_status", direct.message)
+        self.assertIn("empty parameters", direct.message)
         self.assertIn("read the run_intent instructions", discovery.message)
-        self.assertNotIn("bulk_add_to_list", repr((direct.message, discovery.message, stopwatch.message)).lower())
+        self.assertIn("stopwatch", discovery.message.lower())
+        prompts = repr((direct.message, discovery.message)).lower()
+        self.assertNotIn("bulk_add_to_list", prompts)
         self.assertNotIn("shopping list", direct.message.lower())
-        self.assertFalse(any(token in repr((direct.message, discovery.message, stopwatch.message)).lower()
-                             for token in ("<|tool_call|>", 'load_skill("run_intent")',
-                                           "available model-callable intents")))
+        self.assertFalse(any(token in prompts for token in (
+            "<|tool_call|>", 'load_skill("run_intent")', "available model-callable intents",
+        )))
 
     def test_marker_poll_uses_synchronized_boundary_prefix(self) -> None:
         boundary = "__LLM_TOOLS_CASE_BOUNDARY_123__"

@@ -782,23 +782,6 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
     ),
     # ── Model-action execution and discovery contract (#1593) ──────────────
     LLMToolsTestCase(
-        name="run_intent_get_date_direct",
-        message=(
-            "Can you tell me the day, date, and exact local time right now on this device? "
-            "Please use the read-only run_intent get_date action rather than an estimate."
-        ),
-        expected_top_level_tool="run_intent",
-        expected_nested_intent="get_date",
-        expected_result_mode="direct_reply",
-        expected_tool_sequence=("run_intent",),
-        expected_reply_contains_all=["It's", "on"],
-        safe_run_intent_test=True,
-        expect_no_regex_match=True,
-        expect_no_classifier_match=True,
-        expect_no_slot_fill=True,
-        expect_no_retry=True,
-    ),
-    LLMToolsTestCase(
         name="run_intent_get_stopwatch_status_direct",
         message=(
             "Please check whether the device stopwatch is currently running and report its "
@@ -817,17 +800,17 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_retry=True,
     ),
     LLMToolsTestCase(
-        name="run_intent_get_date_after_skill_load",
+        name="run_intent_get_stopwatch_status_after_skill_load",
         message=(
-            "Please read the run_intent instructions first; then use its get_date action "
-            "to tell me the current local date and time."
+            "Please read the run_intent instructions first, then check whether the device "
+            "stopwatch is running and report its status. Do not start, pause, or reset it."
         ),
         expected_top_level_tool="run_intent",
-        expected_nested_intent="get_date",
+        expected_nested_intent="get_stopwatch_status",
         expected_result_mode="direct_reply",
         expected_tool_sequence=("load_skill", "run_intent"),
         expected_load_skill_name="run_intent",
-        expected_reply_contains_all=["It's", "on"],
+        expected_reply_contains_all=["stopwatch"],
         safe_run_intent_test=True,
         expect_no_regex_match=True,
         expect_no_classifier_match=True,
