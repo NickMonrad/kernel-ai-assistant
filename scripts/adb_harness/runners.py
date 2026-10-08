@@ -87,6 +87,11 @@ from adb_harness.reporting import (
     save_llm_tools_report,
 )
 
+from adb_harness.local_transcripts import (
+    begin_local_llm_tools_capture,
+    save_local_llm_tools_transcript,
+)
+
 # Module-level fixture state — set during isolated warmup, read during test execution
 _isolated_known_missing: frozenset[str] = frozenset()
 
@@ -344,6 +349,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
 
         # Send the prompt, then keep foreground until inference starts (Android 15+
         # requires the app to be foreground-eligible to start InferenceGenerationService).
+        capture_started = begin_local_llm_tools_capture()
+        if not capture_started:
+            print(
+                f"  [local transcript] capture unavailable for {tc.name}",
+                file=sys.stderr,
+            )
         send_text(tc.message, wait_for_inference=False)
         _keep_foreground_until_inference_starts(timeout=120.0)
         # Poll for all markers simultaneously from a single accumulated buffer,
@@ -514,6 +525,36 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         else:
             failures += 1
             print(f"✗ ({'; '.join(failures_list)})")
+        if capture_started:
+            transcript_path = save_local_llm_tools_transcript(
+                case_index=idx,
+                case_name=tc.name,
+                harness_prompt=tc.message,
+                outcome={
+                    "passed": result.passed,
+                    "failures": result.failures,
+                    "expected_top_level_tool": result.expected_top_level_tool,
+                    "actual_top_level_tool": result.actual_top_level_tool,
+                    "actual_nested_intent": result.actual_nested_intent,
+                    "route_marker": result.route_marker,
+                    "native_tool_marker": result.native_tool_marker,
+                    "legacy_tool_marker": result.legacy_tool_marker,
+                    "skill_result_marker": result.skill_result_marker,
+                    "message_saved_marker": result.message_saved_marker,
+                    "retry_seen": result.retry_seen,
+                    "slot_fill_seen": result.slot_fill_seen,
+                    "chip_text": result.chip_text,
+                    "harness_reply_text": result.reply_text,
+                },
+            )
+            if transcript_path is None:
+                print(
+                    f"  [local transcript] unavailable for {tc.name}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"  [local transcript] saved → {transcript_path}", file=sys.stderr)
+
 
         # Brief pause between cases
         time.sleep(2)
