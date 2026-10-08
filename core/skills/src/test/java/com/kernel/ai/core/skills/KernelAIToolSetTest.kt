@@ -162,7 +162,7 @@ class KernelAIToolSetTest {
     }
 
     @Test
-    fun `safe model test sandbox allows run_intent instructions and device date only`() = runTest {
+    fun `safe model test sandbox allows run_intent instructions, date, and stopwatch status`() = runTest {
         val loadSkill = mockk<Skill>()
         every { loadSkill.name } returns "load_skill"
         every { loadSkill.description } returns "run_intent instructions"
@@ -179,6 +179,7 @@ class KernelAIToolSetTest {
             assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
             assertEquals("It's 12:00 on Monday", toolSet.runIntent("get_date", "{}")["result"])
             assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
+            assertEquals("It's 12:00 on Monday", toolSet.runIntent("get_stopwatch_status", "{}")["result"])
             assertTrue(toolSet.terminalToolSucceeded())
             assertTrue(toolSet.terminalToolWasDirectReply())
         } finally {
@@ -188,12 +189,12 @@ class KernelAIToolSetTest {
         verify(exactly = 1) { registry.get("load_skill") }
 
         coVerify(exactly = 1) { loadSkill.execute(any()) }
-        coVerify(exactly = 1) { runIntent.execute(any()) }
-        verify(exactly = 1) { registry.get("run_intent") }
+        coVerify(exactly = 2) { runIntent.execute(any()) }
+        verify(exactly = 2) { registry.get("run_intent") }
     }
 
     @Test
-    fun `safe model test sandbox denies other tools before dispatch and records blocked handoffs`() = runTest {
+    fun `safe model test sandbox denies other tools and every other action before dispatch`() = runTest {
         toolSet.beginLocalDiagnosticCapture()
         val scope = toolSet.beginSafeModelTestSandbox()
         try {
@@ -209,6 +210,12 @@ class KernelAIToolSetTest {
                     { toolSet.runIntent("get_date_diff", "{}") },
                 """{"intent_name":"get_date","parameters":{"format":"private"}}""" to
                     { toolSet.runIntent("get_date", """{"format":"private"}""") },
+                """{"intent_name":"get_stopwatch_status","parameters":{"format":"private"}}""" to
+                    { toolSet.runIntent("get_stopwatch_status", """{"format":"private"}""") },
+                """{"intent_name":"get_list_items","parameters":{}}""" to
+                    { toolSet.runIntent("get_list_items", "{}") },
+                """{"intent_name":"start_stopwatch","parameters":{}}""" to
+                    { toolSet.runIntent("start_stopwatch", "{}") },
                 """{"intent_name":"bulk_add_to_list","parameters":{"item":"private test data"}}""" to
                     { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
                 """{"skill_name":"private","data":{"value":"private test data"}}""" to
@@ -242,6 +249,9 @@ class KernelAIToolSetTest {
                     "run_intent",
                     "run_intent",
                     "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
                     "run_js",
                     "convert_currency",
                     "get_weather",
@@ -252,7 +262,7 @@ class KernelAIToolSetTest {
                 ),
                 snapshot.calls.map { it.name },
             )
-            assertEquals((0..11).toList(), snapshot.calls.map { it.order })
+            assertEquals((0..14).toList(), snapshot.calls.map { it.order })
             assertTrue(
                 snapshot.calls.all {
                     it.resultType == "Blocked" &&
@@ -261,8 +271,8 @@ class KernelAIToolSetTest {
                         it.returnedToGemma == true
                 },
             )
-            assertEquals("private test query", snapshot.calls[8].arguments?.get("query"))
-            assertEquals("private test query", snapshot.calls[11].arguments?.get("query"))
+            assertEquals("private test query", snapshot.calls[11].arguments.get("query"))
+            assertEquals("private test query", snapshot.calls[14].arguments.get("query"))
         } finally {
             scope.close()
             toolSet.finishLocalDiagnosticCapture()

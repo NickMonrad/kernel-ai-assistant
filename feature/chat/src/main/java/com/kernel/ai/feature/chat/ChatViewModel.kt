@@ -1153,7 +1153,7 @@ class ChatViewModel @Inject constructor(
      * [ModelDownloadManager.downloadStates] flow so that manually ADB-pushed models are
      * recognised immediately.
      */
-    private suspend fun initGemma4() {
+    private suspend fun initGemma4(safeModelTest: Boolean = false) {
         gemma4InitMutex.withLock {
             _modelInitializationError.value = null
             try {
@@ -1176,7 +1176,10 @@ class ChatViewModel @Inject constructor(
                 Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
-                    systemPrompt = buildSystemPrompt(),
+                    systemPrompt = buildSystemPrompt(
+                        includeCurrentDateTime = !safeModelTest,
+                        includeProfile = !safeModelTest,
+                    ),
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
@@ -1193,7 +1196,12 @@ class ChatViewModel @Inject constructor(
                 turnsSinceReset = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
                 // was null during initialize()).
-                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                inferenceEngine.updateSystemPrompt(
+                    buildSystemPrompt(
+                        includeCurrentDateTime = !safeModelTest,
+                        includeProfile = !safeModelTest,
+                    ),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2669,7 +2677,7 @@ class ChatViewModel @Inject constructor(
             }
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
-                if (!safeRunIntentTest) initGemma4()
+                initGemma4(safeModelTest = safeRunIntentTest)
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
                     appendAssistantMessage(

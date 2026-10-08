@@ -799,6 +799,24 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_retry=True,
     ),
     LLMToolsTestCase(
+        name="run_intent_get_stopwatch_status_direct",
+        message=(
+            "Please check whether the device stopwatch is currently running and report its "
+            "status without starting, pausing, or resetting it. Use the read-only run_intent "
+            "get_stopwatch_status action with empty parameters."
+        ),
+        expected_top_level_tool="run_intent",
+        expected_nested_intent="get_stopwatch_status",
+        expected_result_mode="direct_reply",
+        expected_tool_sequence=("run_intent",),
+        expected_reply_contains_all=["stopwatch"],
+        safe_run_intent_test=True,
+        expect_no_regex_match=True,
+        expect_no_classifier_match=True,
+        expect_no_slot_fill=True,
+        expect_no_retry=True,
+    ),
+    LLMToolsTestCase(
         name="run_intent_get_date_after_skill_load",
         message=(
             "Please read the run_intent instructions first; then use its get_date action "

@@ -343,6 +343,17 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
         self.assertTrue(direct.expect_no_retry)
         self.assertEqual("direct_reply", direct.expected_result_mode)
         self.assertEqual(["It's", "on"], direct.expected_reply_contains_all)
+        stopwatch = cases["run_intent_get_stopwatch_status_direct"]
+        self.assertEqual(("run_intent",), stopwatch.expected_tool_sequence)
+        self.assertEqual("get_stopwatch_status", stopwatch.expected_nested_intent)
+        self.assertEqual("run_intent", stopwatch.expected_top_level_tool)
+        self.assertTrue(stopwatch.safe_run_intent_test)
+        self.assertTrue(stopwatch.expect_no_regex_match)
+        self.assertTrue(stopwatch.expect_no_classifier_match)
+        self.assertTrue(stopwatch.expect_no_slot_fill)
+        self.assertTrue(stopwatch.expect_no_retry)
+        self.assertEqual("direct_reply", stopwatch.expected_result_mode)
+        self.assertEqual(["stopwatch"], stopwatch.expected_reply_contains_all)
 
         discovery = cases["run_intent_get_date_after_skill_load"]
         self.assertEqual(("load_skill", "run_intent"), discovery.expected_tool_sequence)
@@ -364,13 +375,15 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
 
         self.assertTrue(all(
             case.expect_no_regex_match and case.expect_no_classifier_match
-            for case in (direct, discovery)
+            for case in (direct, discovery, stopwatch)
         ))
         self.assertIn("get_date", direct.message)
+        self.assertIn("get_stopwatch_status", stopwatch.message)
+        self.assertIn("empty parameters", stopwatch.message)
         self.assertIn("read the run_intent instructions", discovery.message)
-        self.assertNotIn("bulk_add_to_list", repr((direct.message, discovery.message)).lower())
+        self.assertNotIn("bulk_add_to_list", repr((direct.message, discovery.message, stopwatch.message)).lower())
         self.assertNotIn("shopping list", direct.message.lower())
-        self.assertFalse(any(token in repr((direct.message, discovery.message)).lower()
+        self.assertFalse(any(token in repr((direct.message, discovery.message, stopwatch.message)).lower()
                              for token in ("<|tool_call|>", 'load_skill("run_intent")',
                                            "available model-callable intents")))
 

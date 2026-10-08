@@ -70,10 +70,11 @@ class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
     private val safeModelTestToken = AtomicReference<Any?>(null)
+    private val safeModelTestRunIntents = setOf("get_date", "get_stopwatch_status")
 
     /**
-     * Restricts one DEBUG model generation to loading run_intent instructions and reading the
-     * device date/time through run_intent.get_date. Callers must close the returned scope.
+     * Restricts one DEBUG model generation to loading run_intent instructions and invoking
+     * allowlisted read-only date and stopwatch-status actions. Callers must close the returned scope.
      */
     fun beginSafeModelTestSandbox(): AutoCloseable {
         val token = Any()
@@ -86,7 +87,7 @@ class KernelAIToolSet @Inject constructor(
     private fun isSafeModelTestActive(): Boolean = safeModelTestToken.get() != null
 
     private fun isAllowedSafeModelTestRunIntent(intentName: String, parameters: String): Boolean {
-        if (intentName != "get_date") return false
+        if (intentName !in safeModelTestRunIntents) return false
         if (parameters.isBlank()) return true
         return try {
             org.json.JSONObject(parameters).length() == 0
@@ -100,7 +101,8 @@ class KernelAIToolSet @Inject constructor(
         args: Map<String, String>,
     ): Boolean = when (skillName) {
         LOAD_SKILL_NAME -> args == mapOf("skill_name" to "run_intent")
-        "run_intent" -> args == mapOf("intent_name" to "get_date")
+        "run_intent" -> args.keys == setOf("intent_name") &&
+            args.getValue("intent_name") in safeModelTestRunIntents
         else -> false
     }
 

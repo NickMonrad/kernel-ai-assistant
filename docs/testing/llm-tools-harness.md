@@ -41,9 +41,11 @@ For every selected golden prompt, the harness checks:
 | `run_intent_get_date_direct` | "Can you tell me the day, date, and exact local time right now on this device? Please use the read-only run_intent get_date action rather than an estimate." | `run_intent` | Debug-only isolated probe; nested action `get_date`; ordered sequence `run_intent`; successful `direct_reply` contains the device-local date/time |
 | `run_intent_get_date_after_skill_load` | "Please read the run_intent instructions first; then use its get_date action to tell me the current local date and time." | `run_intent` | Same controlled fallthrough guard; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_date`; successful `direct_reply` contains the device-local date/time |
 | `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
+| `run_intent_get_stopwatch_status_direct` | "Please check whether the device stopwatch is currently running and report its status without starting, pausing, or resetting it. Use the read-only run_intent get_stopwatch_status action with empty parameters." | `run_intent` | Debug-only isolated probe; nested action `get_stopwatch_status`; ordered sequence `run_intent`; read-only `direct_reply` reports stopwatch status |
 
-The #1593 cases use the read-only `get_date` action. Do not use `get_date_diff` for
-this safety acceptance: its native implementation may consult Important Dates.
+The date/time cases use read-only `get_date`; the stopwatch case uses read-only
+`get_stopwatch_status`. Do not use `get_date_diff` for this safety acceptance: its native
+implementation may consult Important Dates.
 
 ## Runtime markers
 
@@ -68,23 +70,29 @@ Each case requires exactly one `ADB_INTENT_TRACE` input marker matching that pro
 
 ## Ordered tool-sequence evidence (#1593)
 
-The former stopwatch prompt could not reach Gemma: `get_stopwatch_status` is in
-QIR's `FAST_PATH_INTENTS`. The earlier `get_date_diff` device probe is not used for
-the personal-data-safe path because its native handler may consult Important Dates.
-Its date parameter contract remains documented by `RunIntentSkill`; the natural
-date-difference prompts remain in `QuickIntentRouterNegativeTest`.
+Natural stopwatch-status prompts belong to QIR's `FAST_PATH_INTENTS`. The new direct
+`get_stopwatch_status` case uses controlled DEBUG fallthrough to exercise real tool execution;
+it does not claim an ordinary prompt naturally misses QIR. The earlier `get_date_diff` device
+probe is not used for the personal-data-safe path because its native handler may consult
+Important Dates. Its date parameter contract remains documented by `RunIntentSkill`; the
+natural date-difference prompts remain in `QuickIntentRouterNegativeTest`.
 
-The safe direct and discovery probes use read-only `get_date` with no parameters.
-The direct probe requires `run_intent`; the discovery probe requires successful
-`load_skill("run_intent")` returned to Gemma before `run_intent`. The natural
-`get_system_info_natural` case remains a separate dedicated top-level SDK-tool control.
+The date/time direct and discovery probes use read-only `get_date` with no parameters. A separate
+direct probe exercises read-only `get_stopwatch_status` with no parameters. The direct probes
+require `run_intent`; the discovery probe requires successful `load_skill("run_intent")` returned
+to Gemma before `run_intent`. The natural `get_system_info_natural` case remains a separate
+dedicated top-level SDK-tool control.
 
-For these two cases only, the runner prefixes the selected prompt with
+`get_list_items` remains part of the model-callable catalogue and JVM discovery contract only.
+No device probe invokes it because it reads personal list data.
+
+For the safe probes, the runner prefixes the selected prompt with
 `__orchtest:safe_run_intent:`. The DEBUG-only chat path strips the prefix before model input,
 resets model context, omits profile/date/history/RAG context, and forces a recorded
-`FallThrough` without invoking QIR. It requires the model to be ready; it does not initialize
-the model or read the active conversation for the probe. During generation, the tool set allows
-only `load_skill("run_intent")` and `run_intent("get_date", {})`; all other tools and actions
+`FallThrough` without invoking QIR. If Gemma is not ready, this path calls `initGemma4()` before
+generation; if the model file is unavailable, the non-persistent loading reply ends the probe.
+During generation, the tool set allows only `load_skill("run_intent")` and empty-parameter
+`run_intent("get_date", {})` or `run_intent("get_stopwatch_status", {})`; all other tools/actions
 fail closed before skill lookup.
 
 These probes validate real-model tool execution under controlled debug fallthrough. They do not
@@ -93,7 +101,7 @@ Issue #1593's natural device-routing acceptance remains pending.
 
 The sandbox closes on every inference exit. Probe messages and the tool chip remain in memory:
 the path does not persist them, index them in RAG, or distil the active conversation on close.
-The runner fails if either safe case emits a saved-message marker.
+The runner fails if any safe probe emits a saved-message marker.
 
 The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
 controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
