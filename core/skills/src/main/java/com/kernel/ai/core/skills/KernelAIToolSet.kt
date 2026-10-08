@@ -656,7 +656,7 @@ class KernelAIToolSet @Inject constructor(
     @Tool(description = "Get current date/time and device runtime info including hardware tier, available memory, battery level, and device details. ALWAYS use this for current date, time, or day queries.")
     fun getSystemInfo(): Map<String, String> {
         val request = "{}"
-        val arguments = if (localDiagnosticCaptureEnabled) emptyMap() else null
+        val arguments = if (localDiagnosticCaptureEnabled) emptyMap<String, String>() else null
         if (isSafeModelTestActive()) {
             return denyInSafeModelTest("get_system_info", request, arguments)
         }

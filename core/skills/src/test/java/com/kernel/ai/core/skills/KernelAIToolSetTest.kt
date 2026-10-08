@@ -193,36 +193,79 @@ class KernelAIToolSetTest {
     }
 
     @Test
-    fun `safe model test sandbox denies other tools before dispatch and closes cleanly`() = runTest {
+    fun `safe model test sandbox denies other tools before dispatch and records blocked handoffs`() = runTest {
+        toolSet.beginLocalDiagnosticCapture()
         val scope = toolSet.beginSafeModelTestSandbox()
         try {
             assertEquals(
                 "Blocked by safe model-test allowlist",
                 toolSet.loadSkill("meal_planner")["error"],
             )
+            assertEquals("""{"skill_name":"meal_planner"}""", toolSet.lastToolRequest())
             val blockedCalls = listOf(
-                { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
-                { toolSet.runIntent("get_date_diff", "{}") },
-                { toolSet.runIntent("get_date", """{"format":"private"}""") },
-                { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
-                { toolSet.runJs("""{"skill_name":"private","data":{"value":"private test data"}}""") },
-                { toolSet.convertCurrency("10", "USD", "NZD") },
-                { toolSet.getWeather("private test location", "3") },
-                { toolSet.queryWikipedia("private test query") },
-                { toolSet.getSystemInfo() },
-                { toolSet.saveMemory("private test fact") },
-                { toolSet.searchMemory("private test query") },
+                """{"intent_name":"add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
+                """{"intent_name":"get_date_diff","parameters":{}}""" to
+                    { toolSet.runIntent("get_date_diff", "{}") },
+                """{"intent_name":"get_date","parameters":{"format":"private"}}""" to
+                    { toolSet.runIntent("get_date", """{"format":"private"}""") },
+                """{"intent_name":"bulk_add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
+                """{"skill_name":"private","data":{"value":"private test data"}}""" to
+                    { toolSet.runJs("""{"skill_name":"private","data":{"value":"private test data"}}""") },
+                """{"amount":"10","from_currency":"USD","to_currency":"NZD"}""" to
+                    { toolSet.convertCurrency("10", "USD", "NZD") },
+                """{"location":"private test location","forecast_days":"3"}""" to
+                    { toolSet.getWeather("private test location", "3") },
+                """{"query":"private test query"}""" to
+                    { toolSet.queryWikipedia("private test query") },
+                "{}" to { toolSet.getSystemInfo() },
+                """{"content":"private test fact"}""" to
+                    { toolSet.saveMemory("private test fact") },
+                """{"query":"private test query"}""" to
+                    { toolSet.searchMemory("private test query") },
             )
 
-            blockedCalls.forEach { call ->
+            blockedCalls.forEach { (expectedRequest, call) ->
                 toolSet.resetTurnState()
                 assertEquals("Blocked by safe model-test allowlist", call()["error"])
-                assertEquals("{}", toolSet.lastToolRequest())
+                assertEquals(expectedRequest, toolSet.lastToolRequest())
                 assertFalse(toolSet.lastToolWasDirectReply())
                 assertTrue(toolSet.terminalToolFailed())
             }
+
+            val snapshot = toolSet.finishLocalDiagnosticCapture()
+            assertEquals(
+                listOf(
+                    "load_skill",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_js",
+                    "convert_currency",
+                    "get_weather",
+                    "query_wikipedia",
+                    "get_system_info",
+                    "save_memory",
+                    "search_memory",
+                ),
+                snapshot.calls.map { it.name },
+            )
+            assertEquals((0..11).toList(), snapshot.calls.map { it.order })
+            assertTrue(
+                snapshot.calls.all {
+                    it.resultType == "Blocked" &&
+                        it.succeeded == false &&
+                        it.directReply == false &&
+                        it.returnedToGemma == true
+                },
+            )
+            assertEquals("private test query", snapshot.calls[8].arguments?.get("query"))
+            assertEquals("private test query", snapshot.calls[11].arguments?.get("query"))
         } finally {
             scope.close()
+            toolSet.finishLocalDiagnosticCapture()
         }
 
         verify(exactly = 0) { registry.get(any()) }
