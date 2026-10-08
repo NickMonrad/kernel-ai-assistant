@@ -661,7 +661,7 @@ fun ChatScreen(
                                     topP = topP,
                                     topK = topK,
                                     showThinkingProcess = showThinking,
-                                    speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: false,
+                                    speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: true,
                                 )
                                 viewModel.applyModelSettingsAndStartNewChat(draft)
                             },

@@ -3827,7 +3827,7 @@ class ChatViewModel @Inject constructor(
                     topP = draft.topP,
                     topK = draft.topK,
                     thinkingEnabled = draft.showThinkingProcess,
-                    speculativeDecodingEnabled = preApplyActiveSettings?.speculativeDecodingEnabled ?: false,
+                    speculativeDecodingEnabled = preApplyActiveSettings?.speculativeDecodingEnabled ?: true,
                     toolProvider = toolProvider,
                 )
 
