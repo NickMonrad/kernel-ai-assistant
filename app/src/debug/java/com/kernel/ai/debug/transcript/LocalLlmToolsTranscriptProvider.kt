@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.LocalToolCallDiagnostic
+import com.kernel.ai.core.skills.LocalGenerationAttemptDiagnostic
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -74,6 +75,12 @@ class LocalLlmToolsTranscriptProvider : ContentProvider() {
             put("messages", JSONArray().apply { messages.forEach { put(it.toDiagnosticJson()) } })
             put("tool_calls", JSONArray().apply { toolSnapshot.calls.forEach { put(it.toDiagnosticJson()) } })
             put("terminal_call", toolSnapshot.terminalCall?.toDiagnosticJson() ?: JSONObject.NULL)
+            put(
+                "generation_attempts",
+                JSONArray().apply {
+                    toolSnapshot.generationAttempts.forEach { put(it.toDiagnosticJson()) }
+                },
+            )
         }
         transcriptFile().writeText(json.toString(2), Charsets.UTF_8)
     }
@@ -99,6 +106,12 @@ class LocalLlmToolsTranscriptProvider : ContentProvider() {
         putNullable("succeeded", succeeded)
         putNullable("direct_reply", directReply)
         putNullable("returned_to_gemma", returnedToGemma)
+    }
+
+    private fun LocalGenerationAttemptDiagnostic.toDiagnosticJson(): JSONObject = JSONObject().apply {
+        put("order", order)
+        put("full_content", fullContent)
+        put("raw_thinking", rawThinking)
     }
 
     private fun dependencies(): LocalLlmToolsTranscriptEntryPoint = EntryPointAccessors.fromApplication(

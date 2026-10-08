@@ -26,9 +26,16 @@ data class LocalToolCallDiagnostic(
     val returnedToGemma: Boolean? = null,
 )
 
+data class LocalGenerationAttemptDiagnostic(
+    val order: Int,
+    val fullContent: String,
+    val rawThinking: String,
+)
+
 data class LocalToolDiagnosticSnapshot(
     val calls: List<LocalToolCallDiagnostic>,
     val terminalCall: LocalToolCallDiagnostic?,
+    val generationAttempts: List<LocalGenerationAttemptDiagnostic>,
 )
 
 /**
@@ -110,27 +117,48 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var terminalToolWasDirectReply: Boolean = false
     @Volatile private var terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
 
-    // Full tool data is retained only while the debug llm_tools harness explicitly arms capture.
+    // Full diagnostic data is retained only while the debug llm_tools harness explicitly arms capture.
     private val localDiagnosticLock = Any()
     private val localDiagnosticCalls = mutableListOf<LocalToolCallDiagnostic>()
+    private val localDiagnosticGenerationAttempts = mutableListOf<LocalGenerationAttemptDiagnostic>()
     @Volatile private var localDiagnosticCaptureEnabled = false
 
     fun beginLocalDiagnosticCapture() {
         synchronized(localDiagnosticLock) {
             localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
             localDiagnosticCaptureEnabled = true
         }
     }
 
-    /** Stops capture and clears the tool set's copy of the sensitive call data. */
+    /** Retains exact per-attempt model output only while the debug harness has armed capture. */
+    fun recordLocalGenerationAttempt(fullContent: CharSequence, rawThinking: CharSequence) {
+        if (!localDiagnosticCaptureEnabled) return
+        synchronized(localDiagnosticLock) {
+            if (localDiagnosticCaptureEnabled) {
+                localDiagnosticGenerationAttempts += LocalGenerationAttemptDiagnostic(
+                    order = localDiagnosticGenerationAttempts.size,
+                    fullContent = fullContent.toString(),
+                    rawThinking = rawThinking.toString(),
+                )
+            }
+        }
+    }
+
+    /** Stops capture and clears the tool set's copy of the sensitive diagnostic data. */
     fun finishLocalDiagnosticCapture(): LocalToolDiagnosticSnapshot {
-        val calls = synchronized(localDiagnosticLock) {
+        val (calls, generationAttempts) = synchronized(localDiagnosticLock) {
             localDiagnosticCaptureEnabled = false
-            localDiagnosticCalls.toList().also { localDiagnosticCalls.clear() }
+            val calls = localDiagnosticCalls.toList()
+            val generationAttempts = localDiagnosticGenerationAttempts.toList()
+            localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
+            calls to generationAttempts
         }
         return LocalToolDiagnosticSnapshot(
             calls = calls,
             terminalCall = calls.lastOrNull { it.terminal },
+            generationAttempts = generationAttempts,
         )
     }
 

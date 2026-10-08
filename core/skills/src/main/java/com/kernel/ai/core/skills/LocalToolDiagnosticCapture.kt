@@ -11,4 +11,7 @@ class LocalToolDiagnosticCapture @Inject constructor(
     fun begin() = toolSet.beginLocalDiagnosticCapture()
 
     fun finish(): LocalToolDiagnosticSnapshot = toolSet.finishLocalDiagnosticCapture()
+
+    fun recordGenerationAttempt(fullContent: CharSequence, rawThinking: CharSequence) =
+        toolSet.recordLocalGenerationAttempt(fullContent, rawThinking)
 }

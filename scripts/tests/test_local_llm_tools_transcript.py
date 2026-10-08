@@ -55,6 +55,18 @@ class LocalTranscriptTest(unittest.TestCase):
                 "returned_to_gemma": False,
             },
         ]
+        generation_attempts = [
+            {
+                "order": 0,
+                "full_content": "FAILED_ATTEMPT_OUTPUT_" + ("o" * 420),
+                "raw_thinking": "FAILED_ATTEMPT_THINKING_" + ("t" * 440),
+            },
+            {
+                "order": 1,
+                "full_content": "RETRY_OUTPUT_" + ("r" * 460),
+                "raw_thinking": "",
+            },
+        ]
         android_transcript = {
             "schema_version": 1,
             "conversation_id": "conversation-1",
@@ -82,6 +94,7 @@ class LocalTranscriptTest(unittest.TestCase):
             ],
             "tool_calls": calls,
             "terminal_call": calls[-1],
+            "generation_attempts": generation_attempts,
         }
         outcome = {"passed": True, "harness_reply_text": final_response}
 
@@ -136,6 +149,7 @@ class LocalTranscriptTest(unittest.TestCase):
         self.assertTrue(conversation["terminal_call"]["direct_reply"])
         self.assertFalse(conversation["terminal_call"]["returned_to_gemma"])
         self.assertEqual(final_response, conversation["final_visible_response"])
+        self.assertEqual(generation_attempts, conversation["generation_attempts"])
 
 
 class SanitizedReportRedactionTest(unittest.TestCase):
@@ -146,6 +160,8 @@ class SanitizedReportRedactionTest(unittest.TestCase):
             "PRIVATE_ARGUMENT_SENTINEL",
             "PRIVATE_TOOL_RESULT_SENTINEL",
             "PRIVATE_FINAL_RESPONSE_SENTINEL",
+            "PRIVATE_FAILED_ATTEMPT_OUTPUT_SENTINEL",
+            "PRIVATE_FAILED_ATTEMPT_THINKING_SENTINEL",
         )
         raw_case = {
             "name": "query_wikipedia_natural",
@@ -163,6 +179,13 @@ class SanitizedReportRedactionTest(unittest.TestCase):
             "chip_text": "query_wikipedia",
             "retry_seen": False,
             "slot_fill_seen": False,
+            "generation_attempts": [
+                {
+                    "order": 0,
+                    "full_content": private_values[5],
+                    "raw_thinking": private_values[6],
+                },
+            ],
         }
         public_case = normalise_case(raw_case, "success")
         self.assertEqual(

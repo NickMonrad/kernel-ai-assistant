@@ -94,9 +94,10 @@ Key `llm_tools`-specific report fields:
 Each real `llm_tools` case asks the debug build for a local transcript after the turn completes.
 The runner writes it under the ignored
 `scripts/test-reports/local_llm_tools_diagnostics/` directory. The transcript contains persisted
-user and assistant messages (including full thinking and tool-call metadata), full tool arguments
-and results in call order, direct-reply/returned-to-Gemma state, the final visible response, and
-the harness outcome.
+user and assistant messages (including full thinking and tool-call metadata), each generation
+attempt's exact output and raw thinking (including retries later replaced by guard fallbacks), full
+tool arguments and results in call order, direct-reply/returned-to-Gemma state, the final visible
+response, and the harness outcome.
 
 These files contain unredacted private conversation data. Keep them on the local test host; do not
 attach, upload, commit, or publish them. The debug-only provider uses app-private cache as a

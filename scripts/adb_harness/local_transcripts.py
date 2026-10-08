@@ -37,6 +37,8 @@ def build_local_llm_tools_transcript(
         raise ValueError("debug transcript is missing persisted messages")
     if not isinstance(android_transcript.get("tool_calls"), list):
         raise ValueError("debug transcript is missing tool calls")
+    if not isinstance(android_transcript.get("generation_attempts"), list):
+        raise ValueError("debug transcript is missing generation attempts")
     return {
         "schema_version": 1,
         "privacy": "local_only",
