@@ -194,6 +194,7 @@ class ListsViewModel @Inject constructor(
         private set
 
     private var itemSortLoadJob: Job? = null
+    private var collapsedParentPreferencesLoadJob: Job? = null
 
     /**
      * True while a hierarchy interaction is materialising the visible order and switching to
@@ -220,13 +221,18 @@ class ListsViewModel @Inject constructor(
         itemSortReadyForListId = null
         collapsedParentPreferencesReadyForListId = null
         itemSortLoadJob?.cancel()
+        collapsedParentPreferencesLoadJob?.cancel()
         itemSortLoadJob = viewModelScope.launch {
             val savedSort = listsUiPreferences.itemSortFor(listId)
-            val savedCollapsed = listsUiPreferences.collapsedParentItemIdsFor(listId)
             if (boundItemListId == listId) {
                 itemSort = savedSort
-                collapsedParentItemIds = savedCollapsed
                 itemSortReadyForListId = listId
+            }
+        }
+        collapsedParentPreferencesLoadJob = viewModelScope.launch {
+            val savedCollapsed = listsUiPreferences.collapsedParentItemIdsFor(listId)
+            if (boundItemListId == listId) {
+                collapsedParentItemIds = savedCollapsed
                 collapsedParentPreferencesReadyForListId = listId
             }
         }
@@ -735,7 +741,14 @@ class ListsViewModel @Inject constructor(
                 if (dragged.listId != listId) return@launch
                 if (itemSort != ItemSort.MANUAL) {
                     val baselineRows = pendingPlacement.resultGroups.flatMap { group ->
-                        listOf(ListMutationRepository.VisibleHierarchyRow(group.parent.id, null)) +
+                        listOf(
+                            ListMutationRepository.VisibleHierarchyRow(
+                                rowId = group.parent.id,
+                                parentRowId = null,
+                                reparent = group.parent.id == pendingPlacement.draggedRowId &&
+                                    pendingPlacement.reparents,
+                            ),
+                        ) +
                             group.children.map { child ->
                                 ListMutationRepository.VisibleHierarchyRow(
                                     rowId = child.id,

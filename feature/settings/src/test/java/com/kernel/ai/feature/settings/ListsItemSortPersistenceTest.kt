@@ -529,6 +529,40 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
+    fun `automatic hierarchy materialisation promotes a child to top level`() {
+        val parent = row(1L, "stable-parent", "0")
+        val child = row(2L, "stable-child", "0", parentItemId = parent.itemId)
+        val other = row(3L, "stable-other", "1")
+        val rows = listOf(parent, child, other)
+        rows.forEach { coEvery { dao.getById(it.id) } returns it }
+        coEvery { dao.getAllByListUnordered(1L) } returns rows
+        coEvery { listMutations.applyVisibleHierarchyOrder(1L, any()) } returns CheckedStateMutation()
+        val viewModel = openList(1L)
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        viewModel.moveItemFromDrag(
+            1L,
+            pendingPlacement(
+                rows = rows,
+                draggedRowId = child.id,
+                target = HierarchyDropTarget.TopLevelInsertion(beforeParentRowId = other.id),
+            ),
+        )
+
+        coVerify {
+            listMutations.applyVisibleHierarchyOrder(
+                1L,
+                listOf(
+                    ListMutationRepository.VisibleHierarchyRow(parent.id, null),
+                    ListMutationRepository.VisibleHierarchyRow(child.id, null, reparent = true),
+                    ListMutationRepository.VisibleHierarchyRow(other.id, null),
+                ),
+            )
+        }
+        assertEquals(ItemSort.MANUAL, viewModel.itemSort)
+    }
+
+    @Test
     fun `collapse all persists every effective parent including completed groups`() {
         val activeParent = row(1L, "active-parent", "0")
         val activeChild = row(2L, "active-child", "0", parentItemId = activeParent.itemId)
@@ -729,5 +763,30 @@ class ListsItemSortPersistenceTest {
 
         assertEquals(DEFAULT_ITEM_SORT, runBlocking { preferences.itemSortFor(1L) })
         assertEquals(DEFAULT_ITEM_SORT, viewModel.itemSort)
+    }
+
+    @Test
+    fun `sort selection during restore still completes collapsed preference restore`() {
+        val gated = GatedPreferencesDataStore()
+        val expectedCollapsed = setOf("stable-parent")
+        runBlocking {
+            testListsUiPreferences(dispatcher, gated)
+                .setCollapsedParentItemIds(1L, expectedCollapsed)
+        }
+        val viewModel = viewModelOn(gated)
+
+        viewModel.bindItemList(1L)
+        assertEquals(null, viewModel.collapsedParentPreferencesReadyForListId)
+
+        viewModel.selectItemSort(ItemSort.NAME_ASC)
+
+        assertEquals(1L, viewModel.itemSortReadyForListId)
+        assertEquals(ItemSort.NAME_ASC, viewModel.itemSort)
+        assertEquals(null, viewModel.collapsedParentPreferencesReadyForListId)
+
+        gated.release()
+
+        assertEquals(expectedCollapsed, viewModel.collapsedParentItemIds)
+        assertEquals(1L, viewModel.collapsedParentPreferencesReadyForListId)
     }
 }

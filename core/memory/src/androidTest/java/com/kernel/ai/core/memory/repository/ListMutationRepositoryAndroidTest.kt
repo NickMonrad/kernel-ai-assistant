@@ -652,6 +652,28 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `materialising a child at top level clears its parent`() = runBlocking {
+        val listId = repository.createCollection("Visible top-level promotion")
+        val parentId = repository.addItem(listId, "Parent")
+        val childId = repository.addItem(listId, "Child")
+        val otherId = repository.addItem(listId, "Other")
+        val parent = database.listItemDao().getById(parentId)!!
+        repository.setItemPlacement(childId, parent.itemId, "1")
+
+        repository.applyVisibleHierarchyOrder(
+            listId,
+            listOf(
+                ListMutationRepository.VisibleHierarchyRow(parentId, null),
+                ListMutationRepository.VisibleHierarchyRow(childId, null, reparent = true),
+                ListMutationRepository.VisibleHierarchyRow(otherId, null),
+            ),
+        )
+
+        assertEquals(null, database.listItemDao().getById(childId)!!.parentItemId)
+        assertEquals(listOf("Parent", "Child", "Other"), effectiveRowTexts(listId))
+    }
+
+    @Test
     fun `a suppressed requested parent survives materialising an unrelated visible order`() = runBlocking {
         val listId = repository.createCollection("Suppressed edge")
         val collectionId = database.listNameDao().getById(listId)!!.collectionId
