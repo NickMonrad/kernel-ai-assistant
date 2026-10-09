@@ -107,8 +107,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -1233,8 +1231,10 @@ fun ListItemsScreen(
 
     // ── Edit bottom sheet ────────────────────────────────────────────────────────────────────────
     editingItem?.let { item ->
-        EditItemSheet(
+        ItemDetailsSheet(
             item = item,
+            title = "Edit item",
+            primaryActionLabel = "Save",
             canAddSubItem = !isRemoteReadOnly && completeGroups.any { it.parent.id == item.id },
             onAddSubItem = {
                 addSubItemParentId = item.itemId
@@ -1263,21 +1263,40 @@ fun ListItemsScreen(
         )
     }
 
-    // ── Add item dialog ──────────────────────────────────────────────────────────────────────────
+    // ── Add item details sheet ───────────────────────────────────────────────────────────────────
     if (showAddDialog) {
-        AddItemDialog(
-            title = if (addSubItemParentId == null) "Add item" else "Add sub-item",
-            placeholder = if (addSubItemParentId == null) "Item name" else "Sub-item name",
-            onConfirm = { text ->
-                val parentItemId = addSubItemParentId
+        val parentItemId = addSubItemParentId
+        val newItemDraft = remember(listId) { ListItemEntity(listId = listId, text = "") }
+        ItemDetailsSheet(
+            item = newItemDraft,
+            title = if (parentItemId == null) "Add item" else "Add sub-item",
+            primaryActionLabel = "Add",
+            canAddSubItem = false,
+            onAddSubItem = {},
+            onSave = { created ->
                 showAddDialog = false
                 addSubItemParentId = null
                 if (parentItemId == null) {
-                    viewModel.addItem(listId, text) { createdItemId ->
+                    viewModel.addItem(
+                        listId = listId,
+                        itemText = created.text,
+                        description = created.description,
+                        dueAt = created.dueAt,
+                        isFavourite = created.isFavourite,
+                        notificationTime = created.notificationTime,
+                    ) { createdItemId ->
                         pendingCreatedItemIds.add(createdItemId)
                     }
                 } else {
-                    viewModel.addSubItem(listId, parentItemId, text) { createdItemId ->
+                    viewModel.addSubItem(
+                        listId = listId,
+                        parentItemId = parentItemId,
+                        itemText = created.text,
+                        description = created.description,
+                        dueAt = created.dueAt,
+                        isFavourite = created.isFavourite,
+                        notificationTime = created.notificationTime,
+                    ) { createdItemId ->
                         pendingCreatedItemIds.add(createdItemId)
                     }
                 }
@@ -1863,12 +1882,14 @@ internal fun ListItemRow(
     }
 }
 
-// ── Edit bottom sheet ─────────────────────────────────────────────────────────────────────────────
+// ── Shared item details bottom sheet ────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditItemSheet(
+internal fun ItemDetailsSheet(
     item: ListItemEntity,
+    title: String = "Edit item",
+    primaryActionLabel: String = "Save",
     canAddSubItem: Boolean,
     onAddSubItem: () -> Unit,
     onSave: (ListItemEntity) -> Unit,
@@ -1897,14 +1918,14 @@ private fun EditItemSheet(
                 .imePadding()
                 .padding(horizontal = 24.dp),
         ) {
-            Text("Edit item", style = MaterialTheme.typography.titleMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(16.dp))
 
             // Text field
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("list_item_details_title"),
                 label = { Text("Item") },
                 minLines = 3,
                 maxLines = 6,
@@ -1913,7 +1934,7 @@ private fun EditItemSheet(
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("list_item_details_description"),
                 label = { Text("Description") },
                 minLines = 3,
                 maxLines = 8,
@@ -1990,6 +2011,7 @@ private fun EditItemSheet(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Switch(
+                    modifier = Modifier.testTag("list_item_details_favourite_switch"),
                     checked = isFavourite,
                     onCheckedChange = { isFavourite = it },
                 )
@@ -2064,9 +2086,13 @@ private fun EditItemSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("list_item_details_cancel"),
+                ) { Text("Cancel") }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
+                    modifier = Modifier.testTag("list_item_details_save"),
                     onClick = {
                         onSave(
                             item.copy(
@@ -2079,7 +2105,7 @@ private fun EditItemSheet(
                         )
                     },
                     enabled = text.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(primaryActionLabel) }
             }
 
             // Navigation bar clearance
@@ -2165,41 +2191,4 @@ private fun EditItemSheet(
             },
         )
     }
-}
-
-// ── Add item dialog ───────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun AddItemDialog(
-    title: String,
-    placeholder: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    val focusRequester = remember { FocusRequester() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                placeholder = { Text(placeholder) },
-                singleLine = true,
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(text) },
-                enabled = text.isNotBlank(),
-            ) { Text("Add") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
 }

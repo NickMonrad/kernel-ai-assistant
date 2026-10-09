@@ -18,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -646,10 +647,21 @@ class ListsItemSortPersistenceTest {
     }
 
     @Test
-    fun `adding a sub-item expands its parent without changing sort and reveals the created ID`() {
+    fun `adding a sub-item expands parent, keeps sort, reveals ID, and preserves create details`() {
         val parent = row(1L, "stable-parent", "0")
+        val dueAt = 1_900_000_000_000L
+        val notificationTime = dueAt - 60_000L
+        val description = "Child notes\nhttps://example.com/child"
         coEvery {
-            listMutations.addSubItem(1L, parent.itemId, "new child")
+            listMutations.addSubItem(
+                1L,
+                parent.itemId,
+                "new child",
+                dueAt,
+                notificationTime,
+                description,
+                true,
+            )
         } returns AddedSubItem(itemId = 42L, checkedStateMutation = CheckedStateMutation())
         val viewModel = openList(1L)
         viewModel.selectItemSort(ItemSort.DUE_SOONEST)
@@ -658,7 +670,15 @@ class ListsItemSortPersistenceTest {
         viewModel.setItemSearchQuery("parent")
         var createdItemId: Long? = null
 
-        viewModel.addSubItem(1L, parent.itemId, " new child ") { createdItemId = it }
+        viewModel.addSubItem(
+            1L,
+            parent.itemId,
+            " new child ",
+            description,
+            dueAt,
+            true,
+            notificationTime,
+        ) { createdItemId = it }
 
         assertEquals(42L, createdItemId)
         assertEquals(ItemSort.DUE_SOONEST, viewModel.itemSort)
@@ -666,8 +686,24 @@ class ListsItemSortPersistenceTest {
         assertEquals(ItemFilter.ALL, viewModel.itemFilter)
         assertEquals("", viewModel.itemSearchQuery.value)
         assertEquals(emptySet<String>(), viewModel.collapsedParentItemIds)
-        assertEquals(emptySet<String>(), runBlocking { testListsUiPreferences(dispatcher, store).collapsedParentItemIdsFor(1L) })
-        coVerify { listMutations.addSubItem(1L, parent.itemId, "new child") }
+        assertEquals(
+            emptySet<String>(),
+            runBlocking { testListsUiPreferences(dispatcher, store).collapsedParentItemIdsFor(1L) },
+        )
+        coVerify {
+            listMutations.addSubItem(
+                1L,
+                parent.itemId,
+                "new child",
+                dueAt,
+                notificationTime,
+                description,
+                true,
+            )
+        }
+        verify {
+            scheduler.schedule(42L, "new child", 1L, "", notificationTime)
+        }
     }
 
     private fun pendingPlacement(
