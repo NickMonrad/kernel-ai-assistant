@@ -3396,8 +3396,12 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
+                // LiteRT can throw while continuing after load_skill, before Complete schedules a
+                // separate incomplete-chain retry, so also recognize success in this attempt.
                 if (!turnCancellationRequest.get() &&
-                    incompleteChainContinuationPending && kernelAIToolSet.terminalToolName() == null
+                    (incompleteChainContinuationPending ||
+                        kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
+                    kernelAIToolSet.terminalToolName() == null
                 ) {
                     localToolDiagnosticCapture.recordGenerationAttempt(
                         accumulatedContent.toString(),
