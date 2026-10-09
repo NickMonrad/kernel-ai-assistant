@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -14,6 +15,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -54,6 +56,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
+import io.mockk.clearMocks
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
@@ -474,6 +477,110 @@ class ChatViewModelQuickIntentRouterTest {
         advanceUntilIdle()
     }
 
+    @Test
+    fun `debug safe run-intent marker initializes a cold engine before generation and closes sandbox`() = runTest(dispatcher) {
+        val input = "What day and date is it today, and what is the current local time on this device?"
+        val marker = "__orchtest:safe_run_intent:"
+        val router = mockk<QuickIntentRouter>()
+        val generationPrompts = mutableListOf<String>()
+        val systemPrompts = mutableListOf<String>()
+        var sandboxOpened = false
+        var sandboxClosed = false
+        val engineReady = MutableStateFlow(false)
+        val modelEvents = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns engineReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns false
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns
+            "/models/gemma-4-E4B-it.litertlm"
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns
+            ModelSettingsEntity(
+                modelId = "gemma_4_e4b",
+                contextWindowSize = 8192,
+                temperature = 0.7f,
+                topP = 0.9f,
+                topK = 64,
+                showThinkingProcess = true,
+                speculativeDecodingEnabled = false,
+                updatedAt = 1L,
+            )
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            modelEvents += "initialize"
+            engineReady.value = true
+        }
+
+        coEvery { userProfileRepository.get() } returns "PRIVATE_PROFILE_MARKER"
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            modelEvents += "generate"
+            flowOf(
+                GenerationResult.Token("It's 12:00 on Monday, 1 June 2026"),
+                GenerationResult.Complete(durationMs = 1L),
+            )
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(capture(systemPrompts)) } just runs
+        every { kernelAIToolSet.beginSafeModelTestSandbox() } answers {
+            sandboxOpened = true
+            AutoCloseable { sandboxClosed = true }
+        }
+
+        val viewModel = createViewModel(router)
+
+        val viewModelStore = ViewModelStore().apply { put("safe-run-intent", viewModel) }
+        advanceUntilIdle()
+        assertFalse(engineReady.value)
+        coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+        clearMocks(
+            userProfileRepository,
+            ragRepository,
+            mealPlanSessionRepository,
+            conversationRepository,
+            router,
+            recordedCalls = true,
+            answers = false,
+        )
+
+        viewModel.onInputChanged(marker + input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(sandboxOpened)
+        assertTrue(sandboxClosed)
+        verify(exactly = 0) { router.route(any()) }
+        verify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertEquals(listOf("initialize", "generate"), modelEvents)
+        coVerify(exactly = 1) { inferenceEngine.initialize(any()) }
+        assertTrue(engineReady.value)
+        coVerify(exactly = 0) { userProfileRepository.get() }
+        coVerify(exactly = 0) { conversationRepository.getMessagesOnce(any()) }
+        coVerify(exactly = 0) { ragRepository.getRelevantContext(any(), any(), any()) }
+        coVerify(exactly = 0) {
+            mealPlanSessionRepository.hasActiveSessionForConversation(any())
+        }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
+        coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), any(), any(), any(), any())
+        }
+
+        val safeSystemPrompt = systemPrompts.last()
+        assertFalse(safeSystemPrompt.contains("PRIVATE_PROFILE_MARKER"))
+        assertFalse(safeSystemPrompt.contains("[Current date and time]"))
+        val inferencePrompt = generationPrompts.single()
+        assertTrue(inferencePrompt.contains(input))
+        assertFalse(inferencePrompt.contains(marker))
+        val chatText = viewModel.getConversationAsText()
+        assertTrue(chatText.contains(input))
+        assertFalse(chatText.contains(marker))
+        assertTrue(chatText.contains("12:00"))
+        viewModelStore.clear()
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), any(), any(), any(), any())
+        }
+        coVerify(exactly = 0) { mealPlanSessionRepository.hasAnySessionForConversation(any()) }
+        coVerify(exactly = 0) { episodicDistillationUseCase.distil(any(), any()) }
+
+    }
+
     private suspend fun TestScope.submitWeatherCapabilityRequest(): ChatViewModel {
         weatherSkillResult = SkillResult.CapabilityRequired(
             capabilityKey = CapabilityKey.WeatherCurrentLocation,
@@ -487,7 +594,7 @@ class ChatViewModelQuickIntentRouterTest {
         return viewModel
     }
 
-    private fun createViewModel(): ChatViewModel = ChatViewModel(
+    private fun createViewModel(router: QuickIntentRouter = realRouter): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         chatPreferences = chatPreferences,
         authRepository = authRepository,
@@ -501,7 +608,7 @@ class ChatViewModelQuickIntentRouterTest {
         modelSettingsRepository = modelSettingsRepository,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
-        quickIntentRouter = realRouter,
+        quickIntentRouter = router,
         intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         intentContractRegistry = IntentContractRegistry(),
         slotFillerManager = slotFillerManager,

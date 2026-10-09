@@ -18,7 +18,7 @@ It does **not** test:
 
 ## What it validates
 
-For each of the 3 golden prompts, the harness checks:
+For every selected golden prompt, the harness checks:
 
 1. **Route to Gemma** — the harness confirms a `llm_tools_route` marker was emitted,
    indicating the query reached Gemma (via fallthrough from deterministic QIR/classifier paths)
@@ -26,7 +26,8 @@ For each of the 3 golden prompts, the harness checks:
    text-format tool call
 3. **Correct tool** — the expected top-level tool name matches the actual tool called
 4. **Result observability** — the tool execution result is logged via `llm_tools_skill_result`
-5. **Message persistence** — the tool call message is saved in chat history
+5. **Persistence policy** — normal cases require a saved tool-call message; isolated safe probes
+   require no persisted marker.
 6. **UI evidence** — a chip for the tool call is visible on screen
 7. **No retry** — no unexpected hallucination retry path was triggered
 8. **No slot fill** — no QIR slot-fill or confirmation path was used
@@ -37,7 +38,16 @@ For each of the 3 golden prompts, the harness checks:
 |------|--------|--------------|------------------|
 | `query_wikipedia_natural` | "Look up the history of the Battle of Hastings on Wikipedia for me" | `query_wikipedia` | `no_regex_match=True`, `no_classifier=True`, `no_slot_fill=True`, `no_retry=True` |
 | `save_memory_durable_fact` | "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning" | `save_memory` | Same + `content` field must be present and non-empty |
-| `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Same, no tool arguments expected |
+| `run_intent_get_stopwatch_status_direct` | "Please check whether the device stopwatch is currently running and report its status without starting, pausing, or resetting it. Use the read-only run_intent get_stopwatch_status action with empty parameters." | `run_intent` | Debug-only isolated probe; nested action `get_stopwatch_status`; ordered sequence `run_intent`; read-only `direct_reply` reports stopwatch status |
+| `run_intent_get_stopwatch_status_after_skill_load` | "Please read the run_intent instructions first, then check whether the device stopwatch is running and report its status. Do not start, pause, or reset it." | `run_intent` | Controlled fallthrough; `load_skill` succeeds and returns to Gemma; ordered sequence `load_skill → run_intent`; nested action `get_stopwatch_status`; successful `direct_reply` reports status |
+| `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
+
+Both run_intent probes exercise the read-only `get_stopwatch_status` action; the discovery
+probe first loads the skill as requested. Only the exact normalized alias `get_watch_status`
+maps to `get_stopwatch_status`; all other unknown or ambiguous intent names remain unchanged.
+The date/time route is not used because `get_system_info` explicitly owns current date/time/day
+queries. Do not use `get_date_diff` for safety acceptance: its native implementation may consult
+Important Dates.
 
 ## Runtime markers
 
@@ -52,6 +62,77 @@ These are the structured logcat markers the harness reads. They are emitted by t
 | `llm_tools_skill_result` | `skill_result_marker` | `skill=... mode=<mode> success=<bool>` | `skill={"name":"query_wikipedia",...} mode=direct_reply success=true` |
 | `llm_tools_message_toolcall_saved` | `message_saved_marker` | `id=<uuid> tool=<name>` | `id=7e195582-... tool=query_wikipedia` |
 | `tool_chip_visible` | `chip_text` | `tool=<name>` | `tool=query_wikipedia` |
+| `event_seq` | `tool_event_evidence` | `tool_call` or `tool_result` name and safe result fields | `tool_result name=load_skill resultType=Success ...` |
+| `llm_tools_tool_sequence` | `tool_sequence_marker` | `attempt=<tool> turn=<ordered tools> terminal=<tool>` | `attempt=run_intent turn=load_skill>run_intent terminal=run_intent` |
+
+## Fresh per-case log boundary
+
+Before each prompt, the harness force-stops the app, emits a unique boundary marker, waits for the persistent logcat reader to observe it, and seeds that synchronized snapshot into the marker poll.
+Each case requires exactly one `ADB_INTENT_TRACE` input marker matching that prompt's logged 120-character prefix. Polling stops immediately on a mismatched or duplicate prompt; a missing marker fails closed at timeout. This excludes delayed preflight output and prevents another session's prompt/tool events from being attributed to the case.
+
+## Ordered tool-sequence evidence (#1593)
+
+Natural stopwatch-status prompts belong to QIR's `FAST_PATH_INTENTS`. Both stopwatch probes
+use controlled DEBUG fallthrough to exercise real tool execution; neither claims an ordinary
+prompt naturally misses QIR. `get_date_diff` is not used for the personal-data-safe device path
+because its native handler may consult Important Dates; its parameter contract remains in
+`RunIntentSkill`, and natural date-difference prompts remain covered by
+`QuickIntentRouterNegativeTest`.
+
+The direct and discovery probes both use read-only `get_stopwatch_status` with no parameters.
+The direct probe requires `run_intent`; the discovery probe requires successful
+`load_skill("run_intent")` returned to Gemma before `run_intent`. The natural
+`get_system_info_natural` case remains a separate dedicated top-level SDK-tool control.
+
+`get_list_items` remains part of the model-callable catalogue and JVM discovery contract only.
+No device probe invokes it because it reads personal list data.
+
+For the safe probes, the runner prefixes the selected prompt with
+`__orchtest:safe_run_intent:`. The DEBUG-only chat path strips the prefix before model input,
+resets model context, omits profile/date/history/RAG context, and forces a recorded
+`FallThrough` without invoking QIR. If Gemma is not ready, this path calls `initGemma4()` before
+generation; if the model file is unavailable, the non-persistent loading reply ends the probe.
+During generation, the tool set allows only `load_skill("run_intent")` and empty-parameter
+`run_intent("get_stopwatch_status", {})`; all other tools/actions fail closed before skill lookup.
+
+These probes validate real-model tool execution under controlled debug fallthrough. They do not
+claim an ordinary prompt naturally misses QIR or the classifier; normal routing is unchanged.
+Issue #1593's natural device-routing acceptance remains pending.
+
+The sandbox closes on every inference exit. Probe messages and the tool chip remain in memory:
+the path does not persist them, index them in RAG, or distil the active conversation on close.
+The runner fails if any safe probe emits a saved-message marker.
+
+The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
+controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
+
+For cases with `expected_tool_sequence`, the runner requires:
+
+- the last `llm_tools_tool_sequence` marker's `turn=` value to equal the expected order;
+- matching ordered `event_seq: tool_call` and `event_seq: tool_result` records;
+- the expected `load_skill.skill_name` and `run_intent.intent_name` targets;
+- `load_skill` to return `resultType=Success` and `returnedToGemma=true`;
+- the terminal result and `llm_tools_skill_result` to succeed, the terminal tool chip to
+  match, and a non-empty final reply with no raw tool protocol or loaded instructions;
+- every `expected_reply_contains_all` term to appear in the final reply.
+
+The JVM retry-state tests arm local diagnostics for a successful `load_skill` whose generation
+flow closes normally without `Complete`; they verify the captured attempt and one targeted
+continuation. If that continuation throws, the tests verify the persisted action-failure reply
+and logged `terminal=none` chain state. `DirectReply` remains terminal.
+
+The report stores `tool_sequence_marker` and sanitized `tool_event_evidence`. Event evidence
+contains event name, tool name, `skill_name` only for `load_skill`, and `intent_name` only
+for `run_intent`, plus result type, direct-reply flag, and handoff flag. It omits raw
+arguments and result content.
+
+The runtime log forms are:
+
+```text
+event_seq: tool_call name=load_skill args=<omitted>
+event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=<omitted>
+llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
+```
 
 ## Result mode assertions
 
@@ -60,12 +141,12 @@ Each case expects a specific result mode, encoded in the `llm_tools_skill_result
 | Mode | Meaning | Expected for |
 |------|---------|-------------|
 | `success` | Tool executed and returned a result | `save_memory` |
-| `direct_reply` | Tool result was streamed directly as a chat reply | `query_wikipedia`, `get_system_info` |
+| `direct_reply` | Tool result was streamed directly as a chat reply | `query_wikipedia`, `get_system_info`, `run_intent` |
 | `failure` | Tool execution failed | Not expected for golden prompts; seen during development |
 
-The `query_wikipedia` and `get_system_info` cases expect `direct_reply` because the tool
-execution result is streamed directly as a chat reply. The `save_memory` case expects
-`success` because the memory save operation confirms persistence.
+The `query_wikipedia`, `get_system_info`, and read-only `run_intent` cases expect
+`direct_reply` because their tool execution result is streamed directly as a chat reply.
+The `save_memory` case expects `success` because the memory save operation confirms persistence.
 
 ## Report format
 
@@ -87,6 +168,10 @@ Key `llm_tools`-specific report fields:
 | `slot_fill_seen` | bool | Whether a slot-fill/confirmation marker was found |
 | `chip_text` | string or null | UI chip text for the tool call |
 | `failures` | array of strings | Descriptive failure messages |
+| `expected_tool_sequence` | array of tool names or null | Required ordered SDK calls for the case |
+| `actual_tool_sequence` | array of tool names or null | Parsed from the last turn-level sequence marker |
+| `tool_sequence_marker` | string or null | Safe `attempt`/`turn`/`terminal` summary from the last sequence marker |
+| `tool_event_evidence` | array of sanitized objects | Ordered `tool_call`/`tool_result` names and safe result metadata; excludes raw arguments/content |
 
 
 ## Local diagnostic transcripts
