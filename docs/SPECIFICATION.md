@@ -126,7 +126,10 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 - **Window:** 4,000 tokens (Performance) / 2,000 tokens (Compatibility)
 - **Proactive reset:** At ~75% capacity, `ChatViewModel` injects history-aware system prompt
   and resets the conversation, preserving selected turns
-- **Token estimation:** `ContextWindowManager.estimateTokens()` (~4 chars/token heuristic)
+- **Token estimation:** `ContextWindowManager.estimateTokens()` (~3 chars/token heuristic).
+  History selection subtracts the estimated system prompt and tool-declaration cost plus the
+  response reserve; LiteRT prefill measurements calibrate tool cost when available, and context-use
+  estimates include the fixed prompt.
 - **Cancel generation:** Tapping cancel clears the stuck spinner and resets the LiteRT
   conversation state (`#28`). Without this fix, a cancelled generation would leave the UI
   in a perpetual loading state with stale LiteRT conversation context.
