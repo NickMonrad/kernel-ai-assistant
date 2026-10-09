@@ -159,6 +159,10 @@ class KernelAIToolSet @Inject constructor(
     companion object {
         /** The single non-terminal internal-only tool name. */
         private const val LOAD_SKILL_NAME = "load_skill"
+        // E4B sometimes omits "stop" when naming the stopwatch status action.
+        private val RUN_INTENT_NAME_ALIASES =
+            mapOf("getwatchstatus" to "get_stopwatch_status")
+
         internal fun resolveRunIntentName(
             intentName: String,
             callableIntents: List<String> = RunIntentSkill.MODEL_CALLABLE_INTENTS,
@@ -166,7 +170,11 @@ class KernelAIToolSet @Inject constructor(
             if (intentName in callableIntents) return intentName
             val normalized = normalizeIntentName(intentName)
             val matches = callableIntents.filter { normalizeIntentName(it) == normalized }
-            return matches.singleOrNull() ?: intentName
+            matches.singleOrNull()?.let { return it }
+            if (matches.isNotEmpty()) return intentName
+            return RUN_INTENT_NAME_ALIASES[normalized]
+                ?.takeIf { it in callableIntents }
+                ?: intentName
         }
 
         private fun normalizeIntentName(intentName: String): String =

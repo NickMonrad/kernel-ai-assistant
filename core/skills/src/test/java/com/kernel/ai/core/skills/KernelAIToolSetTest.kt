@@ -178,6 +178,42 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `watch-status alias requires the canonical callable intent`() {
+        val alias = "get_watch_status"
+
+        assertEquals("get_stopwatch_status", KernelAIToolSet.resolveRunIntentName(alias))
+        assertEquals(
+            "get_stopwatch_status",
+            KernelAIToolSet.resolveRunIntentName("GET-WATCH STATUS"),
+        )
+        assertEquals(alias, KernelAIToolSet.resolveRunIntentName(alias, listOf("get_date")))
+    }
+
+    @Test
+    fun `watch-status alias does not override ambiguity or near misses`() {
+        val ambiguousInput = "GET WATCH STATUS"
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(
+                ambiguousInput,
+                listOf("get_watch_status", "get-watch-status", "get_stopwatch_status"),
+            ),
+        )
+
+        listOf("watch_status", "get_watch", "get_watches_status", "get_watch_statuses")
+            .forEach { nearMiss ->
+                assertEquals(nearMiss, KernelAIToolSet.resolveRunIntentName(nearMiss))
+            }
+    }
+
+    @Test
+    fun `unknown names remain unchanged with watch-status alias`() {
+        val unknown = "unknown_action"
+
+        assertEquals(unknown, KernelAIToolSet.resolveRunIntentName(unknown))
+    }
+
+    @Test
     fun `unknown runIntent name still fails through skill validation`() = runTest {
         val runIntent = mockk<Skill>()
         every { runIntent.name } returns "run_intent"
@@ -224,7 +260,7 @@ class KernelAIToolSetTest {
             assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
             assertEquals(
                 "Stopwatch is not running",
-                toolSet.runIntent("get_stop_watch_status", "{}")["result"],
+                toolSet.runIntent("get_watch_status", "{}")["result"],
             )
             assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
             assertTrue(toolSet.terminalToolSucceeded())

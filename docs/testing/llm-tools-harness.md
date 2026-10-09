@@ -43,9 +43,11 @@ For every selected golden prompt, the harness checks:
 | `get_system_info_natural` | "Can you inspect this device and summarise its current system status?" | `get_system_info` | Dedicated top-level tool remains available; ordered sequence `get_system_info`; direct reply |
 
 Both run_intent probes exercise the read-only `get_stopwatch_status` action; the discovery
-probe first loads the skill as requested. The date/time route is not used because
-`get_system_info` explicitly owns current date/time/day queries. Do not use `get_date_diff` for
-safety acceptance: its native implementation may consult Important Dates.
+probe first loads the skill as requested. Only the exact normalized alias `get_watch_status`
+maps to `get_stopwatch_status`; all other unknown or ambiguous intent names remain unchanged.
+The date/time route is not used because `get_system_info` explicitly owns current date/time/day
+queries. Do not use `get_date_diff` for safety acceptance: its native implementation may consult
+Important Dates.
 
 ## Runtime markers
 
