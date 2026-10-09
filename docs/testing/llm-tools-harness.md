@@ -114,6 +114,11 @@ For cases with `expected_tool_sequence`, the runner requires:
   match, and a non-empty final reply with no raw tool protocol or loaded instructions;
 - every `expected_reply_contains_all` term to appear in the final reply.
 
+The JVM retry-state tests arm local diagnostics for a successful `load_skill` whose generation
+flow closes normally without `Complete`; they verify the captured attempt and one targeted
+continuation. If that continuation throws, the tests verify the persisted action-failure reply
+and logged `terminal=none` chain state. `DirectReply` remains terminal.
+
 The report stores `tool_sequence_marker` and sanitized `tool_event_evidence`. Event evidence
 contains event name, tool name, `skill_name` only for `load_skill`, and `intent_name` only
 for `run_intent`, plus result type, direct-reply flag, and handoff flag. It omits raw

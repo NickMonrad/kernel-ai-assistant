@@ -52,6 +52,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -762,5 +763,73 @@ class ChatViewModelRetryStateMachineTest {
         // Two attempts — generic blank guard
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
         assertTrue(savedContents.any { it.contains("Hello! How can I help?") })
+    }
+
+    @Test
+    fun `K successful load_skill continues when generation flow ends without Complete`() = runTest(dispatcher) {
+        setupLoadSkill()
+        setupRunIntent()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flow { realToolSet.loadSkill("run_intent") },
+            toolChainFlow(
+                tokens = listOf("Alarm set"),
+                chain = { realToolSet.runIntent("set_alarm", """{"hour":"7"}""") },
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertEquals(listOf("load_skill", "run_intent"), snapshot.calls.map { it.name })
+        assertEquals(listOf(true, false), snapshot.calls.map { it.returnedToGemma })
+        assertEquals("run_intent", realToolSet.terminalToolName())
+        assertEquals("Alarm set", savedContents.last())
+    }
+
+    @Test
+    fun `L Status 9 after load_skill persists failure and captures terminal state`() = runTest(dispatcher) {
+        setupLoadSkill()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            toolChainFlow(chain = { realToolSet.loadSkill("run_intent") }),
+            flow { throw IllegalStateException("Status 9: Prefill input length exceeds available state entries") },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertTrue(savedContents.last().contains("wasn't able to complete that action"))
+        assertTrue(viewModel.getConversationAsText().contains("wasn't able to complete that action"))
+        assertEquals(listOf("load_skill"), snapshot.calls.map { it.name })
+        assertEquals(true, snapshot.calls.single().returnedToGemma)
+        assertNull(snapshot.terminalCall)
+        assertEquals(2, snapshot.generationAttempts.size)
+        assertNull(realToolSet.terminalToolName())
+        verify {
+            Log.d("KernelAI", "llm_tools_tool_sequence: attempt=none turn=load_skill terminal=none")
+        }
     }
 }

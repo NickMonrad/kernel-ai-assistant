@@ -2891,6 +2891,23 @@ class ChatViewModel @Inject constructor(
                 // skill early-returns, model-not-ready bail-outs, and the normal fall-through.
                 _isLoadingModel.value = false
             }
+            var incompleteChainContinuationPending = false
+            suspend fun persistHonestActionFailure(thinking: String?) {
+                _messages.update { msgs ->
+                    msgs.map {
+                        if (it.id == assistantMsgId) {
+                            it.copy(content = HONEST_ACTION_FAILURE, isStreaming = false)
+                        } else it
+                    }
+                }
+                if (!safeRunIntentTest) {
+                    conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                }
+                finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
+                activeStreamingMsgId = null
+                activeStreamingPersistenceDisabled = false
+                activeStreamingContent = StringBuilder()
+            }
 
             var safeModelTestScope: AutoCloseable? = null
             try {
@@ -2905,27 +2922,41 @@ class ChatViewModel @Inject constructor(
                 var incompleteChainRetryAttempted = false
                 var preservedThinkingText: String? = null
                 var currentPrompt = prompt
-                var needsHallucinationRetry: Boolean
-                suspend fun persistHonestActionFailure(thinking: String?) {
-                    _messages.update { msgs ->
-                        msgs.map {
-                            if (it.id == assistantMsgId) {
-                                it.copy(content = HONEST_ACTION_FAILURE, isStreaming = false)
-                            } else it
+                var needsHallucinationRetry = false
+                suspend fun handleIncompleteToolChain(
+                    fullContent: String,
+                    thinking: String?,
+                    toolSequenceAlreadyLogged: Boolean,
+                ) {
+                    if (!toolSequenceAlreadyLogged) kernelAIToolSet.logToolSequence()
+                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                    if (!incompleteChainRetryAttempted) {
+                        incompleteChainRetryAttempted = true
+                        incompleteChainContinuationPending = true
+                        Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
+                        needsHallucinationRetry = true
+                        currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
+                        accumulatedContent = StringBuilder()
+                        accumulatedThinking = StringBuilder()
+                        activeStreamingContent = accumulatedContent
+                        activeStreamingThinking = accumulatedThinking
+                        if (thinking != null) preservedThinkingText = thinking
+                        _messages.update { msgs ->
+                            msgs.map {
+                                if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it
+                            }
                         }
+                    } else {
+                        Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                        persistHonestActionFailure(thinking)
+                        needsHallucinationRetry = false
                     }
-                    if (!safeRunIntentTest) {
-                        conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
-                    }
-                    finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
-                    activeStreamingMsgId = null
-                    activeStreamingPersistenceDisabled = false
-                    activeStreamingContent = StringBuilder()
                 }
 
             do {
                 needsHallucinationRetry = false
                 kernelAIToolSet.resetAttemptState()
+                var generationResultReceived = false
             inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
@@ -2952,6 +2983,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                       is GenerationResult.Complete -> {
+                            generationResultReceived = true
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
@@ -2966,36 +2998,13 @@ class ChatViewModel @Inject constructor(
                                 persistHonestActionFailure(thinking)
                                 return@collect
                             }
-                            // Incomplete tool-chain check: load_skill was called but no terminal
-                            // executable tool followed. This must be detected before the generic
-                            // blank guard, hallucination retry, or native tool call path.
+                            // Incomplete tool-chain check: a successful skill load must be followed
+                            // by an executable tool before generic response handling.
                             if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
-                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
-                                if (!incompleteChainRetryAttempted) {
-                                    incompleteChainRetryAttempted = true
-                                    Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
-                                    // logToolSequence already emitted llm_tools_tool_sequence above
-                                    needsHallucinationRetry = true
-                                    currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
-                                    accumulatedContent = StringBuilder()
-                                    accumulatedThinking = StringBuilder()
-                                    activeStreamingContent = accumulatedContent
-                                    activeStreamingThinking = accumulatedThinking
-                                    if (thinking != null) preservedThinkingText = thinking
-                                    _messages.update { msgs ->
-                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
-                                    }
-                                    return@collect
-                                } else {
-                                    // Continuation failed — even after the targeted prompt, the model
-                                    // still didn't call an executable tool. Show honest failure.
-                                    Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
-                                    persistHonestActionFailure(thinking)
-                                    needsHallucinationRetry = false
-                                    return@collect
-                                }
+                                handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = true)
+                                return@collect
                             }
 
                             // After the incomplete-chain retry was attempted and the result still
@@ -3330,6 +3339,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Error -> {
+                            generationResultReceived = true
                             _voiceMode.value = null
                             pendingVoiceReply = false
                             _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -3348,6 +3358,26 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+                if (!generationResultReceived) {
+                    val fullContent = accumulatedContent.toString()
+                    val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                        ?: preservedThinkingText
+                    when {
+                        kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
+                        }
+
+                        incompleteChainRetryAttempted &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
+                    }
+                }
                 if (needsHallucinationRetry && blankResponseRetryAttempted) {
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
@@ -3359,20 +3389,32 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                _voiceMode.value = null
-                pendingVoiceReply = false
-                _voiceCaptureState.value = VoiceCaptureState.Idle
-                stopVoicePlayback()
-                _messages.update { msgs ->
-                    msgs.map { msg ->
-                        if (msg.id == assistantMsgId) {
-                            msg.copy(content = "Sorry, generation was cancelled.", isStreaming = false)
-                        } else msg
+                if (incompleteChainContinuationPending && kernelAIToolSet.terminalToolName() == null) {
+                    localToolDiagnosticCapture.recordGenerationAttempt(
+                        accumulatedContent.toString(),
+                        accumulatedThinking,
+                    )
+                    kernelAIToolSet.logToolSequence()
+                    Log.w("KernelAI", "load_skill_continuation_failed")
+                    persistHonestActionFailure(
+                        accumulatedThinking.toString().takeIf { it.isNotBlank() },
+                    )
+                } else {
+                    _voiceMode.value = null
+                    pendingVoiceReply = false
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    stopVoicePlayback()
+                    _messages.update { msgs ->
+                        msgs.map { msg ->
+                            if (msg.id == assistantMsgId) {
+                                msg.copy(content = "Sorry, generation was cancelled.", isStreaming = false)
+                            } else msg
+                        }
                     }
+                    activeStreamingMsgId = null
+                    activeStreamingPersistenceDisabled = false
+                    activeStreamingContent = StringBuilder()
                 }
-                activeStreamingMsgId = null
-                activeStreamingPersistenceDisabled = false
-                activeStreamingContent = StringBuilder()
             } finally {
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
