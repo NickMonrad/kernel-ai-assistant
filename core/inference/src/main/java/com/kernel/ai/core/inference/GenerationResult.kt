@@ -12,7 +12,7 @@ sealed class GenerationResult {
     /** Generation finished successfully. */
     data class Complete(
         val durationMs: Long,
-        /** LiteRT's prefill token count for this generation, when available. */
+        /** Token count from the last LiteRT prefill event, not necessarily the full prompt. */
         val prefillTokenCount: Int? = null,
     ) : GenerationResult()
 

@@ -125,8 +125,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
-/** Rounded-up first-turn fixed-prompt measurement used until LiteRT reports a live prefill. */
-private const val UNCALIBRATED_FIXED_PROMPT_FLOOR = 2_400
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
@@ -904,13 +902,11 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun estimateSystemAndToolPromptTokens(systemPrompt: String): Int {
-        val estimate = contextWindowManager.estimateTokens(systemPrompt) +
-            (measuredToolDeclarationTokenEstimate ?: fallbackNativeToolDeclarationTokenEstimate)
-        return if (measuredToolDeclarationTokenEstimate == null) {
-            estimate.coerceAtLeast(UNCALIBRATED_FIXED_PROMPT_FLOOR)
-        } else {
-            estimate
-        }
+        return FixedPromptTokenBudget.estimateFixedPromptTokens(
+            systemPromptTokens = contextWindowManager.estimateTokens(systemPrompt),
+            measuredToolDeclarationTokens = measuredToolDeclarationTokenEstimate,
+            fallbackToolDeclarationTokens = fallbackNativeToolDeclarationTokenEstimate,
+        )
     }
 
     internal fun buildToolUsePrompt(): String {
@@ -3029,22 +3025,8 @@ class ChatViewModel @Inject constructor(
 
                       is GenerationResult.Complete -> {
                             generationResultReceived = true
-                            if (shouldMeasureToolDeclarations) {
-                                shouldMeasureToolDeclarations = false
-                                result.prefillTokenCount?.let { prefillTokenCount ->
-                                    // The measured prefill also includes LiteRT-generated schemas;
-                                    // subtract app-owned prompt text to estimate that fixed cost.
-                                    val measuredToolTokens = (
-                                        prefillTokenCount -
-                                            contextWindowManager.estimateTokens(systemPromptForPrefill) -
-                                            contextWindowManager.estimateTokens(currentPrompt)
-                                        ).coerceAtLeast(0)
-                                    val previousToolTokens =
-                                        measuredToolDeclarationTokenEstimate ?: fallbackNativeToolDeclarationTokenEstimate
-                                    measuredToolDeclarationTokenEstimate = measuredToolTokens
-                                    estimatedTokensUsed += measuredToolTokens - previousToolTokens
-                                }
-                            }
+                            val shouldCalibrateToolDeclarations = shouldMeasureToolDeclarations
+                            if (shouldCalibrateToolDeclarations) shouldMeasureToolDeclarations = false
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
@@ -3326,6 +3308,31 @@ class ChatViewModel @Inject constructor(
                                     // Token budget >75% — skip retry, fall through to C1 failure
                                 }
 
+                                if (shouldCalibrateToolDeclarations) {
+                                    val turnInvolvedToolCallOrContinuation =
+                                        currentPrompt !== prompt ||
+                                            needsHallucinationRetry ||
+                                            isHallucination ||
+                                            isRawToolCall ||
+                                            kernelAIToolSet.wasToolCalled() ||
+                                            kernelAIToolSet.loadSkillCalledInCurrentAttempt() ||
+                                            kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                                    val measuredToolTokens =
+                                        FixedPromptTokenBudget.calibratedToolDeclarationTokens(
+                                            result = result,
+                                            systemPromptTokens = contextWindowManager.estimateTokens(systemPromptForPrefill),
+                                            requestPromptTokens = contextWindowManager.estimateTokens(currentPrompt),
+                                            turnInvolvedToolCallOrContinuation = turnInvolvedToolCallOrContinuation,
+                                        )
+                                    if (measuredToolTokens != null) {
+                                        val previousFixedPromptTokens =
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill)
+                                        measuredToolDeclarationTokenEstimate = measuredToolTokens
+                                        estimatedTokensUsed +=
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill) -
+                                                previousFixedPromptTokens
+                                    }
+                                }
                                 // Normal text or C1 hallucination failure
                                 val displayContent = if (isHallucination || isRawToolCall) {
                                     if (currentPrompt !== prompt) {

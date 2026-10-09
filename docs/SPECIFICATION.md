@@ -128,8 +128,9 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
   and resets the conversation, preserving selected turns
 - **Token estimation:** `ContextWindowManager.estimateTokens()` (~3 chars/token heuristic).
   History selection subtracts the estimated system prompt and tool-declaration cost plus the
-  response reserve; LiteRT prefill measurements calibrate tool cost when available, and context-use
-  estimates include the fixed prompt.
+  response reserve. Only complete non-tool prefills that cover the estimated system and request
+  prompt calibrate tool cost; the total fixed-prompt estimate never falls below its 2,400-token
+  floor or the fallback declaration estimate. Context-use estimates include the fixed prompt.
 - **Cancel generation:** Tapping cancel clears the stuck spinner and resets the LiteRT
   conversation state (`#28`). Without this fix, a cancelled generation would leave the UI
   in a perpetual loading state with stale LiteRT conversation context.
