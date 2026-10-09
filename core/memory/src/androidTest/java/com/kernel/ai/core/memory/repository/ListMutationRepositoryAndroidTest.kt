@@ -135,6 +135,35 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
+    fun `top-level create details persist and description enters sync change`() = runBlocking {
+        val listId = repository.createCollection("Create details")
+        val dueAt = 1_900_000_000_000L
+        val notificationTime = dueAt - 60_000L
+        val description = "Line one\nhttps://example.com/top-level"
+
+        val itemId = repository.addItem(
+            listId,
+            "Top-level item",
+            dueAt,
+            notificationTime,
+            description,
+            isFavourite = true,
+        )
+
+        val created = requireNotNull(database.listItemDao().getById(itemId))
+        val createChange = repository.pendingChanges().single {
+            it.targetId == created.itemId && it.operation == ListChangeOperation.CREATE_ITEM
+        }
+        assertEquals(description, created.description)
+        assertEquals(dueAt, created.dueAt)
+        assertEquals(notificationTime, created.notificationTime)
+        assertTrue(created.isFavourite)
+        assertEquals(description, createChange.payload.description)
+        assertEquals(dueAt, createChange.payload.dueAt)
+        assertNull(createChange.payload.parentItemId)
+    }
+
+    @Test
     fun `remote field and item create can arrive before collection create`() = runBlocking {
         val collectionId = "remote-collection"
         val itemId = "remote-item"
@@ -355,15 +384,26 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
-    fun `adding a sub-item appends through the sync-aware seam and reopens its completed parent`() = runBlocking {
+    fun `adding a sub-item appends, reopens its parent, and preserves created details`() = runBlocking {
         val listId = repository.createCollection("Add child")
         val parentId = repository.addItem(listId, "Parent")
         val parent = requireNotNull(database.listItemDao().getById(parentId))
         repository.addSubItem(listId, parent.itemId, "First")
         repository.addSubItem(listId, parent.itemId, "Second")
         repository.setItemChecked(parentId, true)
+        val dueAt = 1_900_000_000_000L
+        val notificationTime = dueAt - 60_000L
+        val description = "Last child notes\nhttps://example.com/child"
 
-        val result = repository.addSubItem(listId, parent.itemId, "Last")
+        val result = repository.addSubItem(
+            listId,
+            parent.itemId,
+            "Last",
+            dueAt,
+            notificationTime,
+            description,
+            isFavourite = true,
+        )
         val created = requireNotNull(database.listItemDao().getById(result.itemId))
         val createChange = repository.pendingChanges().single {
             it.targetId == created.itemId && it.operation == ListChangeOperation.CREATE_ITEM
@@ -371,10 +411,16 @@ class ListMutationRepositoryAndroidTest {
 
         assertEquals(parent.itemId, created.parentItemId)
         assertFalse(created.checked)
+        assertEquals(description, created.description)
+        assertEquals(dueAt, created.dueAt)
+        assertEquals(notificationTime, created.notificationTime)
+        assertTrue(created.isFavourite)
         assertEquals(listOf("Parent", "First", "Second", "Last"), effectiveRowTexts(listId))
         assertEquals(setOf(parentId), result.checkedStateMutation.uncheckedIds)
         assertEquals(parent.itemId, createChange.payload.parentItemId)
         assertEquals(created.orderKey, createChange.payload.orderKey)
+        assertEquals(description, createChange.payload.description)
+        assertEquals(dueAt, createChange.payload.dueAt)
     }
 
     @Test

@@ -12,6 +12,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -84,6 +85,41 @@ class ListsViewModelTextTest {
                 original.notificationTime,
                 editedDescription,
             )
+        }
+    }
+
+    @Test
+    fun `addItem forwards create details and reminder while blank title is a no-op`() {
+        val dueAt = 1_900_000_000_000L
+        val notificationTime = dueAt - 60_000L
+        val description = "Prep\nhttps://example.com/list"
+        coEvery {
+            listMutations.addItem(1L, "New task", dueAt, notificationTime, description, true)
+        } returns 42L
+        val viewModel = ListsViewModel(
+            dao = dao,
+            listNameDao = listNameDao,
+            scheduler = scheduler,
+            appContext = context,
+            listMutations = listMutations,
+            listsUiPreferences = preferences,
+            nextcloud = nextcloudAdapter,
+        ).apply { ioDispatcher = dispatcher }
+        var createdItemId: Long? = null
+        var blankTitleCreated = false
+
+        viewModel.addItem(1L, " New task ", description, dueAt, true, notificationTime) {
+            createdItemId = it
+        }
+        viewModel.addItem(1L, "     ") { blankTitleCreated = true }
+
+        assertEquals(42L, createdItemId)
+        assertEquals(false, blankTitleCreated)
+        coVerify(exactly = 1) {
+            listMutations.addItem(1L, "New task", dueAt, notificationTime, description, true)
+        }
+        verify(timeout = TimeUnit.SECONDS.toMillis(2)) {
+            scheduler.schedule(42L, "New task", 1L, "", notificationTime)
         }
     }
 
