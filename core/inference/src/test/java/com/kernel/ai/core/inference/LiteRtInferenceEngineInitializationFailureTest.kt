@@ -83,6 +83,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
                 ModelConfig(
                     modelPath = "/models/gemma-4-E4B-it.litertlm",
                     backendType = BackendType.GPU,
+                    speculativeDecodingEnabled = false,
                 ),
             )
         } catch (error: Throwable) {
@@ -111,6 +112,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
                 ModelConfig(
                     modelPath = "/models/gemma-4-E4B-it.litertlm",
                     backendType = BackendType.GPU,
+                    speculativeDecodingEnabled = false,
                 ),
             )
         }
