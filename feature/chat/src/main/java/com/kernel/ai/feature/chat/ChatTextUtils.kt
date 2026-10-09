@@ -407,14 +407,25 @@ internal fun stripMarkdown(text: String): String {
         .trim()
 }
 
+private val RECALL_QUESTION_REGEX =
+    Regex("""\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\bdo\s+you\s+remember\s+(?:what|when|where|who|which|how)\b""")
+private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
+private val NEGATED_CALL_REGEX =
+    Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
+private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
+
 /**
  * Returns true if [query] looks like it involves a device-native tool action
  * (alarm, list, toggle, memory, etc.) rather than a pure LLM question.
  */
 internal fun looksLikeToolQuery(query: String): Boolean {
     val lower = query.lowercase().trim()
+    val isRecallQuestion = RECALL_QUESTION_REGEX.containsMatchIn(lower)
+    val hasRememberAction = !isRecallQuestion && REMEMBER_ACTION_REGEX.containsMatchIn(lower)
+    val hasCallAction =
+        !NEGATED_CALL_REGEX.containsMatchIn(lower) && CALL_ACTION_REGEX.containsMatchIn(lower)
     val toolKeywords = listOf(
-        "save", "remember", "note that", "don't forget", "store",
+        "save", "note that", "don't forget", "store",
         "add to", "put on", "put in", "add .+ to .+ list",
         "create .+ list", "make .+ list", "remove from", "delete from",
         "what's on my", "show my", "read my .+ list",
@@ -422,7 +433,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "plan a meal", "plan dinner", "plan dinners", "sort dinners", "sort meals",
         "shopping list", "ingredients list",
         "set alarm", "set a timer", "set timer", "remind me",
-        "send email", "send sms", "send a text", "call ",
+        "send email", "send sms", "send a text",
         "search wikipedia", "look up", "wikipedia",
         "turn on", "turn off", "toggle", "open app",
         "play ", "navigate to", "directions to",
@@ -441,7 +452,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "\\bwant\\s+to\\s+hear\\b",
         "\\bwant\\s+some\\s+music\\b",
     )
-    return toolKeywords.any { keyword ->
+    return hasRememberAction || hasCallAction || toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {
             Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
         } else {

@@ -1082,6 +1082,55 @@ class ChatViewModelInitTest {
     }
 
     @Test
+    fun `negated tool mention preserves RAG and selected history for recall`() = runTest(dispatcher) {
+        val query = "Do not call any tools. What did I say earlier?"
+        val historyMarker = "Prior-history-marker: KORU-42"
+        val prompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("You mentioned KORU-42."), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            prompts += firstArg<String>()
+        }
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "retrieved memory"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "prior-user",
+                conversationId = "conv-existing",
+                role = "user",
+                content = historyMarker,
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "prior-assistant",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "I will remember that.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route(query) } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = query)
+
+        val viewModel = createViewModel(SavedStateHandle(mapOf("conversationId" to "conv-existing")))
+        advanceUntilIdle()
+        viewModel.onInputChanged(query)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            prompts.any { it.contains(historyMarker) },
+            "Recall turn should keep selected conversation history in the prompt",
+        )
+        coVerify(atLeast = 1) { ragRepository.getRelevantContext(query, any(), any()) }
+    }
+
+    @Test
     fun `blank response retries without RAG context on first zero-token generation`() = runTest(dispatcher) {
         val prompts = mutableListOf<String>()
         every { inferenceEngine.isReady } returns MutableStateFlow(true)

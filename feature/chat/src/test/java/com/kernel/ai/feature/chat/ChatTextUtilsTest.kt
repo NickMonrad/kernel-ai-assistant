@@ -594,6 +594,7 @@ class ChatTextUtilsTest {
             strings = [
                 "save my notes",
                 "remember my birthday",
+                "Remember that my booking reference is ABC123",
                 "add milk to my shopping list",
                 "set alarm for 7am",
                 "set a timer for 5 minutes",
@@ -610,6 +611,7 @@ class ChatTextUtilsTest {
                 "send email to John",
                 "send sms to mum",
                 "call dad",
+                "Call Mum",
                 "look up quantum physics",
                 "plan my meals for the week",
                 "make me a meal plan",
@@ -649,6 +651,10 @@ class ChatTextUtilsTest {
         @ParameterizedTest(name = "Not a tool query: \"{0}\"")
         @ValueSource(
             strings = [
+                "Do not call any tools. What did I say earlier?",
+                "What did I ask you to remember earlier?",
+                "Do you remember what I said earlier?",
+                "Recall what I said earlier?",
                 "tell me a joke",
                 "explain quantum physics",
                 "write me a poem",
