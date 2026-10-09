@@ -120,6 +120,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
@@ -305,6 +306,9 @@ class ChatViewModel @Inject constructor(
      * form a unique trace ID for each invocation through the route/dispatch lifecycle.
      */
     private var commandIdSequence = AtomicInteger(0)
+    // Each send turn keeps its own cancellation signal so a replacement turn cannot clear it.
+    @Volatile
+    private var activeTurnCancellationRequest = AtomicBoolean(false)
 
     // Safe debug model-test output stays in memory and is never flushed to the current chat.
     private var activeStreamingPersistenceDisabled = false
@@ -1782,6 +1786,7 @@ class ChatViewModel @Inject constructor(
         }
         // Cancel any in-flight generation — don't silently drop the new command
         if (inferenceEngine.isGenerating.value) {
+            activeTurnCancellationRequest.set(true)
             inferenceEngine.cancelGeneration()
             Log.d("KernelAI", "ADB_INTENT_TRACE cancel_generation=true input=$normalized")
         }
@@ -1854,6 +1859,8 @@ class ChatViewModel @Inject constructor(
         suppressVoiceOutputForCurrentResponse = false
         _inputText.value = ""
         val convId = conversationId ?: return
+        val turnCancellationRequest = AtomicBoolean(false)
+        activeTurnCancellationRequest = turnCancellationRequest
 
         if (safeRunIntentTest) suppressCloseDistillationForSafeProbe = true
         pendingVoiceReply = submitMode == SubmitMode.Voice
@@ -3358,7 +3365,7 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
-                if (!generationResultReceived) {
+                if (!generationResultReceived && !turnCancellationRequest.get()) {
                     val fullContent = accumulatedContent.toString()
                     val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                         ?: preservedThinkingText
@@ -3389,7 +3396,9 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                if (incompleteChainContinuationPending && kernelAIToolSet.terminalToolName() == null) {
+                if (!turnCancellationRequest.get() &&
+                    incompleteChainContinuationPending && kernelAIToolSet.terminalToolName() == null
+                ) {
                     localToolDiagnosticCapture.recordGenerationAttempt(
                         accumulatedContent.toString(),
                         accumulatedThinking,
@@ -3430,6 +3439,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
         stopVoicePlayback()
+        activeTurnCancellationRequest.set(true)
         inferenceEngine.cancelGeneration()
         val partialContent = activeStreamingContent.toString()
         val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
@@ -3945,6 +3955,7 @@ class ChatViewModel @Inject constructor(
                 }
 
                 // 1. Cancel active generation
+                activeTurnCancellationRequest.set(true)
                 inferenceEngine.cancelGeneration()
 
                 // 2. Stop/clear voice input/output state

@@ -832,4 +832,33 @@ class ChatViewModelRetryStateMachineTest {
             Log.d("KernelAI", "llm_tools_tool_sequence: attempt=none turn=load_skill terminal=none")
         }
     }
+
+    @Test
+    fun `M user cancellation after load_skill does not continue or persist failure`() = runTest(dispatcher) {
+        setupLoadSkill()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        every { inferenceEngine.generate(any()) } returns flow {
+            realToolSet.loadSkill("run_intent")
+            viewModel.cancelGeneration()
+        }
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertFalse(savedContents.any { it.contains("wasn't able to complete that action") })
+        assertFalse(viewModel.getConversationAsText().contains("wasn't able to complete that action"))
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), eq("assistant"), any(), any(), any())
+        }
+    }
+
 }
