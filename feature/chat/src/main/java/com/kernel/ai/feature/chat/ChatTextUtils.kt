@@ -408,7 +408,7 @@ internal fun stripMarkdown(text: String): String {
 }
 
 private val RECALL_QUESTION_REGEX =
-    Regex("""\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\bdo\s+you\s+remember\s+(?:what|when|where|who|which|how)\b""")
+    Regex("""\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b""")
 private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
 private val NEGATED_CALL_REGEX =
     Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
