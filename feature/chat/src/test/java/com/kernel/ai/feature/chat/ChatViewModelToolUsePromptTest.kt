@@ -192,7 +192,7 @@ class ChatViewModelToolUsePromptTest {
     @Test
     fun `buildToolUsePrompt contains action priority rule`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("Action requests MUST use run_intent"), "Missing action rule\n$p")
+        assertTrue(p.contains("Device actions and list/note requests MUST use run_intent"), "Missing action rule\n$p")
     }
 
     @Test
@@ -228,9 +228,23 @@ class ChatViewModelToolUsePromptTest {
     }
 
     @Test
-    fun `buildToolUsePrompt addresses load_skill to executable tool path`() {
+    fun `buildToolUsePrompt honors explicit skill discovery requests`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("load_skill first") || p.contains("load_skill results"), "Missing load_skill guidance\n$p")
+        val normalizedPrompt = p.lowercase()
+        assertTrue(
+            normalizedPrompt.contains("explicitly asks for skill instructions") &&
+                normalizedPrompt.contains("load_skill as the first tool call") &&
+                normalizedPrompt.contains("wait for success before any action tool") &&
+                normalizedPrompt.contains("do not reload the same skill during this request"),
+            "Missing one-time explicit load_skill discovery path\n$p"
+        )
+    }
+
+    @Test
+    fun `buildToolUsePrompt routes list and note contents away from memory search`() {
+        val p = createViewModel().buildToolUsePrompt()
+        assertTrue(p.contains("read/change a user list or note") && p.contains("do NOT use search_memory"),
+            "Missing list/note action routing\n$p")
     }
 
     @Test

@@ -5,6 +5,9 @@ import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private data class RunIntentModelAction(val name: String, val parameterHelp: String)
+private data class RunIntentModelCategory(val title: String, val actions: List<RunIntentModelAction>)
+
 /**
  * Gateway skill that mirrors Google AI Edge Gallery's `run_intent` pattern.
  *
@@ -22,272 +25,169 @@ class RunIntentSkill @Inject constructor(
     private val handler: NativeIntentHandler,
 ) : Skill {
 
+    companion object {
+        internal const val GET_DATE_DIFF_PARAMETER_HELP =
+            "target_date (required YYYY-MM-DD), from_date? (earlier YYYY-MM-DD)"
+        private val MODEL_ACTION_CATEGORIES = listOf(
+            RunIntentModelCategory("FLASHLIGHT", listOf(
+                RunIntentModelAction("toggle_flashlight_on", ""),
+                RunIntentModelAction("toggle_flashlight_off", ""),
+            )),
+            RunIntentModelCategory("COMMUNICATION", listOf(
+                RunIntentModelAction("send_email", "contact, subject, body"),
+                RunIntentModelAction("send_sms", "contact|phone, message"),
+                RunIntentModelAction("make_call", "contact"),
+            )),
+            RunIntentModelCategory("ALARMS AND TIMERS", listOf(
+                RunIntentModelAction("set_alarm", "time, day?, label?"),
+                RunIntentModelAction("cancel_alarm", "label?"),
+                RunIntentModelAction("set_timer", "duration_seconds, label?"),
+                RunIntentModelAction("cancel_timer", ""),
+                RunIntentModelAction("cancel_timer_named", "name? (omit to cancel all)"),
+                RunIntentModelAction("list_timers", ""),
+                RunIntentModelAction("get_timer_remaining", "name?"),
+            )),
+            RunIntentModelCategory("STOPWATCH", listOf(
+                RunIntentModelAction("start_stopwatch", ""),
+                RunIntentModelAction("pause_stopwatch", ""),
+                RunIntentModelAction("resume_stopwatch", ""),
+                RunIntentModelAction("lap_stopwatch", ""),
+                RunIntentModelAction("reset_stopwatch", ""),
+                RunIntentModelAction("get_stopwatch_status", ""),
+            )),
+            RunIntentModelCategory("CALENDAR", listOf(
+                RunIntentModelAction("create_calendar_event", "title, date, time, duration_minutes?, description?, attendees?"),
+            )),
+            RunIntentModelCategory("INFO QUERIES", listOf(
+                RunIntentModelAction("get_battery", ""),
+                RunIntentModelAction("get_time", ""),
+                RunIntentModelAction("get_date", ""),
+            )),
+            RunIntentModelCategory("DO NOT DISTURB", listOf(
+                RunIntentModelAction("toggle_dnd_on", ""),
+                RunIntentModelAction("toggle_dnd_off", ""),
+            )),
+            RunIntentModelCategory("VOLUME", listOf(
+                RunIntentModelAction("set_volume", "value, is_percent"),
+            )),
+            RunIntentModelCategory("SYSTEM SETTINGS", listOf(
+                RunIntentModelAction("toggle_wifi", "state"),
+                RunIntentModelAction("toggle_bluetooth", "state"),
+                RunIntentModelAction("toggle_airplane_mode", ""),
+                RunIntentModelAction("toggle_hotspot", ""),
+                RunIntentModelAction("set_brightness", "value|direction, is_percent?"),
+            )),
+            RunIntentModelCategory("MEDIA PLAYBACK", listOf(
+                RunIntentModelAction("play_media", "query, artist?"),
+                RunIntentModelAction("play_media_album", "album, artist?"),
+                RunIntentModelAction("play_media_playlist", "playlist"),
+                RunIntentModelAction("play_youtube", "query"),
+                RunIntentModelAction("play_spotify", "query"),
+                RunIntentModelAction("play_plexamp", "query"),
+                RunIntentModelAction("play_youtube_music", "query"),
+                RunIntentModelAction("play_netflix", "query"),
+                RunIntentModelAction("play_plex", "title"),
+                RunIntentModelAction("pause_media", ""),
+                RunIntentModelAction("stop_media", ""),
+                RunIntentModelAction("next_track", ""),
+                RunIntentModelAction("previous_track", ""),
+            )),
+            RunIntentModelCategory("PODCASTS", listOf(
+                RunIntentModelAction("play_podcast", "show"),
+                RunIntentModelAction("podcast_skip_forward", "seconds?"),
+                RunIntentModelAction("podcast_skip_back", "seconds?"),
+                RunIntentModelAction("podcast_speed", "rate"),
+            )),
+            RunIntentModelCategory("NAVIGATION", listOf(
+                RunIntentModelAction("navigate_to", "destination"),
+                RunIntentModelAction("find_nearby", "query"),
+            )),
+            RunIntentModelCategory("APPS", listOf(
+                RunIntentModelAction("open_app", "app_name"),
+            )),
+            RunIntentModelCategory("LISTS AND REMINDERS", listOf(
+                RunIntentModelAction("create_list", "list_name"),
+                RunIntentModelAction("add_to_list", "item, list_name"),
+                RunIntentModelAction("bulk_add_to_list", "items[] (JSON strings), list_name? (defaults to shopping list; creates it if needed)"),
+                RunIntentModelAction("get_list_items", "list_name? (defaults to shopping list)"),
+                RunIntentModelAction("remove_from_list", "item, list_name?"),
+                RunIntentModelAction("add_reminder", "item, day, time"),
+            )),
+            RunIntentModelCategory("DATE AND MATH", listOf(
+                RunIntentModelAction("get_date_diff", GET_DATE_DIFF_PARAMETER_HELP),
+                RunIntentModelAction("calculate_arithmetic", "expression"),
+                RunIntentModelAction("convert_units", "value, from_unit, to_unit"),
+                RunIntentModelAction("convert_cooking_measure", "amount, from_unit, ingredient, to_unit?"),
+            )),
+            RunIntentModelCategory("IMPORTANT DATES", listOf(
+                RunIntentModelAction("save_important_date", "label, date"),
+                RunIntentModelAction("list_important_dates", ""),
+                RunIntentModelAction("remove_important_date", "label"),
+            )),
+            RunIntentModelCategory("NOTES", listOf(
+                RunIntentModelAction("create_note", "content"),
+                RunIntentModelAction("list_notes", ""),
+            )),
+        )
+
+        internal val MODEL_CALLABLE_INTENTS =
+            MODEL_ACTION_CATEGORIES.flatMap { category -> category.actions.map { it.name } }
+
+        internal val MODEL_EXCLUDED_INTENTS = linkedMapOf(
+            "get_weather" to "Dedicated top-level tool; use get_weather.",
+            "get_system_info" to "Dedicated top-level tool; use get_system_info.",
+            "save_memory" to "Dedicated top-level tool; use save_memory.",
+            "convert_currency" to "Dedicated top-level tool; use convert_currency.",
+            "smart_home_on" to "Non-callable stub; integration unavailable.",
+            "smart_home_off" to "Non-callable stub; integration unavailable.",
+        )
+    }
+
     private val validationRegistry: SlotValidationRegistry by lazy { SlotValidationRegistry() }
     override val name = "run_intent"
     override val description =
-        "Perform a native Android device action. Supports flashlight, alarm, timer, calendar, email, SMS, " +
-            "Do Not Disturb, volume control, deterministic arithmetic, deterministic unit conversion, ingredient-aware cooking conversions, currency conversion with latest ECB-backed rates, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
-            "media playback (local, YouTube, Spotify, Netflix, Plex), navigation, calls, app launching, and info queries. " +
-            "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
-            "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday', 'this friday'."
+        "Native actions, lists/notes; weather/system/memory/currency use dedicated tools."
 
     override val schema = SkillSchema(
         parameters = mapOf(
             "intent_name" to SkillParameter(
                 type = "string",
-                description = "The action to perform.",
-                enum = listOf(
-                    // Flashlight
-                    "toggle_flashlight_on",
-                    "toggle_flashlight_off",
-                    // Communication
-                    "send_email",
-                    "send_sms",
-                    "make_call",
-                    // Scheduling
-                    "set_alarm",
-                    "set_timer",
-                    "create_calendar_event",
-                    "save_important_date",
-                    "list_important_dates",
-                    "remove_important_date",
-                    "calculate_arithmetic",
-                    "convert_units",
-                    "convert_cooking_measure",
-                    "convert_currency",
-                    // System toggles
-                    "toggle_dnd_on",
-                    "toggle_dnd_off",
-                    "toggle_wifi",
-                    "toggle_bluetooth",
-                    "toggle_airplane_mode",
-                    "toggle_hotspot",
-                    // Volume
-                    "set_volume",
-                    // Media playback
-                    "play_media",
-                    "play_media_album",
-                    "play_media_playlist",
-                    "play_youtube",
-                    "play_spotify",
-                    "play_plexamp",
-                    "play_youtube_music",
-                    "play_netflix",
-                    "play_plex",
-                    // Navigation
-                    "navigate_to",
-                    "find_nearby",
-                    // Apps
-                    "open_app",
-                    // Info queries
-                    "get_battery",
-                    "get_time",
-                    "get_date",
-                    // Notes
-                    "create_note",
-                    "list_notes",
-                    // Lists
-                    "create_list",
-                    "add_to_list",
-                ),
+                description = "The user-callable action to perform.",
+                enum = MODEL_CALLABLE_INTENTS,
             ),
         ),
         required = listOf("intent_name"),
     )
 
     override val examples: List<String> = listOf(
-        // Flashlight
-        "Flashlight on → runIntent(intentName=\"toggle_flashlight_on\", parameters=\"{}\")",
-        "Flashlight off → runIntent(intentName=\"toggle_flashlight_off\", parameters=\"{}\")",
-        // Communication
-        "Send email to John → runIntent(intentName=\"send_email\", parameters='{\"contact\":\"John\",\"subject\":\"Hi\",\"body\":\"Text\"}')",
-        "Send SMS → runIntent(intentName=\"send_sms\", parameters='{\"contact\":\"Mom\",\"message\":\"On my way\"}')",
-        "Call Dad → runIntent(intentName=\"make_call\", parameters='{\"contact\":\"Dad\"}')",
-        // Scheduling
-        "Set alarm 10pm → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"10pm\"}')",
-        "Set alarm 9pm called dinner → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"9pm\",\"label\":\"dinner\"}')",
-        "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
-        "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
-        "Calendar event with relative date and duration → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner with Sarah\",\"date\":\"next friday\",\"time\":\"19:00\",\"duration_minutes\":\"60\"}')",
-        "Calendar event (explicit date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
-        "Calendar event (relative date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Cancel MightyApe\",\"date\":\"next thursday\",\"time\":\"16:00\"}')",
-        "Calendar with attendees → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner\",\"date\":\"friday\",\"time\":\"19:00\",\"attendees\":\"Sarah,John\"}')",
-        "Save important date → runIntent(intentName=\"save_important_date\", parameters='{\"label\":\"mum's birthday\",\"date\":\"15 March\"}')",
-        "List important dates → runIntent(intentName=\"list_important_dates\", parameters='{}')",
-        "Remove important date → runIntent(intentName=\"remove_important_date\", parameters='{\"label\":\"mum's birthday\"}')",
-        "Calculator → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"18.5% of 240\"}')",
-        "Math helpers → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)\"}')",
-        "Unit conversion → runIntent(intentName=\"convert_units\", parameters='{\"value\":\"100\",\"from_unit\":\"m\",\"to_unit\":\"yards\"}')",
-        "Cooking conversion → runIntent(intentName=\"convert_cooking_measure\", parameters='{\"amount\":\"3\",\"from_unit\":\"tbsp\",\"ingredient\":\"butter\",\"to_unit\":\"g\"}')",
-        "Currency conversion → runIntent(intentName=\"convert_currency\", parameters='{\"amount\":\"100\",\"from_currency\":\"AUD\",\"to_currency\":\"NZD\"}')",
-        // System toggles
-        "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
-        "Enable Wi-Fi → runIntent(intentName=\"toggle_wifi\", parameters='{\"state\":\"on\"}')",
-        "Turn off Bluetooth → runIntent(intentName=\"toggle_bluetooth\", parameters='{\"state\":\"off\"}')",
-        // Volume
-        "Set volume to 50% → runIntent(intentName=\"set_volume\", parameters='{\"value\":\"50\",\"is_percent\":\"true\"}')",
-        // Media
-        "Play Bohemian Rhapsody → runIntent(intentName=\"play_media\", parameters='{\"query\":\"Bohemian Rhapsody\",\"artist\":\"Queen\"}')",
-        "Play Abbey Road album → runIntent(intentName=\"play_media_album\", parameters='{\"album\":\"Abbey Road\",\"artist\":\"The Beatles\"}')",
-        "Play workout playlist → runIntent(intentName=\"play_media_playlist\", parameters='{\"playlist\":\"Workout Mix\"}')",
-        "Play cat videos on YouTube → runIntent(intentName=\"play_youtube\", parameters='{\"query\":\"cat videos\"}')",
-        // Navigation
-        "Navigate to airport → runIntent(intentName=\"navigate_to\", parameters='{\"destination\":\"airport\"}')",
-        "Find coffee nearby → runIntent(intentName=\"find_nearby\", parameters='{\"query\":\"coffee\"}')",
-        // Apps
-        "Open Spotify → runIntent(intentName=\"open_app\", parameters='{\"app_name\":\"Spotify\"}')",
-        // Info
-        "Get battery → runIntent(intentName=\"get_battery\", parameters=\"{}\")",
-        "What time is it → runIntent(intentName=\"get_time\", parameters=\"{}\")",
-        // Notes
-        "Create a note about milk → runIntent(intentName=\"create_note\", parameters='{\"content\":\"milk\"}')",
-        "Voice memo about the meeting → runIntent(intentName=\"create_note\", parameters='{\"content\":\"about the meeting\"}')",
-        "Show my notes → runIntent(intentName=\"list_notes\", parameters=\"{}\")",
-        // Lists
-        "Add a list called shopping → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"shopping\"}')",
-        "Create a groceries list → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"groceries\"}')",
-        "Add milk to my shopping list → runIntent(intentName=\"add_to_list\", parameters='{\"item\":\"milk\",\"list_name\":\"shopping\"}')",
+        "Check stopwatch → runIntent(intentName=\"get_stopwatch_status\", parameters=\"{}\")",
+        "Set timer → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
+        "Bulk list → runIntent(intentName=\"bulk_add_to_list\", parameters='{\"items\":[\"apples\",\"rice\"],\"list_name\":\"groceries\"}')",
+        "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner\",\"date\":\"tomorrow\",\"time\":\"19:00\"}')",
     )
 
     override val fullInstructions: String = buildString {
-        appendLine("run_intent: Perform a native Android device action.")
+        appendLine("run_intent: Execute a supported native Android action or local calculation.")
+        appendLine("Parameters: use the exact catalogue intent_name and a JSON object string with the shown field names.")
+        appendLine("If instructions are requested first, call load_skill(\"run_intent\") first; wait for success.")
+        appendLine("After successful load_skill, call run_intent once for the same request before replying; do not stop, reload, summarize, or ask the user to repeat.")
+        appendLine("For bulk_add_to_list, call once with all items as a JSON array and the requested list_name.")
         appendLine()
-        appendLine("Parameters (pass as JSON in the 'parameters' argument):")
-        appendLine("- intent_name (required, string): The action to perform.")
-        appendLine()
-        appendLine("Available intents:")
-        appendLine()
-        appendLine("FLASHLIGHT:")
-        appendLine("  toggle_flashlight_on, toggle_flashlight_off — No params")
-        appendLine()
-        appendLine("COMMUNICATION:")
-        appendLine("  send_email — params: contact, subject, body")
-        appendLine("  send_sms — params: contact, message")
-        appendLine("  make_call — params: contact")
-        appendLine()
-        appendLine("SCHEDULING:")
-        appendLine("  set_alarm — params: time (\"10pm\", \"9:30am\"), day (optional: \"tomorrow\", \"monday\"), label (optional)")
-        appendLine("  set_timer — params: duration_seconds (\"180\" for 3 min), label (optional)")
-        appendLine("  create_calendar_event — params: title, date (pass relative terms as-is: \"tomorrow\", \"next thursday\", \"this friday\"; or YYYY-MM-DD for explicit dates), time (HH:MM), duration_minutes (optional), description (optional), attendees (optional, comma-separated contact names)")
-        appendLine("  save_important_date — params: label, date (e.g. \"15 March\" or \"22 June 2018\")")
-        appendLine("  list_important_dates — no params")
-        appendLine("  remove_important_date — params: label")
-        appendLine()
-        appendLine("CALCULATOR / CONVERSION:")
-        appendLine("  calculate_arithmetic — params: expression (calculator expression or simple arithmetic phrase)")
-        appendLine("  convert_units — params: value, from_unit, to_unit (supported common units across length, mass, volume, temperature, and speed)")
-        appendLine("  convert_cooking_measure — params: amount, from_unit, ingredient, to_unit (ingredient-aware cooking conversion for volume↔mass and ingredient-qualified kitchen-unit conversions; defaults to grams when the user asks what something weighs)")
-        appendLine("  convert_currency — params: amount, from_currency, to_currency (latest ECB-backed rates via Frankfurter; not real-time)")
-        appendLine()
-        appendLine("SYSTEM TOGGLES:")
-        appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
-        appendLine("  toggle_wifi — params: state (\"on\" or \"off\")")
-        appendLine("  toggle_bluetooth — params: state (\"on\" or \"off\")")
-        appendLine("  toggle_airplane_mode — params: state (\"on\" or \"off\")")
-        appendLine("  toggle_hotspot — params: state (\"on\" or \"off\")")
-        appendLine()
-        appendLine("VOLUME:")
-        appendLine("  set_volume — params: value (0-100 or 1-10), is_percent (\"true\" if 0-100, \"false\" if 1-10)")
-        appendLine()
-        appendLine("MEDIA PLAYBACK:")
-        appendLine("  play_media — params: query (song name), artist (optional)")
-        appendLine("  play_media_album — params: album, artist (optional)")
-        appendLine("  play_media_playlist — params: playlist")
-        appendLine("  play_youtube — params: query")
-        appendLine("  play_spotify — params: query")
-        appendLine("  play_plexamp — params: query")
-        appendLine("  play_youtube_music — params: query")
-        appendLine("  play_netflix — params: query")
-        appendLine("  play_plex — params: title")
-        appendLine()
-        appendLine("NAVIGATION:")
-        appendLine("  navigate_to — params: destination")
-        appendLine("  find_nearby — params: query")
-        appendLine()
-        appendLine("APPS:")
-        appendLine("  open_app — params: app_name")
-        appendLine()
-        appendLine("INFO QUERIES:")
-        appendLine("  get_battery, get_time, get_date — No params")
-        appendLine()
-        appendLine("NOTES:")
-        appendLine("  create_note — params: content (the text to record as a note or voice memo)")
-        appendLine("  list_notes — no params (returns a formatted list of saved notes)")
-        appendLine()
-        appendLine("LISTS:")
-        appendLine("  create_list — params: list_name (required)")
-        appendLine("  add_to_list — params: item (required), list_name (required)")
-        appendLine()
-        appendLine("Rules:")
-        appendLine("Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at',")
-        appendLine("'wake me up at', or 'remind me at [specific clock time]' — call runIntent")
-        appendLine("with intentName=set_alarm. Pass time EXACTLY as user said (e.g. time:\"10pm\").")
-        appendLine("'Remind me at [specific time]' is an alarm (set_alarm).")
-        appendLine("If the user specifies a day (e.g. 'tomorrow', 'next Monday'), include")
-        appendLine("day=<day_value> passing it exactly as said (e.g. day:\"tomorrow\", day:\"monday\").")
-        appendLine("NEVER output alarm confirmation text — only the tool call.")
-        appendLine("NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm.")
-        appendLine()
-        appendLine("Calendar rule: 'add calendar entry', 'create calendar event', 'add event',")
-        appendLine("'schedule [topic] on [date]', 'set up a meeting', 'block time on my calendar',")
-        appendLine("'put [X] in my calendar' → runIntent with intentName=create_calendar_event.")
-        appendLine("Parameters: title (required), date (use relative phrases like \"next friday\", \"tomorrow\", \"this thursday\" as-is),")
-        appendLine("time (use HH:MM 24h format), duration_minutes (optional, integer number of minutes, default 60).")
-        appendLine("Derive duration_minutes from the requested start and end times.")
-        appendLine("Examples: 19:00\u2013\u201320:00 \u2192 duration_minutes=60 | 09:30\u2013\u201310:00 \u2192 30 | 14:00\u2013\u201315:30 \u2192 90")
-        appendLine("Pass relative dates as-is. Do NOT convert relative dates like \"next friday\" to YYYY-MM-DD.")
-        appendLine("Example: create_calendar_event title=\"Dinner with Sarah\" date=\"next friday\" time=19:00 duration_minutes=60")
-        appendLine("CRITICAL: NEVER say 'I've put that in the diary', 'I've added it to your calendar', ")
-        appendLine("or any similar confirmation without calling runIntent(create_calendar_event) first. ")
-        appendLine("You MUST call the tool — do NOT confirm the event was created without the tool having been called. ")
-        appendLine("If you are uncertain about the exact parameters, call load_skill(\"run_intent\") first. ")
-        appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")
-        appendLine()
-        appendLine("DND rule: 'turn on do not disturb', 'enable DND', 'silence notifications' →")
-        appendLine("runIntent with intentName=toggle_dnd_on.")
-        appendLine("'turn off do not disturb', 'disable DND', 'allow notifications again' →")
-        appendLine("runIntent with intentName=toggle_dnd_off.")
-        appendLine("If the app needs permission, it will open the settings page automatically.")
-        appendLine()
-        appendLine("Volume rule: 'set volume to 50%', 'volume 7' → runIntent with intentName=set_volume.")
-        appendLine("If user says percentage (0-100), set is_percent=\"true\". If 1-10, set is_percent=\"false\".")
-        appendLine()
-        appendLine("Calculator rule: for arithmetic or calculator-style questions, ALWAYS call")
-        appendLine("runIntent with intentName=calculate_arithmetic instead of doing the math yourself.")
-        appendLine("Pass the math in expression exactly as symbols when already present (e.g. '245 * 17'),")
-        appendLine("or as a simple phrase the evaluator understands (e.g. '18.5% of 240').")
-        appendLine()
-        appendLine("Unit-conversion rule: for supported deterministic physical unit conversions, call runIntent with")
-        appendLine("intentName=convert_units instead of doing the conversion yourself.")
-        appendLine("Pass value as a decimal string and pass explicit normalized units in from_unit/to_unit")
-        appendLine("such as m, yd, km, mi, mg, g, kg, oz, lb, mL, L, tsp, tbsp, cups, gallons, celsius, fahrenheit, kelvin, m/s, mph, or km/h.")
-        appendLine()
-        appendLine("Cooking-conversion rule: for ingredient-aware cooking conversion questions, ALWAYS call runIntent with intentName=convert_cooking_measure.")
-        appendLine("Pass amount as a decimal string, pass explicit mass or volume units in from_unit/to_unit, and include ingredient exactly as the user said it.")
-        appendLine("Use this for ingredient-qualified cooking phrases like 3 tbsp butter → grams, 400 g flour → cups, 2 gallons milk → kilogrammes, or how much 2 gallons milk weighs in pounds.")
-        appendLine("If an ingredient is mentioned but the request is still plain same-category physical unit math outside the cooking path — for example 3 lb flour → grams, 8 oz flour → grams, or 2 gallons milk → liters — keep using convert_units. Do NOT invent cooking densities. The native path uses a small built-in ingredient table and will fail clearly if the ingredient is unsupported.")
-        appendLine()
-        appendLine("Currency-conversion rule: for exchange-rate questions, ALWAYS call runIntent with intentName=convert_currency.")
-        appendLine("Pass amount as a decimal string and pass explicit currency codes or names in from_currency/to_currency")
-        appendLine("such as AUD, NZD, USD, EUR, or Australian dollars → New Zealand dollars.")
-        appendLine("Do NOT invent, estimate, or claim real-time exchange rates in model text. The native path will return the latest available ECB-backed rate date and fail closed if rates are unavailable or too stale.")
-        appendLine()
-        appendLine("Media rule: For music playback, use play_media with query (song name) and artist.")
-        appendLine("For albums, use play_media_album. For playlists, use play_media_playlist.")
-        appendLine("For YouTube/Spotify/Netflix/Plex, use the corresponding intent with query parameter.")
-        appendLine()
-        appendLine("Navigation rule: 'navigate to X', 'directions to X' → navigate_to with destination.")
-        appendLine("'find X nearby', 'where is nearest X' → find_nearby with query.")
-        appendLine()
-        appendLine("Call rule: 'call X', 'phone X', 'dial X' → make_call with contact name.")
-        appendLine("Note rule: 'write a note', 'create a note about X', 'voice memo about X', 'add a note X', 'note to self: X', 'save a memo about X' → runIntent with intentName=create_note, parameters='{\"content\":\"X\"}'.")
-        appendLine("'Show my notes', 'list my notes', 'what notes do I have', 'what notes do you have saved', 'do I have any notes', 'my notes' → runIntent with intentName=list_notes.")
-        appendLine("CRITICAL: NEVER use search_memory to answer questions about notes. Notes are stored separately from memories and MUST be retrieved with list_notes. search_memory is for personal facts and preferences only.")
-        appendLine("List rule: 'create a list called X', 'add a list called X', 'make a shopping list' → runIntent with intentName=create_list, parameters='{\"list_name\":\"X\"}'.")
-        appendLine("'Add X to my shopping list', 'put X on the grocery list' → runIntent with intentName=add_to_list, parameters='{\"item\":\"X\",\"list_name\":\"shopping\"}'.")
+        MODEL_ACTION_CATEGORIES.forEach { category ->
+            val actions = category.actions.joinToString(", ") { action ->
+                "${action.name}(${action.parameterHelp})"
+            }
+            appendLine("${category.title}: $actions")
+        }
+        appendLine("Excluded:")
+        MODEL_EXCLUDED_INTENTS.forEach { (intent, reason) -> appendLine("$intent: $reason") }
+        appendLine("Alarm: use set_alarm for clock-time alarms, wake-ups, or reminders at a time; pass time/day as said. Reminders in X minutes/seconds use set_timer.")
+        appendLine("Calendar: create_calendar_event for event requests; preserve relative dates, use HH:MM, and set duration_minutes from start/end.")
+        appendLine("Never claim alarm/calendar success without a successful tool result; for alarms, issue only the tool call.")
+        appendLine("Lists and notes: retrieve saved contents with get_list_items/list_notes; never use search_memory to answer list-content requests.")
         appendLine()
         appendLine("Examples:")
-        examples.forEach { appendLine("  $it") }
+        examples.forEach { appendLine(it) }
     }
 
     // Success: action result — delegates to NativeIntentHandler; LLM narration appropriate

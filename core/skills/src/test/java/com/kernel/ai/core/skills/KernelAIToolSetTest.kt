@@ -1,9 +1,13 @@
 package com.kernel.ai.core.skills
 
+import com.google.ai.edge.litertlm.Tool
+import com.google.ai.edge.litertlm.ToolParam
 import dagger.Lazy
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -87,6 +91,32 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `loadSkill metadata directs RunIntent continuation`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("loadSkill", String::class.java)
+            .getAnnotation(Tool::class.java)
+            .description
+
+        val normalizedDescription = description.lowercase()
+        assertTrue("first tool call" in normalizedDescription)
+        assertTrue("wait for success" in normalizedDescription)
+        assertTrue("must be followed by run_intent" in normalizedDescription)
+        assertTrue("before any final reply" in normalizedDescription)
+    }
+
+    @Test
+    fun `runIntent parameter metadata documents get_date_diff keys and format`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("runIntent", String::class.java, String::class.java)
+            .parameterAnnotations[1]
+            .filterIsInstance<ToolParam>()
+            .single()
+            .description
+
+        assertTrue(RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP in description)
+    }
+
+    @Test
     fun `runIntent escapes blank parameters`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_intent"
@@ -118,6 +148,87 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `runIntent resolves unique separator variants before execution`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch status")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("GET STOP-WATCH STATUS", "{}")
+        assertEquals("Stopwatch status", result["result"])
+
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+    }
+
+    @Test
+    fun `intent name resolution leaves ambiguous and unknown names unchanged`() {
+        val ambiguousNames = listOf("get_stopwatch_status", "get-stopwatch-status")
+        val ambiguousInput = "get_stop_watch_status"
+
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(ambiguousInput, ambiguousNames),
+        )
+        assertEquals(
+            "unknown_action",
+            KernelAIToolSet.resolveRunIntentName("unknown_action"),
+        )
+    }
+
+    @Test
+    fun `watch-status alias requires the canonical callable intent`() {
+        val alias = "get_watch_status"
+
+        assertEquals("get_stopwatch_status", KernelAIToolSet.resolveRunIntentName(alias))
+        assertEquals(
+            "get_stopwatch_status",
+            KernelAIToolSet.resolveRunIntentName("GET-WATCH STATUS"),
+        )
+        assertEquals(alias, KernelAIToolSet.resolveRunIntentName(alias, listOf("get_date")))
+    }
+
+    @Test
+    fun `watch-status alias does not override ambiguity or near misses`() {
+        val ambiguousInput = "GET WATCH STATUS"
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(
+                ambiguousInput,
+                listOf("get_watch_status", "get-watch-status", "get_stopwatch_status"),
+            ),
+        )
+
+        listOf("watch_status", "get_watch", "get_watches_status", "get_watch_statuses")
+            .forEach { nearMiss ->
+                assertEquals(nearMiss, KernelAIToolSet.resolveRunIntentName(nearMiss))
+            }
+    }
+
+    @Test
+    fun `unknown names remain unchanged with watch-status alias`() {
+        val unknown = "unknown_action"
+
+        assertEquals(unknown, KernelAIToolSet.resolveRunIntentName(unknown))
+    }
+
+    @Test
+    fun `unknown runIntent name still fails through skill validation`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.Failure("run_intent", "Unknown intent")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("unknown_action", "{}")
+
+        assertEquals("Unknown intent", result["error"])
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "unknown_action")))
+        }
+    }
+
+    @Test
     fun `runJs fails closed on invalid JSON parameters`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_js"
@@ -129,6 +240,137 @@ class KernelAIToolSetTest {
         assertEquals("ok", result["result"])
         // Should still call the skill but with empty args
         assertTrue(toolSet.wasToolCalled())
+    }
+
+    @Test
+    fun `safe model test sandbox allows run_intent instructions and stopwatch status`() = runTest {
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns "run_intent instructions"
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success("run_intent instructions")
+        every { registry.get("load_skill") } returns loadSkill
+
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch is not running")
+        every { registry.get("run_intent") } returns runIntent
+
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
+            assertEquals(
+                "Stopwatch is not running",
+                toolSet.runIntent("get_watch_status", "{}")["result"],
+            )
+            assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
+            assertTrue(toolSet.terminalToolSucceeded())
+            assertTrue(toolSet.terminalToolWasDirectReply())
+        } finally {
+            scope.close()
+        }
+
+        verify(exactly = 1) { registry.get("load_skill") }
+        coVerify(exactly = 1) { loadSkill.execute(any()) }
+        coVerify(exactly = 1) {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+        verify(exactly = 1) { registry.get("run_intent") }
+    }
+
+    @Test
+    fun `safe model test sandbox denies other tools and every other action before dispatch`() = runTest {
+        toolSet.beginLocalDiagnosticCapture()
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals(
+                "Blocked by safe model-test allowlist",
+                toolSet.loadSkill("meal_planner")["error"],
+            )
+            assertEquals("""{"skill_name":"meal_planner"}""", toolSet.lastToolRequest())
+            val blockedCalls = listOf(
+                """{"intent_name":"add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
+                """{"intent_name":"get_date_diff","parameters":{}}""" to
+                    { toolSet.runIntent("get_date_diff", "{}") },
+                """{"intent_name":"get_date","parameters":{}}""" to
+                    { toolSet.runIntent("get_date", "{}") },
+                """{"intent_name":"get_stopwatch_status","parameters":{"format":"private"}}""" to
+                    { toolSet.runIntent("get_stopwatch_status", """{"format":"private"}""") },
+                """{"intent_name":"get_list_items","parameters":{}}""" to
+                    { toolSet.runIntent("get_list_items", "{}") },
+                """{"intent_name":"start_stopwatch","parameters":{}}""" to
+                    { toolSet.runIntent("start_stopwatch", "{}") },
+                """{"intent_name":"bulk_add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
+                """{"skill_name":"private","data":{"value":"private test data"}}""" to
+                    { toolSet.runJs("""{"skill_name":"private","data":{"value":"private test data"}}""") },
+                """{"amount":"10","from_currency":"USD","to_currency":"NZD"}""" to
+                    { toolSet.convertCurrency("10", "USD", "NZD") },
+                """{"location":"private test location","forecast_days":"3"}""" to
+                    { toolSet.getWeather("private test location", "3") },
+                """{"query":"private test query"}""" to
+                    { toolSet.queryWikipedia("private test query") },
+                "{}" to { toolSet.getSystemInfo() },
+                """{"content":"private test fact"}""" to
+                    { toolSet.saveMemory("private test fact") },
+                """{"query":"private test query"}""" to
+                    { toolSet.searchMemory("private test query") },
+            )
+
+            blockedCalls.forEach { (expectedRequest, call) ->
+                toolSet.resetTurnState()
+                assertEquals("Blocked by safe model-test allowlist", call()["error"])
+                assertEquals(expectedRequest, toolSet.lastToolRequest())
+                assertFalse(toolSet.lastToolWasDirectReply())
+                assertTrue(toolSet.terminalToolFailed())
+            }
+
+            val snapshot = toolSet.finishLocalDiagnosticCapture()
+            assertEquals(
+                listOf(
+                    "load_skill",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_js",
+                    "convert_currency",
+                    "get_weather",
+                    "query_wikipedia",
+                    "get_system_info",
+                    "save_memory",
+                    "search_memory",
+                ),
+                snapshot.calls.map { it.name },
+            )
+            assertEquals((0..14).toList(), snapshot.calls.map { it.order })
+            assertTrue(
+                snapshot.calls.all {
+                    it.resultType == "Blocked" &&
+                        it.succeeded == false &&
+                        it.directReply == false &&
+                        it.returnedToGemma == true
+                },
+            )
+            assertEquals("private test query", snapshot.calls[11].arguments.get("query"))
+            assertEquals("private test query", snapshot.calls[14].arguments.get("query"))
+        } finally {
+            scope.close()
+            toolSet.finishLocalDiagnosticCapture()
+        }
+
+        verify(exactly = 0) { registry.get(any()) }
+
+        val systemInfo = mockk<Skill>()
+        every { systemInfo.name } returns "get_system_info"
+        coEvery { systemInfo.execute(any()) } returns SkillResult.DirectReply("System status")
+        every { registry.get("get_system_info") } returns systemInfo
+
+        assertEquals("System status", toolSet.getSystemInfo()["result"])
+        verify(exactly = 1) { registry.get("get_system_info") }
     }
 
     // -------------------------------------------------------------------------

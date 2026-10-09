@@ -43,6 +43,8 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ChatUiState
 import dagger.Lazy
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -52,6 +54,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -59,6 +62,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -763,4 +767,151 @@ class ChatViewModelRetryStateMachineTest {
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
         assertTrue(savedContents.any { it.contains("Hello! How can I help?") })
     }
+
+    @Test
+    fun `K successful load_skill continues when generation flow ends without Complete`() = runTest(dispatcher) {
+        setupLoadSkill()
+        setupRunIntent()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flow { realToolSet.loadSkill("run_intent") },
+            toolChainFlow(
+                tokens = listOf("Alarm set"),
+                chain = { realToolSet.runIntent("set_alarm", """{"hour":"7"}""") },
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertEquals(listOf("load_skill", "run_intent"), snapshot.calls.map { it.name })
+        assertEquals(listOf(true, false), snapshot.calls.map { it.returnedToGemma })
+        assertEquals("run_intent", realToolSet.terminalToolName())
+        assertEquals("Alarm set", savedContents.last())
+    }
+
+    @Test
+    fun `L Status 9 after load_skill persists failure and captures terminal state`() = runTest(dispatcher) {
+        setupLoadSkill()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            toolChainFlow(chain = { realToolSet.loadSkill("run_intent") }),
+            flow { throw IllegalStateException("Status 9: Prefill input length exceeds available state entries") },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertTrue(savedContents.last().contains("wasn't able to complete that action"))
+        assertTrue(viewModel.getConversationAsText().contains("wasn't able to complete that action"))
+        assertEquals(listOf("load_skill"), snapshot.calls.map { it.name })
+        assertEquals(true, snapshot.calls.single().returnedToGemma)
+        assertNull(snapshot.terminalCall)
+        assertEquals(2, snapshot.generationAttempts.size)
+        assertNull(realToolSet.terminalToolName())
+        verify {
+            Log.d("KernelAI", "llm_tools_tool_sequence: attempt=none turn=load_skill terminal=none")
+        }
+    }
+
+    @Test
+    fun `L2 Status 9 during load_skill continuation persists one honest failure`() = runTest(dispatcher) {
+        setupLoadSkill()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(GenerationResult.Complete(durationMs = 0)), // blank-response retry
+            flow {
+                realToolSet.loadSkill("run_intent")
+                throw IllegalStateException(
+                    "Status 9: Prefill input length exceeds available state entries, remaining capacity: 802",
+                )
+            },
+        )
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertTrue(viewModel.getConversationAsText().contains(honestFailure))
+        assertFalse(viewModel.getConversationAsText().contains("Sorry, generation was cancelled."))
+        assertEquals(listOf("load_skill"), snapshot.calls.map { it.name })
+        assertEquals(true, snapshot.calls.single().returnedToGemma)
+        assertNull(snapshot.terminalCall)
+        val readyState = viewModel.uiState.value as ChatUiState.Ready
+        assertFalse(readyState.isGenerating)
+        assertFalse(readyState.isLoadingModel)
+        val visibleAssistant = readyState.messages.last { it.role == ChatMessage.Role.ASSISTANT }
+        assertEquals(honestFailure, visibleAssistant.content)
+        assertFalse(visibleAssistant.isStreaming)
+        assertNull(realToolSet.terminalToolName())
+        verify {
+            Log.d("KernelAI", "llm_tools_tool_sequence: attempt=load_skill turn=load_skill terminal=none")
+        }
+    }
+
+    @Test
+    fun `M user cancellation after load_skill does not continue or persist failure`() = runTest(dispatcher) {
+        setupLoadSkill()
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        every { inferenceEngine.generate(any()) } returns flow {
+            realToolSet.loadSkill("run_intent")
+            viewModel.cancelGeneration()
+        }
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertFalse(savedContents.any { it.contains("wasn't able to complete that action") })
+        assertFalse(viewModel.getConversationAsText().contains("wasn't able to complete that action"))
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), eq("assistant"), any(), any(), any())
+        }
+    }
+
 }

@@ -281,7 +281,7 @@ class NativeIntentHandler @Inject constructor(
             "freeways" to "motorways",
         )
 
-        private val KNOWN_INTENTS = setOf(
+        internal val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
             "set_alarm", "cancel_alarm",
