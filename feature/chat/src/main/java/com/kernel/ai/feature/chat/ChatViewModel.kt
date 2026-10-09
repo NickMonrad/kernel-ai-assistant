@@ -2859,6 +2859,8 @@ class ChatViewModel @Inject constructor(
                 val baseSystemPrompt = buildSystemPrompt(
                     isFirstReply = isFirstReply,
                     identityTier = effectiveIdentityTier,
+                    includeCurrentDateTime = !safeRunIntentTest,
+                    includeProfile = !safeRunIntentTest,
                 )
                 val fixedPromptTokens = estimateSystemAndToolPromptTokens(baseSystemPrompt)
                 val selected = contextWindowManager.selectHistory(
@@ -2896,7 +2898,10 @@ class ChatViewModel @Inject constructor(
                 } else if (estimatedTokensUsed == 0) {
                     // First turn after initialization/reset: include the already-installed fixed
                     // prompt in the baseline estimate instead of counting only message text.
-                    systemPromptForPrefill = buildSystemPrompt()
+                    systemPromptForPrefill = buildSystemPrompt(
+                        includeCurrentDateTime = !safeRunIntentTest,
+                        includeProfile = !safeRunIntentTest,
+                    )
                     shouldMeasureToolDeclarations = true
                     estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptForPrefill)
                 }
