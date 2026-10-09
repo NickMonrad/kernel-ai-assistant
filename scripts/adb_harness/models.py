@@ -102,6 +102,8 @@ class LLMToolsTestCase:
     expected_load_skill_name: str | None = None
     safe_run_intent_test: bool = False
 
+    # Marker/reply budget after inference starts; separate from foreground wait.
+    post_start_marker_timeout_seconds: float = 120.0
 
 @dataclass
 class TestResult:
@@ -337,3 +339,4 @@ class LLMToolsResult:
     actual_tool_sequence: list[str] | None = None
     tool_sequence_marker: str | None = None
     tool_event_evidence: list[dict[str, str | bool]] = field(default_factory=list)
+    elapsed_seconds: float = 0.0

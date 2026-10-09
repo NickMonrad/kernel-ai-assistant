@@ -391,6 +391,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 1
+    suite_started_at = time.monotonic()
 
     print("=" * 70)
     print("  LLM TOOLS E2E TEST")
@@ -478,6 +479,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             if tc.safe_run_intent_test
             else tc.message
         )
+        case_started_at = time.monotonic()
         send_text(test_message, wait_for_inference=False)
         _keep_foreground_until_inference_starts(timeout=120.0)
         # Poll for all markers simultaneously from a single accumulated buffer,
@@ -495,7 +497,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             patterns["tool_sequence"] = LLM_TOOLS_TOOL_SEQUENCE_PATTERN
         markers, final_log = _poll_for_all_markers(
             patterns,
-            timeout=120,
+            timeout=tc.post_start_marker_timeout_seconds,
             boundary=case_boundary,
             initial_logcat=boundary_logcat,
             expected_message=tc.message,
@@ -694,6 +696,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             actual_tool_sequence=actual_tool_sequence,
             tool_sequence_marker=tool_sequence_marker,
             tool_event_evidence=tool_events,
+            elapsed_seconds=time.monotonic() - case_started_at,
         )
         results.append(result)
 
@@ -752,7 +755,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
 
     # Save report
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-    report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
+    report_path = save_llm_tools_report(
+        results,
+        elapsed=time.monotonic() - suite_started_at,
+        partial=False,
+        run_ts=run_ts,
+    )
     print(f"  Report saved → {report_path}")
     return 1 if failures > 0 else 0
 

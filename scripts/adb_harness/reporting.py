@@ -80,6 +80,7 @@ def save_llm_tools_report(
                 "actual_tool_sequence": r.actual_tool_sequence,
                 "tool_sequence_marker": r.tool_sequence_marker,
                 "tool_event_evidence": r.tool_event_evidence,
+                "elapsed_seconds": round(r.elapsed_seconds, 1),
             }
             for r in results
         ],

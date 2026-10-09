@@ -816,6 +816,7 @@ LLM_TOOLS_CASES: list[LLMToolsTestCase] = [
         expect_no_classifier_match=True,
         expect_no_slot_fill=True,
         expect_no_retry=True,
+        post_start_marker_timeout_seconds=360.0,
     ),
     LLMToolsTestCase(
         name="get_system_info_natural",
