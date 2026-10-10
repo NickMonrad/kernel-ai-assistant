@@ -51,7 +51,7 @@ Completed from the previous sequence: #1555, #1548, #1582 and #1581.
 1. [#1593](https://github.com/NickMonrad/kernel-ai-assistant/issues/1593) — harden model tool discovery (`load_skill` → `run_intent`), via PR #1603 — `launch:pre`
 2. [#1617](https://github.com/NickMonrad/kernel-ai-assistant/issues/1617) — S21 history budget underestimates the fixed prompt, causing LiteRT Status 9 mid-conversation — `launch:pre`
 3. [#1605](https://github.com/NickMonrad/kernel-ai-assistant/issues/1605) — lexical tool-query detection suppresses conversation history on recall prompts — `launch:pre`
-4. [#1586](https://github.com/NickMonrad/kernel-ai-assistant/issues/1586) — Lists: use the full item details surface when creating top-level and child items — `launch:pre`
+4. [#1586](https://github.com/NickMonrad/kernel-ai-assistant/issues/1586) — Lists: use the full item details surface when creating top-level and child items, via PR #1628 — `launch:pre`
 5. [#1613](https://github.com/NickMonrad/kernel-ai-assistant/issues/1613) — enable speculative decoding (MTP) by default, via PR #1614 — `launch:pre`
 6. [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) — upgrade LiteRT-LM to 0.18.0 and validate, via PR #1608
 7. [#1618](https://github.com/NickMonrad/kernel-ai-assistant/issues/1618) — app-visible time to first token far exceeds engine TTFT; per-turn GPU conversation reset to be re-evaluated after #31 — `launch:pre`

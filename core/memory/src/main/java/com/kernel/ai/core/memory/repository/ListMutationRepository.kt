@@ -207,11 +207,25 @@ class ListMutationRepository @Inject constructor(
         changeDao.deletePendingForCollection(collectionId)
     }
 
-    suspend fun addItem(listId: Long, text: String, dueAt: Long? = null, notificationTime: Long? = null): Long =
-        database.withTransaction {
-            requireContentMutationAllowed(requireList(listId).collectionId)
-            addItemInternal(listId, text, dueAt, false, notificationTime)
-        }
+    suspend fun addItem(
+        listId: Long,
+        text: String,
+        dueAt: Long? = null,
+        notificationTime: Long? = null,
+        description: String = "",
+        isFavourite: Boolean = false,
+    ): Long = database.withTransaction {
+        requireContentMutationAllowed(requireList(listId).collectionId)
+        addItemInternal(
+            listId,
+            text,
+            dueAt,
+            false,
+            notificationTime,
+            description = description,
+            isFavourite = isFavourite,
+        )
+    }
 
     suspend fun addItems(listId: Long, texts: List<String>): List<Long> = database.withTransaction {
         requireContentMutationAllowed(requireList(listId).collectionId)
@@ -219,7 +233,15 @@ class ListMutationRepository @Inject constructor(
     }
 
     /** Creates a child at its parent's last sibling position in the same sync-safe transaction. */
-    suspend fun addSubItem(listId: Long, parentItemId: String, text: String): AddedSubItem =
+    suspend fun addSubItem(
+        listId: Long,
+        parentItemId: String,
+        text: String,
+        dueAt: Long? = null,
+        notificationTime: Long? = null,
+        description: String = "",
+        isFavourite: Boolean = false,
+    ): AddedSubItem =
         database.withTransaction {
             val list = requireList(listId)
             requireContentMutationAllowed(list.collectionId)
@@ -239,11 +261,13 @@ class ListMutationRepository @Inject constructor(
             val itemId = addItemInternal(
                 listId = listId,
                 text = text,
-                dueAt = null,
+                dueAt = dueAt,
                 checked = false,
-                notificationTime = null,
+                notificationTime = notificationTime,
                 parentItemId = parentItemId,
                 orderKey = OrderKey.between(lastChild?.orderKey, null),
+                description = description,
+                isFavourite = isFavourite,
             )
             recomputeParentCompletionInternal(parent)
             val updatedParent = listItemDao.getByItemId(parentItemId) ?: parent
@@ -1250,6 +1274,8 @@ class ListMutationRepository @Inject constructor(
         notificationTime: Long?,
         parentItemId: String? = null,
         orderKey: String? = null,
+        description: String = "",
+        isFavourite: Boolean = false,
     ): Long {
         val list = requireList(listId)
         require(list.lifecycle == ListLifecycle.ACTIVE.name) { "Cannot add to deleted collection" }
@@ -1260,8 +1286,10 @@ class ListMutationRepository @Inject constructor(
         val item = ListItemEntity(
             listId = listId,
             text = text,
+            description = description,
             dueAt = dueAt,
             checked = checked,
+            isFavourite = isFavourite,
             notificationTime = notificationTime,
             createdAt = now,
             updatedAt = now,
@@ -1290,7 +1318,7 @@ class ListMutationRepository @Inject constructor(
             ListChangeOperation.CREATE_ITEM,
             ListChangePayload(
                 text = text,
-                description = "",
+                description = description,
                 checked = checked,
                 dueAt = dueAt,
                 parentItemId = parentItemId,

@@ -877,11 +877,37 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    fun addItem(listId: Long, itemText: String, onItemCreated: (Long) -> Unit) {
+    fun addItem(
+        listId: Long,
+        itemText: String,
+        description: String = "",
+        dueAt: Long? = null,
+        isFavourite: Boolean = false,
+        notificationTime: Long? = null,
+        onItemCreated: (Long) -> Unit,
+    ) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            onItemCreated(listMutations.addItem(listId, trimmed))
+            val createdItemId = listMutations.addItem(
+                listId,
+                trimmed,
+                dueAt,
+                notificationTime,
+                description,
+                isFavourite,
+            )
+            onItemCreated(createdItemId)
+            if (notificationTime != null) {
+                val listName = listEntities.value.firstOrNull { it.id == listId }?.name ?: ""
+                scheduler.schedule(
+                    itemId = createdItemId,
+                    itemText = trimmed,
+                    listId = listId,
+                    listName = listName,
+                    triggerAtMs = notificationTime,
+                )
+            }
         }
     }
 
@@ -890,6 +916,10 @@ class ListsViewModel @Inject constructor(
         listId: Long,
         parentItemId: String,
         itemText: String,
+        description: String = "",
+        dueAt: Long? = null,
+        isFavourite: Boolean = false,
+        notificationTime: Long? = null,
         onItemCreated: (Long) -> Unit,
     ) {
         val trimmed = itemText.trim()
@@ -898,7 +928,15 @@ class ListsViewModel @Inject constructor(
         clearItemSearchQuery()
         viewModelScope.launch {
             val result = withContext(ioDispatcher) {
-                listMutations.addSubItem(listId, parentItemId, trimmed)
+                listMutations.addSubItem(
+                    listId = listId,
+                    parentItemId = parentItemId,
+                    text = trimmed,
+                    dueAt = dueAt,
+                    notificationTime = notificationTime,
+                    description = description,
+                    isFavourite = isFavourite,
+                )
             }
             applyCheckedStateReminderTransitions(result.checkedStateMutation)
             if (boundItemListId == listId) {
@@ -906,6 +944,16 @@ class ListsViewModel @Inject constructor(
             }
             listsUiPreferences.setParentCollapsed(listId, parentItemId, collapsed = false)
             if (boundItemListId == listId) onItemCreated(result.itemId)
+            if (notificationTime != null) {
+                val listName = listEntities.value.firstOrNull { it.id == listId }?.name ?: ""
+                scheduler.schedule(
+                    itemId = result.itemId,
+                    itemText = trimmed,
+                    listId = listId,
+                    listName = listName,
+                    triggerAtMs = notificationTime,
+                )
+            }
         }
     }
 
