@@ -71,6 +71,8 @@ class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
     private val safeModelTestToken = AtomicReference<Any?>(null)
+    private val loadSkillInstructionTokenBudget = AtomicReference<Int?>(null)
+
     private val safeModelTestRunIntents = setOf("get_stopwatch_status")
 
     /**
@@ -83,6 +85,11 @@ class KernelAIToolSet @Inject constructor(
             "A safe model-test sandbox is already active"
         }
         return AutoCloseable { safeModelTestToken.compareAndSet(token, null) }
+    }
+
+    /** Sets the context budget for load_skill calls made during the active generation. */
+    fun setLoadSkillInstructionTokenBudget(maxInstructionTokens: Int?) {
+        loadSkillInstructionTokenBudget.set(maxInstructionTokens)
     }
 
     private fun isSafeModelTestActive(): Boolean = safeModelTestToken.get() != null
@@ -256,6 +263,7 @@ class KernelAIToolSet @Inject constructor(
 
     fun resetTurnState() {
         toolCalledInThisTurn = false
+        loadSkillInstructionTokenBudget.set(null)
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
@@ -470,7 +478,7 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads full instructions for a gateway skill (meal_planner, run_js, run_intent). Load a relevant skill when parameters or gateway-specific rules are unclear. If the user explicitly asks for skill instructions before acting, load that exact skill as the FIRST tool call even when the action is clear; wait for success, then follow the instructions. For run_intent, a successful load_skill MUST be followed by run_intent for the original request before any final reply; for other gateway skills, follow their returned instructions.")
+    @Tool(description = "Loads full or compact instructions sized to the available context for a gateway skill (meal_planner, run_js, run_intent). Load a relevant skill when parameters or gateway-specific rules are unclear. If the user explicitly asks for skill instructions before acting, load that exact skill as the FIRST tool call even when the action is clear; wait for success, then follow the instructions. For run_intent, a successful load_skill MUST be followed by run_intent for the original request before any final reply; for other gateway skills, follow their returned instructions.")
     fun loadSkill(
         @ToolParam(description = "The gateway skill name to load, such as run_intent.") skillName: String,
     ): Map<String, String> {
@@ -481,7 +489,12 @@ class KernelAIToolSet @Inject constructor(
         }
         val diagnosticOrder = recordToolCall(LOAD_SKILL_NAME, request, arguments)
         Log.d(TAG, "ToolSet: loadSkill($skillName)")
-        val result = executeSkill(LOAD_SKILL_NAME, mapOf("skill_name" to skillName), diagnosticOrder)
+        val result = executeSkill(
+            LOAD_SKILL_NAME,
+            mapOf("skill_name" to skillName),
+            diagnosticOrder,
+            maxInstructionTokens = loadSkillInstructionTokenBudget.get(),
+        )
         lastToolResult = result["result"] ?: result["error"]
         return result
     }
@@ -737,6 +750,7 @@ class KernelAIToolSet @Inject constructor(
         skillName: String,
         args: Map<String, String>,
         diagnosticOrder: Int?,
+        maxInstructionTokens: Int? = null,
     ): Map<String, String> {
         if (isSafeModelTestActive() && !isAllowedSafeModelTestDispatch(skillName, args)) {
             recordToolOutcome(skillName, succeeded = false)
@@ -770,7 +784,13 @@ class KernelAIToolSet @Inject constructor(
 
         return try {
             val result = runBlocking {
-                skill.execute(SkillCall(skillName = skillName, arguments = args))
+                skill.execute(
+                    SkillCall(
+                        skillName = skillName,
+                        arguments = args,
+                        maxInstructionTokens = maxInstructionTokens,
+                    ),
+                )
             }
             val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
             recordToolOutcome(skillName, succeeded)

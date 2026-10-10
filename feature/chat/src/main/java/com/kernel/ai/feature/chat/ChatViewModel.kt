@@ -1894,6 +1894,7 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
             var prompt = ""
+            var effectiveRagTokenCost = 0
             var systemPromptForPrefill = ""
             var shouldMeasureToolDeclarations = false
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
@@ -2781,7 +2782,6 @@ class ChatViewModel @Inject constructor(
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             var effectiveRagContext: String
-            var effectiveRagTokenCost: Int
             when {
                 isToolQuery -> {
                     effectiveRagContext = ""
@@ -3003,6 +3003,20 @@ class ChatViewModel @Inject constructor(
                 needsHallucinationRetry = false
                 kernelAIToolSet.resetAttemptState()
                 var generationResultReceived = false
+                // estimatedTokensUsed already includes RAG; subtract it only once from this prompt.
+                val currentPromptTokens = (
+                    contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
+                ).coerceAtLeast(0)
+                // Leave the response reserve available after the skill result is prefetched.
+                kernelAIToolSet.setLoadSkillInstructionTokenBudget(
+                    (
+                        activeContextWindowSize -
+                            estimatedTokensUsed -
+                            currentPromptTokens -
+                            ContextWindowManager.RESPONSE_RESERVE
+                    ).coerceAtLeast(0),
+                )
+
             inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
@@ -3495,6 +3509,7 @@ class ChatViewModel @Inject constructor(
                     activeStreamingContent = StringBuilder()
                 }
             } finally {
+                kernelAIToolSet.setLoadSkillInstructionTokenBudget(null)
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true

@@ -491,7 +491,7 @@ ExperimentalFlags.enableConversationConstrainedDecoding = false
 
 | Category | Tool method | Dispatcher | Use for |
 |---------|------------|-----------|---------|
-| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load extended instructions for complex/gateway tasks |
+| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full or compact instructions within remaining context; fail if neither fits |
 | Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents and deterministic local actions (alarm, timer, DND, media, navigation, date diff, lists, etc.) |
 | Direct native | `queryWikipedia(query)` | `QueryWikipediaSkill` → `JsSkillRunner.kt` | Public Wikipedia lookup surface; internally bridges to the JS runtime |
 | Direct native | `getSystemInfo()` | `GetSystemInfoSkill` | Current device/runtime/date-time snapshot |
@@ -511,10 +511,15 @@ interface Skill {
     val description: String
     val schema: SkillSchema           // parameter definitions + required list
     val examples: List<String>        // native tool call examples for system prompt
-    val fullInstructions: String      // complete docs returned by loadSkill()
+    val fullInstructions: String      // complete instructions, returned when the budget permits
+    val compactInstructions: String?  // optional shorter form for constrained contexts
     suspend fun execute(call: SkillCall): SkillResult
 }
 ```
+
+`ChatViewModel` passes the estimated remaining instruction-token budget through `SkillCall`.
+`LoadSkillSkill` returns full instructions when they fit, otherwise a compact form, or a short
+`Failure` before an oversized tool-result continuation is prefetched.
 
 **Response handling:** The SDK handles tool calls transparently during `generate()`.
 `KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`,
