@@ -19,8 +19,9 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
+import kotlin.math.sqrt
 
-/** Opt-in generator: ./gradlew :app:connectedDebugAndroidTest with the documented runner arg. */
+/** Opt-in generator; invoke it via direct instrumentation using the documented runner arguments. */
 @RunWith(AndroidJUnit4::class)
 class MiniLMPhraseVectorAssetGeneratorTest {
     @Test
@@ -96,10 +97,14 @@ class MiniLMPhraseVectorAssetGeneratorTest {
             assertTrue(QuickIntentRouter().route(noRegexInput) is QuickIntentRouter.RouteResult.FallThrough)
 
             var phraseIndex = 0
+            var minimumCosine = 1f
             runtimeVectors.forEach { (intent, phraseVectors) ->
                 phraseVectors.forEachIndexed { vectorIndex, runtimeVector ->
                     val assetVector = loadedVectors.getValue(intent)[vectorIndex]
                     assertArrayEquals("$intent phrase $vectorIndex", runtimeVector, assetVector, 1e-6f)
+                    val cosine = cosineSimilarity(runtimeVector, assetVector)
+                    minimumCosine = minOf(minimumCosine, cosine)
+                    assertTrue("$intent phrase $vectorIndex cosine=$cosine", cosine >= 0.999f)
                     val runtimeScores = MiniLMIntentScorer.score(runtimeVector, runtimeVectors)
                     val assetScores = MiniLMIntentScorer.score(runtimeVector, loadedVectors)
                     assertEquals("top-1 for phrase $phraseIndex", runtimeScores.bestIntent, assetScores.bestIntent)
@@ -122,13 +127,28 @@ class MiniLMPhraseVectorAssetGeneratorTest {
             Log.i(
                 TAG,
                 "Verified $assetSource ${output.absolutePath}; vectors=$phraseIndex bytes=${assetBytes.size}; " +
-                    "runtimeBuildMs=$buildElapsedMs assetLoadMs=$assetLoadElapsedMs parityMs=$parityElapsedMs",
+                    "runtimeBuildMs=$buildElapsedMs assetLoadMs=$assetLoadElapsedMs parityMs=$parityElapsedMs " +
+                    "minimumCosine=$minimumCosine",
             )
         } finally {
             interpreter.close()
             modelInput.close()
             modelDescriptor.close()
         }
+    }
+
+    private fun cosineSimilarity(left: FloatArray, right: FloatArray): Float {
+        var dot = 0f
+        var leftSquared = 0f
+        var rightSquared = 0f
+        for (index in left.indices) {
+            val leftValue = left[index]
+            val rightValue = right[index]
+            dot += leftValue * rightValue
+            leftSquared += leftValue * leftValue
+            rightSquared += rightValue * rightValue
+        }
+        return dot / sqrt(leftSquared.toDouble() * rightSquared.toDouble()).toFloat()
     }
 
     private fun route(
@@ -148,5 +168,29 @@ class MiniLMPhraseVectorAssetGeneratorTest {
     private companion object {
         const val GENERATOR_ARGUMENT = "generate_minilm_phrase_vector_asset"
         const val TAG = "MiniLMPhraseVectorAssetGenerator"
+    }
+}
+
+@RunWith(AndroidJUnit4::class)
+class MiniLMIntentClassifierReadinessTest {
+    @Test
+    fun measuresReadinessWithoutOpeningChat() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val classifier = com.kernel.ai.core.skills.MiniLMIntentClassifier(context)
+        val deadline = startedAt + READINESS_TIMEOUT_MS
+        while (!classifier.isReady() && !classifier.isFailed() &&
+            android.os.SystemClock.elapsedRealtime() < deadline
+        ) {
+            android.os.SystemClock.sleep(50)
+        }
+        val readyElapsedMs = android.os.SystemClock.elapsedRealtime() - startedAt
+        assertTrue("MiniLM classifier did not become ready within ${READINESS_TIMEOUT_MS}ms", classifier.isReady())
+        Log.i(TAG, "MiniLM classifier readyMs=$readyElapsedMs")
+    }
+
+    private companion object {
+        const val READINESS_TIMEOUT_MS = 180_000L
+        const val TAG = "MiniLMIntentClassifierReadiness"
     }
 }

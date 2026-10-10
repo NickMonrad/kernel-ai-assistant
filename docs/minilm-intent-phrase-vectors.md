@@ -6,20 +6,30 @@ The version-1 file uses big-endian integers and float32 values. Its 152-byte hea
 
 ## Regenerate on an Android device
 
-The opt-in instrumentation generator calls the same `MiniLMPhraseVectorizer` used by production fallback, with the shipped WordPiece tokenizer, TFLite model, pooling, and normalization. It computes all 515 vectors from the model, encodes and reloads the asset, then checks vector values, nearest-neighbour scores, top-1 classifications, and `QuickIntentRouter` decisions against the runtime-built vectors. The generator writes the artifact to the target app's external files directory and logs the build and asset-load durations.
+The opt-in instrumentation generator calls the same `MiniLMPhraseVectorizer` used by production fallback, with the shipped WordPiece tokenizer, TFLite model, pooling, and normalization. It computes all 515 vectors from the model, encodes and reloads the asset, then checks per-vector cosine similarity (at least 0.999), nearest-neighbour scores, top-1 classifications, and `QuickIntentRouter` decisions against the runtime-built vectors. The generator writes the artifact to the target app's external files directory and logs the build and asset-load durations.
 
-Use the debug variant on an approved S21 or S23 lane; no personal data is read or changed:
+Build and install both debug APKs with a version code above the installed app. Use the approved device serial and direct instrumentation; do not run a Gradle `connected*` task, which can remove the target app after testing.
+
+`3381` below is only an example; choose a value greater than the installed package's version code.
 
 ```sh
-./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.kernel.ai.MiniLMPhraseVectorAssetGeneratorTest \
-  -Pandroid.testInstrumentationRunnerArguments.generate_minilm_phrase_vector_asset=true
+export ANDROID_SERIAL='DEVICE_SERIAL'
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PversionCode=3381
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Optional classifier readiness measurement; this does not open a chat or write conversation data.
+adb -s "$ANDROID_SERIAL" shell am instrument -w \
+  -e class com.kernel.ai.MiniLMIntentClassifierReadinessTest \
+  com.kernel.ai.debug.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$ANDROID_SERIAL" shell am instrument -w \
+  -e class com.kernel.ai.MiniLMPhraseVectorAssetGeneratorTest \
+  -e generate_minilm_phrase_vector_asset true \
+  com.kernel.ai.debug.test/androidx.test.runner.AndroidJUnitRunner
 ```
-
-Pull the generated file from the debug app's external files directory and replace the committed asset:
+Immediately pull the generated file from the debug app's external files directory, verify its inputs, then run the freshness test:
 
 ```sh
-adb pull /sdcard/Android/data/com.kernel.ai.debug/files/intent_phrase_vectors.bin \
+adb -s "$ANDROID_SERIAL" pull /sdcard/Android/data/com.kernel.ai.debug/files/intent_phrase_vectors.bin \
   app/src/main/assets/intent_phrase_vectors.bin
 sha256sum app/src/main/assets/minilm-l6-v2-int8.tflite \
   app/src/main/assets/vocab.txt app/src/main/assets/intent_phrases.json \
