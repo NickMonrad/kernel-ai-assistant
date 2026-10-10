@@ -16,9 +16,7 @@ class ContextWindowManager {
         /** Reserved for the model's generated response. */
         const val RESPONSE_RESERVE = 1024
 
-        /** Reserved for system prompt + datetime + user profile + RAG context.
-         *  Actual measured overhead: ~800 tokens (system prompt) + ~400 (RAG/profile) + 200 buffer = ~1400.
-         *  Previously 2048 — over-reserved, leaving only ~1024 tokens for history on a 4096 window. */
+        /** Conservative fallback overhead when no fixed-prompt estimate is available. */
         const val SYSTEM_OVERHEAD = 1400
 
         /** Conservative average tokens per (user + assistant) turn pair. */
@@ -26,10 +24,14 @@ class ContextWindowManager {
 
         /**
          * Tokens available for conversation history given [contextWindowSize].
+         * [fixedPromptTokens] is the estimated system prompt plus native tool declaration cost.
+         * The default preserves the conservative estimate for callers without a prompt estimate.
          * Clamped to zero so callers never receive a negative budget.
          */
-        fun historyBudget(contextWindowSize: Int): Int =
-            (contextWindowSize - RESPONSE_RESERVE - SYSTEM_OVERHEAD).coerceAtLeast(0)
+        fun historyBudget(
+            contextWindowSize: Int,
+            fixedPromptTokens: Int = SYSTEM_OVERHEAD,
+        ): Int = (contextWindowSize - RESPONSE_RESERVE - fixedPromptTokens.coerceAtLeast(0)).coerceAtLeast(0)
 
         /**
          * Maximum conversation turns to retain given [contextWindowSize].
