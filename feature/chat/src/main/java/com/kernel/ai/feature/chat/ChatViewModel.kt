@@ -3007,14 +3007,15 @@ class ChatViewModel @Inject constructor(
                 val currentPromptTokens = (
                     contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
                 ).coerceAtLeast(0)
-                // Leave the response reserve available after the skill result is prefetched.
-                kernelAIToolSet.setLoadSkillInstructionTokenBudget(
+                // Leave the response reserve available after the full tool-result envelope is prefetched.
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(
                     (
                         activeContextWindowSize -
                             estimatedTokensUsed -
                             currentPromptTokens -
                             ContextWindowManager.RESPONSE_RESERVE
                     ).coerceAtLeast(0),
+                    abortContinuation = inferenceEngine::cancelGeneration,
                 )
 
             inferenceEngine.generate(currentPrompt).collect { result ->
@@ -3051,12 +3052,20 @@ class ChatViewModel @Inject constructor(
                                 ?: preservedThinkingText
                             kernelAIToolSet.logToolSequence()
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
-                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
-                                kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
-                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            if (!kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
+                                (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                                    (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                        kernelAIToolSet.loadSkillFailedInCurrentAttempt()))
                             ) {
                                 localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
-                                Log.w("KernelAI", "load_skill_failed")
+                                Log.w(
+                                    "KernelAI",
+                                    if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                                        "load_skill_tool_result_context_abort"
+                                    } else {
+                                        "load_skill_failed"
+                                    },
+                                )
                                 persistHonestActionFailure(thinking)
                                 return@collect
                             }
@@ -3450,6 +3459,14 @@ class ChatViewModel @Inject constructor(
                     val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                         ?: preservedThinkingText
                     when {
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "load_skill_tool_result_context_abort")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                             !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
                             handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
@@ -3476,10 +3493,11 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                // LiteRT can throw while continuing after load_skill, before Complete schedules a
-                // separate incomplete-chain retry, so also recognize success in this attempt.
+                // LiteRT can fail while continuing after load_skill, before Complete schedules a
+                // separate incomplete-chain retry; an aborted tool result also terminates here.
                 if (!turnCancellationRequest.get() &&
-                    (incompleteChainContinuationPending ||
+                    (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                        incompleteChainContinuationPending ||
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
                     kernelAIToolSet.terminalToolName() == null
                 ) {
@@ -3488,7 +3506,14 @@ class ChatViewModel @Inject constructor(
                         accumulatedThinking,
                     )
                     kernelAIToolSet.logToolSequence()
-                    Log.w("KernelAI", "load_skill_continuation_failed")
+                    Log.w(
+                        "KernelAI",
+                        if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                            "load_skill_tool_result_context_abort"
+                        } else {
+                            "load_skill_continuation_failed"
+                        },
+                    )
                     persistHonestActionFailure(
                         accumulatedThinking.toString().takeIf { it.isNotBlank() },
                     )
@@ -3509,7 +3534,7 @@ class ChatViewModel @Inject constructor(
                     activeStreamingContent = StringBuilder()
                 }
             } finally {
-                kernelAIToolSet.setLoadSkillInstructionTokenBudget(null)
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(null, null)
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true

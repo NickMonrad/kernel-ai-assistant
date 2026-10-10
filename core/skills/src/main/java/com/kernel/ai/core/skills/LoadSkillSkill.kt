@@ -4,6 +4,7 @@ import com.kernel.ai.core.inference.ContextWindowManager
 import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
+import org.json.JSONObject
 
 /**
  * Implements Google AI Edge Gallery's load_skill pattern (#341).
@@ -54,9 +55,6 @@ class LoadSkillSkill @Inject constructor(
     // load_skill's own fullInstructions are always embedded in the system prompt — no need
     // to load them lazily. This just returns the standard default.
 
-    // Success: instruction context for LLM — not user-facing
-    private val tokenEstimator = ContextWindowManager()
-
     override suspend fun execute(call: SkillCall): SkillResult {
         val requestedSkillName = call.arguments["skill_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: skill_name.")
@@ -81,19 +79,16 @@ class LoadSkillSkill @Inject constructor(
         } else {
             skill.fullInstructions
         }
-        val instructionBudget = call.maxInstructionTokens
+        val toolResultBudget = call.maxToolResultTokens
             ?: return SkillResult.Success(fullInstructions)
-        if (tokenEstimator.estimateTokens(fullInstructions) <= instructionBudget) {
+        if (fitsResult(fullInstructions, toolResultBudget)) {
             return SkillResult.Success(fullInstructions)
         }
 
         val compactInstructions = skill.compactInstructions?.let { compact ->
             if (isCalendarAlias) calendarPrefix + compact else compact
         }
-        if (
-            compactInstructions != null &&
-            tokenEstimator.estimateTokens(compactInstructions) <= instructionBudget
-        ) {
+        if (compactInstructions != null && fitsResult(compactInstructions, toolResultBudget)) {
             return SkillResult.Success(compactInstructions)
         }
         return SkillResult.Failure(
@@ -101,4 +96,19 @@ class LoadSkillSkill @Inject constructor(
             "Insufficient context to load $requestedSkillName instructions; do not continue.",
         )
     }
+
+    private fun fitsResult(content: String, tokenBudget: Int): Boolean =
+        LoadSkillToolResultBudget.estimateTokens(mapOf("result" to content)) <= tokenBudget
+}
+
+/**
+ * Estimates the JSON object returned from load_skill, including its key and escaped value.
+ * LiteRT-LM adds this object to the next prefill, so measuring only the instruction text
+ * undercounts the context consumed by a tool call.
+ */
+internal object LoadSkillToolResultBudget {
+    private val tokenEstimator = ContextWindowManager()
+
+    fun estimateTokens(result: Map<String, String>): Int =
+        tokenEstimator.estimateTokens(JSONObject(result).toString())
 }
