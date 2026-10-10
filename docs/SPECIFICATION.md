@@ -520,6 +520,9 @@ interface Skill {
 `ChatViewModel` passes the estimated remaining instruction-token budget through `SkillCall`.
 `LoadSkillSkill` returns full instructions when they fit, otherwise a compact form, or a short
 `Failure` before an oversized tool-result continuation is prefetched.
+If even the bounded failure envelope cannot fit, the active stream is cancelled; `ChatViewModel`
+resets the partial LiteRT conversation and replays persisted history before the next generation
+while retaining the honest failure response.
 
 **Response handling:** The SDK handles tool calls transparently during `generate()`.
 `KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`,

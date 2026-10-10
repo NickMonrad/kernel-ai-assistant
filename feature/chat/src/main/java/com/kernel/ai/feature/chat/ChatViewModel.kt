@@ -3539,6 +3539,14 @@ class ChatViewModel @Inject constructor(
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
                 }
+                if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                    // The native stream was cancelled mid-turn; mirror user-cancellation recovery
+                    // without changing the visible cancellation state or skipping this failure.
+                    needsHistoryReplay = true
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
+                    inferenceEngine.resetConversation()
+                }
             }
         }
     }
