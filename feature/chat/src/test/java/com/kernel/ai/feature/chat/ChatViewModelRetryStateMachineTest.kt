@@ -887,6 +887,44 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
+    fun `oversized load_skill failure cancels before continuation and persists honest failure`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Failure("load_skill", "x".repeat(20_000)))
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "set an alarm for 7 AM",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        var returnedToolResult: Map<String, String>? = null
+        every { inferenceEngine.generate(any()) } returns flow {
+            returnedToolResult = realToolSet.loadSkill("run_intent")
+        }
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        verify(exactly = 1) { inferenceEngine.cancelGeneration() }
+        assertTrue(requireNotNull(returnedToolResult).isEmpty())
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(emptyMap<String, String>(), snapshot.calls.single().toolResult)
+        assertEquals(false, snapshot.calls.single().returnedToGemma)
+        val readyState = viewModel.uiState.value as ChatUiState.Ready
+        assertEquals(honestFailure, readyState.messages.last { it.role == ChatMessage.Role.ASSISTANT }.content)
+        assertFalse(readyState.isGenerating)
+        assertFalse(readyState.messages.last { it.role == ChatMessage.Role.ASSISTANT }.isStreaming)
+    }
+
+    @Test
     fun `M user cancellation after load_skill does not continue or persist failure`() = runTest(dispatcher) {
         setupLoadSkill()
 
