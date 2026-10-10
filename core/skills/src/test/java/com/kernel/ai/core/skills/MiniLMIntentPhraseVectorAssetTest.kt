@@ -42,10 +42,11 @@ class MiniLMIntentPhraseVectorAssetTest {
     @Test
     fun `loaded vectors preserve MiniLM scores and QuickIntentRouter decision`() {
         val encoded = MiniLMIntentPhraseVectorAsset.encode(vectors, groups, hashes)
-        val loaded = assertInstanceOf(
-            MiniLMIntentPhraseVectorAsset.LoadResult.Loaded::class.java,
-            MiniLMIntentPhraseVectorAsset.load(encoded, hashes, groups),
-        ).vectors
+        val loaded = MiniLMIntentClassifier.loadOrBuildPhraseVectors(
+            assetResult = MiniLMIntentPhraseVectorAsset.load(encoded, hashes, groups),
+        ) {
+            error("A valid asset must not rebuild phrase vectors")
+        }
         val query = vectors.getValue("first_intent").first()
         val runtimeScores = MiniLMIntentScorer.score(query, vectors)
         val loadedScores = MiniLMIntentScorer.score(query, loaded)
@@ -108,6 +109,49 @@ class MiniLMIntentPhraseVectorAssetTest {
             MiniLMIntentPhraseVectorAsset.load(encoded, hashes, groups),
         )
         assertEquals("payload checksum mismatch", rejected.reason)
+    }
+
+    @Test
+    fun `stale and corrupt assets rebuild phrase vectors that still classify`() {
+        val encoded = MiniLMIntentPhraseVectorAsset.encode(vectors, groups, hashes)
+        val stale = assertInstanceOf(
+            MiniLMIntentPhraseVectorAsset.LoadResult.Rejected::class.java,
+            MiniLMIntentPhraseVectorAsset.load(encoded, hashes.copy(model = "4".repeat(64)), groups),
+        )
+        assertEquals("source hash mismatch", stale.reason)
+
+        val corrupted = encoded.copyOf().apply {
+            this[lastIndex] = (this[lastIndex].toInt() xor 1).toByte()
+        }
+        val corrupt = assertInstanceOf(
+            MiniLMIntentPhraseVectorAsset.LoadResult.Rejected::class.java,
+            MiniLMIntentPhraseVectorAsset.load(corrupted, hashes, groups),
+        )
+        assertEquals("payload checksum mismatch", corrupt.reason)
+
+        listOf(stale, corrupt).forEach { rejected ->
+            var buildCount = 0
+            val rebuiltVectors = MiniLMIntentClassifier.loadOrBuildPhraseVectors(rejected) { reason ->
+                assertEquals(rejected.reason, reason)
+                buildCount++
+                vectors
+            }
+            assertEquals(1, buildCount)
+            assertEquals(vectors.keys, rebuiltVectors.keys)
+            vectors.forEach { (intent, expectedVectors) ->
+                val actualVectors = rebuiltVectors.getValue(intent)
+                assertEquals(expectedVectors.size, actualVectors.size)
+                expectedVectors.indices.forEach { index ->
+                    assertArrayEquals(expectedVectors[index], actualVectors[index])
+                }
+            }
+
+            val classification = MiniLMIntentScorer.score(
+                vectors.getValue("first_intent").first(),
+                rebuiltVectors,
+            ).classification
+            assertEquals("first_intent", classification?.intentName)
+        }
     }
 
     @Test

@@ -36,6 +36,17 @@ class MiniLMIntentClassifier @Inject constructor(
         private const val MODEL_ASSET = "minilm-l6-v2-int8.tflite"
         private const val VOCAB_ASSET = "vocab.txt"
         private const val PHRASES_ASSET = "intent_phrases.json"
+
+        internal fun loadOrBuildPhraseVectors(
+            assetResult: MiniLMIntentPhraseVectorAsset.LoadResult,
+            buildRuntimeVectors: (String) -> Map<String, List<FloatArray>>,
+        ): Map<String, List<FloatArray>> =
+            when (assetResult) {
+                is MiniLMIntentPhraseVectorAsset.LoadResult.Loaded -> assetResult.vectors
+                is MiniLMIntentPhraseVectorAsset.LoadResult.Rejected ->
+                    buildRuntimeVectors(assetResult.reason)
+            }
+
     }
 
     // All mutable state is set exactly once from the init coroutine and then read-only.
@@ -74,15 +85,12 @@ class MiniLMIntentClassifier @Inject constructor(
                     "asset unavailable (${exception.javaClass.simpleName})",
                 )
             }
-            val phraseVectors = when (assetResult) {
-                is MiniLMIntentPhraseVectorAsset.LoadResult.Loaded -> {
-                    Log.i(TAG, "Loaded hash-matched phrase vectors from ${MiniLMIntentPhraseVectorAsset.FILE_NAME}")
-                    assetResult.vectors
-                }
-                is MiniLMIntentPhraseVectorAsset.LoadResult.Rejected -> {
-                    Log.w(TAG, "Precomputed phrase vectors rejected: ${assetResult.reason}; building at runtime")
-                    encoder.buildPhraseVectors(phrasesJson)
-                }
+            if (assetResult is MiniLMIntentPhraseVectorAsset.LoadResult.Loaded) {
+                Log.i(TAG, "Loaded hash-matched phrase vectors from ${MiniLMIntentPhraseVectorAsset.FILE_NAME}")
+            }
+            val phraseVectors = loadOrBuildPhraseVectors(assetResult) { reason ->
+                Log.w(TAG, "Precomputed phrase vectors rejected: $reason; building at runtime")
+                encoder.buildPhraseVectors(phrasesJson)
             }
             intentPhraseVectors = phraseVectors
             val totalVectors = phraseVectors.values.sumOf { it.size }
