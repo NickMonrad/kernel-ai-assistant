@@ -68,6 +68,35 @@ private const val GPU_INIT_TIMEOUT_MS = 60_000L
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
+private const val LITERT_STATUS_MARKER = "Status Code:"
+
+private fun safeDebugGenerationId(value: String?): String? =
+    value?.takeIf { id ->
+        BuildConfig.DEBUG &&
+            id.length in 1..48 &&
+            id.all { character ->
+                character in 'a'..'z' ||
+                    character in 'A'..'Z' ||
+                    character in '0'..'9' ||
+                    character == '-' ||
+                    character == '_'
+            }
+    }
+
+private fun liteRtStatusCode(throwable: Throwable): String =
+    generateSequence(throwable) { it.cause }
+        .take(8)
+        .mapNotNull { cause ->
+            val message = cause.message ?: return@mapNotNull null
+            val markerStart = message.indexOf(LITERT_STATUS_MARKER)
+            if (markerStart < 0) return@mapNotNull null
+            var statusStart = markerStart + LITERT_STATUS_MARKER.length
+            while (statusStart < message.length && message[statusStart].isWhitespace()) statusStart++
+            var statusEnd = statusStart
+            while (statusEnd < message.length && message[statusEnd] in '0'..'9') statusEnd++
+            message.substring(statusStart, statusEnd).takeIf { statusEnd > statusStart }
+        }
+        .firstOrNull() ?: "unknown"
 
 /**
  * Decision result from [checkGpuRestartNeeded].
@@ -1307,14 +1336,33 @@ class LiteRtInferenceEngine @Inject constructor(
     // -------------------------------------------------------------------------
 
     override fun generate(userMessage: String): Flow<GenerationResult> =
-        generateInternal(userMessage, syntheticLoadSkillAbortProbe = false)
+        generateInternal(
+            userMessage = userMessage,
+            syntheticLoadSkillAbortProbe = false,
+            debugTraceId = null,
+        )
 
-    override fun generateDebugLoadSkillAbortProbe(): Flow<GenerationResult> =
-        generateInternal(userMessage = "", syntheticLoadSkillAbortProbe = true)
+    override fun generateWithDebugTrace(
+        userMessage: String,
+        debugTraceId: String,
+    ): Flow<GenerationResult> =
+        generateInternal(
+            userMessage = userMessage,
+            syntheticLoadSkillAbortProbe = false,
+            debugTraceId = debugTraceId,
+        )
+
+    override fun generateDebugLoadSkillAbortProbe(debugTraceId: String?): Flow<GenerationResult> =
+        generateInternal(
+            userMessage = "",
+            syntheticLoadSkillAbortProbe = true,
+            debugTraceId = debugTraceId,
+        )
 
     private fun generateInternal(
         userMessage: String,
         syntheticLoadSkillAbortProbe: Boolean,
+        debugTraceId: String?,
     ): Flow<GenerationResult> = callbackFlow {
         generationMutex.lock()
         val lockReleased = AtomicBoolean(false)
@@ -1350,7 +1398,11 @@ class LiteRtInferenceEngine @Inject constructor(
             },
         )
         val eventSeq = java.util.concurrent.atomic.AtomicInteger(0)
-        val generationId = "gen_${start}"
+        val generationId = if (BuildConfig.DEBUG) {
+            safeDebugGenerationId(debugTraceId) ?: "gen_$start"
+        } else {
+            "gen_$start"
+        }
 
         fun emitVisibleToken(delta: String) {
             if (delta.isEmpty()) return
@@ -1381,9 +1433,22 @@ class LiteRtInferenceEngine @Inject constructor(
         activeStreamGeneration.set(stream)
 
         val toolCallCount = AtomicInteger(0)
+        val sendAttemptCounter = if (BuildConfig.DEBUG) AtomicInteger(0) else null
 
-        fun sendMessageToConversation(send: (MessageCallback) -> Unit) {
+        fun sendMessageToConversation(
+            stage: String,
+            startEvent: String = "send_start",
+            send: (MessageCallback) -> Unit,
+        ) {
             stream.whileActive {
+                val sendAttempt = sendAttemptCounter?.incrementAndGet() ?: 0
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "generation_diagnostic generation_id=$generationId send_attempt=$sendAttempt " +
+                            "stage=$stage event=$startEvent",
+                    )
+                }
                 try {
                     val callback =
                         object : MessageCallback {
@@ -1395,6 +1460,15 @@ class LiteRtInferenceEngine @Inject constructor(
                             override fun onMessage(message: Message) {
                                 if (continuationScheduled || !stream.isActive()) return
                                 if (message.toolCalls.isNotEmpty()) {
+                                    if (BuildConfig.DEBUG) {
+                                        val toolNames = message.toolCalls.joinToString(",") { it.name.take(64) }
+                                        Log.d(
+                                            TAG,
+                                            "generation_diagnostic generation_id=$generationId " +
+                                                "send_attempt=$sendAttempt stage=$stage event=tool_call_received " +
+                                                "tool_names=$toolNames count=${message.toolCalls.size}",
+                                        )
+                                    }
                                     if (toolCallCount.incrementAndGet() > RECURRING_TOOL_CALL_LIMIT) {
                                         stream.finish {
                                             close(
@@ -1408,6 +1482,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                     }
 
                                     val toolResponses = ArrayList<Content>(message.toolCalls.size)
+                                    var activeToolName = "unknown"
                                     try {
                                         for (toolCall in message.toolCalls) {
                                             if (!stream.isActive()) return
@@ -1415,11 +1490,33 @@ class LiteRtInferenceEngine @Inject constructor(
                                                 .toJsonTree(toolCall.arguments)
                                                 .asJsonObject
                                             val result = conv.toolManager.execute(toolCall.name, arguments)
+                                            if (BuildConfig.DEBUG) {
+                                                activeToolName = toolCall.name.take(64)
+                                                val resultTokens = ContextWindowManager()
+                                                    .estimateTokens(result.toString())
+                                                Log.d(
+                                                    TAG,
+                                                    "generation_diagnostic generation_id=$generationId " +
+                                                        "send_attempt=$sendAttempt stage=$stage " +
+                                                        "event=tool_dispatch_result tool=$activeToolName " +
+                                                        "returned=true serialized_result_tokens_estimate=$resultTokens",
+                                                )
+                                            }
                                             if (!stream.isActive()) return
                                             toolResponses += Content.ToolResponse(toolCall.name, result)
                                         }
                                     } catch (e: Exception) {
                                         stream.finish {
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                    TAG,
+                                                    "generation_diagnostic generation_id=$generationId " +
+                                                        "send_attempt=$sendAttempt stage=$stage " +
+                                                        "event=tool_dispatch_result tool=$activeToolName " +
+                                                        "returned=false exception=${e.javaClass.simpleName} " +
+                                                        "status=${liteRtStatusCode(e)}",
+                                                )
+                                            }
                                             Log.e(TAG, "Tool execution failed", e)
                                             close(InferenceException("Tool execution failed: ${e.message}", e))
                                         }
@@ -1453,6 +1550,14 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
 
                             override fun onDone() {
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        TAG,
+                                        "generation_diagnostic generation_id=$generationId " +
+                                            "send_attempt=$sendAttempt stage=$stage event=on_done " +
+                                            "tool_response_pending=${pendingToolResponse != null}",
+                                    )
+                                }
                                 if (syntheticLoadSkillAbortProbe) {
                                     if (!stream.requiresConversationReset()) {
                                         stream.finish {
@@ -1469,7 +1574,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                 if (toolResponse != null) {
                                     stream.whileActive {
                                         continuationScheduled = true
-                                        sendMessageToConversation { callback ->
+                                        sendMessageToConversation("tool_response") { callback ->
                                             conv.sendMessageAsync(toolResponse, callback, emptyMap())
                                         }
                                     }
@@ -1508,6 +1613,15 @@ class LiteRtInferenceEngine @Inject constructor(
 
                             override fun onError(throwable: Throwable) {
                                 if (continuationScheduled) return
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        TAG,
+                                        "generation_diagnostic generation_id=$generationId " +
+                                            "send_attempt=$sendAttempt stage=$stage event=on_error " +
+                                            "exception=${throwable.javaClass.simpleName} " +
+                                            "status=${liteRtStatusCode(throwable)}",
+                                    )
+                                }
                                 stream.finish {
                                     if (throwable is CancellationException) {
                                         Log.i(TAG, "Generation cancelled by user")
@@ -1521,6 +1635,14 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                     send(callback)
                 } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            TAG,
+                            "generation_diagnostic generation_id=$generationId " +
+                                "send_attempt=$sendAttempt stage=$stage event=send_throw " +
+                                "exception=${e.javaClass.simpleName} status=${liteRtStatusCode(e)}",
+                        )
+                    }
                     stream.finish {
                         close(InferenceException("sendMessageAsync failed: ${e.message}", e))
                     }
@@ -1536,7 +1658,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 }
             ) {
                 if (syntheticLoadSkillAbortProbe) {
-                    sendMessageToConversation { callback ->
+                    sendMessageToConversation("synthetic_tool_callback", startEvent = "callback_start") { callback ->
                         Log.i(TAG, "debug_load_skill_abort_probe=synthetic_tool_callback")
                         callback.onMessage(
                             Message.model(
@@ -1551,7 +1673,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         callback.onDone()
                     }
                 } else {
-                    sendMessageToConversation { callback ->
+                    sendMessageToConversation("initial_prompt") { callback ->
                         conv.sendMessageAsync(
                             Contents.of(Content.Text(userMessage)),
                             callback,

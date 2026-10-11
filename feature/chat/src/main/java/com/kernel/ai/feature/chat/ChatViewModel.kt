@@ -3039,7 +3039,13 @@ class ChatViewModel @Inject constructor(
                     }
                 }
 
+            var debugGenerationAttempt = 0
             do {
+                val debugGenerationId = if (BuildConfig.DEBUG) {
+                    "$commandId-g${++debugGenerationAttempt}"
+                } else {
+                    null
+                }
                 needsHallucinationRetry = false
                 kernelAIToolSet.resetAttemptState()
                 var generationResultReceived = false
@@ -3048,17 +3054,31 @@ class ChatViewModel @Inject constructor(
                     contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
                 ).coerceAtLeast(0)
                 // Leave the response reserve available after the full tool-result envelope is prefetched.
+                val loadSkillToolResultTokenBudget = if (loadSkillAbortProbe) {
+                    0
+                } else {
+                    (
+                        activeContextWindowSize -
+                            estimatedTokensUsed -
+                            currentPromptTokens -
+                            ContextWindowManager.RESPONSE_RESERVE
+                    ).coerceAtLeast(0)
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "KernelAI",
+                        "generation_context_budget generation_id=${debugGenerationId.orEmpty()} " +
+                            "attempt=$debugGenerationAttempt source=app_estimate " +
+                            "resolved_token_cap=${inferenceEngine.resolvedMaxTokens.value} " +
+                            "app_context_window=$activeContextWindowSize " +
+                            "estimated_prior_fixed_tokens=$estimatedTokensUsed " +
+                            "current_prompt_excluding_rag_tokens=$currentPromptTokens " +
+                            "response_reserve_tokens=${ContextWindowManager.RESPONSE_RESERVE} " +
+                            "max_tool_result_tokens=$loadSkillToolResultTokenBudget",
+                    )
+                }
                 kernelAIToolSet.setLoadSkillToolResultTokenBudget(
-                    if (loadSkillAbortProbe) {
-                        0
-                    } else {
-                        (
-                            activeContextWindowSize -
-                                estimatedTokensUsed -
-                                currentPromptTokens -
-                                ContextWindowManager.RESPONSE_RESERVE
-                        ).coerceAtLeast(0)
-                    },
+                    loadSkillToolResultTokenBudget,
                     abortContinuation = inferenceEngine::abortGenerationBeforeToolContinuation,
                 )
 
@@ -3067,7 +3087,9 @@ class ChatViewModel @Inject constructor(
                 }
 
             val generation = if (loadSkillAbortProbe) {
-                inferenceEngine.generateDebugLoadSkillAbortProbe()
+                inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
+            } else if (BuildConfig.DEBUG && debugGenerationId != null) {
+                inferenceEngine.generateWithDebugTrace(currentPrompt, debugGenerationId)
             } else {
                 inferenceEngine.generate(currentPrompt)
             }

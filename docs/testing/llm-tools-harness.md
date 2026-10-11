@@ -184,6 +184,21 @@ event_seq: tool_result name=load_skill resultType=Success directReply=false retu
 llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
 ```
 
+## DEBUG-only native send/context trace
+
+Use this trace for a bounded investigation when LiteRT reports a prefill failure after a tool
+result. `generation_context_budget` reports the shared `generation_id`, app-side resolved token
+cap and context window, estimated prior/fixed and current-prompt tokens, response reserve, and
+derived `max_tool_result_tokens`. These are app estimates, not native KV occupancy.
+
+`generation_diagnostic` uses that same ID and a per-generation `send_attempt` to distinguish
+native `initial_prompt` and `tool_response` sends. The synthetic abort probe is marked as
+`synthetic_tool_callback`/`callback_start` because it does not call LiteRT. It records tool names
+only, the returned flag and estimated serialized JSON-result tokens, then `on_done`, `on_error`,
+or `send_throw` with exception class and numeric Status Code when available. It omits prompts,
+arguments, result text, and exception messages. These markers cannot establish actual native
+remaining capacity; that requires a LiteRT failure-time KV/prefill metric or native trace.
+
 ## Result mode assertions
 
 Each case expects a specific result mode, encoded in the `llm_tools_skill_result` marker:

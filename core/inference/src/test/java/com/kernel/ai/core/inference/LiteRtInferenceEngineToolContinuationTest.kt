@@ -70,6 +70,7 @@ class LiteRtInferenceEngineToolContinuationTest {
     private val hardwareProfileDetector = mockk<HardwareProfileDetector>(relaxed = true)
     private val inferenceEngine = LiteRtInferenceEngine(context, hardwareProfileDetector)
     private val requests = Channel<SentRequest>(Channel.UNLIMITED)
+    private val debugLogMessages = mutableListOf<String>()
 
     @BeforeEach
     fun setUp() {
@@ -77,7 +78,11 @@ class LiteRtInferenceEngineToolContinuationTest {
         every { InferenceGenerationService.start(any()) } just runs
         every { InferenceGenerationService.stop(any()) } just runs
         mockkStatic(Log::class)
-        every { Log.d(any<String>(), any<String>()) } returns 0
+        debugLogMessages.clear()
+        every { Log.d(any<String>(), any<String>()) } answers {
+            debugLogMessages += secondArg<String>()
+            0
+        }
         every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>(), any<Throwable>()) } returns 0
@@ -294,6 +299,153 @@ class LiteRtInferenceEngineToolContinuationTest {
                 any<Map<String, Any>>(),
             )
         }
+    }
+
+    @Test
+    fun `debug send trace correlates tool response continuation and redacts payloads`() = runBlocking {
+        val promptMarker = "PRIVATE_PROMPT_MARKER"
+        val argumentMarker = "PRIVATE_ARGUMENT_MARKER"
+        val resultMarker = "PRIVATE_RESULT_MARKER"
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Reads a system field")
+            fun get_system_info(@ToolParam(description = "Field name") field: String): Map<String, String> {
+                assertEquals(argumentMarker, field)
+                return mapOf("result" to resultMarker)
+            }
+        })
+        val fixture = installConversations(provider)
+        val sdkConversation = Conversation(0L, fixture.manager, automaticToolCalling = false)
+        val turn = async {
+            inferenceEngine.generateWithDebugTrace(promptMarker, "trace-42").toList()
+        }
+
+        val initialRequest = nextRequest()
+        val sdkCallback = createSdkCallback(initialRequest.callback, sdkConversation)
+        invokeSdkMessage(sdkCallback, toolCallJson("get_system_info", "field", argumentMarker))
+        completeSdkCallback(sdkCallback)
+
+        val toolResponseRequest = nextRequest()
+        assertToolResponse(toolResponseRequest, "get_system_info", resultMarker)
+        invokeSdkCallback(toolResponseRequest.callback, sdkConversation, assistantTextJson("done"))
+        val results = withTimeout(3_000) { turn.await() }
+
+        val trace = debugLogMessages.filter { it.startsWith("generation_diagnostic ") }
+        assertEquals(6, trace.size)
+        assertTrue(trace[0].contains("generation_id=trace-42 send_attempt=1 stage=initial_prompt event=send_start"))
+        assertTrue(trace[1].contains("send_attempt=1 stage=initial_prompt event=tool_call_received"))
+        assertTrue(trace[1].contains("tool_names=get_system_info count=1"))
+        assertTrue(trace[2].contains("send_attempt=1 stage=initial_prompt event=tool_dispatch_result"))
+        assertTrue(trace[2].contains("tool=get_system_info returned=true"))
+        assertTrue(
+            trace[2].contains(
+                "serialized_result_tokens_estimate=" +
+                    ContextWindowManager().estimateTokens("""{"result":"$resultMarker"}"""),
+            ),
+        )
+        assertTrue(trace[3].contains("send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=true"))
+        assertTrue(trace[4].contains("send_attempt=2 stage=tool_response event=send_start"))
+        assertTrue(trace[5].contains("send_attempt=2 stage=tool_response event=on_done tool_response_pending=false"))
+        val traceText = trace.joinToString("\n")
+        assertFalse(traceText.contains(promptMarker))
+        assertFalse(traceText.contains(argumentMarker))
+        assertFalse(traceText.contains(resultMarker))
+        assertEquals("done", results.filterIsInstance<GenerationResult.Token>().joinToString("") { it.text })
+    }
+
+    @Test
+    fun `debug send trace identifies native Status 9 callback stage without exception detail`() = runBlocking {
+        val promptMarker = "PRIVATE_STATUS_PROMPT"
+        val argumentMarker = "PRIVATE_STATUS_ARGUMENT"
+        val resultMarker = "PRIVATE_STATUS_RESULT"
+        val exceptionMarker = "PRIVATE_NATIVE_EXCEPTION_DETAIL"
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Reads a system field")
+            fun get_system_info(@ToolParam(description = "Field name") field: String): Map<String, String> {
+                assertEquals(argumentMarker, field)
+                return mapOf("result" to resultMarker)
+            }
+        })
+        val fixture = installConversations(provider)
+        val sdkConversation = Conversation(0L, fixture.manager, automaticToolCalling = false)
+        val turn = async {
+            runCatching {
+                inferenceEngine.generateWithDebugTrace(promptMarker, "status9-trace").toList()
+            }.exceptionOrNull()
+        }
+
+        val initialRequest = nextRequest()
+        val sdkCallback = createSdkCallback(initialRequest.callback, sdkConversation)
+        invokeSdkMessage(sdkCallback, toolCallJson("get_system_info", "field", argumentMarker))
+        completeSdkCallback(sdkCallback)
+        val toolResponseRequest = nextRequest()
+        toolResponseRequest.callback.onError(IllegalStateException("Status Code: 9 $exceptionMarker"))
+
+        assertTrue(withTimeout(3_000) { turn.await() } != null)
+        val trace = debugLogMessages.filter { it.startsWith("generation_diagnostic ") }
+        assertTrue(
+            trace.any {
+                it.contains(
+                    "generation_id=status9-trace send_attempt=2 stage=tool_response event=on_error " +
+                        "exception=IllegalStateException status=9",
+                )
+            },
+        )
+        val traceText = trace.joinToString("\n")
+        assertFalse(traceText.contains(promptMarker))
+        assertFalse(traceText.contains(argumentMarker))
+        assertFalse(traceText.contains(resultMarker))
+        assertFalse(traceText.contains(exceptionMarker))
+    }
+
+    @Test
+    fun `debug send trace identifies synchronous continuation send exception without exception detail`() = runBlocking {
+        val promptMarker = "PRIVATE_THROW_PROMPT"
+        val argumentMarker = "PRIVATE_THROW_ARGUMENT"
+        val resultMarker = "PRIVATE_THROW_RESULT"
+        val exceptionMarker = "PRIVATE_THROW_DETAIL"
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Reads a system field")
+            fun get_system_info(@ToolParam(description = "Field name") field: String): Map<String, String> {
+                assertEquals(argumentMarker, field)
+                return mapOf("result" to resultMarker)
+            }
+        })
+        val fixture = installConversations(provider)
+        val sdkConversation = Conversation(0L, fixture.manager, automaticToolCalling = false)
+        val turn = async {
+            runCatching {
+                inferenceEngine.generateWithDebugTrace(promptMarker, "throw-trace").toList()
+            }.exceptionOrNull()
+        }
+
+        val initialRequest = nextRequest()
+        val sdkCallback = createSdkCallback(initialRequest.callback, sdkConversation)
+        invokeSdkMessage(sdkCallback, toolCallJson("get_system_info", "field", argumentMarker))
+        every {
+            fixture.initialConversation.sendMessageAsync(
+                any<Message>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        } throws IllegalStateException("Status Code: 9 $exceptionMarker")
+        completeSdkCallback(sdkCallback)
+
+        assertTrue(withTimeout(3_000) { turn.await() } != null)
+        assertTrue(requests.tryReceive().isFailure, "the thrown tool-response send must not enqueue a request")
+        val trace = debugLogMessages.filter { it.startsWith("generation_diagnostic ") }
+        assertTrue(
+            trace.any {
+                it.contains(
+                    "generation_id=throw-trace send_attempt=2 stage=tool_response event=send_throw " +
+                        "exception=IllegalStateException status=9",
+                )
+            },
+        )
+        val traceText = trace.joinToString("\n")
+        assertFalse(traceText.contains(promptMarker))
+        assertFalse(traceText.contains(argumentMarker))
+        assertFalse(traceText.contains(resultMarker))
+        assertFalse(traceText.contains(exceptionMarker))
     }
 
     @Test

@@ -126,12 +126,19 @@ class ChatViewModelRetryStateMachineTest {
 
     // Convenience — the string captured for addMessage verification
     private val savedContents = mutableListOf<String>()
+    private val debugTraceIds = mutableListOf<String>()
+    private val debugLogMessages = mutableListOf<String>()
 
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        debugTraceIds.clear()
+        debugLogMessages.clear()
         mockkStatic(Log::class)
-        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.d(any<String>(), any<String>()) } answers {
+            debugLogMessages += secondArg<String>()
+            0
+        }
         every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
@@ -141,6 +148,10 @@ class ChatViewModelRetryStateMachineTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            debugTraceIds += secondArg<String>()
+            inferenceEngine.generate(firstArg())
+        }
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
@@ -822,6 +833,24 @@ class ChatViewModelRetryStateMachineTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
+        val budgetLogs = debugLogMessages.filter { it.startsWith("generation_context_budget ") }
+        assertEquals(2, budgetLogs.size)
+        assertEquals(2, debugTraceIds.size)
+        assertEquals(
+            debugTraceIds.toSet(),
+            budgetLogs.map { it.substringAfter("generation_id=").substringBefore(' ') }.toSet(),
+        )
+        assertTrue(
+            budgetLogs.all {
+                it.contains("source=app_estimate") &&
+                    it.contains("resolved_token_cap=") &&
+                    it.contains("estimated_prior_fixed_tokens=") &&
+                    it.contains("current_prompt_excluding_rag_tokens=") &&
+                    it.contains("response_reserve_tokens=") &&
+                    it.contains("max_tool_result_tokens=")
+            },
+        )
+        assertFalse(budgetLogs.joinToString("\n").contains("set an alarm for 7 AM"))
         val snapshot = realToolSet.finishLocalDiagnosticCapture()
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
         assertTrue(savedContents.last().contains("wasn't able to complete that action"))
@@ -972,9 +1001,13 @@ class ChatViewModelRetryStateMachineTest {
             conversationRepository.addMessage(any(), eq("user"), capture(savedUserMessages), any(), any())
         } returns "user-msg-id"
         var returnedToolResult: Map<String, String>? = null
-        every { inferenceEngine.generateDebugLoadSkillAbortProbe() } returns flow {
-            lifecycleEvents += "synthetic_callback"
-            returnedToolResult = realToolSet.loadSkill("run_intent")
+        var debugProbeTraceId: String? = null
+        every { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) } answers {
+            debugProbeTraceId = firstArg()
+            flow {
+                lifecycleEvents += "synthetic_callback"
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+            }
         }
         every { inferenceEngine.generate(any()) } returns flow {
             lifecycleEvents += "normal_generate"
@@ -993,13 +1026,18 @@ class ChatViewModelRetryStateMachineTest {
 
         val honestFailure =
             "I wasn't able to complete that action — please try again, or try phrasing it differently."
-        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillAbortProbe() }
+        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) }
         verify(exactly = 0) { inferenceEngine.generate(any()) }
         verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
         assertEquals(listOf("Run the load_skill abort replay probe."), savedUserMessages)
         assertEquals(1, savedContents.count { it == honestFailure })
         assertEquals(listOf("replay", "synthetic_callback", "tool_abort"), lifecycleEvents)
         assertEquals(emptyMap<String, String>(), returnedToolResult)
+        val budgetLog = debugLogMessages.single { it.startsWith("generation_context_budget ") }
+        assertTrue(debugProbeTraceId != null)
+        assertTrue(budgetLog.contains("generation_id=$debugProbeTraceId"))
+        assertTrue(budgetLog.contains("max_tool_result_tokens=0"))
+        assertFalse(budgetLog.contains("Run the load_skill abort replay probe."))
         assertTrue(realToolSet.loadSkillResultAbortedInCurrentAttempt())
         verify { Log.i("KernelAI", "debug_load_skill_abort_probe=honest_failure_persisted") }
         lifecycleEvents.clear()

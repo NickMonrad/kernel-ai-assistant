@@ -134,6 +134,9 @@ class ChatViewModelInitTest {
         every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
 
         // Chat is open, so the process reports a foregrounded lifecycle (#1524 gate). The real
         // ProcessLifecycleOwner stays INITIALIZED in JVM tests, and LifecycleRegistry also throws

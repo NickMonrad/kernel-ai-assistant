@@ -63,10 +63,21 @@ interface InferenceEngine {
     fun generate(userMessage: String): Flow<GenerationResult>
 
     /**
+     * DEBUG diagnostic variant of [generate] that correlates app budget estimates with native sends.
+     * [debugTraceId] is emitted only in DEBUG builds and must not contain user or model content.
+     */
+    fun generateWithDebugTrace(
+        userMessage: String,
+        debugTraceId: String,
+    ): Flow<GenerationResult> = generate(userMessage)
+
+    /**
      * DEBUG harness entrypoint that invokes the configured `load_skill("run_intent")`
      * provider through the normal app callback without asking the model to select a tool.
+     *
+     * @param debugTraceId Optional safe identifier for correlating the probe with app budget logs.
      */
-    fun generateDebugLoadSkillAbortProbe(): Flow<GenerationResult>
+    fun generateDebugLoadSkillAbortProbe(debugTraceId: String? = null): Flow<GenerationResult>
 
     /** Cancel any in-flight generation immediately. */
     fun cancelGeneration()
