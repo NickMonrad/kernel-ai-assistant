@@ -62,6 +62,12 @@ interface InferenceEngine {
      */
     fun generate(userMessage: String): Flow<GenerationResult>
 
+    /**
+     * DEBUG harness entrypoint that invokes the configured `load_skill("run_intent")`
+     * provider through the normal app callback without asking the model to select a tool.
+     */
+    fun generateDebugLoadSkillAbortProbe(): Flow<GenerationResult>
+
     /** Cancel any in-flight generation immediately. */
     fun cancelGeneration()
     /**

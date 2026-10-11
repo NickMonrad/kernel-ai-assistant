@@ -165,6 +165,94 @@ class LiteRtInferenceEngineToolContinuationTest {
     }
 
     @Test
+    fun `debug abort probe invokes provider callback without native continuation and next turn uses replacement`() = runBlocking {
+        val toolCalls = mutableListOf<String>()
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Loads gateway instructions")
+            fun load_skill(@ToolParam(description = "Skill name") skill_name: String): Map<String, String> {
+                toolCalls += "load_skill:$skill_name"
+                inferenceEngine.abortGenerationBeforeToolContinuation()
+                return mapOf("result" to "instructions")
+            }
+        })
+        val fixture = installConversations(provider)
+
+        val probeResults = withTimeout(3_000) {
+            inferenceEngine.generateDebugLoadSkillAbortProbe().toList()
+        }
+
+        assertTrue(probeResults.isEmpty())
+        assertEquals(listOf("load_skill:run_intent"), toolCalls)
+        assertTrue(requests.tryReceive().isFailure, "synthetic tool callback must not enqueue a native request")
+        verify(exactly = 0) {
+            fixture.initialConversation.sendMessageAsync(
+                any<Contents>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+        verify(exactly = 0) {
+            fixture.initialConversation.sendMessageAsync(
+                any<com.google.ai.edge.litertlm.Message>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+        verify(exactly = 1) { fixture.initialConversation.close() }
+        verify(exactly = 0) { fixture.initialConversation.cancelProcess() }
+
+        val followUp = async { inferenceEngine.generate("Explain why shadows form in one sentence.").toList() }
+        val request = nextRequest()
+        assertEquals(Role.USER, request.message.role)
+        val sdkConversation = Conversation(0L, fixture.manager, automaticToolCalling = false)
+        invokeSdkCallback(request.callback, sdkConversation, assistantTextJson("Light is blocked."))
+        val followUpResults = withTimeout(3_000) { followUp.await() }
+        assertEquals("Light is blocked.", followUpResults.filterIsInstance<GenerationResult.Token>().joinToString("") { it.text })
+        assertTrue(followUpResults.any { it is GenerationResult.Complete })
+        verify(exactly = 1) {
+            fixture.replacementConversation.sendMessageAsync(
+                any<Contents>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+    }
+
+    @Test
+    fun `debug abort probe fails closed when provider does not abort`() = runBlocking {
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Loads gateway instructions")
+            fun load_skill(@ToolParam(description = "Skill name") skill_name: String): Map<String, String> =
+                mapOf("result" to "instructions")
+        })
+        val fixture = installConversations(provider)
+
+        val failure = runCatching {
+            withTimeout(3_000) { inferenceEngine.generateDebugLoadSkillAbortProbe().toList() }
+        }.exceptionOrNull()
+
+        assertInstanceOf(InferenceException::class.java, failure)
+        assertTrue(requireNotNull(failure).message.orEmpty().contains("did not exceed its result budget"))
+        assertTrue(requests.tryReceive().isFailure, "probe must not continue a tool result into LiteRT")
+        verify(exactly = 0) {
+            fixture.initialConversation.sendMessageAsync(
+                any<Contents>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+        verify(exactly = 0) {
+            fixture.initialConversation.sendMessageAsync(
+                any<com.google.ai.edge.litertlm.Message>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+        verify(exactly = 0) { fixture.initialConversation.close() }
+        verify(exactly = 0) { fixture.initialConversation.cancelProcess() }
+    }
+
+    @Test
     fun `direct terminal tool result still continues to the model`() = runBlocking {
         val executed = mutableListOf<String>()
         val provider = tool(object : ToolSet {

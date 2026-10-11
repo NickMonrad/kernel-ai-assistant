@@ -952,6 +952,99 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
+    fun `DEBUG zero budget load_skill abort persists failure then ordinary followup replays it`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Success("instructions"))
+
+        val lifecycleEvents = mutableListOf<String>()
+        val replayedSystemPrompts = mutableListOf<String>()
+        val savedUserMessages = mutableListOf<String>()
+        every { quickIntentRouter.route(any()) } answers {
+            QuickIntentRouter.RouteResult.FallThrough(input = firstArg<String>())
+        }
+        every { inferenceEngine.abortGenerationBeforeToolContinuation() } answers {
+            lifecycleEvents += "tool_abort"
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            lifecycleEvents += "replay"
+            replayedSystemPrompts += firstArg<String>()
+        }
+        coEvery {
+            conversationRepository.addMessage(any(), eq("user"), capture(savedUserMessages), any(), any())
+        } returns "user-msg-id"
+        var returnedToolResult: Map<String, String>? = null
+        every { inferenceEngine.generateDebugLoadSkillAbortProbe() } returns flow {
+            lifecycleEvents += "synthetic_callback"
+            returnedToolResult = realToolSet.loadSkill("run_intent")
+        }
+        every { inferenceEngine.generate(any()) } returns flow {
+            lifecycleEvents += "normal_generate"
+            emit(GenerationResult.Token("Shadows form when light is blocked."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        lifecycleEvents.clear()
+
+        viewModel.onInputChanged("__orchtest:load_skill_abort_replay")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillAbortProbe() }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+        verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
+        assertEquals(listOf("Run the load_skill abort replay probe."), savedUserMessages)
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(listOf("replay", "synthetic_callback", "tool_abort"), lifecycleEvents)
+        assertEquals(emptyMap<String, String>(), returnedToolResult)
+        assertTrue(realToolSet.loadSkillResultAbortedInCurrentAttempt())
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=honest_failure_persisted") }
+        lifecycleEvents.clear()
+
+        viewModel.onInputChanged("Explain why shadows form in one sentence.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(
+                any(),
+                eq("assistant"),
+                eq(honestFailure),
+                any(),
+                any(),
+            )
+        }
+        assertEquals(listOf("replay", "normal_generate"), lifecycleEvents)
+        assertTrue(replayedSystemPrompts.last().contains("Run the load_skill abort replay probe."))
+        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
+        assertEquals(
+            listOf(
+                "Run the load_skill abort replay probe.",
+                "Explain why shadows form in one sentence.",
+            ),
+            savedUserMessages,
+        )
+        assertEquals("Shadows form when light is blocked.", savedContents.last())
+        verify(exactly = 0) {
+            quickIntentRouter.route("Explain why shadows form in one sentence.")
+        }
+        verify {
+            Log.i(
+                "KernelAI",
+                "debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true",
+            )
+        }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_generation sandbox=active") }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_flow_settled") }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `M user cancellation after load_skill does not continue or persist failure`() = runTest(dispatcher) {
         setupLoadSkill()
 

@@ -16,6 +16,7 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.ToolCall
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -1305,7 +1306,16 @@ class LiteRtInferenceEngine @Inject constructor(
     // Generation
     // -------------------------------------------------------------------------
 
-    override fun generate(userMessage: String): Flow<GenerationResult> = callbackFlow {
+    override fun generate(userMessage: String): Flow<GenerationResult> =
+        generateInternal(userMessage, syntheticLoadSkillAbortProbe = false)
+
+    override fun generateDebugLoadSkillAbortProbe(): Flow<GenerationResult> =
+        generateInternal(userMessage = "", syntheticLoadSkillAbortProbe = true)
+
+    private fun generateInternal(
+        userMessage: String,
+        syntheticLoadSkillAbortProbe: Boolean,
+    ): Flow<GenerationResult> = callbackFlow {
         generationMutex.lock()
         val lockReleased = AtomicBoolean(false)
         var serviceStarted = false
@@ -1443,6 +1453,18 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
 
                             override fun onDone() {
+                                if (syntheticLoadSkillAbortProbe) {
+                                    if (!stream.requiresConversationReset()) {
+                                        stream.finish {
+                                            close(
+                                                InferenceException(
+                                                    "DEBUG load_skill abort probe did not exceed its result budget",
+                                                ),
+                                            )
+                                        }
+                                    }
+                                    return
+                                }
                                 val toolResponse = pendingToolResponse
                                 if (toolResponse != null) {
                                     stream.whileActive {
@@ -1513,12 +1535,29 @@ class LiteRtInferenceEngine @Inject constructor(
                     _isGenerating.value = true
                 }
             ) {
-                sendMessageToConversation { callback ->
-                    conv.sendMessageAsync(
-                        Contents.of(Content.Text(userMessage)),
-                        callback,
-                        thinkingContext,
-                    )
+                if (syntheticLoadSkillAbortProbe) {
+                    sendMessageToConversation { callback ->
+                        Log.i(TAG, "debug_load_skill_abort_probe=synthetic_tool_callback")
+                        callback.onMessage(
+                            Message.model(
+                                toolCalls = listOf(
+                                    ToolCall(
+                                        name = "load_skill",
+                                        arguments = mapOf("skill_name" to "run_intent"),
+                                    ),
+                                ),
+                            ),
+                        )
+                        callback.onDone()
+                    }
+                } else {
+                    sendMessageToConversation { callback ->
+                        conv.sendMessageAsync(
+                            Contents.of(Content.Text(userMessage)),
+                            callback,
+                            thinkingContext,
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1544,6 +1583,9 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                     withContext(kotlinx.coroutines.NonCancellable) {
                         resetConversationAfterToolAbort()
+                    }
+                    if (syntheticLoadSkillAbortProbe) {
+                        Log.i(TAG, "debug_load_skill_abort_probe=conversation_recreated")
                     }
                 }
             } catch (e: Exception) {

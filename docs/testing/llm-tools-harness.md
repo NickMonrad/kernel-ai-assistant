@@ -99,12 +99,62 @@ These probes validate real-model tool execution under controlled debug fallthrou
 claim an ordinary prompt naturally misses QIR or the classifier; normal routing is unchanged.
 Issue #1593's natural device-routing acceptance remains pending.
 
-The sandbox closes on every inference exit. Probe messages and the tool chip remain in memory:
-the path does not persist them, index them in RAG, or distil the active conversation on close.
-The runner fails if any safe probe emits a saved-message marker.
+The existing safe model probes remain in-memory only: they are not persisted, indexed in RAG,
+or distilled when the chat closes. The dedicated abort/replay probe below intentionally persists
+only its fixed probe user message and honest failure because the immediately following turn must
+replay both from chat history.
+
+The exact follow-up is persisted as a normal chat exchange for visible completion, but is not
+RAG-indexed, auto-titled, spoken, or included in close-time distillation; use a dedicated empty
+test conversation.
 
 The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
 controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
+
+## Deterministic zero-budget `load_skill` abort/replay probe
+
+Use this DEBUG-only probe when natural model output does not emit `load_skill`. In a dedicated
+empty test conversation, send the exact command, wait for the honest-failure marker, then send
+the exact follow-up:
+
+```bash
+adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
+  --activity-clear-top --activity-single-top \
+  --es chat_input '__orchtest:load_skill_abort_replay'
+adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
+  --activity-clear-top --activity-single-top \
+  --es chat_input 'Explain why shadows form in one sentence.'
+```
+
+The first command uses a fixed synthetic `Message.model(toolCalls=[load_skill("run_intent")])`
+to enter the app's normal `MessageCallback` and configured `ToolManager`. `KernelAIToolSet`
+executes the real `load_skill` provider with a zero-token result budget. The tool-call message is
+synthetic, not model output, and the probe issues no `Conversation.sendMessageAsync` for it. It is
+not evidence that Gemma naturally emits `load_skill` or that the SDK's JNI callback generated it.
+The engine refuses any native continuation, closes/recreates the conversation, and releases its
+generation mutex before the flow completes. If the provider does not trigger the budget abort, the
+probe fails closed, persists the honest failure, and emits `abort_not_triggered`.
+
+The immediate exact follow-up goes through the ordinary `generate()` path after normal
+history-replay construction. Its DEBUG-only route is controlled to fall through, and the
+existing sandbox remains unchanged: only `load_skill("run_intent")` and empty-parameter
+`run_intent("get_stopwatch_status", {})` are permitted. It cannot dispatch a device action.
+
+Expected sanitized markers, in order:
+
+1. `debug_load_skill_abort_probe=synthetic_tool_callback`
+2. `load_skill_tool_result_context_abort` with `budget=0`
+3. `debug_load_skill_abort_probe=conversation_recreated`
+4. `debug_load_skill_abort_probe=honest_failure_persisted`
+5. `debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true`
+6. `debug_load_skill_abort_probe=follow_up_generation sandbox=active`
+7. `debug_load_skill_abort_probe=follow_up_flow_settled`
+
+Confirm the UI shows the bounded honest failure before the follow-up and a completed response
+after it. A missing abort/reset/replay marker, Status 9, crash, or stalled follow-up is a failure.
+The probe persists its fixed user/failure messages for the replay check; it does not index them
+in RAG or distil the active conversation. Keep all raw logcat and conversation content local;
+publish only the marker outcomes.
 
 For cases with `expected_tool_sequence`, the runner requires:
 
