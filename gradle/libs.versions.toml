@@ -21,7 +21,7 @@ room = "2.7.1"
 datastore = "1.1.4"
 
 # Hilt
-# Parses the Kotlin 2.4.0 metadata used by LiteRT-LM 0.17.1.
+# Parses the Kotlin 2.4.0 metadata used by LiteRT-LM 0.18.0.
 hilt = "2.60.1"
 hiltNavigationCompose = "1.2.0"
 
@@ -34,7 +34,7 @@ testRunner = "1.5.2"
 testRules = "1.5.0"
 
 # LiteRT
-litertlm = "0.17.1"
+litertlm = "0.18.0"
 gson = "2.14.0"
 mediapipeTasksText = "0.10.33"
 tflite = "2.17.0"

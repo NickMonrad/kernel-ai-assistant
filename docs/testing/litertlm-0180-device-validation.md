@@ -1,15 +1,15 @@
-# LiteRT-LM 0.17.1 device validation
+# LiteRT-LM 0.18.0 device validation
 
-**Status:** Ready for device validation; not run. PR #1585 currently owns the S21 and S23 Ultra acceptance window. Do not install either APK or run ADB/device checks until that ownership is released.
+**Status:** Ready for device validation; not run. PR #1603 currently owns the S21 and S23 Ultra acceptance window. Do not install either APK or run ADB/device checks until that ownership is released.
 
 ## Comparison target
 
 | Runtime | Version | Source |
 |---|---:|---|
-| Baseline | 0.11.0 | PR-head source in a disposable worktree with only the version-catalog pin temporarily set to `0.11.0` |
-| Upgrade | 0.17.1 | Same PR-head source and settings, with the committed pin |
+| Baseline | 0.17.1 | Current `main` before the #31 upgrade |
+| Upgrade | 0.18.0 | #31 PR head with the version pin and required `ModelInfo` API adaptation |
 
-Build both variants from identical application source so the only intentional variable is LiteRT-LM. Keep Hilt 2.60.1 and Gson 2.14.0 in both builds; do not commit the temporary baseline pin. The 0.11.0 API exposes the benchmark flag, `Capabilities.hasSpeculativeDecodingSupport()`, and `Conversation.getBenchmarkInfo()`, allowing the same instrumentation for both builds. Preserve the current GPU restart workaround (#1293), backend fallback order, model files, sampler settings, and speculative-decoding preference.
+Build the baseline from current `main` and the upgrade from the #31 PR head; do not add a compatibility shim to force a shared source tree across the `Capabilities` → `ModelInfo` API change. Keep Hilt 2.60.1 and Gson 2.14.0 in both builds. The 0.17.1 runtime exposes `Capabilities.hasSpeculativeDecodingSupport()`; 0.18.0 exposes the equivalent package probe through `ModelInfo.from(...)`. The native benchmark flag and `Conversation.getBenchmarkInfo()` remain available. Preserve the current GPU restart workaround (#1293), backend fallback order, model files, sampler settings, and speculative-decoding preference.
 
 ## Device matrix
 
