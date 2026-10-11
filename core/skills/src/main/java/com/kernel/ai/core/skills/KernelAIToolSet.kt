@@ -43,10 +43,10 @@ data class LocalToolDiagnosticSnapshot(
 /**
  * Native LiteRT-LM tool set exposing 5 gateway functions to the SDK.
  *
- * Mirrors Google AI Edge Gallery's `AgentTools` pattern: the SDK auto-discovers
- * `@Tool`-annotated methods, generates tool declarations for the model, handles
- * constrained decoding to guarantee well-formed calls, and feeds return values
- * back to the model as tool responses.
+ * Mirrors Google AI Edge Gallery's `AgentTools` pattern: the SDK discovers
+ * `@Tool`-annotated methods and generates tool declarations, while the inference engine
+ * dispatches calls through the SDK's `ToolManager` so it can withhold a result when a
+ * context-budget abort is required.
  *
  * Each method delegates to an existing [Skill.execute] implementation so all
  * business logic remains in the individual skill classes.
@@ -55,8 +55,8 @@ data class LocalToolDiagnosticSnapshot(
  * 1. Model sees tool names + descriptions (SDK-generated from annotations)
  * 2. For simple tools, model calls the target tool directly
  * 3. For complex/gateway skills, model may call `loadSkill` first to get detailed instructions
- * 4. SDK feeds result back → model generates final text response
- *
+ * 4. The inference engine executes the call and returns its result unless a budget abort withholds it
+
  * ## Lazy injection
  * [SkillRegistry] is injected lazily to break the circular dependency:
  * SkillRegistry → Set<Skill> (includes LoadSkillSkill) → SkillRegistry.
@@ -332,7 +332,7 @@ class KernelAIToolSet @Inject constructor(
     /** True when load_skill completed with a failure in the current attempt. */
     fun loadSkillFailedInCurrentAttempt(): Boolean = attemptLoadSkillOutcome.isFailure()
 
-    /** True when the load_skill result was withheld and cancellation was requested. */
+    /** True when the load_skill result was withheld and native continuation was aborted. */
     fun loadSkillResultAbortedInCurrentAttempt(): Boolean = attemptLoadSkillResultAborted
 
     /** True when a terminal executable tool was called in the current attempt. */

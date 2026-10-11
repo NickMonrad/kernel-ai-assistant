@@ -3015,7 +3015,7 @@ class ChatViewModel @Inject constructor(
                             currentPromptTokens -
                             ContextWindowManager.RESPONSE_RESERVE
                     ).coerceAtLeast(0),
-                    abortContinuation = inferenceEngine::cancelGeneration,
+                    abortContinuation = inferenceEngine::abortGenerationBeforeToolContinuation,
                 )
 
             inferenceEngine.generate(currentPrompt).collect { result ->
@@ -3540,12 +3540,12 @@ class ChatViewModel @Inject constructor(
                     needsHistoryReplay = true
                 }
                 if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
-                    // The native stream was cancelled mid-turn; mirror user-cancellation recovery
-                    // without changing the visible cancellation state or skipping this failure.
+                    // The inference engine discards the poisoned native conversation and waits
+                    // for it to settle before releasing the generation mutex. Replay the saved
+                    // chat history on the next turn without cancelling this honest failure.
                     needsHistoryReplay = true
                     estimatedTokensUsed = 0
                     turnsSinceReset = 0
-                    inferenceEngine.resetConversation()
                 }
             }
         }

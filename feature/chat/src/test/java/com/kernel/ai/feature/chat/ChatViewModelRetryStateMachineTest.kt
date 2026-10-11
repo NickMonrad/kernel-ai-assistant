@@ -893,7 +893,7 @@ class ChatViewModelRetryStateMachineTest {
 
         val lifecycleEvents = mutableListOf<String>()
         val replayedSystemPrompts = mutableListOf<String>()
-        coEvery { inferenceEngine.resetConversation() } answers {
+        every { inferenceEngine.abortGenerationBeforeToolContinuation() } answers {
             lifecycleEvents += "reset"
         }
         coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
@@ -929,7 +929,8 @@ class ChatViewModelRetryStateMachineTest {
         val snapshot = realToolSet.finishLocalDiagnosticCapture()
         val honestFailure =
             "I wasn't able to complete that action — please try again, or try phrasing it differently."
-        verify(exactly = 1) { inferenceEngine.cancelGeneration() }
+        verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
+        verify(exactly = 0) { inferenceEngine.cancelGeneration() }
         assertTrue(requireNotNull(returnedToolResult).isEmpty())
         assertEquals(1, savedContents.count { it == honestFailure })
         assertEquals(emptyMap<String, String>(), snapshot.calls.single().toolResult)
