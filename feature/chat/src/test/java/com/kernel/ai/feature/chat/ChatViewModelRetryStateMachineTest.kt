@@ -887,6 +887,71 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
+    fun `oversized load_skill failure resets and replays before the next user turn`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Failure("load_skill", "x".repeat(20_000)))
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+
+        val lifecycleEvents = mutableListOf<String>()
+        val replayedSystemPrompts = mutableListOf<String>()
+        every { inferenceEngine.abortGenerationBeforeToolContinuation() } answers {
+            lifecycleEvents += "reset"
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            lifecycleEvents += "replay"
+            replayedSystemPrompts += firstArg<String>()
+        }
+        every { quickIntentRouter.route(any()) } answers {
+            QuickIntentRouter.RouteResult.FallThrough(input = firstArg<String>())
+        }
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        var returnedToolResult: Map<String, String>? = null
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flow {
+                lifecycleEvents += "generate-1"
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+            },
+            flow {
+                lifecycleEvents += "generate-2"
+                emit(GenerationResult.Token("This is a fresh turn."))
+                emit(GenerationResult.Complete(durationMs = 0))
+            },
+        )
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
+        verify(exactly = 0) { inferenceEngine.cancelGeneration() }
+        assertTrue(requireNotNull(returnedToolResult).isEmpty())
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(emptyMap<String, String>(), snapshot.calls.single().toolResult)
+        assertEquals(false, snapshot.calls.single().returnedToGemma)
+
+        viewModel.onInputChanged("what is 2 + 2")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        val afterAbortedGeneration = lifecycleEvents.drop(lifecycleEvents.indexOf("generate-1") + 1)
+        assertEquals(listOf("reset", "replay", "generate-2"), afterAbortedGeneration)
+        assertTrue(replayedSystemPrompts.last().contains("set an alarm for 7 AM"))
+        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
+        assertEquals("This is a fresh turn.", savedContents.last())
+        val readyState = viewModel.uiState.value as ChatUiState.Ready
+        assertFalse(readyState.isGenerating)
+        assertFalse(readyState.messages.last { it.role == ChatMessage.Role.ASSISTANT }.isStreaming)
+    }
+
+    @Test
     fun `M user cancellation after load_skill does not continue or persist failure`() = runTest(dispatcher) {
         setupLoadSkill()
 

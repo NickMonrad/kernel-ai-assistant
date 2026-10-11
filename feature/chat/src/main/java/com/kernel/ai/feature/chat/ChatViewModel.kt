@@ -1894,6 +1894,7 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
             var prompt = ""
+            var effectiveRagTokenCost = 0
             var systemPromptForPrefill = ""
             var shouldMeasureToolDeclarations = false
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
@@ -2781,7 +2782,6 @@ class ChatViewModel @Inject constructor(
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             var effectiveRagContext: String
-            var effectiveRagTokenCost: Int
             when {
                 isToolQuery -> {
                     effectiveRagContext = ""
@@ -3003,6 +3003,21 @@ class ChatViewModel @Inject constructor(
                 needsHallucinationRetry = false
                 kernelAIToolSet.resetAttemptState()
                 var generationResultReceived = false
+                // estimatedTokensUsed already includes RAG; subtract it only once from this prompt.
+                val currentPromptTokens = (
+                    contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
+                ).coerceAtLeast(0)
+                // Leave the response reserve available after the full tool-result envelope is prefetched.
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(
+                    (
+                        activeContextWindowSize -
+                            estimatedTokensUsed -
+                            currentPromptTokens -
+                            ContextWindowManager.RESPONSE_RESERVE
+                    ).coerceAtLeast(0),
+                    abortContinuation = inferenceEngine::abortGenerationBeforeToolContinuation,
+                )
+
             inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
@@ -3037,12 +3052,20 @@ class ChatViewModel @Inject constructor(
                                 ?: preservedThinkingText
                             kernelAIToolSet.logToolSequence()
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
-                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
-                                kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
-                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            if (!kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
+                                (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                                    (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                        kernelAIToolSet.loadSkillFailedInCurrentAttempt()))
                             ) {
                                 localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
-                                Log.w("KernelAI", "load_skill_failed")
+                                Log.w(
+                                    "KernelAI",
+                                    if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                                        "load_skill_tool_result_context_abort"
+                                    } else {
+                                        "load_skill_failed"
+                                    },
+                                )
                                 persistHonestActionFailure(thinking)
                                 return@collect
                             }
@@ -3436,6 +3459,14 @@ class ChatViewModel @Inject constructor(
                     val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                         ?: preservedThinkingText
                     when {
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "load_skill_tool_result_context_abort")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                             !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
                             handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
@@ -3462,10 +3493,11 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                // LiteRT can throw while continuing after load_skill, before Complete schedules a
-                // separate incomplete-chain retry, so also recognize success in this attempt.
+                // LiteRT can fail while continuing after load_skill, before Complete schedules a
+                // separate incomplete-chain retry; an aborted tool result also terminates here.
                 if (!turnCancellationRequest.get() &&
-                    (incompleteChainContinuationPending ||
+                    (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                        incompleteChainContinuationPending ||
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
                     kernelAIToolSet.terminalToolName() == null
                 ) {
@@ -3474,7 +3506,14 @@ class ChatViewModel @Inject constructor(
                         accumulatedThinking,
                     )
                     kernelAIToolSet.logToolSequence()
-                    Log.w("KernelAI", "load_skill_continuation_failed")
+                    Log.w(
+                        "KernelAI",
+                        if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                            "load_skill_tool_result_context_abort"
+                        } else {
+                            "load_skill_continuation_failed"
+                        },
+                    )
                     persistHonestActionFailure(
                         accumulatedThinking.toString().takeIf { it.isNotBlank() },
                     )
@@ -3495,9 +3534,18 @@ class ChatViewModel @Inject constructor(
                     activeStreamingContent = StringBuilder()
                 }
             } finally {
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(null, null)
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
+                }
+                if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                    // The inference engine discards the poisoned native conversation and waits
+                    // for it to settle before releasing the generation mutex. Replay the saved
+                    // chat history on the next turn without cancelling this honest failure.
+                    needsHistoryReplay = true
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
                 }
             }
         }
