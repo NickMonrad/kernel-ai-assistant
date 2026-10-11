@@ -279,6 +279,13 @@ class ChatViewModel @Inject constructor(
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
     private var activeContextWindowSize: Int = 4096
+    private val fallbackNativeToolDeclarationTokenEstimate by lazy {
+        skillRegistry.buildNativeDeclarations()
+            .takeIf { it.isNotBlank() }
+            ?.let(contextWindowManager::estimateTokens)
+            ?: 0
+    }
+    private var measuredToolDeclarationTokenEstimate: Int? = null
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
@@ -331,7 +338,7 @@ class ChatViewModel @Inject constructor(
      */
     private var needsHistoryReplay = false
 
-    /** Estimated tokens consumed in the current LiteRT conversation (system prompt not counted). */
+    /** Estimated tokens consumed in the current LiteRT conversation, including fixed prompt tokens. */
     private var estimatedTokensUsed = 0
 
     /** Complete (user, assistant) turn pairs accumulated since the last KV cache reset.
@@ -892,6 +899,14 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun estimateSystemAndToolPromptTokens(systemPrompt: String): Int {
+        return FixedPromptTokenBudget.estimateFixedPromptTokens(
+            systemPromptTokens = contextWindowManager.estimateTokens(systemPrompt),
+            measuredToolDeclarationTokens = measuredToolDeclarationTokenEstimate,
+            fallbackToolDeclarationTokens = fallbackNativeToolDeclarationTokenEstimate,
+        )
     }
 
     internal fun buildToolUsePrompt(): String {
@@ -1879,6 +1894,8 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
             var prompt = ""
+            var systemPromptForPrefill = ""
+            var shouldMeasureToolDeclarations = false
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
@@ -2839,7 +2856,17 @@ class ChatViewModel @Inject constructor(
                 if (turns.size < rawTurns.size) {
                     Log.d("KernelAI", "Context truncated (turn limit $maxTurns for ${activeContextWindowSize}t window): kept last ${turns.size} of ${rawTurns.size} turns")
                 }
-                val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
+                val baseSystemPrompt = buildSystemPrompt(
+                    isFirstReply = isFirstReply,
+                    identityTier = effectiveIdentityTier,
+                    includeCurrentDateTime = !safeRunIntentTest,
+                    includeProfile = !safeRunIntentTest,
+                )
+                val fixedPromptTokens = estimateSystemAndToolPromptTokens(baseSystemPrompt)
+                val selected = contextWindowManager.selectHistory(
+                    turns,
+                    ContextWindowManager.historyBudget(activeContextWindowSize, fixedPromptTokens),
+                )
                 // Inject history into the system prompt so Gemma treats it as background context.
                 val systemPromptWithHistory = buildSystemPrompt(
                     selected,
@@ -2848,23 +2875,35 @@ class ChatViewModel @Inject constructor(
                     includeCurrentDateTime = !safeRunIntentTest,
                     includeProfile = !safeRunIntentTest,
                 )
+                systemPromptForPrefill = systemPromptWithHistory
+                shouldMeasureToolDeclarations = true
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
-                // Re-baseline from selected history, then add the RAG cost for this turn.
-                estimatedTokensUsed = selected.sumOf {
-                    contextWindowManager.estimateTokens(it.first) + contextWindowManager.estimateTokens(it.second)
-                } + effectiveRagTokenCost
+                // Re-baseline from the complete system prompt (including selected history), tool
+                // declarations, and RAG context before the current user message is sent.
+                estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptWithHistory) + effectiveRagTokenCost
                 turnsSinceReset = 0
             } else {
                 if (forceMinimalContext) {
-                    inferenceEngine.updateSystemPrompt(
-                        buildSystemPrompt(
-                            isFirstReply = isFirstReply,
-                            identityTier = IdentityTier.MINIMAL,
-                            includeCurrentDateTime = !safeRunIntentTest,
-                            includeProfile = !safeRunIntentTest,
-                        )
+                    val minimalSystemPrompt = buildSystemPrompt(
+                        isFirstReply = isFirstReply,
+                        identityTier = IdentityTier.MINIMAL,
+                        includeCurrentDateTime = !safeRunIntentTest,
+                        includeProfile = !safeRunIntentTest,
                     )
+                    systemPromptForPrefill = minimalSystemPrompt
+                    shouldMeasureToolDeclarations = true
+                    inferenceEngine.updateSystemPrompt(minimalSystemPrompt)
+                    estimatedTokensUsed = estimateSystemAndToolPromptTokens(minimalSystemPrompt)
                     restoreFullPromptAfterTurn = true
+                } else if (estimatedTokensUsed == 0) {
+                    // First turn after initialization/reset: include the already-installed fixed
+                    // prompt in the baseline estimate instead of counting only message text.
+                    systemPromptForPrefill = buildSystemPrompt(
+                        includeCurrentDateTime = !safeRunIntentTest,
+                        includeProfile = !safeRunIntentTest,
+                    )
+                    shouldMeasureToolDeclarations = true
+                    estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptForPrefill)
                 }
                 estimatedTokensUsed += effectiveRagTokenCost
             }
@@ -2991,6 +3030,8 @@ class ChatViewModel @Inject constructor(
 
                       is GenerationResult.Complete -> {
                             generationResultReceived = true
+                            val shouldCalibrateToolDeclarations = shouldMeasureToolDeclarations
+                            if (shouldCalibrateToolDeclarations) shouldMeasureToolDeclarations = false
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
@@ -3272,6 +3313,31 @@ class ChatViewModel @Inject constructor(
                                     // Token budget >75% — skip retry, fall through to C1 failure
                                 }
 
+                                if (shouldCalibrateToolDeclarations) {
+                                    val turnInvolvedToolCallOrContinuation =
+                                        currentPrompt !== prompt ||
+                                            needsHallucinationRetry ||
+                                            isHallucination ||
+                                            isRawToolCall ||
+                                            kernelAIToolSet.wasToolCalled() ||
+                                            kernelAIToolSet.loadSkillCalledInCurrentAttempt() ||
+                                            kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                                    val measuredToolTokens =
+                                        FixedPromptTokenBudget.calibratedToolDeclarationTokens(
+                                            result = result,
+                                            systemPromptTokens = contextWindowManager.estimateTokens(systemPromptForPrefill),
+                                            requestPromptTokens = contextWindowManager.estimateTokens(currentPrompt),
+                                            turnInvolvedToolCallOrContinuation = turnInvolvedToolCallOrContinuation,
+                                        )
+                                    if (measuredToolTokens != null) {
+                                        val previousFixedPromptTokens =
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill)
+                                        measuredToolDeclarationTokenEstimate = measuredToolTokens
+                                        estimatedTokensUsed +=
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill) -
+                                                previousFixedPromptTokens
+                                    }
+                                }
                                 // Normal text or C1 hallucination failure
                                 val displayContent = if (isHallucination || isRawToolCall) {
                                     if (currentPrompt !== prompt) {

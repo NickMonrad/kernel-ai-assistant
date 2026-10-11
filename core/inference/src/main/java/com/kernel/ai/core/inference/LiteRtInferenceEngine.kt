@@ -154,7 +154,7 @@ private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
     Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
 
 @OptIn(ExperimentalApi::class)
-private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?) {
+private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?): Int? {
     try {
         val info = conversation.getBenchmarkInfo()
         Log.i(
@@ -165,8 +165,10 @@ private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendT
                 "decode=${info.lastDecodeTokenCount} tokens @ ${info.lastDecodeTokensPerSecond} tokens/s " +
                 "[backend=$backend]",
         )
+        return info.lastPrefillTokenCount.takeIf { it > 0 }
     } catch (e: Exception) {
         Log.w(TAG, "LiteRT benchmark metrics unavailable: ${e.message}")
+        return null
     }
 }
 
@@ -1329,7 +1331,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                     try {
                                         emitEmission(thinkingStateMachine.finish())
                                         val durationMs = System.currentTimeMillis() - start
-                                        logLiteRtBenchmarkInfo(conv, _activeBackend.value)
+                                        val prefillTokenCount = logLiteRtBenchmarkInfo(conv, _activeBackend.value)
                                         if (thinkingCharCount > 0) {
                                             Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
                                         }
@@ -1343,7 +1345,12 @@ class LiteRtInferenceEngine @Inject constructor(
                                             "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
                                                 "callbacks=$visibleChunkCount thinkingChars=$thinkingCharCount",
                                         )
-                                        trySend(GenerationResult.Complete(durationMs = durationMs))
+                                        trySend(
+                                            GenerationResult.Complete(
+                                                durationMs = durationMs,
+                                                prefillTokenCount = prefillTokenCount,
+                                            ),
+                                        )
                                     } finally {
                                         close()
                                     }

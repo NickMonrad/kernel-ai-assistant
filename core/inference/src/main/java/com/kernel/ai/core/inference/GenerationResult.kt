@@ -10,7 +10,11 @@ sealed class GenerationResult {
     data class Thinking(val text: String) : GenerationResult()
 
     /** Generation finished successfully. */
-    data class Complete(val durationMs: Long) : GenerationResult()
+    data class Complete(
+        val durationMs: Long,
+        /** Token count from the last LiteRT prefill event, not necessarily the full prompt. */
+        val prefillTokenCount: Int? = null,
+    ) : GenerationResult()
 
     /** Generation failed with an error. */
     data class Error(val message: String, val cause: Throwable? = null) : GenerationResult()
