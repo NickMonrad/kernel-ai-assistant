@@ -64,6 +64,14 @@ interface InferenceEngine {
 
     /** Cancel any in-flight generation immediately. */
     fun cancelGeneration()
+    /**
+     * Stop an active generation before a tool result is sent back to LiteRT.
+     *
+     * Unlike [cancelGeneration], this must not call native `cancelProcess()` from inside
+     * LiteRT's synchronous tool-provider callback. Implementations discard and settle the
+     * current conversation before allowing the next generation to use the engine.
+     */
+    fun abortGenerationBeforeToolContinuation()
 
     /**
      * Generate a response for [prompt] using an **isolated conversation** that does
