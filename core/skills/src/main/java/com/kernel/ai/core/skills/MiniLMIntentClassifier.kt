@@ -3,23 +3,22 @@ package com.kernel.ai.core.skills
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import com.kernel.ai.core.inference.WordPieceTokenizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import org.tensorflow.lite.Interpreter
+import java.io.ByteArrayInputStream
 import java.nio.channels.FileChannel
+import java.nio.charset.StandardCharsets
+import org.tensorflow.lite.Interpreter
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sqrt
 
 /**
  * Zero-shot intent classifier using all-MiniLM-L6-v2 (int8 TFLite).
  *
- * Embeds user input and compares against pre-computed intent phrase centroids
- * via cosine similarity. Thread-safe — TFLite interpreter access is synchronised.
+ * Embeds user input and scores it against precomputed individual intent phrases
+ * via nearest-neighbour cosine similarity. Thread-safe — interpreter access is synchronised.
  *
  * Implements [QuickIntentRouter.IntentClassifier] so it plugs directly into the
  * Tier 2 fast intent pipeline without any changes to [QuickIntentRouter].
@@ -37,53 +36,85 @@ class MiniLMIntentClassifier @Inject constructor(
         private const val MODEL_ASSET = "minilm-l6-v2-int8.tflite"
         private const val VOCAB_ASSET = "vocab.txt"
         private const val PHRASES_ASSET = "intent_phrases.json"
-        private const val EMBEDDING_DIM = 384
-        private const val MAX_SEQ_LEN = 64
-        private const val CONFIDENCE_THRESHOLD = 0.50f  // must be ≤ SOFT_FALLBACK_THRESHOLD (0.55) so orchestrator sees low-confidence guesses
-        private const val AMBIGUITY_MARGIN = 0.05f
+
+        internal fun loadOrBuildPhraseVectors(
+            assetResult: MiniLMIntentPhraseVectorAsset.LoadResult,
+            buildRuntimeVectors: (String) -> Map<String, List<FloatArray>>,
+        ): Map<String, List<FloatArray>> =
+            when (assetResult) {
+                is MiniLMIntentPhraseVectorAsset.LoadResult.Loaded -> assetResult.vectors
+                is MiniLMIntentPhraseVectorAsset.LoadResult.Rejected ->
+                    buildRuntimeVectors(assetResult.reason)
+            }
+
     }
 
     // All mutable state is set exactly once from the init coroutine and then read-only.
     @Volatile private var vocab: Map<String, Int>? = null
-    @Volatile private var interpreter: Interpreter? = null
-    /** Per-intent list of individual phrase embeddings. Scoring uses max similarity (nearest
-     *  neighbour) across all stored vectors rather than a single averaged centroid, which avoids
-     *  the drift that occurs when diverse training phrases are averaged together. */
+    @Volatile private var vectorizer: MiniLMPhraseVectorizer? = null
+    /** Per-intent phrase vectors; scoring uses nearest-neighbour similarity. */
     @Volatile private var intentPhraseVectors: Map<String, List<FloatArray>>? = null
     @Volatile private var initFailed: Boolean = false
-    private val interpreterLock = Any()
     private val initJob = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
         try {
-            val v = loadVocab()
+            val vocabBytes = context.assets.open(VOCAB_ASSET).use { it.readBytes() }
+            val loadedVocab = loadVocab(vocabBytes)
             val interp = loadInterpreter() ?: run {
                 initFailed = true
                 return@launch
             }
-            // Publish vocab and interpreter immediately so the readiness gate can pass
-            // while phrase vectors build in background (can take 60-90s for 30+ intents).
-            vocab = v
-            interpreter = interp
-            val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
-            val phraseVectors = buildPhraseVectors(phrasesJson, v, interp)
+            val phraseVectorsStartedAt = android.os.SystemClock.elapsedRealtime()
+            val phraseBytes = context.assets.open(PHRASES_ASSET).use { it.readBytes() }
+            val phrasesJson = String(phraseBytes, StandardCharsets.UTF_8)
+            val phraseCounts = MiniLMIntentPhraseVectorAsset.phraseCounts(phrasesJson)
+            val encoder = MiniLMPhraseVectorizer(loadedVocab, interp)
+            vocab = loadedVocab
+            vectorizer = encoder
+
+            val hashes = MiniLMIntentPhraseVectorAsset.SourceHashes(
+                model = context.assets.open(MODEL_ASSET).use(MiniLMIntentPhraseVectorAsset::sha256),
+                vocab = MiniLMIntentPhraseVectorAsset.sha256(vocabBytes),
+                phrases = MiniLMIntentPhraseVectorAsset.sha256(phraseBytes),
+            )
+            val assetResult = try {
+                context.assets.open(MiniLMIntentPhraseVectorAsset.FILE_NAME).use { bytes ->
+                    MiniLMIntentPhraseVectorAsset.load(bytes.readBytes(), hashes, phraseCounts)
+                }
+            } catch (exception: Exception) {
+                MiniLMIntentPhraseVectorAsset.LoadResult.Rejected(
+                    "asset unavailable (${exception.javaClass.simpleName})",
+                )
+            }
+            if (assetResult is MiniLMIntentPhraseVectorAsset.LoadResult.Loaded) {
+                Log.i(TAG, "Loaded hash-matched phrase vectors from ${MiniLMIntentPhraseVectorAsset.FILE_NAME}")
+            }
+            val phraseVectors = loadOrBuildPhraseVectors(assetResult) { reason ->
+                Log.w(TAG, "Precomputed phrase vectors rejected: $reason; building at runtime")
+                encoder.buildPhraseVectors(phrasesJson)
+            }
             intentPhraseVectors = phraseVectors
             val totalVectors = phraseVectors.values.sumOf { it.size }
-            Log.i(TAG, "Ready: ${phraseVectors.size} intents, $totalVectors phrase vectors loaded (nearest-neighbour)")
+            Log.i(
+                TAG,
+                "Ready: ${phraseVectors.size} intents, $totalVectors phrase vectors loaded " +
+                    "(nearest-neighbour); phraseVectorsReadyMs=${android.os.SystemClock.elapsedRealtime() - phraseVectorsStartedAt}",
+            )
         } catch (e: Exception) {
             initFailed = true
             Log.e(TAG, "Failed to initialise — classify() will return null", e)
         }
     }
 
-    override fun isReady(): Boolean = vocab != null && interpreter != null && intentPhraseVectors != null
+    override fun isReady(): Boolean = vocab != null && vectorizer != null && intentPhraseVectors != null
     override fun isFailed(): Boolean = initFailed
 
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
         if (input.isBlank()) return null
-        val v = vocab ?: run {
+        if (vocab == null) {
             Log.i(TAG, "classify('$input') — not ready (vocab null, initFailed=$initFailed), skipping")
             return null
         }
-        val interp = interpreter ?: run {
+        val encoder = vectorizer ?: run {
             Log.i(TAG, "classify('$input') — not ready (interpreter null), skipping")
             return null
         }
@@ -97,44 +128,34 @@ class MiniLMIntentClassifier @Inject constructor(
             Log.w(TAG, "classify('$input') — phrase vector map is empty (all embeds failed at init), skipping")
             return null
         }
-        val queryEmbedding = synchronized(interpreterLock) {
-            embed(input.lowercase().trim(), v, interp)
-        } ?: return null
-
-        var bestIntent: String? = null
-        var bestScore = -1f
-        var secondScore = -1f
-        // #1313: track top 5 intents with scores for diagnostic logging
-        val topScores = mutableListOf<Pair<String, Float>>()
-
-        // Nearest-neighbour: score each intent as the max similarity across all its phrase vectors.
-        // This avoids centroid drift where averaging 12+ diverse phrases pulls the centroid away
-        // from individual extremes (e.g. "it's dark in here" scoring 0.49 against its own centroid).
-        for ((name, vectors) in phraseVectors) {
-            val score = vectors.maxOf { dot(queryEmbedding, it) }
-            when {
-                score > bestScore -> { secondScore = bestScore; bestScore = score; bestIntent = name }
-                score > secondScore -> secondScore = score
+        val queryEmbedding = encoder.embed(input.lowercase().trim()) ?: return null
+        val scores = MiniLMIntentScorer.score(queryEmbedding, phraseVectors)
+        val top5Log = scores.topScores.joinToString(" | ") { (name, score) -> "$name=${"%.3f".format(score)}" }
+        val classification = scores.classification
+        if (classification == null) {
+            if (scores.bestIntent == null || scores.bestScore < MiniLMIntentScorer.CONFIDENCE_THRESHOLD) {
+                Log.i(
+                    TAG,
+                    "classify('$input') — below threshold: best=${scores.bestIntent} " +
+                        "score=${"%.3f".format(scores.bestScore)} threshold=${MiniLMIntentScorer.CONFIDENCE_THRESHOLD} top5=[$top5Log]",
+                )
+            } else {
+                Log.i(
+                    TAG,
+                    "classify('$input') — ambiguous: best=${scores.bestIntent} " +
+                        "score=${"%.3f".format(scores.bestScore)} second=${"%.3f".format(scores.secondScore)} " +
+                        "margin=${"%.3f".format(scores.bestScore - scores.secondScore)} top5=[$top5Log]",
+                )
             }
-            // Insert into top-5 list sorted descending by score
-            val insertAt = topScores.indexOfFirst { score > it.second }
-            if (insertAt >= 0) topScores.add(insertAt, name to score) else topScores.add(name to score)
-            if (topScores.size > 5) topScores.removeAt(5)
-        }
-
-        val top5Log = topScores.take(5).joinToString(" | ") { (n, s) -> "$n=${"%.3f".format(s)}" }
-
-        if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) {
-            Log.i(TAG, "classify('$input') — below threshold: best=$bestIntent score=${"%.3f".format(bestScore)} threshold=$CONFIDENCE_THRESHOLD top5=[$top5Log]")
             return null
         }
-        if (bestScore - secondScore < AMBIGUITY_MARGIN) {
-            Log.i(TAG, "classify('$input') — ambiguous: best=$bestIntent score=${"%.3f".format(bestScore)} second=${"%.3f".format(secondScore)} margin=${"%.3f".format(bestScore - secondScore)} top5=[$top5Log]")
-            return null
-        }
-
-        Log.i(TAG, "classify('$input') -> $bestIntent (score=${"%.3f".format(bestScore)}, margin=${"%.3f".format(bestScore - secondScore)}, top5=[$top5Log])")
-        return QuickIntentRouter.IntentClassifier.Classification(bestIntent, bestScore)
+        Log.i(
+            TAG,
+            "classify('$input') -> ${classification.intentName} " +
+                "(score=${"%.3f".format(classification.confidence)}, " +
+                "margin=${"%.3f".format(scores.bestScore - scores.secondScore)}, top5=[$top5Log])",
+        )
+        return classification
     }
 
     // ── Model loading ────────────────────────────────────────────────────────
@@ -158,109 +179,14 @@ class MiniLMIntentClassifier @Inject constructor(
         }
     }
 
-    // ── Vocabulary ───────────────────────────────────────────────────────────
-
-    private fun loadVocab(): Map<String, Int> {
+    private fun loadVocab(bytes: ByteArray): Map<String, Int> {
         val map = HashMap<String, Int>(32_000)
-        context.assets.open(VOCAB_ASSET).bufferedReader().useLines { lines ->
-            lines.forEachIndexed { i, token -> map[token] = i }
+        ByteArrayInputStream(bytes).bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+            lines.forEachIndexed { index, token -> map[token] = index }
         }
         Log.d(TAG, "Vocab loaded: ${map.size} tokens")
         return map
     }
 
-    // ── Tokenisation (BERT WordPiece) ────────────────────────────────────────
 
-
-    // ── Embedding ────────────────────────────────────────────────────────────
-
-    private fun embed(text: String, vocab: Map<String, Int>, interp: Interpreter): FloatArray? {
-        return try {
-            val (inputIds, mask) = WordPieceTokenizer.encode(text, vocab, MAX_SEQ_LEN)
-
-            val inputIdsBatch = Array(1) { inputIds }
-            val maskBatch = Array(1) { mask }
-            // Model has 2 inputs only: input_ids + attention_mask.
-            // token_type_ids is NOT a separate input on this model variant — passing it caused
-            // "Invalid input Tensor index: 2" and silently broke every embed call.
-
-            // Check output tensor shape to handle both model variants:
-            // [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings, we mean-pool
-            // [1, EMBEDDING_DIM]              — already mean-pooled by the model
-            val outputShape = interp.getOutputTensor(0).shape()
-
-            if (outputShape.size == 2 && outputShape[1] == EMBEDDING_DIM) {
-                // Model already outputs a single pooled embedding
-                val output = Array(1) { FloatArray(EMBEDDING_DIM) }
-                interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch),
-                    mapOf(0 to output)
-                )
-                output[0].l2Normalize()
-            } else {
-                // Output: [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings
-                val tokenEmbeddings = Array(1) { Array(MAX_SEQ_LEN) { FloatArray(EMBEDDING_DIM) } }
-                interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch),
-                    mapOf(0 to tokenEmbeddings)
-                )
-                // Mean pooling over non-padding tokens, then L2-normalise
-                meanPool(tokenEmbeddings[0], mask).l2Normalize()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Embed failed for '$text'", e)
-            null
-        }
-    }
-
-    private fun meanPool(tokenEmbeddings: Array<FloatArray>, mask: IntArray): FloatArray {
-        val result = FloatArray(EMBEDDING_DIM)
-        var count = 0
-        for (i in mask.indices) {
-            if (mask[i] == 0) continue
-            for (j in 0 until EMBEDDING_DIM) result[j] += tokenEmbeddings[i][j]
-            count++
-        }
-        if (count > 0) for (j in result.indices) result[j] /= count
-        return result
-    }
-
-    private fun FloatArray.l2Normalize(): FloatArray {
-        val mag = sqrt(sumOf { (it * it).toDouble() }.toFloat())
-        if (mag > 0f) for (i in indices) this[i] /= mag
-        return this
-    }
-
-    private fun dot(a: FloatArray, b: FloatArray): Float {
-        var sum = 0f
-        for (i in a.indices) sum += a[i] * b[i]
-        return sum
-    }
-
-    // ── Phrase vector pre-computation ────────────────────────────────────────
-
-    private fun buildPhraseVectors(
-        phrasesJson: String,
-        vocab: Map<String, Int>,
-        interp: Interpreter,
-    ): Map<String, List<FloatArray>> {
-        val root = JSONObject(phrasesJson)
-        val intents = root.getJSONObject("intents")
-        val result = HashMap<String, List<FloatArray>>()
-
-        for (intentName in intents.keys()) {
-            val phrases = intents.getJSONObject(intentName).getJSONArray("phrases")
-            val vectors = mutableListOf<FloatArray>()
-            for (i in 0 until phrases.length()) {
-                val phrase = phrases.getString(i).lowercase().trim()
-                synchronized(interpreterLock) {
-                    embed(phrase, vocab, interp)
-                }?.let { vectors += it }
-            }
-            if (vectors.isEmpty()) continue
-            result[intentName] = vectors
-            Log.d(TAG, "  $intentName: ${vectors.size} phrase vectors")
-        }
-        return result
-    }
 }

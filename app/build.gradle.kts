@@ -342,6 +342,7 @@ dependencies {
     implementation(libs.play.services.location)
 
     testImplementation(libs.junit.jupiter)
+    testImplementation("org.json:json:20240303")
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
