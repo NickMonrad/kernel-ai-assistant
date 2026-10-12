@@ -69,6 +69,10 @@ private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
 private const val LITERT_STATUS_MARKER = "Status Code:"
+private enum class DebugLoadSkillProbeMode {
+    ABORT_BEFORE_NATIVE_CONTINUATION,
+    SEND_NATIVE_CONTINUATION,
+}
 
 private fun safeDebugGenerationId(value: String?): String? =
     value?.takeIf { id ->
@@ -1338,7 +1342,7 @@ class LiteRtInferenceEngine @Inject constructor(
     override fun generate(userMessage: String): Flow<GenerationResult> =
         generateInternal(
             userMessage = userMessage,
-            syntheticLoadSkillAbortProbe = false,
+            debugLoadSkillProbeMode = null,
             debugTraceId = null,
         )
 
@@ -1348,20 +1352,31 @@ class LiteRtInferenceEngine @Inject constructor(
     ): Flow<GenerationResult> =
         generateInternal(
             userMessage = userMessage,
-            syntheticLoadSkillAbortProbe = false,
+            debugLoadSkillProbeMode = null,
             debugTraceId = debugTraceId,
         )
 
     override fun generateDebugLoadSkillAbortProbe(debugTraceId: String?): Flow<GenerationResult> =
         generateInternal(
             userMessage = "",
-            syntheticLoadSkillAbortProbe = true,
+            debugLoadSkillProbeMode = DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION,
             debugTraceId = debugTraceId,
         )
 
+    override fun generateDebugLoadSkillNativeContinuationProbe(
+        debugTraceId: String?,
+    ): Flow<GenerationResult> {
+        check(BuildConfig.DEBUG) { "Native load_skill continuation probe is DEBUG-only" }
+        return generateInternal(
+            userMessage = "",
+            debugLoadSkillProbeMode = DebugLoadSkillProbeMode.SEND_NATIVE_CONTINUATION,
+            debugTraceId = debugTraceId,
+        )
+    }
+
     private fun generateInternal(
         userMessage: String,
-        syntheticLoadSkillAbortProbe: Boolean,
+        debugLoadSkillProbeMode: DebugLoadSkillProbeMode?,
         debugTraceId: String?,
     ): Flow<GenerationResult> = callbackFlow {
         generationMutex.lock()
@@ -1558,7 +1573,9 @@ class LiteRtInferenceEngine @Inject constructor(
                                             "tool_response_pending=${pendingToolResponse != null}",
                                     )
                                 }
-                                if (syntheticLoadSkillAbortProbe) {
+                                if (debugLoadSkillProbeMode ==
+                                    DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                                ) {
                                     if (!stream.requiresConversationReset()) {
                                         stream.finish {
                                             close(
@@ -1634,6 +1651,16 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
                         }
                     send(callback)
+                    if (BuildConfig.DEBUG &&
+                        debugLoadSkillProbeMode == DebugLoadSkillProbeMode.SEND_NATIVE_CONTINUATION &&
+                        stage == "tool_response"
+                    ) {
+                        Log.i(
+                            TAG,
+                            "debug_load_skill_native_continuation_probe=tool_response_submitted " +
+                                "send_attempt=$sendAttempt",
+                        )
+                    }
                 } catch (e: Exception) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -1657,9 +1684,17 @@ class LiteRtInferenceEngine @Inject constructor(
                     _isGenerating.value = true
                 }
             ) {
-                if (syntheticLoadSkillAbortProbe) {
+                if (debugLoadSkillProbeMode != null) {
                     sendMessageToConversation("synthetic_tool_callback", startEvent = "callback_start") { callback ->
-                        Log.i(TAG, "debug_load_skill_abort_probe=synthetic_tool_callback")
+                        val probeMarker =
+                            if (debugLoadSkillProbeMode ==
+                                DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                            ) {
+                                "debug_load_skill_abort_probe=synthetic_tool_callback"
+                            } else {
+                                "debug_load_skill_native_continuation_probe=synthetic_tool_callback"
+                            }
+                        Log.i(TAG, probeMarker)
                         callback.onMessage(
                             Message.model(
                                 toolCalls = listOf(
@@ -1706,7 +1741,9 @@ class LiteRtInferenceEngine @Inject constructor(
                     withContext(kotlinx.coroutines.NonCancellable) {
                         resetConversationAfterToolAbort()
                     }
-                    if (syntheticLoadSkillAbortProbe) {
+                    if (debugLoadSkillProbeMode ==
+                        DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                    ) {
                         Log.i(TAG, "debug_load_skill_abort_probe=conversation_recreated")
                     }
                 }

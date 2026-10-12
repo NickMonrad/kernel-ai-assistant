@@ -129,6 +129,9 @@ private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT =
+    "Run the load_skill native continuation probe."
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT = "Run the load_skill abort replay probe."
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP = "Explain why shadows form in one sentence."
 
@@ -1856,10 +1859,15 @@ class ChatViewModel @Inject constructor(
         val submittedText = _inputText.value.trim()
         val loadSkillAbortProbe = BuildConfig.DEBUG &&
             submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND
+        val loadSkillNativeContinuationProbe = BuildConfig.DEBUG &&
+            submittedText == LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND
         val safeRunIntentTest = BuildConfig.DEBUG &&
-            (submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX) || loadSkillAbortProbe)
+            (submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX) ||
+                loadSkillAbortProbe ||
+                loadSkillNativeContinuationProbe)
         val text = when {
             loadSkillAbortProbe -> LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT
+            loadSkillNativeContinuationProbe -> LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT
             safeRunIntentTest -> submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
             else -> submittedText
         }
@@ -3086,12 +3094,16 @@ class ChatViewModel @Inject constructor(
                     Log.i(TAG, "debug_load_skill_abort_probe=follow_up_generation sandbox=active")
                 }
 
-            val generation = if (loadSkillAbortProbe) {
-                inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
-            } else if (BuildConfig.DEBUG && debugGenerationId != null) {
-                inferenceEngine.generateWithDebugTrace(currentPrompt, debugGenerationId)
-            } else {
-                inferenceEngine.generate(currentPrompt)
+            val generation = when {
+                loadSkillAbortProbe ->
+                    inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
+                loadSkillNativeContinuationProbe ->
+                    inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(
+                        debugTraceId = debugGenerationId,
+                    )
+                BuildConfig.DEBUG && debugGenerationId != null ->
+                    inferenceEngine.generateWithDebugTrace(currentPrompt, debugGenerationId)
+                else -> inferenceEngine.generate(currentPrompt)
             }
             generation.collect { result ->
                     when (result) {
@@ -3144,9 +3156,10 @@ class ChatViewModel @Inject constructor(
                                 persistHonestActionFailure(thinking)
                                 return@collect
                             }
-                            // Incomplete tool-chain check: a successful skill load must be followed
-                            // by an executable tool before generic response handling.
-                            if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                            // In normal turns, a successful skill load must be followed by an
+                            // executable tool. The DEBUG continuation probe validates transport only.
+                            if (!loadSkillNativeContinuationProbe &&
+                                kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
                                 handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = true)
@@ -3555,7 +3568,8 @@ class ChatViewModel @Inject constructor(
                             persistHonestActionFailure(thinking)
                             needsHallucinationRetry = false
                         }
-                        kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                        !loadSkillNativeContinuationProbe &&
+                            kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                             !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
                             handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
                         }
@@ -3633,19 +3647,38 @@ class ChatViewModel @Inject constructor(
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
                 }
-                if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                val loadSkillResultAborted = kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()
+                if (loadSkillResultAborted) {
                     // The inference engine discards the poisoned native conversation and waits
                     // for it to settle before releasing the generation mutex. Replay the saved
                     // chat history on the next turn without cancelling this honest failure.
                     needsHistoryReplay = true
                     estimatedTokensUsed = 0
                     turnsSinceReset = 0
-                    if (loadSkillAbortProbe) {
-                        pendingLoadSkillAbortProbeFollowUpConversationId = convId
-                    }
                 }
                 if (loadSkillAbortProbe && loadSkillAbortProbeFailurePersisted) {
                     Log.i(TAG, "debug_load_skill_abort_probe=honest_failure_persisted")
+                    val canInjectFollowUp = loadSkillResultAborted &&
+                        needsHistoryReplay &&
+                        conversationId == convId &&
+                        inferenceEngine.isReady.value &&
+                        _inputText.value.isBlank()
+                    if (canInjectFollowUp) {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = convId
+                        _inputText.value = LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+                        Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
+                        sendMessage()
+                    } else {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = null
+                        Log.w(
+                            TAG,
+                            "debug_load_skill_abort_probe=follow_up_not_injected " +
+                                "aborted=$loadSkillResultAborted replay_pending=$needsHistoryReplay " +
+                                "same_conversation=${conversationId == convId} " +
+                                "engine_ready=${inferenceEngine.isReady.value} " +
+                                "input_empty=${_inputText.value.isBlank()}",
+                        )
+                    }
                 }
             }
         }

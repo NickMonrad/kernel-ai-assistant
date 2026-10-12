@@ -981,12 +981,55 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
-    fun `DEBUG zero budget load_skill abort persists failure then ordinary followup replays it`() = runTest(dispatcher) {
+    fun `DEBUG native continuation command passes a positive load_skill result budget`() = runTest(dispatcher) {
         setupLoadSkill(SkillResult.Success("instructions"))
 
+        val savedUserMessages = mutableListOf<String>()
+        var returnedToolResult: Map<String, String>? = null
+        var debugProbeTraceId: String? = null
+        coEvery {
+            conversationRepository.addMessage(any(), eq("user"), capture(savedUserMessages), any(), any())
+        } returns "user-msg-id"
+        every { inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(any()) } answers {
+            debugProbeTraceId = firstArg()
+            flow {
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+                emit(GenerationResult.Token("Instructions loaded."))
+                emit(GenerationResult.Complete(durationMs = 1L))
+            }
+        }
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("__orchtest:load_skill_native_continuation")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(mapOf("result" to "instructions"), returnedToolResult)
+        assertFalse(realToolSet.loadSkillResultAbortedInCurrentAttempt())
+        assertTrue(savedUserMessages.isEmpty(), "safe probe must not persist its synthetic command")
+        val budgetLog = debugLogMessages.single { it.startsWith("generation_context_budget ") }
+        assertTrue(debugProbeTraceId != null)
+        assertTrue(budgetLog.contains("generation_id=$debugProbeTraceId"))
+        val budget = Regex("max_tool_result_tokens=(\\d+)")
+            .find(budgetLog)?.groupValues?.get(1)?.toInt()
+        assertTrue(requireNotNull(budget) > 0)
+        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(any()) }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `DEBUG zero budget abort persists honest failure and same VM followup replays before generation`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Success("instructions"))
+
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
         val lifecycleEvents = mutableListOf<String>()
         val replayedSystemPrompts = mutableListOf<String>()
         val savedUserMessages = mutableListOf<String>()
+        val savedUserConversationIds = mutableListOf<String>()
         every { quickIntentRouter.route(any()) } answers {
             QuickIntentRouter.RouteResult.FallThrough(input = firstArg<String>())
         }
@@ -998,15 +1041,29 @@ class ChatViewModelRetryStateMachineTest {
             replayedSystemPrompts += firstArg<String>()
         }
         coEvery {
-            conversationRepository.addMessage(any(), eq("user"), capture(savedUserMessages), any(), any())
+            conversationRepository.addMessage(
+                capture(savedUserConversationIds),
+                eq("user"),
+                capture(savedUserMessages),
+                any(),
+                any(),
+            )
         } returns "user-msg-id"
+        coEvery {
+            conversationRepository.addMessage(any(), eq("assistant"), capture(savedContents), any(), any())
+        } answers {
+            if (thirdArg<String>() == honestFailure) lifecycleEvents += "failure_persisted"
+            "assistant-msg-${savedContents.size}"
+        }
         var returnedToolResult: Map<String, String>? = null
+        var zeroBudgetAbortObserved = false
         var debugProbeTraceId: String? = null
         every { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) } answers {
             debugProbeTraceId = firstArg()
             flow {
                 lifecycleEvents += "synthetic_callback"
                 returnedToolResult = realToolSet.loadSkill("run_intent")
+                zeroBudgetAbortObserved = realToolSet.loadSkillResultAbortedInCurrentAttempt()
             }
         }
         every { inferenceEngine.generate(any()) } returns flow {
@@ -1024,28 +1081,8 @@ class ChatViewModelRetryStateMachineTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        val honestFailure =
-            "I wasn't able to complete that action — please try again, or try phrasing it differently."
         verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) }
-        verify(exactly = 0) { inferenceEngine.generate(any()) }
         verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
-        assertEquals(listOf("Run the load_skill abort replay probe."), savedUserMessages)
-        assertEquals(1, savedContents.count { it == honestFailure })
-        assertEquals(listOf("replay", "synthetic_callback", "tool_abort"), lifecycleEvents)
-        assertEquals(emptyMap<String, String>(), returnedToolResult)
-        val budgetLog = debugLogMessages.single { it.startsWith("generation_context_budget ") }
-        assertTrue(debugProbeTraceId != null)
-        assertTrue(budgetLog.contains("generation_id=$debugProbeTraceId"))
-        assertTrue(budgetLog.contains("max_tool_result_tokens=0"))
-        assertFalse(budgetLog.contains("Run the load_skill abort replay probe."))
-        assertTrue(realToolSet.loadSkillResultAbortedInCurrentAttempt())
-        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=honest_failure_persisted") }
-        lifecycleEvents.clear()
-
-        viewModel.onInputChanged("Explain why shadows form in one sentence.")
-        viewModel.sendMessage()
-        advanceUntilIdle()
-
         coVerify(exactly = 1) { inferenceEngine.generate(any()) }
         coVerify(exactly = 1) {
             conversationRepository.addMessage(
@@ -1056,9 +1093,13 @@ class ChatViewModelRetryStateMachineTest {
                 any(),
             )
         }
-        assertEquals(listOf("replay", "normal_generate"), lifecycleEvents)
-        assertTrue(replayedSystemPrompts.last().contains("Run the load_skill abort replay probe."))
-        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
+        assertEquals(emptyMap<String, String>(), returnedToolResult)
+        assertTrue(zeroBudgetAbortObserved)
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(
+            listOf("replay", "synthetic_callback", "tool_abort", "failure_persisted", "replay", "normal_generate"),
+            lifecycleEvents,
+        )
         assertEquals(
             listOf(
                 "Run the load_skill abort replay probe.",
@@ -1066,10 +1107,21 @@ class ChatViewModelRetryStateMachineTest {
             ),
             savedUserMessages,
         )
+        assertEquals(listOf("conv-new", "conv-new"), savedUserConversationIds)
+        assertTrue(replayedSystemPrompts.last().contains("Run the load_skill abort replay probe."))
+        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
         assertEquals("Shadows form when light is blocked.", savedContents.last())
-        verify(exactly = 0) {
-            quickIntentRouter.route("Explain why shadows form in one sentence.")
-        }
+        val budgetLogs = debugLogMessages.filter { it.startsWith("generation_context_budget ") }
+        assertEquals(2, budgetLogs.size)
+        assertTrue(debugProbeTraceId != null)
+        assertTrue(budgetLogs.first().contains("generation_id=$debugProbeTraceId"))
+        assertTrue(budgetLogs.first().contains("max_tool_result_tokens=0"))
+        val followUpBudget = Regex("max_tool_result_tokens=(\\d+)")
+            .find(budgetLogs.last())?.groupValues?.get(1)?.toInt()
+        assertTrue(requireNotNull(followUpBudget) > 0)
+        assertFalse(budgetLogs.any { it.contains("Run the load_skill abort replay probe.") })
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=honest_failure_persisted") }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_injected same_conversation=true") }
         verify {
             Log.i(
                 "KernelAI",
@@ -1078,6 +1130,9 @@ class ChatViewModelRetryStateMachineTest {
         }
         verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_generation sandbox=active") }
         verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_flow_settled") }
+        verify(exactly = 0) {
+            quickIntentRouter.route("Explain why shadows form in one sentence.")
+        }
         coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
         coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
     }

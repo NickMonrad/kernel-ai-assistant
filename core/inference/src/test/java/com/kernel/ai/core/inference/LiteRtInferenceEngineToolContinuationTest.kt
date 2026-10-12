@@ -224,6 +224,63 @@ class LiteRtInferenceEngineToolContinuationTest {
     }
 
     @Test
+    fun `DEBUG native continuation probe sends load_skill result through Conversation`() = runBlocking {
+        val toolCalls = mutableListOf<String>()
+        val provider = tool(object : ToolSet {
+            @Tool(description = "Loads gateway instructions")
+            fun load_skill(@ToolParam(description = "Skill name") skill_name: String): Map<String, String> {
+                toolCalls += "load_skill:$skill_name"
+                return mapOf("result" to "run_intent instructions")
+            }
+        })
+        val fixture = installConversations(provider)
+        val sdkConversation = Conversation(0L, fixture.manager, automaticToolCalling = false)
+
+        val turn = async {
+            inferenceEngine.generateDebugLoadSkillNativeContinuationProbe().toList()
+        }
+        val toolResponseRequest = nextRequest()
+
+        assertEquals(listOf("load_skill:run_intent"), toolCalls)
+        assertToolResponse(toolResponseRequest, "load_skill", "run_intent instructions")
+        verify(exactly = 0) {
+            fixture.initialConversation.sendMessageAsync(
+                any<Contents>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+        verify(exactly = 1) {
+            fixture.initialConversation.sendMessageAsync(
+                any<com.google.ai.edge.litertlm.Message>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+        }
+
+        invokeSdkCallback(
+            toolResponseRequest.callback,
+            sdkConversation,
+            assistantTextJson("The run_intent instructions were loaded."),
+        )
+        val results = withTimeout(3_000) { turn.await() }
+
+        assertEquals(
+            "The run_intent instructions were loaded.",
+            results.filterIsInstance<GenerationResult.Token>().joinToString("") { it.text },
+        )
+        assertTrue(results.any { it is GenerationResult.Complete })
+        verify(exactly = 0) { fixture.initialConversation.close() }
+        verify(exactly = 0) { fixture.initialConversation.cancelProcess() }
+        verify(exactly = 1) {
+            Log.i(
+                "LiteRtInferenceEngine",
+                match { it.startsWith("debug_load_skill_native_continuation_probe=tool_response_submitted") },
+            )
+        }
+    }
+
+    @Test
     fun `debug abort probe fails closed when provider does not abort`() = runBlocking {
         val provider = tool(object : ToolSet {
             @Tool(description = "Loads gateway instructions")

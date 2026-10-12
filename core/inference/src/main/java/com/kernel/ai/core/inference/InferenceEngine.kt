@@ -78,6 +78,14 @@ interface InferenceEngine {
      * @param debugTraceId Optional safe identifier for correlating the probe with app budget logs.
      */
     fun generateDebugLoadSkillAbortProbe(debugTraceId: String? = null): Flow<GenerationResult>
+    /**
+     * DEBUG harness entrypoint that invokes `load_skill("run_intent")` through the configured
+     * ToolManager and sends its response through the native LiteRT conversation continuation.
+     * The initial tool call is synthetic; this does not claim model-driven tool selection.
+     */
+    fun generateDebugLoadSkillNativeContinuationProbe(
+        debugTraceId: String? = null,
+    ): Flow<GenerationResult>
 
     /** Cancel any in-flight generation immediately. */
     fun cancelGeneration()

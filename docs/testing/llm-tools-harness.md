@@ -111,50 +111,58 @@ test conversation.
 The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
 controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
 
-## Deterministic zero-budget `load_skill` abort/replay probe
+## Deterministic native continuation and zero-budget abort/replay probes
 
-Use this DEBUG-only probe when natural model output does not emit `load_skill`. In a dedicated
-empty test conversation, send the exact command, wait for the honest-failure marker, then send
-the exact follow-up:
+Use these DEBUG-only probes in a dedicated empty test conversation. Submit both commands through
+the chat composer in the same open chat screen; do not launch `chat_input` activity intents, which
+create a new ViewModel and cannot prove same-ViewModel history replay:
 
-```bash
-adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
-  --activity-clear-top --activity-single-top \
-  --es chat_input '__orchtest:load_skill_abort_replay'
-adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
-  --activity-clear-top --activity-single-top \
-  --es chat_input 'Explain why shadows form in one sentence.'
+```text
+__orchtest:load_skill_native_continuation
+__orchtest:load_skill_abort_replay
 ```
 
-The first command uses a fixed synthetic `Message.model(toolCalls=[load_skill("run_intent")])`
-to enter the app's normal `MessageCallback` and configured `ToolManager`. `KernelAIToolSet`
-executes the real `load_skill` provider with a zero-token result budget. The tool-call message is
-synthetic, not model output, and the probe issues no `Conversation.sendMessageAsync` for it. It is
-not evidence that Gemma naturally emits `load_skill` or that the SDK's JNI callback generated it.
-The engine refuses any native continuation, closes/recreates the conversation, and releases its
-generation mutex before the flow completes. If the provider does not trigger the budget abort, the
-probe fails closed, persists the honest failure, and emits `abort_not_triggered`.
+The native-continuation probe makes a fixed synthetic
+`Message.model(toolCalls=[load_skill("run_intent")])` enter the app's normal callback and actual
+LiteRT `ToolManager`. The configured provider returns the real `run_intent` instructions, then the
+engine submits that `Message.tool` through native `Conversation.sendMessageAsync`. This proves the
+app's native tool-response continuation path; it does not claim Gemma naturally selected the first
+tool call. The unchanged safe sandbox permits only `load_skill("run_intent")` and empty-parameter
+`run_intent("get_stopwatch_status", {})`; all other tools/actions fail closed before skill lookup.
+The probe does not perform device actions.
+Only this probe skips the app's normal retry requiring a terminal tool after `load_skill`; it
+measures native continuation transport, not model selection. Production behavior and other debug
+routes keep the existing tool-chain rule.
 
-The immediate exact follow-up goes through the ordinary `generate()` path after normal
-history-replay construction. Its DEBUG-only route is controlled to fall through, and the
-existing sandbox remains unchanged: only `load_skill("run_intent")` and empty-parameter
-`run_intent("get_stopwatch_status", {})` are permitted. It cannot dispatch a device action.
+The zero-budget probe uses the same synthetic provider callback with a zero-token result budget.
+`KernelAIToolSet` withholds the result and aborts before native continuation. LiteRT waits for the
+callback to settle, closes/recreates the conversation, and releases its generation mutex before
+the app persists the fixed probe user message and honest failure. If the provider does not trigger
+the budget abort, the probe fails closed and emits `abort_not_triggered`.
+
+After a persisted zero-budget failure, the same `ChatViewModel` automatically submits the fixed
+follow-up only when the conversation is recreated and ready, history replay is pending, the chat
+still has the same conversation ID, and the composer is empty. The follow-up uses ordinary model
+generation after replaying the persisted probe message and honest failure. It is not RAG-indexed,
+auto-titled, spoken, or included in close-time distillation. A user draft is never overwritten.
 
 Expected sanitized markers, in order:
 
-1. `debug_load_skill_abort_probe=synthetic_tool_callback`
-2. `load_skill_tool_result_context_abort` with `budget=0`
-3. `debug_load_skill_abort_probe=conversation_recreated`
-4. `debug_load_skill_abort_probe=honest_failure_persisted`
-5. `debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true`
-6. `debug_load_skill_abort_probe=follow_up_generation sandbox=active`
-7. `debug_load_skill_abort_probe=follow_up_flow_settled`
+1. Native continuation: `debug_load_skill_native_continuation_probe=synthetic_tool_callback`
+2. Native continuation: `generation_diagnostic ... stage=tool_response event=send_start`
+3. Native continuation: `debug_load_skill_native_continuation_probe=tool_response_submitted`
+4. Abort probe: `debug_load_skill_abort_probe=synthetic_tool_callback`
+5. Abort probe: `load_skill_tool_result_context_abort` with `budget=0`
+6. Abort probe: `debug_load_skill_abort_probe=conversation_recreated`
+7. Abort probe: `debug_load_skill_abort_probe=honest_failure_persisted`
+8. Abort probe: `debug_load_skill_abort_probe=follow_up_injected same_conversation=true`
+9. Follow-up: `debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true`
+10. Follow-up: `debug_load_skill_abort_probe=follow_up_generation sandbox=active`
+11. Follow-up: `debug_load_skill_abort_probe=follow_up_flow_settled`
 
-Confirm the UI shows the bounded honest failure before the follow-up and a completed response
-after it. A missing abort/reset/replay marker, Status 9, crash, or stalled follow-up is a failure.
-The probe persists its fixed user/failure messages for the replay check; it does not index them
-in RAG or distil the active conversation. Keep all raw logcat and conversation content local;
-publish only the marker outcomes.
+Confirm the UI shows the bounded honest failure followed by a completed response. A missing native
+continuation, abort/reset/replay marker, Status 9, crash, or stalled follow-up is a failure. Keep raw
+logcat and conversation content local; publish only sanitized marker outcomes.
 
 For cases with `expected_tool_sequence`, the runner requires:
 
