@@ -3061,6 +3061,9 @@ class ChatViewModel @Inject constructor(
                 val currentPromptTokens = (
                     contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
                 ).coerceAtLeast(0)
+                // This DEBUG probe sends only the synthetic tool response, not currentPrompt.
+                val toolBudgetPromptTokens =
+                    if (loadSkillNativeContinuationProbe) 0 else currentPromptTokens
                 // Leave the response reserve available after the full tool-result envelope is prefetched.
                 val loadSkillToolResultTokenBudget = if (loadSkillAbortProbe) {
                     0
@@ -3068,7 +3071,7 @@ class ChatViewModel @Inject constructor(
                     (
                         activeContextWindowSize -
                             estimatedTokensUsed -
-                            currentPromptTokens -
+                            toolBudgetPromptTokens -
                             ContextWindowManager.RESPONSE_RESERVE
                     ).coerceAtLeast(0)
                 }

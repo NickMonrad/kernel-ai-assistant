@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
@@ -51,8 +52,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.runs
+import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +205,7 @@ class ChatViewModelRetryStateMachineTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+        unmockkConstructor(ContextWindowManager::class)
     }
 
     // -----------------------------------------------------------------------
@@ -981,8 +985,19 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
-    fun `DEBUG native continuation command passes a positive load_skill result budget`() = runTest(dispatcher) {
-        setupLoadSkill(SkillResult.Success("instructions"))
+    fun `DEBUG 4K native continuation excludes the unsent prompt from result budget`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Success("run_intent instructions"))
+        every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(4_000)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        mockkConstructor(ContextWindowManager::class)
+        every { anyConstructed<ContextWindowManager>().estimateTokens(any()) } answers {
+            val text = firstArg<String>()
+            when {
+                text.contains("Run the load_skill native continuation probe.") -> 1_495
+                text.startsWith("You are Jandal") -> 2_400
+                else -> (text.length / 4).coerceAtLeast(1)
+            }
+        }
 
         val savedUserMessages = mutableListOf<String>()
         var returnedToolResult: Map<String, String>? = null
@@ -1007,15 +1022,18 @@ class ChatViewModelRetryStateMachineTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        assertEquals(mapOf("result" to "instructions"), returnedToolResult)
+        assertEquals(mapOf("result" to "run_intent instructions"), returnedToolResult)
         assertFalse(realToolSet.loadSkillResultAbortedInCurrentAttempt())
         assertTrue(savedUserMessages.isEmpty(), "safe probe must not persist its synthetic command")
         val budgetLog = debugLogMessages.single { it.startsWith("generation_context_budget ") }
         assertTrue(debugProbeTraceId != null)
         assertTrue(budgetLog.contains("generation_id=$debugProbeTraceId"))
+        assertTrue(budgetLog.contains("app_context_window=4000"))
+        assertTrue(budgetLog.contains("estimated_prior_fixed_tokens=2400"))
+        assertTrue(budgetLog.contains("current_prompt_excluding_rag_tokens=1495"))
         val budget = Regex("max_tool_result_tokens=(\\d+)")
             .find(budgetLog)?.groupValues?.get(1)?.toInt()
-        assertTrue(requireNotNull(budget) > 0)
+        assertEquals(576, budget)
         verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(any()) }
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
