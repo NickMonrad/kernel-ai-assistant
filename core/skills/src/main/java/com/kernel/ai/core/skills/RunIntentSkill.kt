@@ -190,6 +190,24 @@ class RunIntentSkill @Inject constructor(
         examples.forEach { appendLine(it) }
     }
 
+    override val compactInstructions: String = buildString {
+        appendLine("run_intent: use one exact catalogue intent_name and a JSON object string of parameters.")
+        appendLine("After successful load_skill, call run_intent once for the original request before replying.")
+        appendLine("bulk_add_to_list: include all items in one JSON array and the requested list_name.")
+        appendLine("Callable intents and parameter hints:")
+        MODEL_ACTION_CATEGORIES.forEach { category ->
+            appendLine(
+                category.actions.joinToString("; ") { action ->
+                    if (action.parameterHelp.isBlank()) {
+                        action.name
+                    } else {
+                        "${action.name}(${action.parameterHelp})"
+                    }
+                },
+            )
+        }
+    }
+
     // Success: action result — delegates to NativeIntentHandler; LLM narration appropriate
     override suspend fun execute(call: SkillCall): SkillResult {
         val intentName = call.arguments["intent_name"]?.takeIf { it.isNotBlank() }

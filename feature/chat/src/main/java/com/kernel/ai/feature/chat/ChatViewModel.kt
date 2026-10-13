@@ -128,6 +128,12 @@ private const val TAG = "KernelAI"
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT =
+    "Run the load_skill native continuation probe."
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT = "Run the load_skill abort replay probe."
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP = "Explain why shadows form in one sentence."
 
 /** Stop phrases that terminate the back-and-forth voice loop (#754). */
 private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
@@ -337,6 +343,9 @@ class ChatViewModel @Inject constructor(
      * system prompt before sending, restoring context after a reset (cancel or session restore).
      */
     private var needsHistoryReplay = false
+
+    /** Conversation waiting for the exact safe follow-up to the DEBUG abort/replay probe. */
+    private var pendingLoadSkillAbortProbeFollowUpConversationId: String? = null
 
     /** Estimated tokens consumed in the current LiteRT conversation, including fixed prompt tokens. */
     private var estimatedTokensUsed = 0
@@ -1848,12 +1857,19 @@ class ChatViewModel @Inject constructor(
 
     private fun sendMessage(submitMode: SubmitMode) {
         val submittedText = _inputText.value.trim()
+        val loadSkillAbortProbe = BuildConfig.DEBUG &&
+            submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND
+        val loadSkillNativeContinuationProbe = BuildConfig.DEBUG &&
+            submittedText == LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND
         val safeRunIntentTest = BuildConfig.DEBUG &&
-            submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX)
-        val text = if (safeRunIntentTest) {
-            submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
-        } else {
-            submittedText
+            (submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX) ||
+                loadSkillAbortProbe ||
+                loadSkillNativeContinuationProbe)
+        val text = when {
+            loadSkillAbortProbe -> LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT
+            loadSkillNativeContinuationProbe -> LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT
+            safeRunIntentTest -> submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
+            else -> submittedText
         }
         if (text.isBlank()) {
             if (submitMode == SubmitMode.Voice) {
@@ -1874,10 +1890,18 @@ class ChatViewModel @Inject constructor(
         suppressVoiceOutputForCurrentResponse = false
         _inputText.value = ""
         val convId = conversationId ?: return
+        val isLoadSkillAbortProbeFollowUp = BuildConfig.DEBUG &&
+            pendingLoadSkillAbortProbeFollowUpConversationId == convId &&
+            submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+        if (pendingLoadSkillAbortProbeFollowUpConversationId != null) {
+            pendingLoadSkillAbortProbeFollowUpConversationId = null
+        }
         val turnCancellationRequest = AtomicBoolean(false)
         activeTurnCancellationRequest = turnCancellationRequest
 
-        if (safeRunIntentTest) suppressCloseDistillationForSafeProbe = true
+        if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+            suppressCloseDistillationForSafeProbe = true
+        }
         pendingVoiceReply = submitMode == SubmitMode.Voice
 
         // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
@@ -1894,6 +1918,7 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
             var prompt = ""
+            var effectiveRagTokenCost = 0
             var systemPromptForPrefill = ""
             var shouldMeasureToolDeclarations = false
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
@@ -1946,7 +1971,7 @@ class ChatViewModel @Inject constructor(
                 content = text,
             )
             _messages.update { it + userMessage }
-            savedUserMsgId = if (safeRunIntentTest) {
+            savedUserMsgId = if (safeRunIntentTest && !loadSkillAbortProbe) {
                 ""
             } else {
                 conversationRepository.addMessage(convId, "user", text)
@@ -1970,7 +1995,8 @@ class ChatViewModel @Inject constructor(
             // gracefully handles this (returns NotActionable → E4B fallback). Classifier picks
             // up subsequent messages once phrase vectors finish building.
 
-            val mealPlannerRoute = if (safeRunIntentTest) {
+            // Keep the exact DEBUG recovery follow-up on ordinary model generation, not QIR actions.
+            val mealPlannerRoute = if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
                 QuickIntentRouter.RouteResult.FallThrough(input = text)
             } else {
                 quickIntentRouter.route(text)
@@ -1983,8 +2009,12 @@ class ChatViewModel @Inject constructor(
                 else -> false
             }
             val hasActiveMealPlanSession = !safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
                 mealPlanSessionRepository.hasActiveSessionForConversation(convId)
-            if (!safeRunIntentTest && (hasActiveMealPlanSession || explicitMealPlannerStart)) {
+            if (!safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
+                (hasActiveMealPlanSession || explicitMealPlannerStart)
+            ) {
                 if (!inferenceEngine.isReady.value) {
                     initGemma4()
                     if (!inferenceEngine.isReady.value) {
@@ -2685,7 +2715,11 @@ class ChatViewModel @Inject constructor(
             // #1074: Deterministic local NZ answer — bypass inference/model init for known
             // NZ/Māori terms when no explicit Wikipedia request or stronger app action exists.
             // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
-            if (!safeRunIntentTest && explicitWikipediaQuery == null && matchedIntent == null) {
+            if (!safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
+                explicitWikipediaQuery == null &&
+                matchedIntent == null
+            ) {
                 val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
                 if (localNzEntry != null) {
                     val localReply = buildKnownNzContextReply(localNzEntry)
@@ -2734,7 +2768,7 @@ class ChatViewModel @Inject constructor(
             accumulatedThinking = StringBuilder()
 
             // Register active streaming state so cancel/onCleared can flush to Room.
-            activeStreamingPersistenceDisabled = safeRunIntentTest
+            activeStreamingPersistenceDisabled = safeRunIntentTest || isLoadSkillAbortProbeFollowUp
             activeStreamingMsgId = assistantMsgId
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
@@ -2781,7 +2815,6 @@ class ChatViewModel @Inject constructor(
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             var effectiveRagContext: String
-            var effectiveRagTokenCost: Int
             when {
                 isToolQuery -> {
                     effectiveRagContext = ""
@@ -2878,6 +2911,15 @@ class ChatViewModel @Inject constructor(
                 systemPromptForPrefill = systemPromptWithHistory
                 shouldMeasureToolDeclarations = true
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
+                if (isLoadSkillAbortProbeFollowUp) {
+                    val probeReplayed = systemPromptWithHistory.contains(LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT)
+                    val failureReplayed = systemPromptWithHistory.contains(HONEST_ACTION_FAILURE)
+                    Log.i(
+                        TAG,
+                        "debug_load_skill_abort_probe=history_replayed " +
+                            "probe=$probeReplayed honest_failure=$failureReplayed",
+                    )
+                }
                 // Re-baseline from the complete system prompt (including selected history), tool
                 // declarations, and RAG context before the current user message is sent.
                 estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptWithHistory) + effectiveRagTokenCost
@@ -2929,7 +2971,9 @@ class ChatViewModel @Inject constructor(
                 append(text)
             }
             prepareVoicePlaybackForTurn(
-                streamingEnabled = autoSpeakEnabled && !isToolQueryForTurn,
+                streamingEnabled = autoSpeakEnabled &&
+                    !isToolQueryForTurn &&
+                    !isLoadSkillAbortProbeFollowUp,
             )
 
             } finally {
@@ -2938,6 +2982,7 @@ class ChatViewModel @Inject constructor(
                 _isLoadingModel.value = false
             }
             var incompleteChainContinuationPending = false
+            var loadSkillAbortProbeFailurePersisted = false
             suspend fun persistHonestActionFailure(thinking: String?) {
                 _messages.update { msgs ->
                     msgs.map {
@@ -2946,8 +2991,11 @@ class ChatViewModel @Inject constructor(
                         } else it
                     }
                 }
-                if (!safeRunIntentTest) {
+                if (!safeRunIntentTest || loadSkillAbortProbe) {
                     conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    if (loadSkillAbortProbe) {
+                        loadSkillAbortProbeFailurePersisted = true
+                    }
                 }
                 finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
                 activeStreamingMsgId = null
@@ -2957,7 +3005,7 @@ class ChatViewModel @Inject constructor(
 
             var safeModelTestScope: AutoCloseable? = null
             try {
-                if (safeRunIntentTest) {
+                if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
                     safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
                 }
                 kernelAIToolSet.resetTurnState()
@@ -2999,11 +3047,68 @@ class ChatViewModel @Inject constructor(
                     }
                 }
 
+            var debugGenerationAttempt = 0
             do {
+                val debugGenerationId = if (BuildConfig.DEBUG) {
+                    "$commandId-g${++debugGenerationAttempt}"
+                } else {
+                    null
+                }
                 needsHallucinationRetry = false
                 kernelAIToolSet.resetAttemptState()
                 var generationResultReceived = false
-            inferenceEngine.generate(currentPrompt).collect { result ->
+                // estimatedTokensUsed already includes RAG; subtract it only once from this prompt.
+                val currentPromptTokens = (
+                    contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
+                ).coerceAtLeast(0)
+                // This DEBUG probe sends only the synthetic tool response, not currentPrompt.
+                val toolBudgetPromptTokens =
+                    if (loadSkillNativeContinuationProbe) 0 else currentPromptTokens
+                // Leave the response reserve available after the full tool-result envelope is prefetched.
+                val loadSkillToolResultTokenBudget = if (loadSkillAbortProbe) {
+                    0
+                } else {
+                    (
+                        activeContextWindowSize -
+                            estimatedTokensUsed -
+                            toolBudgetPromptTokens -
+                            ContextWindowManager.RESPONSE_RESERVE
+                    ).coerceAtLeast(0)
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "KernelAI",
+                        "generation_context_budget generation_id=${debugGenerationId.orEmpty()} " +
+                            "attempt=$debugGenerationAttempt source=app_estimate " +
+                            "resolved_token_cap=${inferenceEngine.resolvedMaxTokens.value} " +
+                            "app_context_window=$activeContextWindowSize " +
+                            "estimated_prior_fixed_tokens=$estimatedTokensUsed " +
+                            "current_prompt_excluding_rag_tokens=$currentPromptTokens " +
+                            "response_reserve_tokens=${ContextWindowManager.RESPONSE_RESERVE} " +
+                            "max_tool_result_tokens=$loadSkillToolResultTokenBudget",
+                    )
+                }
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(
+                    loadSkillToolResultTokenBudget,
+                    abortContinuation = inferenceEngine::abortGenerationBeforeToolContinuation,
+                )
+
+                if (isLoadSkillAbortProbeFollowUp) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=follow_up_generation sandbox=active")
+                }
+
+            val generation = when {
+                loadSkillAbortProbe ->
+                    inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
+                loadSkillNativeContinuationProbe ->
+                    inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(
+                        debugTraceId = debugGenerationId,
+                    )
+                BuildConfig.DEBUG && debugGenerationId != null ->
+                    inferenceEngine.generateWithDebugTrace(currentPrompt, debugGenerationId)
+                else -> inferenceEngine.generate(currentPrompt)
+            }
+            generation.collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
@@ -3037,18 +3142,27 @@ class ChatViewModel @Inject constructor(
                                 ?: preservedThinkingText
                             kernelAIToolSet.logToolSequence()
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
-                            if (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
-                                kernelAIToolSet.loadSkillFailedInCurrentAttempt() &&
-                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            if (!kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
+                                (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                                    (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                        kernelAIToolSet.loadSkillFailedInCurrentAttempt()))
                             ) {
                                 localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
-                                Log.w("KernelAI", "load_skill_failed")
+                                Log.w(
+                                    "KernelAI",
+                                    if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                                        "load_skill_tool_result_context_abort"
+                                    } else {
+                                        "load_skill_failed"
+                                    },
+                                )
                                 persistHonestActionFailure(thinking)
                                 return@collect
                             }
-                            // Incomplete tool-chain check: a successful skill load must be followed
-                            // by an executable tool before generic response handling.
-                            if (kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                            // In normal turns, a successful skill load must be followed by an
+                            // executable tool. The DEBUG continuation probe validates transport only.
+                            if (!loadSkillNativeContinuationProbe &&
+                                kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                                 !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
                             ) {
                                 handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = true)
@@ -3106,7 +3220,7 @@ class ChatViewModel @Inject constructor(
                                     }
                                     // Index the user message so this exchange isn't silently orphaned
                                     // from semantic search — only the fallback assistant text is skipped.
-                                    if (savedUserMsgId.isNotBlank()) {
+                                    if (savedUserMsgId.isNotBlank() && !isLoadSkillAbortProbeFollowUp) {
                                         ragRepository.indexMessage(savedUserMsgId, convId, text)
                                     }
                                     finalizeVoicePlaybackForResponse(fallback)
@@ -3377,7 +3491,12 @@ class ChatViewModel @Inject constructor(
                                 // ("The light's on!") poisons future RAG retrievals (#614).
                                 // Also index the user message here (deferred from sendMessage entry)
                                 // so we can skip it too if a device tool was called during inference.
-                                if (savedAssistantMsgId != null && !isHallucination && !isRawToolCall && !isDeviceActionExchange) {
+                                if (savedAssistantMsgId != null &&
+                                    !isHallucination &&
+                                    !isRawToolCall &&
+                                    !isDeviceActionExchange &&
+                                    !isLoadSkillAbortProbeFollowUp
+                                ) {
                                     if (savedUserMsgId.isNotBlank()) {
                                         ragRepository.indexMessage(savedUserMsgId, convId, text)
                                     }
@@ -3402,7 +3521,12 @@ class ChatViewModel @Inject constructor(
                             // Small delay lets the generate() flow fully release the
                             // single-threaded LlmDispatcher before generateOnce() claims it.
                             val messageCount = _messages.value.size
-                            if (!safeRunIntentTest && messageCount >= 4 && (_conversationTitle.value == null || titleIsPlaceholder) && !titleGenerationStarted) {
+                            if (!safeRunIntentTest &&
+                                !isLoadSkillAbortProbeFollowUp &&
+                                messageCount >= 4 &&
+                                (_conversationTitle.value == null || titleIsPlaceholder) &&
+                                !titleGenerationStarted
+                            ) {
                                 titleGenerationStarted = true
                                 viewModelScope.launch {
                                     kotlinx.coroutines.delay(500L)
@@ -3431,12 +3555,24 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+                if (isLoadSkillAbortProbeFollowUp) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=follow_up_flow_settled")
+                }
                 if (!generationResultReceived && !turnCancellationRequest.get()) {
                     val fullContent = accumulatedContent.toString()
                     val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                         ?: preservedThinkingText
                     when {
-                        kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "load_skill_tool_result_context_abort")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
+                        !loadSkillNativeContinuationProbe &&
+                            kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
                             !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
                             handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
                         }
@@ -3462,10 +3598,12 @@ class ChatViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                // LiteRT can throw while continuing after load_skill, before Complete schedules a
-                // separate incomplete-chain retry, so also recognize success in this attempt.
+                // LiteRT can fail while continuing after load_skill, before Complete schedules a
+                // separate incomplete-chain retry; an aborted tool result also terminates here.
                 if (!turnCancellationRequest.get() &&
-                    (incompleteChainContinuationPending ||
+                    (loadSkillAbortProbe ||
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                        incompleteChainContinuationPending ||
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
                     kernelAIToolSet.terminalToolName() == null
                 ) {
@@ -3474,7 +3612,19 @@ class ChatViewModel @Inject constructor(
                         accumulatedThinking,
                     )
                     kernelAIToolSet.logToolSequence()
-                    Log.w("KernelAI", "load_skill_continuation_failed")
+                    Log.w(
+                        "KernelAI",
+                        if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                            "load_skill_tool_result_context_abort"
+                        } else {
+                            "load_skill_continuation_failed"
+                        },
+                    )
+                    if (loadSkillAbortProbe &&
+                        !kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()
+                    ) {
+                        Log.w(TAG, "debug_load_skill_abort_probe=abort_not_triggered")
+                    }
                     persistHonestActionFailure(
                         accumulatedThinking.toString().takeIf { it.isNotBlank() },
                     )
@@ -3495,9 +3645,43 @@ class ChatViewModel @Inject constructor(
                     activeStreamingContent = StringBuilder()
                 }
             } finally {
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(null, null)
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
                     needsHistoryReplay = true
+                }
+                val loadSkillResultAborted = kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()
+                if (loadSkillResultAborted) {
+                    // The inference engine discards the poisoned native conversation and waits
+                    // for it to settle before releasing the generation mutex. Replay the saved
+                    // chat history on the next turn without cancelling this honest failure.
+                    needsHistoryReplay = true
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
+                }
+                if (loadSkillAbortProbe && loadSkillAbortProbeFailurePersisted) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=honest_failure_persisted")
+                    val canInjectFollowUp = loadSkillResultAborted &&
+                        needsHistoryReplay &&
+                        conversationId == convId &&
+                        inferenceEngine.isReady.value &&
+                        _inputText.value.isBlank()
+                    if (canInjectFollowUp) {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = convId
+                        _inputText.value = LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+                        Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
+                        sendMessage()
+                    } else {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = null
+                        Log.w(
+                            TAG,
+                            "debug_load_skill_abort_probe=follow_up_not_injected " +
+                                "aborted=$loadSkillResultAborted replay_pending=$needsHistoryReplay " +
+                                "same_conversation=${conversationId == convId} " +
+                                "engine_ready=${inferenceEngine.isReady.value} " +
+                                "input_empty=${_inputText.value.isBlank()}",
+                        )
+                    }
                 }
             }
         }

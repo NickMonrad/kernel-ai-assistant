@@ -16,6 +16,7 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.ToolCall
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -65,6 +66,41 @@ private const val GPU_INIT_TIMEOUT_MS = 60_000L
  *  resets (pre-existing, GPU-independent). Threshold 5 fires the full restart
  *  before that point to keep routing reliable. */
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
+/** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
+private const val RECURRING_TOOL_CALL_LIMIT = 25
+private const val LITERT_STATUS_MARKER = "Status Code:"
+private enum class DebugLoadSkillProbeMode {
+    ABORT_BEFORE_NATIVE_CONTINUATION,
+    SEND_NATIVE_CONTINUATION,
+}
+
+private fun safeDebugGenerationId(value: String?): String? =
+    value?.takeIf { id ->
+        BuildConfig.DEBUG &&
+            id.length in 1..48 &&
+            id.all { character ->
+                character in 'a'..'z' ||
+                    character in 'A'..'Z' ||
+                    character in '0'..'9' ||
+                    character == '-' ||
+                    character == '_'
+            }
+    }
+
+private fun liteRtStatusCode(throwable: Throwable): String =
+    generateSequence(throwable) { it.cause }
+        .take(8)
+        .mapNotNull { cause ->
+            val message = cause.message ?: return@mapNotNull null
+            val markerStart = message.indexOf(LITERT_STATUS_MARKER)
+            if (markerStart < 0) return@mapNotNull null
+            var statusStart = markerStart + LITERT_STATUS_MARKER.length
+            while (statusStart < message.length && message[statusStart].isWhitespace()) statusStart++
+            var statusEnd = statusStart
+            while (statusEnd < message.length && message[statusEnd] in '0'..'9') statusEnd++
+            message.substring(statusStart, statusEnd).takeIf { statusEnd > statusStart }
+        }
+        .firstOrNull() ?: "unknown"
 
 /**
  * Decision result from [checkGpuRestartNeeded].
@@ -951,6 +987,7 @@ class LiteRtInferenceEngine @Inject constructor(
     ) {
         private val terminalLock = Any()
         private var terminal = false
+        private val resetConversationAfterToolAbort = AtomicBoolean(false)
 
         fun whileActive(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
@@ -960,6 +997,29 @@ class LiteRtInferenceEngine @Inject constructor(
                 true
             }
         }
+
+        fun isActive(): Boolean = synchronized(terminalLock) { !terminal }
+
+        /**
+         * Ends the caller flow without native cancellation. LiteRT-LM 0.17.1 can submit a pending
+         * tool response after the synchronous provider callback returns, so the caller must not
+         * cancel from that callback; the conversation is closed and replaced by the flow finalizer.
+         */
+        fun abortBeforeToolContinuation(): Boolean {
+            val claimed = synchronized(terminalLock) {
+                if (terminal) {
+                    false
+                } else {
+                    terminal = true
+                    resetConversationAfterToolAbort.set(true)
+                    true
+                }
+            }
+            if (claimed) closeFlow(null)
+            return claimed
+        }
+
+        fun requiresConversationReset(): Boolean = resetConversationAfterToolAbort.get()
 
         fun finish(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
@@ -1168,6 +1228,56 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
 
+    /**
+     * Discard the partially processed conversation after a tool result was withheld.
+     *
+     * Called by generate() while it still owns generationMutex. Conversation.close() deletes the
+     * native conversation; LiteRT-LM 0.17.1's SessionAdvanced destructor waits for its session
+     * tasks before releasing the session, so the next generation cannot reuse this partial turn.
+     */
+    private suspend fun resetConversationAfterToolAbort() {
+        val oldConversation = conversation
+        conversation = null
+        try {
+            oldConversation?.close()
+        } catch (e: Exception) {
+            _isReady.value = false
+            throw InferenceException("Failed to close aborted native conversation; engine is unavailable", e)
+        }
+
+        val eng = engine ?: run {
+            _isReady.value = false
+            return
+        }
+        val config = currentConfig ?: run {
+            _isReady.value = false
+            return
+        }
+        val backend = _activeBackend.value ?: BackendType.CPU
+
+        val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
+        gpuResetCount = restartDecision.updatedCount
+        if (restartDecision.shouldRestart) {
+            Log.i(
+                TAG,
+                "resetConversationAfterToolAbort: full engine restart after " +
+                    "$GPU_ENGINE_RESTART_INTERVAL GPU resets",
+            )
+            shutdown()
+            initialize(config)
+            return
+        }
+
+        try {
+            conversation = eng.createConversation(buildConversationConfig(backend, config))
+        } catch (e: Exception) {
+            _isReady.value = false
+            throw e
+        } finally {
+            resetExperimentalFlags()
+        }
+    }
+
     override suspend fun updateSystemPrompt(systemPrompt: String) {
         withContext(LlmDispatcher) {
             val config = currentConfig ?: return@withContext
@@ -1229,7 +1339,46 @@ class LiteRtInferenceEngine @Inject constructor(
     // Generation
     // -------------------------------------------------------------------------
 
-    override fun generate(userMessage: String): Flow<GenerationResult> = callbackFlow {
+    override fun generate(userMessage: String): Flow<GenerationResult> =
+        generateInternal(
+            userMessage = userMessage,
+            debugLoadSkillProbeMode = null,
+            debugTraceId = null,
+        )
+
+    override fun generateWithDebugTrace(
+        userMessage: String,
+        debugTraceId: String,
+    ): Flow<GenerationResult> =
+        generateInternal(
+            userMessage = userMessage,
+            debugLoadSkillProbeMode = null,
+            debugTraceId = debugTraceId,
+        )
+
+    override fun generateDebugLoadSkillAbortProbe(debugTraceId: String?): Flow<GenerationResult> =
+        generateInternal(
+            userMessage = "",
+            debugLoadSkillProbeMode = DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION,
+            debugTraceId = debugTraceId,
+        )
+
+    override fun generateDebugLoadSkillNativeContinuationProbe(
+        debugTraceId: String?,
+    ): Flow<GenerationResult> {
+        check(BuildConfig.DEBUG) { "Native load_skill continuation probe is DEBUG-only" }
+        return generateInternal(
+            userMessage = "",
+            debugLoadSkillProbeMode = DebugLoadSkillProbeMode.SEND_NATIVE_CONTINUATION,
+            debugTraceId = debugTraceId,
+        )
+    }
+
+    private fun generateInternal(
+        userMessage: String,
+        debugLoadSkillProbeMode: DebugLoadSkillProbeMode?,
+        debugTraceId: String?,
+    ): Flow<GenerationResult> = callbackFlow {
         generationMutex.lock()
         val lockReleased = AtomicBoolean(false)
         var serviceStarted = false
@@ -1264,7 +1413,11 @@ class LiteRtInferenceEngine @Inject constructor(
             },
         )
         val eventSeq = java.util.concurrent.atomic.AtomicInteger(0)
-        val generationId = "gen_${start}"
+        val generationId = if (BuildConfig.DEBUG) {
+            safeDebugGenerationId(debugTraceId) ?: "gen_$start"
+        } else {
+            "gen_$start"
+        }
 
         fun emitVisibleToken(delta: String) {
             if (delta.isEmpty()) return
@@ -1294,18 +1447,103 @@ class LiteRtInferenceEngine @Inject constructor(
         val stream = ActiveStreamGeneration(conv) { cause -> close(cause) }
         activeStreamGeneration.set(stream)
 
-        try {
-            if (stream.whileActive {
-                    InferenceGenerationService.start(context)
-                    serviceStarted = true
-                    _isGenerating.value = true
+        val toolCallCount = AtomicInteger(0)
+        val sendAttemptCounter = if (BuildConfig.DEBUG) AtomicInteger(0) else null
+
+        fun sendMessageToConversation(
+            stage: String,
+            startEvent: String = "send_start",
+            send: (MessageCallback) -> Unit,
+        ) {
+            stream.whileActive {
+                val sendAttempt = sendAttemptCounter?.incrementAndGet() ?: 0
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "generation_diagnostic generation_id=$generationId send_attempt=$sendAttempt " +
+                            "stage=$stage event=$startEvent",
+                    )
                 }
-            ) {
-                stream.whileActive {
-                    conv.sendMessageAsync(
-                        Contents.of(Content.Text(userMessage)),
+                try {
+                    val callback =
                         object : MessageCallback {
+                            @Volatile
+                            private var pendingToolResponse: Message? = null
+                            @Volatile
+                            private var continuationScheduled = false
+
                             override fun onMessage(message: Message) {
+                                if (continuationScheduled || !stream.isActive()) return
+                                if (message.toolCalls.isNotEmpty()) {
+                                    if (BuildConfig.DEBUG) {
+                                        val toolNames = message.toolCalls.joinToString(",") { it.name.take(64) }
+                                        Log.d(
+                                            TAG,
+                                            "generation_diagnostic generation_id=$generationId " +
+                                                "send_attempt=$sendAttempt stage=$stage event=tool_call_received " +
+                                                "tool_names=$toolNames count=${message.toolCalls.size}",
+                                        )
+                                    }
+                                    if (toolCallCount.incrementAndGet() > RECURRING_TOOL_CALL_LIMIT) {
+                                        stream.finish {
+                                            close(
+                                                InferenceException(
+                                                    "Exceeded recurring tool call limit of " +
+                                                        RECURRING_TOOL_CALL_LIMIT,
+                                                ),
+                                            )
+                                        }
+                                        return
+                                    }
+
+                                    val toolResponses = ArrayList<Content>(message.toolCalls.size)
+                                    var activeToolName = "unknown"
+                                    try {
+                                        for (toolCall in message.toolCalls) {
+                                            if (!stream.isActive()) return
+                                            val arguments = toolCallJsonSerializer
+                                                .toJsonTree(toolCall.arguments)
+                                                .asJsonObject
+                                            val result = conv.toolManager.execute(toolCall.name, arguments)
+                                            if (BuildConfig.DEBUG) {
+                                                activeToolName = toolCall.name.take(64)
+                                                val resultTokens = ContextWindowManager()
+                                                    .estimateTokens(result.toString())
+                                                Log.d(
+                                                    TAG,
+                                                    "generation_diagnostic generation_id=$generationId " +
+                                                        "send_attempt=$sendAttempt stage=$stage " +
+                                                        "event=tool_dispatch_result tool=$activeToolName " +
+                                                        "returned=true serialized_result_tokens_estimate=$resultTokens",
+                                                )
+                                            }
+                                            if (!stream.isActive()) return
+                                            toolResponses += Content.ToolResponse(toolCall.name, result)
+                                        }
+                                    } catch (e: Exception) {
+                                        stream.finish {
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                    TAG,
+                                                    "generation_diagnostic generation_id=$generationId " +
+                                                        "send_attempt=$sendAttempt stage=$stage " +
+                                                        "event=tool_dispatch_result tool=$activeToolName " +
+                                                        "returned=false exception=${e.javaClass.simpleName} " +
+                                                        "status=${liteRtStatusCode(e)}",
+                                                )
+                                            }
+                                            Log.e(TAG, "Tool execution failed", e)
+                                            close(InferenceException("Tool execution failed: ${e.message}", e))
+                                        }
+                                        return
+                                    }
+
+                                    if (stream.isActive()) {
+                                        pendingToolResponse = Message.tool(Contents.of(toolResponses))
+                                    }
+                                    return
+                                }
+
                                 stream.whileActive {
                                     val channelDelta = message.channels["thought"]
                                     val raw = message.toString()
@@ -1327,6 +1565,39 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
 
                             override fun onDone() {
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        TAG,
+                                        "generation_diagnostic generation_id=$generationId " +
+                                            "send_attempt=$sendAttempt stage=$stage event=on_done " +
+                                            "tool_response_pending=${pendingToolResponse != null}",
+                                    )
+                                }
+                                if (debugLoadSkillProbeMode ==
+                                    DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                                ) {
+                                    if (!stream.requiresConversationReset()) {
+                                        stream.finish {
+                                            close(
+                                                InferenceException(
+                                                    "DEBUG load_skill abort probe did not exceed its result budget",
+                                                ),
+                                            )
+                                        }
+                                    }
+                                    return
+                                }
+                                val toolResponse = pendingToolResponse
+                                if (toolResponse != null) {
+                                    stream.whileActive {
+                                        continuationScheduled = true
+                                        sendMessageToConversation("tool_response") { callback ->
+                                            conv.sendMessageAsync(toolResponse, callback, emptyMap())
+                                        }
+                                    }
+                                    return
+                                }
+                                if (continuationScheduled) return
                                 stream.finish {
                                     try {
                                         emitEmission(thinkingStateMachine.finish())
@@ -1358,6 +1629,16 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
 
                             override fun onError(throwable: Throwable) {
+                                if (continuationScheduled) return
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        TAG,
+                                        "generation_diagnostic generation_id=$generationId " +
+                                            "send_attempt=$sendAttempt stage=$stage event=on_error " +
+                                            "exception=${throwable.javaClass.simpleName} " +
+                                            "status=${liteRtStatusCode(throwable)}",
+                                    )
+                                }
                                 stream.finish {
                                     if (throwable is CancellationException) {
                                         Log.i(TAG, "Generation cancelled by user")
@@ -1368,9 +1649,72 @@ class LiteRtInferenceEngine @Inject constructor(
                                     }
                                 }
                             }
-                        },
-                        thinkingContext,
-                    )
+                        }
+                    send(callback)
+                    if (BuildConfig.DEBUG &&
+                        debugLoadSkillProbeMode == DebugLoadSkillProbeMode.SEND_NATIVE_CONTINUATION &&
+                        stage == "tool_response"
+                    ) {
+                        Log.i(
+                            TAG,
+                            "debug_load_skill_native_continuation_probe=tool_response_submitted " +
+                                "send_attempt=$sendAttempt",
+                        )
+                    }
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            TAG,
+                            "generation_diagnostic generation_id=$generationId " +
+                                "send_attempt=$sendAttempt stage=$stage event=send_throw " +
+                                "exception=${e.javaClass.simpleName} status=${liteRtStatusCode(e)}",
+                        )
+                    }
+                    stream.finish {
+                        close(InferenceException("sendMessageAsync failed: ${e.message}", e))
+                    }
+                }
+            }
+        }
+
+        try {
+            if (stream.whileActive {
+                    InferenceGenerationService.start(context)
+                    serviceStarted = true
+                    _isGenerating.value = true
+                }
+            ) {
+                if (debugLoadSkillProbeMode != null) {
+                    sendMessageToConversation("synthetic_tool_callback", startEvent = "callback_start") { callback ->
+                        val probeMarker =
+                            if (debugLoadSkillProbeMode ==
+                                DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                            ) {
+                                "debug_load_skill_abort_probe=synthetic_tool_callback"
+                            } else {
+                                "debug_load_skill_native_continuation_probe=synthetic_tool_callback"
+                            }
+                        Log.i(TAG, probeMarker)
+                        callback.onMessage(
+                            Message.model(
+                                toolCalls = listOf(
+                                    ToolCall(
+                                        name = "load_skill",
+                                        arguments = mapOf("skill_name" to "run_intent"),
+                                    ),
+                                ),
+                            ),
+                        )
+                        callback.onDone()
+                    }
+                } else {
+                    sendMessageToConversation("initial_prompt") { callback ->
+                        conv.sendMessageAsync(
+                            Contents.of(Content.Text(userMessage)),
+                            callback,
+                            thinkingContext,
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1379,9 +1723,36 @@ class LiteRtInferenceEngine @Inject constructor(
             }
         }
 
-        awaitClose {
-            stream.cancelFromCollector()
-            releaseGenerationLock(stream)
+        try {
+            awaitClose {
+                stream.cancelFromCollector()
+            }
+        } finally {
+            try {
+                if (stream.requiresConversationReset()) {
+                    if (serviceStarted) {
+                        serviceStarted = false
+                        try {
+                            InferenceGenerationService.stop(context)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to stop generation service before tool-abort reset", e)
+                        }
+                    }
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        resetConversationAfterToolAbort()
+                    }
+                    if (debugLoadSkillProbeMode ==
+                        DebugLoadSkillProbeMode.ABORT_BEFORE_NATIVE_CONTINUATION
+                    ) {
+                        Log.i(TAG, "debug_load_skill_abort_probe=conversation_recreated")
+                    }
+                }
+            } catch (e: Exception) {
+                _isReady.value = false
+                Log.e(TAG, "Failed to reset conversation after tool-result abort", e)
+            } finally {
+                releaseGenerationLock(stream)
+            }
         }
     }.flowOn(LlmDispatcher)
 
@@ -1395,6 +1766,11 @@ class LiteRtInferenceEngine @Inject constructor(
         _isGenerating.value = false
         InferenceGenerationService.stop(context)
     }
+
+    override fun abortGenerationBeforeToolContinuation() {
+        activeStreamGeneration.get()?.abortBeforeToolContinuation()
+    }
+
 
     /**
      * Generate a response using an **isolated conversation** that does not share KV
@@ -1447,37 +1823,107 @@ class LiteRtInferenceEngine @Inject constructor(
                         val jsonAccumulator = if (stopOnFirstJsonObject) JsonObjectAccumulator() else null
                         val latch = CompletableDeferred<String>()
                         val finished = AtomicBoolean(false)
-                        conv.sendMessageAsync(
-                            Contents.of(Content.Text(prompt)),
-                            object : MessageCallback {
-                                override fun onMessage(message: Message) {
-                                    if (finished.get()) return
-                                    val text = message.toString()
-                                    if (text.isEmpty() || text.startsWith("<ctrl")) return
-                                    response.append(text)
-                                    val completedJson = jsonAccumulator?.append(text)
-                                    if (completedJson != null && finished.compareAndSet(false, true)) {
-                                        latch.complete(completedJson)
-                                        try {
-                                            conv.cancelProcess()
-                                        } catch (cancelError: Exception) {
-                                            Log.d(TAG, "generateOnce: cancelProcess failed after JSON completion — ignoring", cancelError)
+                        val toolCallCount = AtomicInteger(0)
+
+                        fun sendMessage(send: (MessageCallback) -> Unit) {
+                            val callback =
+                                object : MessageCallback {
+                                    @Volatile
+                                    private var pendingToolResponse: Message? = null
+                                    @Volatile
+                                    private var continuationScheduled = false
+
+                                    override fun onMessage(message: Message) {
+                                        if (finished.get()) return
+                                        if (message.toolCalls.isNotEmpty()) {
+                                            if (toolCallCount.incrementAndGet() > RECURRING_TOOL_CALL_LIMIT) {
+                                                if (finished.compareAndSet(false, true)) {
+                                                    latch.completeExceptionally(
+                                                        InferenceException(
+                                                            "Exceeded recurring tool call limit of " +
+                                                                RECURRING_TOOL_CALL_LIMIT,
+                                                        ),
+                                                    )
+                                                }
+                                                return
+                                            }
+
+                                            try {
+                                                val toolResponses = ArrayList<Content>(message.toolCalls.size)
+                                                for (toolCall in message.toolCalls) {
+                                                    val arguments = toolCallJsonSerializer
+                                                        .toJsonTree(toolCall.arguments)
+                                                        .asJsonObject
+                                                    val result = conv.toolManager.execute(toolCall.name, arguments)
+                                                    toolResponses += Content.ToolResponse(toolCall.name, result)
+                                                }
+                                                pendingToolResponse = Message.tool(Contents.of(toolResponses))
+                                            } catch (e: Exception) {
+                                                if (finished.compareAndSet(false, true)) {
+                                                    latch.completeExceptionally(
+                                                        InferenceException("Tool execution failed: ${e.message}", e),
+                                                    )
+                                                }
+                                            }
+                                            return
+                                        }
+
+                                        val text = message.toString()
+                                        if (text.isEmpty() || text.startsWith("<ctrl")) return
+                                        response.append(text)
+                                        val completedJson = jsonAccumulator?.append(text)
+                                        if (completedJson != null && finished.compareAndSet(false, true)) {
+                                            latch.complete(completedJson)
+                                            try {
+                                                conv.cancelProcess()
+                                            } catch (cancelError: Exception) {
+                                                Log.d(
+                                                    TAG,
+                                                    "generateOnce: cancelProcess failed after JSON completion — ignoring",
+                                                    cancelError,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    override fun onDone() {
+                                        val toolResponse = pendingToolResponse
+                                        if (toolResponse != null) {
+                                            if (continuationScheduled || finished.get()) return
+                                            continuationScheduled = true
+                                            try {
+                                                sendMessage { callback ->
+                                                    conv.sendMessageAsync(toolResponse, callback, emptyMap())
+                                                }
+                                            } catch (e: Exception) {
+                                                if (finished.compareAndSet(false, true)) {
+                                                    latch.completeExceptionally(e)
+                                                }
+                                            }
+                                            return
+                                        }
+                                        if (continuationScheduled) return
+                                        if (finished.compareAndSet(false, true)) {
+                                            latch.complete(response.toString())
+                                        }
+                                    }
+
+                                    override fun onError(throwable: Throwable) {
+                                        if (!continuationScheduled && finished.compareAndSet(false, true)) {
+                                            latch.completeExceptionally(throwable)
                                         }
                                     }
                                 }
-                                override fun onDone() {
-                                    if (finished.compareAndSet(false, true)) {
-                                        latch.complete(response.toString())
-                                    }
-                                }
-                                override fun onError(throwable: Throwable) {
-                                    if (finished.compareAndSet(false, true)) {
-                                        latch.completeExceptionally(throwable)
-                                    }
-                                }
-                            },
-                            if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
-                        )
+                            send(callback)
+                        }
+
+                        sendMessage { callback ->
+                            conv.sendMessageAsync(
+                                Contents.of(Content.Text(prompt)),
+                                callback,
+                                if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+                            )
+                        }
                         try {
                             withTimeout(timeoutMs) { latch.await() }
                         } catch (e: TimeoutCancellationException) {
@@ -1928,11 +2374,15 @@ class LiteRtInferenceEngine @Inject constructor(
             ExperimentalFlags.enableConversationConstrainedDecoding = true
         }
 
+        // ToolManager execution and tool-response submission stay in this engine so an abort
+        // from a synchronous provider callback can prevent LiteRT's automatic continuation.
+
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
             tools = tools,
             channels = channels,
+            automaticToolCalling = false,
         )
     }
 

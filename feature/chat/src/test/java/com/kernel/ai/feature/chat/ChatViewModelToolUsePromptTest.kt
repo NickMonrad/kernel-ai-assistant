@@ -103,6 +103,9 @@ class ChatViewModelToolUsePromptTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
         every { inferenceEngine.generate(any()) } returns flowOf(GenerationResult.Complete(durationMs = 1L))
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
         coEvery { inferenceEngine.resetConversation() } just runs

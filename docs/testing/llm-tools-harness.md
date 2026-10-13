@@ -99,12 +99,70 @@ These probes validate real-model tool execution under controlled debug fallthrou
 claim an ordinary prompt naturally misses QIR or the classifier; normal routing is unchanged.
 Issue #1593's natural device-routing acceptance remains pending.
 
-The sandbox closes on every inference exit. Probe messages and the tool chip remain in memory:
-the path does not persist them, index them in RAG, or distil the active conversation on close.
-The runner fails if any safe probe emits a saved-message marker.
+The existing safe model probes remain in-memory only: they are not persisted, indexed in RAG,
+or distilled when the chat closes. The dedicated abort/replay probe below intentionally persists
+only its fixed probe user message and honest failure because the immediately following turn must
+replay both from chat history.
+
+The exact follow-up is persisted as a normal chat exchange for visible completion, but is not
+RAG-indexed, auto-titled, spoken, or included in close-time distillation; use a dedicated empty
+test conversation.
 
 The probe's route guard consumes the structured `result=fallthrough` marker emitted by the
 controlled DEBUG branch. It is not evidence that QIR evaluated and missed the prompt.
+
+## Deterministic native continuation and zero-budget abort/replay probes
+
+Use these DEBUG-only probes in a dedicated empty test conversation. Submit both commands through
+the chat composer in the same open chat screen; do not launch `chat_input` activity intents, which
+create a new ViewModel and cannot prove same-ViewModel history replay:
+
+```text
+__orchtest:load_skill_native_continuation
+__orchtest:load_skill_abort_replay
+```
+
+The native-continuation probe makes a fixed synthetic
+`Message.model(toolCalls=[load_skill("run_intent")])` enter the app's normal callback and actual
+LiteRT `ToolManager`. The configured provider returns the real `run_intent` instructions, then the
+engine submits that `Message.tool` through native `Conversation.sendMessageAsync`. This proves the
+app's native tool-response continuation path; it does not claim Gemma naturally selected the first
+tool call. The unchanged safe sandbox permits only `load_skill("run_intent")` and empty-parameter
+`run_intent("get_stopwatch_status", {})`; all other tools/actions fail closed before skill lookup.
+The probe does not perform device actions.
+Only this probe skips the app's normal retry requiring a terminal tool after `load_skill`; it
+measures native continuation transport, not model selection. Production behavior and other debug
+routes keep the existing tool-chain rule.
+
+The zero-budget probe uses the same synthetic provider callback with a zero-token result budget.
+`KernelAIToolSet` withholds the result and aborts before native continuation. LiteRT waits for the
+callback to settle, closes/recreates the conversation, and releases its generation mutex before
+the app persists the fixed probe user message and honest failure. If the provider does not trigger
+the budget abort, the probe fails closed and emits `abort_not_triggered`.
+
+After a persisted zero-budget failure, the same `ChatViewModel` automatically submits the fixed
+follow-up only when the conversation is recreated and ready, history replay is pending, the chat
+still has the same conversation ID, and the composer is empty. The follow-up uses ordinary model
+generation after replaying the persisted probe message and honest failure. It is not RAG-indexed,
+auto-titled, spoken, or included in close-time distillation. A user draft is never overwritten.
+
+Expected sanitized markers, in order:
+
+1. Native continuation: `debug_load_skill_native_continuation_probe=synthetic_tool_callback`
+2. Native continuation: `generation_diagnostic ... stage=tool_response event=send_start`
+3. Native continuation: `debug_load_skill_native_continuation_probe=tool_response_submitted`
+4. Abort probe: `debug_load_skill_abort_probe=synthetic_tool_callback`
+5. Abort probe: `load_skill_tool_result_context_abort` with `budget=0`
+6. Abort probe: `debug_load_skill_abort_probe=conversation_recreated`
+7. Abort probe: `debug_load_skill_abort_probe=honest_failure_persisted`
+8. Abort probe: `debug_load_skill_abort_probe=follow_up_injected same_conversation=true`
+9. Follow-up: `debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true`
+10. Follow-up: `debug_load_skill_abort_probe=follow_up_generation sandbox=active`
+11. Follow-up: `debug_load_skill_abort_probe=follow_up_flow_settled`
+
+Confirm the UI shows the bounded honest failure followed by a completed response. A missing native
+continuation, abort/reset/replay marker, Status 9, crash, or stalled follow-up is a failure. Keep raw
+logcat and conversation content local; publish only sanitized marker outcomes.
 
 For cases with `expected_tool_sequence`, the runner requires:
 
@@ -133,6 +191,21 @@ event_seq: tool_call name=load_skill args=<omitted>
 event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=<omitted>
 llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
 ```
+
+## DEBUG-only native send/context trace
+
+Use this trace for a bounded investigation when LiteRT reports a prefill failure after a tool
+result. `generation_context_budget` reports the shared `generation_id`, app-side resolved token
+cap and context window, estimated prior/fixed and current-prompt tokens, response reserve, and
+derived `max_tool_result_tokens`. These are app estimates, not native KV occupancy.
+
+`generation_diagnostic` uses that same ID and a per-generation `send_attempt` to distinguish
+native `initial_prompt` and `tool_response` sends. The synthetic abort probe is marked as
+`synthetic_tool_callback`/`callback_start` because it does not call LiteRT. It records tool names
+only, the returned flag and estimated serialized JSON-result tokens, then `on_done`, `on_error`,
+or `send_throw` with exception class and numeric Status Code when available. It omits prompts,
+arguments, result text, and exception messages. These markers cannot establish actual native
+remaining capacity; that requires a LiteRT failure-time KV/prefill metric or native trace.
 
 ## Result mode assertions
 

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
@@ -51,8 +52,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.runs
+import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -126,12 +129,19 @@ class ChatViewModelRetryStateMachineTest {
 
     // Convenience — the string captured for addMessage verification
     private val savedContents = mutableListOf<String>()
+    private val debugTraceIds = mutableListOf<String>()
+    private val debugLogMessages = mutableListOf<String>()
 
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        debugTraceIds.clear()
+        debugLogMessages.clear()
         mockkStatic(Log::class)
-        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.d(any<String>(), any<String>()) } answers {
+            debugLogMessages += secondArg<String>()
+            0
+        }
         every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
@@ -141,6 +151,10 @@ class ChatViewModelRetryStateMachineTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            debugTraceIds += secondArg<String>()
+            inferenceEngine.generate(firstArg())
+        }
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
@@ -191,6 +205,7 @@ class ChatViewModelRetryStateMachineTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+        unmockkConstructor(ContextWindowManager::class)
     }
 
     // -----------------------------------------------------------------------
@@ -822,6 +837,24 @@ class ChatViewModelRetryStateMachineTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
+        val budgetLogs = debugLogMessages.filter { it.startsWith("generation_context_budget ") }
+        assertEquals(2, budgetLogs.size)
+        assertEquals(2, debugTraceIds.size)
+        assertEquals(
+            debugTraceIds.toSet(),
+            budgetLogs.map { it.substringAfter("generation_id=").substringBefore(' ') }.toSet(),
+        )
+        assertTrue(
+            budgetLogs.all {
+                it.contains("source=app_estimate") &&
+                    it.contains("resolved_token_cap=") &&
+                    it.contains("estimated_prior_fixed_tokens=") &&
+                    it.contains("current_prompt_excluding_rag_tokens=") &&
+                    it.contains("response_reserve_tokens=") &&
+                    it.contains("max_tool_result_tokens=")
+            },
+        )
+        assertFalse(budgetLogs.joinToString("\n").contains("set an alarm for 7 AM"))
         val snapshot = realToolSet.finishLocalDiagnosticCapture()
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
         assertTrue(savedContents.last().contains("wasn't able to complete that action"))
@@ -884,6 +917,242 @@ class ChatViewModelRetryStateMachineTest {
         verify {
             Log.d("KernelAI", "llm_tools_tool_sequence: attempt=load_skill turn=load_skill terminal=none")
         }
+    }
+
+    @Test
+    fun `oversized load_skill failure resets and replays before the next user turn`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Failure("load_skill", "x".repeat(20_000)))
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+
+        val lifecycleEvents = mutableListOf<String>()
+        val replayedSystemPrompts = mutableListOf<String>()
+        every { inferenceEngine.abortGenerationBeforeToolContinuation() } answers {
+            lifecycleEvents += "reset"
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            lifecycleEvents += "replay"
+            replayedSystemPrompts += firstArg<String>()
+        }
+        every { quickIntentRouter.route(any()) } answers {
+            QuickIntentRouter.RouteResult.FallThrough(input = firstArg<String>())
+        }
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        var returnedToolResult: Map<String, String>? = null
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flow {
+                lifecycleEvents += "generate-1"
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+            },
+            flow {
+                lifecycleEvents += "generate-2"
+                emit(GenerationResult.Token("This is a fresh turn."))
+                emit(GenerationResult.Complete(durationMs = 0))
+            },
+        )
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        realToolSet.beginLocalDiagnosticCapture()
+
+        viewModel.onInputChanged("set an alarm for 7 AM")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val snapshot = realToolSet.finishLocalDiagnosticCapture()
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
+        verify(exactly = 0) { inferenceEngine.cancelGeneration() }
+        assertTrue(requireNotNull(returnedToolResult).isEmpty())
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(emptyMap<String, String>(), snapshot.calls.single().toolResult)
+        assertEquals(false, snapshot.calls.single().returnedToGemma)
+
+        viewModel.onInputChanged("what is 2 + 2")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { inferenceEngine.generate(any()) }
+        val afterAbortedGeneration = lifecycleEvents.drop(lifecycleEvents.indexOf("generate-1") + 1)
+        assertEquals(listOf("reset", "replay", "generate-2"), afterAbortedGeneration)
+        assertTrue(replayedSystemPrompts.last().contains("set an alarm for 7 AM"))
+        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
+        assertEquals("This is a fresh turn.", savedContents.last())
+        val readyState = viewModel.uiState.value as ChatUiState.Ready
+        assertFalse(readyState.isGenerating)
+        assertFalse(readyState.messages.last { it.role == ChatMessage.Role.ASSISTANT }.isStreaming)
+    }
+
+    @Test
+    fun `DEBUG 4K native continuation excludes the unsent prompt from result budget`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Success("run_intent instructions"))
+        every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(4_000)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        mockkConstructor(ContextWindowManager::class)
+        every { anyConstructed<ContextWindowManager>().estimateTokens(any()) } answers {
+            val text = firstArg<String>()
+            when {
+                text.contains("Run the load_skill native continuation probe.") -> 1_495
+                text.startsWith("You are Jandal") -> 2_400
+                else -> (text.length / 4).coerceAtLeast(1)
+            }
+        }
+
+        val savedUserMessages = mutableListOf<String>()
+        var returnedToolResult: Map<String, String>? = null
+        var debugProbeTraceId: String? = null
+        coEvery {
+            conversationRepository.addMessage(any(), eq("user"), capture(savedUserMessages), any(), any())
+        } returns "user-msg-id"
+        every { inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(any()) } answers {
+            debugProbeTraceId = firstArg()
+            flow {
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+                emit(GenerationResult.Token("Instructions loaded."))
+                emit(GenerationResult.Complete(durationMs = 1L))
+            }
+        }
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("__orchtest:load_skill_native_continuation")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(mapOf("result" to "run_intent instructions"), returnedToolResult)
+        assertFalse(realToolSet.loadSkillResultAbortedInCurrentAttempt())
+        assertTrue(savedUserMessages.isEmpty(), "safe probe must not persist its synthetic command")
+        val budgetLog = debugLogMessages.single { it.startsWith("generation_context_budget ") }
+        assertTrue(debugProbeTraceId != null)
+        assertTrue(budgetLog.contains("generation_id=$debugProbeTraceId"))
+        assertTrue(budgetLog.contains("app_context_window=4000"))
+        assertTrue(budgetLog.contains("estimated_prior_fixed_tokens=2400"))
+        assertTrue(budgetLog.contains("current_prompt_excluding_rag_tokens=1495"))
+        val budget = Regex("max_tool_result_tokens=(\\d+)")
+            .find(budgetLog)?.groupValues?.get(1)?.toInt()
+        assertEquals(576, budget)
+        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(any()) }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `DEBUG zero budget abort persists honest failure and same VM followup replays before generation`() = runTest(dispatcher) {
+        setupLoadSkill(SkillResult.Success("instructions"))
+
+        val honestFailure =
+            "I wasn't able to complete that action — please try again, or try phrasing it differently."
+        val lifecycleEvents = mutableListOf<String>()
+        val replayedSystemPrompts = mutableListOf<String>()
+        val savedUserMessages = mutableListOf<String>()
+        val savedUserConversationIds = mutableListOf<String>()
+        every { quickIntentRouter.route(any()) } answers {
+            QuickIntentRouter.RouteResult.FallThrough(input = firstArg<String>())
+        }
+        every { inferenceEngine.abortGenerationBeforeToolContinuation() } answers {
+            lifecycleEvents += "tool_abort"
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            lifecycleEvents += "replay"
+            replayedSystemPrompts += firstArg<String>()
+        }
+        coEvery {
+            conversationRepository.addMessage(
+                capture(savedUserConversationIds),
+                eq("user"),
+                capture(savedUserMessages),
+                any(),
+                any(),
+            )
+        } returns "user-msg-id"
+        coEvery {
+            conversationRepository.addMessage(any(), eq("assistant"), capture(savedContents), any(), any())
+        } answers {
+            if (thirdArg<String>() == honestFailure) lifecycleEvents += "failure_persisted"
+            "assistant-msg-${savedContents.size}"
+        }
+        var returnedToolResult: Map<String, String>? = null
+        var zeroBudgetAbortObserved = false
+        var debugProbeTraceId: String? = null
+        every { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) } answers {
+            debugProbeTraceId = firstArg()
+            flow {
+                lifecycleEvents += "synthetic_callback"
+                returnedToolResult = realToolSet.loadSkill("run_intent")
+                zeroBudgetAbortObserved = realToolSet.loadSkillResultAbortedInCurrentAttempt()
+            }
+        }
+        every { inferenceEngine.generate(any()) } returns flow {
+            lifecycleEvents += "normal_generate"
+            emit(GenerationResult.Token("Shadows form when light is blocked."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        viewModel.uiState.launchIn(backgroundScope)
+        advanceUntilIdle()
+        lifecycleEvents.clear()
+
+        viewModel.onInputChanged("__orchtest:load_skill_abort_replay")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { inferenceEngine.generateDebugLoadSkillAbortProbe(any()) }
+        verify(exactly = 1) { inferenceEngine.abortGenerationBeforeToolContinuation() }
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(
+                any(),
+                eq("assistant"),
+                eq(honestFailure),
+                any(),
+                any(),
+            )
+        }
+        assertEquals(emptyMap<String, String>(), returnedToolResult)
+        assertTrue(zeroBudgetAbortObserved)
+        assertEquals(1, savedContents.count { it == honestFailure })
+        assertEquals(
+            listOf("replay", "synthetic_callback", "tool_abort", "failure_persisted", "replay", "normal_generate"),
+            lifecycleEvents,
+        )
+        assertEquals(
+            listOf(
+                "Run the load_skill abort replay probe.",
+                "Explain why shadows form in one sentence.",
+            ),
+            savedUserMessages,
+        )
+        assertEquals(listOf("conv-new", "conv-new"), savedUserConversationIds)
+        assertTrue(replayedSystemPrompts.last().contains("Run the load_skill abort replay probe."))
+        assertTrue(replayedSystemPrompts.last().contains(honestFailure))
+        assertEquals("Shadows form when light is blocked.", savedContents.last())
+        val budgetLogs = debugLogMessages.filter { it.startsWith("generation_context_budget ") }
+        assertEquals(2, budgetLogs.size)
+        assertTrue(debugProbeTraceId != null)
+        assertTrue(budgetLogs.first().contains("generation_id=$debugProbeTraceId"))
+        assertTrue(budgetLogs.first().contains("max_tool_result_tokens=0"))
+        val followUpBudget = Regex("max_tool_result_tokens=(\\d+)")
+            .find(budgetLogs.last())?.groupValues?.get(1)?.toInt()
+        assertTrue(requireNotNull(followUpBudget) > 0)
+        assertFalse(budgetLogs.any { it.contains("Run the load_skill abort replay probe.") })
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=honest_failure_persisted") }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_injected same_conversation=true") }
+        verify {
+            Log.i(
+                "KernelAI",
+                "debug_load_skill_abort_probe=history_replayed probe=true honest_failure=true",
+            )
+        }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_generation sandbox=active") }
+        verify { Log.i("KernelAI", "debug_load_skill_abort_probe=follow_up_flow_settled") }
+        verify(exactly = 0) {
+            quickIntentRouter.route("Explain why shadows form in one sentence.")
+        }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
     }
 
     @Test
