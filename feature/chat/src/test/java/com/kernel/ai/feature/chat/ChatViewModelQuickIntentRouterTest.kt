@@ -63,6 +63,7 @@ import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,9 +71,11 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -560,7 +563,92 @@ class ChatViewModelQuickIntentRouterTest {
                 any(),
             )
         }
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(
+                "conv-existing",
+                "assistant",
+                "Fictional answer 1",
+                any(),
+                any(),
+            )
+        }
         verify(exactly = 0) { router.route(any()) }
+    }
+
+    @Test
+    fun `cancelled plain chat soak generation never persists or indexes partial output`() = runTest(dispatcher) {
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } returns AutoCloseable {}
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("Unverified partial answer"))
+            awaitCancellation()
+        }
+
+        val viewModel = createViewModel(mockk())
+        val viewModelStore = ViewModelStore().apply { put("plain-chat-cancel", viewModel) }
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Explain a fictional paper boat.")
+        viewModel.sendMessage()
+        runCurrent()
+        assertTrue(viewModel.getConversationAsText().contains("Unverified partial answer"))
+
+        viewModel.cancelGeneration()
+        runCurrent()
+        viewModelStore.clear()
+
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage("conv-existing", "assistant", any(), any(), any())
+        }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), "conv-existing", any()) }
+    }
+
+    @Test
+    fun `plain chat soak ViewModel teardown never persists partial output`() = runTest(dispatcher) {
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } returns AutoCloseable {}
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("Unverified teardown output"))
+            awaitCancellation()
+        }
+
+        val viewModel = createViewModel(mockk())
+        val viewModelStore = ViewModelStore().apply { put("plain-chat-teardown", viewModel) }
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Describe a fictional paper boat.")
+        viewModel.sendMessage()
+        runCurrent()
+        assertTrue(viewModel.getConversationAsText().contains("Unverified teardown output"))
+
+        viewModelStore.clear()
+
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage("conv-existing", "assistant", any(), any(), any())
+        }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), "conv-existing", any()) }
+    }
+
+    @Test
+    fun `plain chat soak distillation suppression does not follow a new conversation`() = runTest(dispatcher) {
+        coEvery { conversationRepository.createConversation() } returns "ordinary-conversation"
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } returns AutoCloseable {}
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Validated fictional answer"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel(mockk())
+        val viewModelStore = ViewModelStore().apply { put("plain-chat-switch", viewModel) }
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Describe a paper boat.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+        viewModelStore.clear()
+
+        coVerify(exactly = 0) { episodicDistillationUseCase.distil("conv-existing", any()) }
+        coVerify(timeout = 1_000, exactly = 1) {
+            episodicDistillationUseCase.distil("ordinary-conversation", any())
+        }
     }
 
     @Test

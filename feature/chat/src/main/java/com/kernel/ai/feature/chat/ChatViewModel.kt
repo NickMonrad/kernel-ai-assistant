@@ -326,8 +326,8 @@ class ChatViewModel @Inject constructor(
 
     // Safe debug model-test output stays in memory and is never flushed to the current chat.
     private var activeStreamingPersistenceDisabled = false
-    // A safe probe must not distil the active personal conversation when its screen closes.
-    private var suppressCloseDistillationForSafeProbe = false
+    // Close-time distillation suppression belongs to one probe conversation only.
+    private var safeProbeConversationIdToSuppressDistillation: String? = null
     private var activeStreamingMsgId: String? = null
     private var activeStreamingContent = StringBuilder()
     private var activeStreamingThinking = StringBuilder()
@@ -1932,7 +1932,7 @@ class ChatViewModel @Inject constructor(
         activeTurnCancellationRequest = turnCancellationRequest
 
         if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp || plainChatSoak) {
-            suppressCloseDistillationForSafeProbe = true
+            safeProbeConversationIdToSuppressDistillation = convId
         }
         pendingVoiceReply = submitMode == SubmitMode.Voice
 
@@ -2810,8 +2810,10 @@ class ChatViewModel @Inject constructor(
             accumulatedContent = StringBuilder()
             accumulatedThinking = StringBuilder()
 
-            // Register active streaming state so cancel/onCleared can flush to Room.
-            activeStreamingPersistenceDisabled = safeRunIntentTest || isLoadSkillAbortProbeFollowUp
+            // In-flight probe output is discarded on cancellation or ViewModel teardown.
+            // Successfully completed, validated soak responses use normal persistence below.
+            activeStreamingPersistenceDisabled =
+                safeRunIntentTest || isLoadSkillAbortProbeFollowUp || plainChatSoak
             activeStreamingMsgId = assistantMsgId
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
@@ -4128,7 +4130,7 @@ class ChatViewModel @Inject constructor(
             }
         }
         // Fire-and-forget episodic distillation on conversation close.
-        if (convId != null && !suppressCloseDistillationForSafeProbe) {
+        if (convId != null && convId != safeProbeConversationIdToSuppressDistillation) {
             val lastDistilled = lastDistilledAt
             val hasMealPlannerHistory = runBlocking {
                 mealPlanSessionRepository.hasAnySessionForConversation(convId)
