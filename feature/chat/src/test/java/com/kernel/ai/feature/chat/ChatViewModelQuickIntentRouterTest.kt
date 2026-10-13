@@ -481,6 +481,150 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `debug plain chat soak preserves full inference rag and prior conversation history`() = runTest(dispatcher) {
+        val router = mockk<QuickIntentRouter>()
+        val systemPrompts = mutableListOf<String>()
+        val generationPrompts = mutableListOf<String>()
+        var generated = 0
+        var openedSandboxes = 0
+        var closedSandboxes = 0
+        val debugLogs = mutableListOf<String>()
+        every { Log.d("KernelAI", capture(debugLogs)) } returns 0
+        every { inferenceEngine.loadedModelPath } returns KernelModel.GEMMA_4_E2B.fileName
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(4000)
+        every { downloadManager.deviceTier } returns HardwareTier.MID_RANGE
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e2b") } returns
+            ModelSettingsEntity(
+                modelId = "gemma_4_e2b",
+                contextWindowSize = 4000,
+                temperature = 0.7f,
+                topP = 0.9f,
+            )
+        coEvery { userProfileRepository.get() } returns "PROFILE_MARKER"
+        coEvery { ragRepository.getRelevantContext(any(), any(), any(), any(), 200) } returns "RAG_CONTEXT_MARKER"
+        coEvery { inferenceEngine.updateSystemPrompt(capture(systemPrompts)) } just runs
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            generated++
+            flowOf(
+                GenerationResult.Token("Fictional answer $generated"),
+                GenerationResult.Complete(durationMs = 1L),
+            )
+        }
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } answers {
+            openedSandboxes++
+            AutoCloseable { closedSandboxes++ }
+        }
+
+        val viewModel = createViewModel(router)
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Explain why paper boats float.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Suggest a decoration for a paper boat.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(2, generated)
+        assertEquals(2, openedSandboxes)
+        assertEquals(2, closedSandboxes)
+        assertEquals(2, generationPrompts.size)
+        assertTrue(generationPrompts.all { it.contains("Explain why paper boats float.") ||
+            it.contains("Suggest a decoration for a paper boat.") })
+        assertTrue(
+            generationPrompts.all { it.contains("RAG_CONTEXT_MARKER") },
+            "Expected retrieved RAG in each generated prompt: $generationPrompts",
+        )
+        assertTrue(systemPrompts.last().contains("Explain why paper boats float."))
+        assertTrue(systemPrompts.last().contains("Fictional answer 1"))
+        assertTrue(
+            debugLogs.any {
+                it.contains("generation_context_budget") &&
+                    it.contains("resolved_token_cap=4000") &&
+                    it.contains("app_context_window=4000")
+            },
+        )
+        assertTrue(viewModel.getConversationAsText().contains("Explain why paper boats float."))
+        assertFalse(viewModel.getConversationAsText().contains("__orchtest:plain_chat_soak:"))
+        coVerify(exactly = 2) { ragRepository.getRelevantContext(any(), any(), any(), any(), 200) }
+        coVerify(exactly = 0) { inferenceEngine.resetConversation() }
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage("conv-existing", "user", "Explain why paper boats float.", any(), any())
+        }
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(
+                "conv-existing",
+                "user",
+                "Suggest a decoration for a paper boat.",
+                any(),
+                any(),
+            )
+        }
+        verify(exactly = 0) { router.route(any()) }
+    }
+
+    @Test
+    fun `debug plain chat soak records and rejects a native tool request`() = runTest(dispatcher) {
+        val router = mockk<QuickIntentRouter>()
+        every { kernelAIToolSet.wasToolCalled() } returns true
+        every { kernelAIToolSet.lastToolName() } returns "query_wikipedia"
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } returns AutoCloseable {}
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Unverified model text"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel(router)
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Explain why paper boats float.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.getConversationAsText().contains("Unverified model text"))
+        assertFalse(viewModel.getConversationAsText().contains("Sorry, I ran into an error."))
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage("conv-existing", "assistant", any(), any(), any())
+        }
+        verify(exactly = 0) { skillRegistry.get(any()) }
+        verify(exactly = 1) {
+            Log.w(
+                "KernelAI",
+                "plain_chat_soak=invalid unexpected_tool_request tool=query_wikipedia execution=blocked",
+            )
+        }
+    }
+
+    @Test
+    fun `debug plain chat soak blocks legacy tool text before executor dispatch`() = runTest(dispatcher) {
+        val router = mockk<QuickIntentRouter>()
+        val rawToolCall = """{"name":"query_wikipedia","arguments":{"query":"synthetic test topic"}}"""
+        every { kernelAIToolSet.beginPlainChatSoakToolDenySandbox() } returns AutoCloseable {}
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token(rawToolCall),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel(router)
+        advanceUntilIdle()
+        viewModel.onInputChanged("__orchtest:plain_chat_soak:Explain why paper boats float.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.getConversationAsText().contains(rawToolCall))
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage("conv-existing", "assistant", any(), any(), any())
+        }
+        coVerify(exactly = 0) { skillExecutor.execute(any()) }
+        verify(exactly = 0) { skillRegistry.get(any()) }
+        verify(exactly = 1) {
+            Log.w(
+                "KernelAI",
+                "plain_chat_soak=invalid unexpected_tool_request tool=query_wikipedia execution=blocked",
+            )
+        }
+    }
+
+    @Test
     fun `debug safe run-intent marker initializes a cold engine before generation and closes sandbox`() = runTest(dispatcher) {
         val input = "What day and date is it today, and what is the current local time on this device?"
         val marker = "__orchtest:safe_run_intent:"

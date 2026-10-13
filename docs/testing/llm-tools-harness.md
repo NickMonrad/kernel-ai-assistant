@@ -164,6 +164,23 @@ Confirm the UI shows the bounded honest failure followed by a completed response
 continuation, abort/reset/replay marker, Status 9, crash, or stalled follow-up is a failure. Keep raw
 logcat and conversation content local; publish only sanitized marker outcomes.
 
+## DEBUG plain-chat soak
+
+For the issue #1625 long-conversation soak, prefix every fixture turn with
+`__orchtest:plain_chat_soak:` in the chat composer. The DEBUG-only path strips the prefix before
+display, persistence, history replay, RAG retrieval, and inference. It forces router fallthrough
+without invoking QIR/local action routes, but still uses the real model generation path, FULL
+identity prompt, ordinary conversation history, RAG, and the resolved context budget.
+
+During each generation, a scoped native-tool deny sandbox blocks every `ToolProvider` entrypoint
+before `SkillRegistry` lookup and logs
+`plain_chat_soak_tool_denied tool=<name> execution=blocked`. Legacy text-shaped tool calls are
+also detected and blocked before the legacy executor. After that turn,
+`plain_chat_soak=invalid unexpected_tool_request tool=<name> execution=blocked` marks the attempt
+invalid; the streaming assistant placeholder is removed and not persisted as a successful reply.
+The runner must stop on either marker and never count a denied-tool result or fallback as
+plain-chat output. The sandbox closes in `finally` and cannot affect ordinary turns.
+
 For cases with `expected_tool_sequence`, the runner requires:
 
 - the last `llm_tools_tool_sequence` marker's `turn=` value to equal the expected order;

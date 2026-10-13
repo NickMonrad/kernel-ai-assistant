@@ -128,6 +128,7 @@ private const val TAG = "KernelAI"
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
+private const val PLAIN_CHAT_SOAK_PREFIX = "__orchtest:plain_chat_soak:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
 private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
 private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT =
@@ -1855,8 +1856,38 @@ class ChatViewModel @Inject constructor(
         sendMessage(SubmitMode.Text)
     }
 
+    private fun plainChatSoakToolRequest(content: String): String? {
+        if (kernelAIToolSet.wasToolCalled()) {
+            return kernelAIToolSet.lastToolName()?.takeIf { it.isNotBlank() } ?: "unknown_native_tool"
+        }
+        val encodedCall = ToolCallExtractor.extractNativeToolCall(content)
+            ?: ToolCallExtractor.extractToolCallJson(content)
+            ?: return null
+        return runCatching {
+            org.json.JSONObject(encodedCall).optString("name").takeIf { it.isNotBlank() }
+        }.getOrNull() ?: "unknown_legacy_tool"
+    }
+
+    private fun rejectPlainChatSoakTool(messageId: String, toolName: String) {
+        Log.w(TAG, "plain_chat_soak=invalid unexpected_tool_request tool=$toolName execution=blocked")
+        discardPlainChatSoakAssistant(messageId)
+    }
+
+    private fun discardPlainChatSoakAssistant(messageId: String) {
+        _messages.update { messages -> messages.filterNot { it.id == messageId } }
+        activeStreamingMsgId = null
+        activeStreamingPersistenceDisabled = false
+        activeStreamingContent = StringBuilder()
+        activeStreamingThinking = StringBuilder()
+        needsHistoryReplay = true
+        estimatedTokensUsed = 0
+        turnsSinceReset = 0
+    }
+
     private fun sendMessage(submitMode: SubmitMode) {
         val submittedText = _inputText.value.trim()
+        val plainChatSoak = BuildConfig.DEBUG &&
+            submittedText.startsWith(PLAIN_CHAT_SOAK_PREFIX)
         val loadSkillAbortProbe = BuildConfig.DEBUG &&
             submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND
         val loadSkillNativeContinuationProbe = BuildConfig.DEBUG &&
@@ -1868,6 +1899,7 @@ class ChatViewModel @Inject constructor(
         val text = when {
             loadSkillAbortProbe -> LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT
             loadSkillNativeContinuationProbe -> LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT
+            plainChatSoak -> submittedText.removePrefix(PLAIN_CHAT_SOAK_PREFIX).trim()
             safeRunIntentTest -> submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
             else -> submittedText
         }
@@ -1899,7 +1931,7 @@ class ChatViewModel @Inject constructor(
         val turnCancellationRequest = AtomicBoolean(false)
         activeTurnCancellationRequest = turnCancellationRequest
 
-        if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+        if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp || plainChatSoak) {
             suppressCloseDistillationForSafeProbe = true
         }
         pendingVoiceReply = submitMode == SubmitMode.Voice
@@ -1982,7 +2014,11 @@ class ChatViewModel @Inject constructor(
             // After the very first user message, immediately set a placeholder title from the
             // first ~40 characters of the message so the conversation list never shows a blank
             // title. The smart-title generation (after the 2nd exchange) will overwrite this.
-            if (!safeRunIntentTest && _messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
+            if (!safeRunIntentTest && !plainChatSoak &&
+                _messages.value.size == 1 &&
+                _conversationTitle.value == null &&
+                !titleGenerationStarted
+            ) {
                 val placeholder = text.trim().replace('\n', ' ').take(40) + "…"
                 conversationRepository.renameConversation(convId, placeholder)
                 _conversationTitle.value = placeholder
@@ -1996,7 +2032,9 @@ class ChatViewModel @Inject constructor(
             // up subsequent messages once phrase vectors finish building.
 
             // Keep the exact DEBUG recovery follow-up on ordinary model generation, not QIR actions.
-            val mealPlannerRoute = if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+            val mealPlannerRoute = if (
+                safeRunIntentTest || isLoadSkillAbortProbeFollowUp || plainChatSoak
+            ) {
                 QuickIntentRouter.RouteResult.FallThrough(input = text)
             } else {
                 quickIntentRouter.route(text)
@@ -2008,11 +2046,12 @@ class ChatViewModel @Inject constructor(
                     mealPlannerRoute.intent.intentName == "start_meal_planner" && !mealPlannerRoute.needsConfirmation
                 else -> false
             }
-            val hasActiveMealPlanSession = !safeRunIntentTest &&
-                !isLoadSkillAbortProbeFollowUp &&
-                mealPlanSessionRepository.hasActiveSessionForConversation(convId)
+            val hasActiveMealPlanSession =
+                !safeRunIntentTest && !isLoadSkillAbortProbeFollowUp && !plainChatSoak &&
+                    mealPlanSessionRepository.hasActiveSessionForConversation(convId)
             if (!safeRunIntentTest &&
                 !isLoadSkillAbortProbeFollowUp &&
+                !plainChatSoak &&
                 (hasActiveMealPlanSession || explicitMealPlannerStart)
             ) {
                 if (!inferenceEngine.isReady.value) {
@@ -2053,7 +2092,7 @@ class ChatViewModel @Inject constructor(
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
             // param for this conversation, route the user's reply here before touching QIR or the LLM.
-            if (!safeRunIntentTest && slotFillerManager.hasPendingFor(convId)) {
+            if (!safeRunIntentTest && !plainChatSoak && slotFillerManager.hasPendingFor(convId)) {
                 when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
                         // P0 gate: recovered slot-fill for medium/high risk intents requires confirmation
@@ -2134,7 +2173,8 @@ class ChatViewModel @Inject constructor(
             // Confirmation shortcut (#621): if the user affirms a classifier match that
             // needed confirmation, dispatch zero-param intents directly. Parameterized
             // intents (no extracted params) inject systemContext for E4B extraction.
-            val pendingConfirmation = if (safeRunIntentTest) null else pendingConfirmationIntent
+            val pendingConfirmation =
+                if (safeRunIntentTest || plainChatSoak) null else pendingConfirmationIntent
             if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
                 pendingConfirmationIntent = null
                 isDeviceActionExchange = true
@@ -2252,7 +2292,7 @@ class ChatViewModel @Inject constructor(
                 // Non-affirmation — user moved on; clear the pending confirmation
                 pendingConfirmationIntent = null
             }
-            val weatherFollowUpLocation = if (safeRunIntentTest) {
+            val weatherFollowUpLocation = if (safeRunIntentTest || plainChatSoak) {
                 null
             } else {
                 WeatherConversationReferenceResolver.resolveLocation(
@@ -2263,7 +2303,7 @@ class ChatViewModel @Inject constructor(
             var routeResult = mealPlannerRoute
             // Existing debug recovery tests retain their explicit non-sandboxed override.
             val effectiveText: String
-            if (!safeRunIntentTest && BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
+            if (!safeRunIntentTest && !plainChatSoak && BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
                 val clean = text.removePrefix("__orchtest:")
                 val colon = clean.indexOf(':')
                 val forcedIntent = if (colon > 0) clean.substring(0, colon) else "create_calendar_event"
@@ -2278,7 +2318,8 @@ class ChatViewModel @Inject constructor(
             } else {
                 effectiveText = text
             }
-            val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
+            val explicitWikipediaQuery =
+                if (safeRunIntentTest || plainChatSoak) null else extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
                 QuickIntentRouter.MatchedIntent(
                     intentName = "query_wikipedia",
@@ -2635,13 +2676,13 @@ class ChatViewModel @Inject constructor(
                 } // end else (non-calendar or calendar with params)
             }
 
-            val directBypassHistory = if (safeRunIntentTest) {
+            val directBypassHistory = if (safeRunIntentTest || plainChatSoak) {
                 emptyList()
             } else {
                 _messages.value.dropLast(1) // exclude just-added user message
             }
             val previousBypassUser = directBypassHistory.lastOrNull { it.role == ChatMessage.Role.USER }?.content
-            val priorImportantDateIntent = if (safeRunIntentTest) {
+            val priorImportantDateIntent = if (safeRunIntentTest || plainChatSoak) {
                 null
             } else {
                 when (val priorRoute = previousBypassUser?.let { quickIntentRouter.route(it) }) {
@@ -2651,6 +2692,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
             val anaphoricIntent = when {
+                plainChatSoak -> null
                 !isAnaphoricSaveRequest(text) || previousBypassUser == null -> null
                 priorImportantDateIntent != null -> priorImportantDateIntent
                 looksLikeImportantDateFact(previousBypassUser) -> null
@@ -2717,6 +2759,7 @@ class ChatViewModel @Inject constructor(
             // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
             if (!safeRunIntentTest &&
                 !isLoadSkillAbortProbeFollowUp &&
+                !plainChatSoak &&
                 explicitWikipediaQuery == null &&
                 matchedIntent == null
             ) {
@@ -2796,20 +2839,24 @@ class ChatViewModel @Inject constructor(
             }
             val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
-            val isToolFollowUp = !safeRunIntentTest &&
+            val isToolFollowUp = !safeRunIntentTest && !plainChatSoak &&
                 looksLikeToolFollowUp(text, previousUser, previousAssistant)
 
-
-            val forceMinimalContext = safeRunIntentTest || forceMinimalContextForNextMessage
-            if (forceMinimalContextForNextMessage && !safeRunIntentTest) {
+            val forceMinimalContext =
+                !plainChatSoak && (safeRunIntentTest || forceMinimalContextForNextMessage)
+            if (forceMinimalContextForNextMessage && !safeRunIntentTest && !plainChatSoak) {
                 forceMinimalContextForNextMessage = false
                 savedStateHandle["minimalContext"] = false
             }
-            val isToolQuery = safeRunIntentTest ||
-                forceMinimalContext ||
-                (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
-                looksLikeToolQuery(text) ||
-                isToolFollowUp
+            val isToolQuery = if (plainChatSoak) {
+                false
+            } else {
+                safeRunIntentTest ||
+                    forceMinimalContext ||
+                    (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
+                    looksLikeToolQuery(text) ||
+                    isToolFollowUp
+            }
             isToolQueryForTurn = isToolQuery
             val preferImmediateContext =
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
@@ -3005,8 +3052,14 @@ class ChatViewModel @Inject constructor(
 
             var safeModelTestScope: AutoCloseable? = null
             try {
-                if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
-                    safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
+                when {
+                    plainChatSoak -> {
+                        safeModelTestScope = kernelAIToolSet.beginPlainChatSoakToolDenySandbox()
+                        Log.i(TAG, "plain_chat_soak=active inference=real history=normal context=normal")
+                    }
+                    safeRunIntentTest || isLoadSkillAbortProbeFollowUp -> {
+                        safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
+                    }
                 }
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
@@ -3140,7 +3193,13 @@ class ChatViewModel @Inject constructor(
                             val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
-                            kernelAIToolSet.logToolSequence()
+                            val blockedSoakTool =
+                                if (plainChatSoak) plainChatSoakToolRequest(fullContent) else null
+                            if (blockedSoakTool != null) {
+                                kernelAIToolSet.logToolSequence()
+                                rejectPlainChatSoakTool(assistantMsgId, blockedSoakTool)
+                                return@collect
+                            }
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
                             if (!kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
                                 (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
@@ -3523,6 +3582,7 @@ class ChatViewModel @Inject constructor(
                             val messageCount = _messages.value.size
                             if (!safeRunIntentTest &&
                                 !isLoadSkillAbortProbeFollowUp &&
+                                !plainChatSoak &&
                                 messageCount >= 4 &&
                                 (_conversationTitle.value == null || titleIsPlaceholder) &&
                                 !titleGenerationStarted
@@ -3541,6 +3601,15 @@ class ChatViewModel @Inject constructor(
                             pendingVoiceReply = false
                             _voiceCaptureState.value = VoiceCaptureState.Idle
                             stopVoicePlayback()
+                            val blockedSoakTool = if (plainChatSoak) {
+                                plainChatSoakToolRequest(accumulatedContent.toString())
+                            } else {
+                                null
+                            }
+                            if (blockedSoakTool != null) {
+                                rejectPlainChatSoakTool(assistantMsgId, blockedSoakTool)
+                                return@collect
+                            }
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -3563,6 +3632,12 @@ class ChatViewModel @Inject constructor(
                     val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                         ?: preservedThinkingText
                     when {
+                        plainChatSoak && plainChatSoakToolRequest(fullContent) != null -> {
+                            rejectPlainChatSoakTool(
+                                assistantMsgId,
+                                requireNotNull(plainChatSoakToolRequest(fullContent)),
+                            )
+                        }
                         kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() &&
                             !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
                             kernelAIToolSet.logToolSequence()
@@ -3595,18 +3670,22 @@ class ChatViewModel @Inject constructor(
                     needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)
-
             } catch (e: Exception) {
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
-                // LiteRT can fail while continuing after load_skill, before Complete schedules a
-                // separate incomplete-chain retry; an aborted tool result also terminates here.
-                if (!turnCancellationRequest.get() &&
+
+                val blockedSoakTool =
+                    if (plainChatSoak) plainChatSoakToolRequest(accumulatedContent.toString()) else null
+                if (blockedSoakTool != null) {
+                    rejectPlainChatSoakTool(assistantMsgId, blockedSoakTool)
+                } else if (!turnCancellationRequest.get() &&
                     (loadSkillAbortProbe ||
                         kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
                         incompleteChainContinuationPending ||
                         kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
                     kernelAIToolSet.terminalToolName() == null
                 ) {
+                    // LiteRT can fail while continuing after load_skill, before Complete schedules a
+                    // separate incomplete-chain retry; an aborted tool result also terminates here.
                     localToolDiagnosticCapture.recordGenerationAttempt(
                         accumulatedContent.toString(),
                         accumulatedThinking,

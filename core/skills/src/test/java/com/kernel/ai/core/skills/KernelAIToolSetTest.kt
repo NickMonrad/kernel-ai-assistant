@@ -373,6 +373,50 @@ class KernelAIToolSetTest {
         verify(exactly = 1) { registry.get("get_system_info") }
     }
 
+    @Test
+    fun `plain chat soak denies every native tool before skill dispatch`() = runTest {
+        toolSet.beginLocalDiagnosticCapture()
+        val scope = toolSet.beginPlainChatSoakToolDenySandbox()
+        val calls = listOf(
+            "load_skill" to { toolSet.loadSkill("run_intent") },
+            "run_intent" to { toolSet.runIntent("get_date", "{}") },
+            "run_js" to { toolSet.runJs("""{"skill_name":"example","data":{}}""") },
+            "convert_currency" to { toolSet.convertCurrency("1", "USD", "NZD") },
+            "get_weather" to { toolSet.getWeather("Wellington", "1") },
+            "query_wikipedia" to { toolSet.queryWikipedia("Wellington") },
+            "get_system_info" to { toolSet.getSystemInfo() },
+            "save_memory" to { toolSet.saveMemory("synthetic test fact") },
+            "search_memory" to { toolSet.searchMemory("synthetic test query") },
+        )
+
+        try {
+            calls.forEach { (name, invoke) ->
+                toolSet.resetTurnState()
+                assertEquals(
+                    "Blocked by DEBUG plain-chat soak tool-deny guard",
+                    invoke()["error"],
+                )
+                if (name != "load_skill") assertTrue(toolSet.terminalToolFailed())
+            }
+            val snapshot = toolSet.finishLocalDiagnosticCapture()
+            assertEquals(calls.map { it.first }, snapshot.calls.map { it.name })
+            assertTrue(snapshot.calls.all { it.resultType == "Blocked" && it.succeeded == false })
+        } finally {
+            scope.close()
+            toolSet.finishLocalDiagnosticCapture()
+        }
+
+        verify(exactly = 0) { registry.get(any()) }
+
+        val wikipedia = mockk<Skill>()
+        every { wikipedia.name } returns "query_wikipedia"
+        coEvery { wikipedia.execute(any()) } returns SkillResult.DirectReply("Wiki result")
+        every { registry.get("query_wikipedia") } returns wikipedia
+        assertEquals("Wiki result", toolSet.queryWikipedia("Wellington")["result"])
+        verify(exactly = 1) { registry.get("query_wikipedia") }
+        coVerify(exactly = 1) { wikipedia.execute(any()) }
+    }
+
     // -------------------------------------------------------------------------
     // Per-attempt / per-turn tracking tests
     // -------------------------------------------------------------------------

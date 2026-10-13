@@ -70,7 +70,14 @@ data class LocalToolDiagnosticSnapshot(
 class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
-    private val safeModelTestToken = AtomicReference<Any?>(null)
+    private enum class ToolSandboxPolicy {
+        SAFE_MODEL_TEST_ALLOWLIST,
+        PLAIN_CHAT_SOAK_DENY_ALL,
+    }
+
+    private data class ToolSandboxToken(val policy: ToolSandboxPolicy)
+
+    private val toolSandboxToken = AtomicReference<ToolSandboxToken?>(null)
 
     private data class LoadSkillResultBudget(
         val maxTokens: Int,
@@ -84,12 +91,22 @@ class KernelAIToolSet @Inject constructor(
      * Restricts one DEBUG model generation to loading run_intent instructions and invoking
      * the allowlisted read-only stopwatch-status action. Callers must close the returned scope.
      */
-    fun beginSafeModelTestSandbox(): AutoCloseable {
-        val token = Any()
-        check(safeModelTestToken.compareAndSet(null, token)) {
-            "A safe model-test sandbox is already active"
+    fun beginSafeModelTestSandbox(): AutoCloseable =
+        beginToolSandbox(ToolSandboxPolicy.SAFE_MODEL_TEST_ALLOWLIST)
+
+    /**
+     * Denies every model-callable tool for one DEBUG plain-chat soak generation.
+     * The denial is recorded before any SkillRegistry lookup; callers must close the scope.
+     */
+    fun beginPlainChatSoakToolDenySandbox(): AutoCloseable =
+        beginToolSandbox(ToolSandboxPolicy.PLAIN_CHAT_SOAK_DENY_ALL)
+
+    private fun beginToolSandbox(policy: ToolSandboxPolicy): AutoCloseable {
+        val token = ToolSandboxToken(policy)
+        check(toolSandboxToken.compareAndSet(null, token)) {
+            "A tool sandbox is already active"
         }
-        return AutoCloseable { safeModelTestToken.compareAndSet(token, null) }
+        return AutoCloseable { toolSandboxToken.compareAndSet(token, null) }
     }
 
     /** Sets the complete tool-result budget for load_skill during the active generation. */
@@ -104,9 +121,12 @@ class KernelAIToolSet @Inject constructor(
         )
     }
 
-    private fun isSafeModelTestActive(): Boolean = safeModelTestToken.get() != null
+    private fun activeToolSandboxPolicy(): ToolSandboxPolicy? = toolSandboxToken.get()?.policy
+
+    private fun isSafeModelTestActive(): Boolean = activeToolSandboxPolicy() != null
 
     private fun isAllowedSafeModelTestRunIntent(intentName: String, parameters: String): Boolean {
+        if (activeToolSandboxPolicy() != ToolSandboxPolicy.SAFE_MODEL_TEST_ALLOWLIST) return false
         if (intentName !in safeModelTestRunIntents) return false
         if (parameters.isBlank()) return true
         return try {
@@ -119,11 +139,14 @@ class KernelAIToolSet @Inject constructor(
     private fun isAllowedSafeModelTestDispatch(
         skillName: String,
         args: Map<String, String>,
-    ): Boolean = when (skillName) {
-        LOAD_SKILL_NAME -> args == mapOf("skill_name" to "run_intent")
-        "run_intent" -> args.keys == setOf("intent_name") &&
-            args.getValue("intent_name") in safeModelTestRunIntents
-        else -> false
+    ): Boolean {
+        if (activeToolSandboxPolicy() != ToolSandboxPolicy.SAFE_MODEL_TEST_ALLOWLIST) return false
+        return when (skillName) {
+            LOAD_SKILL_NAME -> args == mapOf("skill_name" to "run_intent")
+            "run_intent" -> args.keys == setOf("intent_name") &&
+                args.getValue("intent_name") in safeModelTestRunIntents
+            else -> false
+        }
     }
 
     private fun denyInSafeModelTest(
@@ -132,7 +155,16 @@ class KernelAIToolSet @Inject constructor(
         arguments: Map<String, String>?,
     ): Map<String, String> {
         val diagnosticOrder = recordToolCall(toolName, request, arguments)
-        val error = "Blocked by safe model-test allowlist"
+        val plainChatSoak =
+            activeToolSandboxPolicy() == ToolSandboxPolicy.PLAIN_CHAT_SOAK_DENY_ALL
+        val error = if (plainChatSoak) {
+            "Blocked by DEBUG plain-chat soak tool-deny guard"
+        } else {
+            "Blocked by safe model-test allowlist"
+        }
+        if (plainChatSoak) {
+            Log.w(TAG, "plain_chat_soak_tool_denied tool=$toolName execution=blocked")
+        }
         val toolResult = mapOf("error" to error)
         lastToolResult = error
         lastToolPresentation = null
@@ -156,6 +188,7 @@ class KernelAIToolSet @Inject constructor(
         )
         return toolResult
     }
+
 
     enum class ToolExecutionOutcome {
         NOT_CALLED,
@@ -825,16 +858,26 @@ class KernelAIToolSet @Inject constructor(
     ): Map<String, String> {
         if (isSafeModelTestActive() && !isAllowedSafeModelTestDispatch(skillName, args)) {
             recordToolOutcome(skillName, succeeded = false)
-            val toolResult = mapOf("error" to "Blocked by safe model-test allowlist")
+            val plainChatSoak =
+                activeToolSandboxPolicy() == ToolSandboxPolicy.PLAIN_CHAT_SOAK_DENY_ALL
+            val error = if (plainChatSoak) {
+                "Blocked by DEBUG plain-chat soak tool-deny guard"
+            } else {
+                "Blocked by safe model-test allowlist"
+            }
+            val toolResult = mapOf("error" to error)
             recordLocalToolResult(
                 diagnosticOrder,
                 "Blocked",
-                toolResult["error"],
+                error,
                 toolResult,
                 succeeded = false,
                 directReply = false,
                 returnedToGemma = true,
             )
+            if (plainChatSoak) {
+                Log.w(TAG, "plain_chat_soak_tool_denied tool=$skillName execution=blocked")
+            }
             return toolResult
         }
         val skill = skillRegistry.get().get(skillName)
