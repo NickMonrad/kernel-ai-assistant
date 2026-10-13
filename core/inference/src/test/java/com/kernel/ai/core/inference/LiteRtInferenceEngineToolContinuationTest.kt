@@ -27,14 +27,19 @@ import io.mockk.slot
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -506,6 +511,89 @@ class LiteRtInferenceEngineToolContinuationTest {
     }
 
     @Test
+    fun `one-shot generation skips foreground service when engine is not initialized`() = runBlocking {
+        assertEquals("", inferenceEngine.generateOnce("generate a note title"))
+
+        verify(exactly = 0) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+    }
+
+    @Test
+    fun `one-shot generation skips foreground service when conversation is unavailable`() = runBlocking {
+        setPrivateField(
+            inferenceEngine,
+            "currentConfig",
+            ModelConfig(modelPath = "/models/test.litertlm", backendType = BackendType.CPU),
+        )
+
+        assertEquals("", inferenceEngine.generateOnce("generate a note title"))
+
+        verify(exactly = 0) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+    }
+
+    @Test
+    fun `structured generation skips foreground service when engine is not initialized`() = runBlocking {
+        assertEquals(
+            "",
+            inferenceEngine.generateStructuredOnce(
+                prompt = "generate a note title",
+                spec = StructuredOutputSpec("note_title", "Generate a note title", "{}"),
+            ),
+        )
+
+        verify(exactly = 0) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+    }
+
+    @Test
+    fun `structured generation skips foreground service when runtime is unavailable`() = runBlocking {
+        setPrivateField(
+            inferenceEngine,
+            "currentConfig",
+            ModelConfig(modelPath = "/models/test.litertlm", backendType = BackendType.CPU),
+        )
+
+        assertEquals(
+            "",
+            inferenceEngine.generateStructuredOnce(
+                prompt = "generate a note title",
+                spec = StructuredOutputSpec("note_title", "Generate a note title", "{}"),
+            ),
+        )
+
+        verify(exactly = 0) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+    }
+
+    @Test
+    fun `cancellation while waiting for generation mutex does not start foreground service`() = runBlocking {
+        setPrivateField(
+            inferenceEngine,
+            "currentConfig",
+            ModelConfig(modelPath = "/models/test.litertlm", backendType = BackendType.CPU),
+        )
+        setPrivateField(inferenceEngine, "conversation", mockk<Conversation>(relaxed = true))
+        val mutex = inferenceEngine.javaClass.getDeclaredField("generationMutex")
+            .apply { isAccessible = true }
+            .get(inferenceEngine) as Mutex
+        mutex.lock()
+
+        try {
+            val generation = async(start = CoroutineStart.UNDISPATCHED) {
+                inferenceEngine.generateOnce("generate a note title")
+            }
+            delay(300L)
+            generation.cancelAndJoin()
+        } finally {
+            mutex.unlock()
+        }
+
+        verify(exactly = 0) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+    }
+
+    @Test
     fun `one-shot generation still executes configured tools`() = runBlocking {
         val executed = mutableListOf<String>()
         val provider = tool(object : ToolSet {
@@ -534,6 +622,20 @@ class LiteRtInferenceEngineToolContinuationTest {
 
         assertEquals("Alarm set.", withTimeout(3_000) { response.await() })
         assertEquals(listOf("set_alarm"), executed)
+        verifyOrder {
+            InferenceGenerationService.start(context)
+            fixture.initialConversation.sendMessageAsync(
+                any<Contents>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+            fixture.initialConversation.sendMessageAsync(
+                any<com.google.ai.edge.litertlm.Message>(),
+                any<MessageCallback>(),
+                any<Map<String, Any>>(),
+            )
+            InferenceGenerationService.stop(context)
+        }
         verify(exactly = 1) {
             fixture.initialConversation.sendMessageAsync(
                 any<Contents>(),

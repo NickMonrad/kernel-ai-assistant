@@ -116,6 +116,14 @@ starts during Gemma-4 GPU initialisation (~20s). It keeps `oom_score_adj` at 0, 
 Samsung lmkd from demoting the process to cached (adj ~700) during the GPU kernel compilation
 peak. The service stops automatically once `InferenceEngine.isReady` becomes true.
 
+### 2.6 Active Generation Foreground Protection
+
+`InferenceGenerationService` starts only after the inference engine and conversation are ready,
+the generation mutex is acquired, and a native request is about to be sent. A stop requested
+before Android promotes the service with `startForeground()` is deferred until promotion, so
+rapid completion or cancellation cannot race the required foreground-service startup. The
+generation/cancellation path stops the service on completion, failure, or cancellation.
+
 ---
 
 ## 3. Memory Architecture

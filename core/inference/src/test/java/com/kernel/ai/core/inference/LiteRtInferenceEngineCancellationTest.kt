@@ -15,6 +15,7 @@ import io.mockk.runs
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
@@ -77,6 +78,12 @@ class LiteRtInferenceEngineCancellationTest {
         assertTrue(cancelledResults.isEmpty())
         assertFalse(inferenceEngine.isGenerating.value)
         verify(exactly = 1) { conversation.cancelProcess() }
+        verify(exactly = 1) { InferenceGenerationService.start(context) }
+        verifyOrder {
+            InferenceGenerationService.start(context)
+            conversation.cancelProcess()
+            InferenceGenerationService.stop(context)
+        }
         verify(exactly = 1) { InferenceGenerationService.stop(context) }
 
         // Native callbacks may arrive after cancelProcess(), even after the caller sees completion.
@@ -135,6 +142,7 @@ class LiteRtInferenceEngineCancellationTest {
         assertEquals("Generation failed: native failure", error?.message)
         assertFalse(inferenceEngine.isGenerating.value)
         verify(exactly = 1) { InferenceGenerationService.stop(context) }
+        verify(exactly = 1) { InferenceGenerationService.start(context) }
     }
 
     private suspend fun nextCallback(): MessageCallback = withTimeout(3_000) { callbacks.receive() }
