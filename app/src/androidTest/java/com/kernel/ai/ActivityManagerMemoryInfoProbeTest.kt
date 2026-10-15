@@ -1,6 +1,7 @@
 package com.kernel.ai
 
 import android.app.ActivityManager
+import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,7 +13,7 @@ import org.junit.Test
  * Read-only system-memory preflight for the PR #1625 host acceptance procedure.
  *
  * Invoke only the debug test APK directly:
- * `adb shell am instrument -w -r -e class com.kernel.ai.ActivityManagerMemoryInfoProbeTest#reportsActivityManagerMemoryInfo com.kernel.ai.debug.test/androidx.test.runner.AndroidJUnitRunner`
+ * `adb shell am instrument -w -r -e class com.kernel.ai.ActivityManagerMemoryInfoProbeTest#reportsActivityManagerMemoryInfo com.kernel.ai.debug.test/com.kernel.ai.ActivityManagerMemoryInfoProbeRunner`
  *
  * Parse the `AM_MEMORY_INFO_JSON=` logcat line under [TAG]. This probe does not start the app UI,
  * initialize inference, or access model, database, permission, or user state.
@@ -26,6 +27,10 @@ class ActivityManagerMemoryInfoProbeTest {
         assertTrue(
             "This read-only preflight probe is restricted to the debug application",
             context.packageName == DEBUG_PACKAGE,
+        )
+        assertTrue(
+            "This probe must use the isolated runner to avoid KernelAIApplication startup",
+            context.applicationContext.javaClass == Application::class.java,
         )
 
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
