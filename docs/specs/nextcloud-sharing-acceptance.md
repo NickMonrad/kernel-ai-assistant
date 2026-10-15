@@ -36,6 +36,9 @@ CI remains provider-credential-free. The instrumentation test is skipped unless
   ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PversionCode=<candidate-version-code>
   ```
 
+  The AndroidTest APK's packaged manifest uses the same candidate version code as the app APK; verify
+  both APKs' packaged version codes are above their installed counterparts before installation.
+
   After the exact head is approved, install `app/build/outputs/apk/debug/app-debug.apk` and
   `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` on both devices. Do not use
   `installDebug`, `connectedDebugAndroidTest`, app-data clearing, or a different candidate build for
