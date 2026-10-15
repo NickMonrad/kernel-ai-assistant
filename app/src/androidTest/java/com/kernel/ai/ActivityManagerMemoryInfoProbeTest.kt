@@ -1,7 +1,6 @@
 package com.kernel.ai
 
 import android.app.ActivityManager
-import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
@@ -21,16 +20,20 @@ import org.junit.Test
 class ActivityManagerMemoryInfoProbeTest {
     @Test
     fun reportsActivityManagerMemoryInfo() {
-        val context = InstrumentationRegistry.getInstrumentation()
-            .targetContext
-            .applicationContext
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext.applicationContext
         assertTrue(
             "This read-only preflight probe is restricted to the debug application",
             context.packageName == DEBUG_PACKAGE,
         )
+        val runner = instrumentation as? ActivityManagerMemoryInfoProbeRunner
         assertTrue(
-            "This probe must use the isolated runner to avoid KernelAIApplication startup",
-            context.applicationContext.javaClass == Application::class.java,
+            "The runner must suppress target Application.onCreate for this exact probe",
+            runner?.didSuppressApplicationOnCreate == true,
+        )
+        assertTrue(
+            "The probe must retain the target application's Application instance",
+            context is KernelAIApplication,
         )
 
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
