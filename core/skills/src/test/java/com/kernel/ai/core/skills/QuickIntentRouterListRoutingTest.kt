@@ -20,7 +20,7 @@ class QuickIntentRouterListRoutingTest {
 
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("get_list_items", match.intent.intentName)
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -47,7 +47,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("milk", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -56,7 +56,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("milk", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -65,7 +65,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("milk", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -74,7 +74,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("milk", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -83,7 +83,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("milk", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -94,7 +94,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("111 over 70", match.intent.params["item"])
-        assertEquals("blood pressure", match.intent.params["list_name"])
+        assertEquals("blood pressure list", match.intent.params["list_name"])
     }
 
     // ── Negative: food/drink nouns must NOT route to calendar ────────────────
@@ -105,7 +105,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("coffee", match.intent.params["item"])
-        assertEquals("shopping", match.intent.params["list_name"])
+        assertEquals("shopping list", match.intent.params["list_name"])
     }
 
     @Test
@@ -122,7 +122,7 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("add_to_list", match.intent.intentName)
         assertEquals("lunch", match.intent.params["item"])
-        assertEquals("grocery", match.intent.params["list_name"])
+        assertEquals("grocery list", match.intent.params["list_name"])
     }
 
     @Test
@@ -137,5 +137,28 @@ class QuickIntentRouterListRoutingTest {
         val result = router.route("create a dinner list")
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("create_list", match.intent.intentName)
+    }
+
+    @Test
+    fun `list descriptor is retained for lookup while fallback keeps prior base name`() {
+        val addResult = router.route("add milk to my Meal Plan list")
+        val add = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, addResult)
+        assertEquals("Meal Plan list", add.intent.params["list_name"])
+        assertEquals("Meal Plan", add.intent.params["list_name_for_creation"])
+
+        val createResult = router.route("create a Meal Plan list")
+        val create = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, createResult)
+        assertEquals("Meal Plan list", create.intent.params["list_name"])
+        assertEquals("Meal Plan", create.intent.params["list_name_for_creation"])
+    }
+
+    @Test
+    fun `remove route retains the explicit list descriptor`() {
+        val result = router.route("remove Dessert from my Meal Plan list")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+
+        assertEquals("remove_from_list", match.intent.intentName)
+        assertEquals("Meal Plan list", match.intent.params["list_name"])
+        assertEquals("Meal Plan", match.intent.params["list_name_for_creation"])
     }
 }

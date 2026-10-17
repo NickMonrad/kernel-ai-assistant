@@ -3387,21 +3387,21 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun addToListRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("add toothpaste to shopping list", "toothpaste", "shopping"),
-            Arguments.of("add milk to the shopping list", "milk", "shopping"),
-            Arguments.of("add eggs to my grocery list", "eggs", "grocery"),
-            Arguments.of("add bread to the to-do list", "bread", "to-do"),
-            Arguments.of("add bananas to shopping list", "bananas", "shopping"),
-            Arguments.of("add butter to the grocery list", "butter", "grocery"),
-            Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
-            Arguments.of("add eggs to my shopping list", "eggs", "shopping"),
+            Arguments.of("add toothpaste to shopping list", "toothpaste", "shopping list"),
+            Arguments.of("add milk to the shopping list", "milk", "shopping list"),
+            Arguments.of("add eggs to my grocery list", "eggs", "grocery list"),
+            Arguments.of("add bread to the to-do list", "bread", "to-do list"),
+            Arguments.of("add bananas to shopping list", "bananas", "shopping list"),
+            Arguments.of("add butter to the grocery list", "butter", "grocery list"),
+            Arguments.of("add cheese to my shopping list", "cheese", "shopping list"),
+            Arguments.of("add eggs to my shopping list", "eggs", "shopping list"),
             Arguments.of(
                 "Please add golden journey item to the list named Widget test",
                 "golden journey item",
                 "Widget test",
             ),
             Arguments.of("add milk to the list called Shopping", "milk", "Shopping"),
-            Arguments.of("Add milk to Nonexistent List", "milk", "Nonexistent"),
+            Arguments.of("Add milk to Nonexistent List", "milk", "Nonexistent List"),
         )
 
         @JvmStatic
@@ -3460,12 +3460,12 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun createListRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("create a groceries list", "groceries"),
-            Arguments.of("make a shopping list", "shopping"),
-            Arguments.of("create a todo list", "todo"),
-            Arguments.of("make my chores list", "chores"),
-            Arguments.of("create a meal plan list", "meal plan"),
-            Arguments.of("new packing list", "packing"),
+            Arguments.of("create a groceries list", "groceries list"),
+            Arguments.of("make a shopping list", "shopping list"),
+            Arguments.of("create a todo list", "todo list"),
+            Arguments.of("make my chores list", "chores list"),
+            Arguments.of("create a meal plan list", "meal plan list"),
+            Arguments.of("new packing list", "packing list"),
             Arguments.of("create a list called Camping", "Camping"),
         )
 
@@ -3479,13 +3479,13 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun getListItemsRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("show my todo list", "todo"),
-            Arguments.of("what's on my shopping list", "shopping"),
-            Arguments.of("what's in my shopping list", "shopping"),
+            Arguments.of("show my todo list", "todo list"),
+            Arguments.of("what's on my shopping list", "shopping list"),
+            Arguments.of("what's in my shopping list", "shopping list"),
             Arguments.of("display list called shopping", "shopping"),
-            Arguments.of("show me my grocery list", "grocery"),
-            Arguments.of("read my shopping list", "shopping"),
-            Arguments.of("get my to-do list", "to-do"),
+            Arguments.of("show me my grocery list", "grocery list"),
+            Arguments.of("read my shopping list", "shopping list"),
+            Arguments.of("get my to-do list", "to-do list"),
         )
 
         // ── Weather ───────────────────────────────────────────────────────────────

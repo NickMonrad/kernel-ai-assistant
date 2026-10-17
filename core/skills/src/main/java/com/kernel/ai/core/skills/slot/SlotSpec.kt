@@ -165,18 +165,25 @@ private fun normalizeDateSlotReply(trimmed: String): String {
 }
 
 private fun normalizeListSlotReply(trimmed: String): String {
-    val genericAlias = Regex(
-        "^(?:(?:to|on|onto|in|into)\\s+)?(?:(?:my|the)\\s+)?(shopping|grocery|groceries|todo|to do|to-do)(?:\\s+list)?$",
-        RegexOption.IGNORE_CASE,
-    ).matchEntire(trimmed)
-    return genericAlias?.groupValues?.get(1)?.lowercase()?.let(::canonicalGenericListAlias) ?: trimmed
+    val withoutPrompt = if (GENERIC_LIST_SLOT_ALIAS.matches(trimmed)) {
+        trimmed
+    } else {
+        LIST_SLOT_PROMPT_PREFIX.replace(trimmed, "").trim()
+    }
+    val withoutPossessive = LIST_SLOT_POSSESSIVE_PREFIX.replace(withoutPrompt, "").trim()
+    return if (withoutPrompt != trimmed || GENERIC_LIST_SLOT_ALIAS.matches(withoutPossessive)) {
+        withoutPossessive
+    } else {
+        trimmed
+    }
 }
 
-private fun canonicalGenericListAlias(alias: String): String = when (alias) {
-    "shopping", "grocery", "groceries" -> "shopping list"
-    "todo", "to do", "to-do" -> "to-do list"
-    else -> alias
-}
+private val LIST_SLOT_PROMPT_PREFIX = Regex("^(?:to|on|onto|in|into)\\s+", RegexOption.IGNORE_CASE)
+private val LIST_SLOT_POSSESSIVE_PREFIX = Regex("^(?:my|the)\\s+", RegexOption.IGNORE_CASE)
+private val GENERIC_LIST_SLOT_ALIAS = Regex(
+    "^(shopping|grocery|groceries|todo|todos|to do|to-do)(?:\\s+list)?$",
+    RegexOption.IGNORE_CASE,
+)
 
 private val DATE_SLOT_TRAILING_VALUE = Regex(
     """(?i).*(?:\b(?:is|on|for)\b)\s+((?:\d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+[a-zA-Z]+(?:\s+\d{4})?|[a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|today|tomorrow|tonight|(?:this|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month|year)|monday|tuesday|wednesday|thursday|friday|saturday|sunday))$""",

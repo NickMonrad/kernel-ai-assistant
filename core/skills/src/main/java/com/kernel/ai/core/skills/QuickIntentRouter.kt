@@ -3826,13 +3826,13 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
-                params["list_name"] = match.groupValues[2].trim()
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3841,13 +3841,13 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
-                params["list_name"] = match.groupValues[2].trim()
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3869,14 +3869,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
                 val listName = match.groupValues[2].trim()
-                if (listName.isNotBlank()) params["list_name"] = listName
+                if (listName.isNotBlank()) params.putAll(listNameWithDescriptor(listName, match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3885,12 +3885,12 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list$""",
+                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?(list)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val listName = match.groupValues[1].trim()
-                if (listName.isNotBlank()) mapOf("list_name" to listName) else emptyMap()
+                if (listName.isNotBlank()) listNameWithDescriptor(listName, match.groupValues[2]) else emptyMap()
             },
             requiredSlots = slotContract("add_to_list"),
         ),
@@ -3929,10 +3929,10 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
             requiredSlots = slotContract("create_list"),
         ),
 
@@ -3941,12 +3941,10 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+list""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("list_name" to match.groupValues[1].trim())
-            },
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
             requiredSlots = slotContract("create_list"),
         ),
         // ── Meal Planner ──
@@ -4118,24 +4116,25 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "remove_from_list",
             regex = Regex(
-                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                mapOf(
+                val params = mutableMapOf(
                     "item" to match.groupValues[1].trim(),
-                    "list_name" to match.groupValues[2].trim(),
                 )
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
+                params
             },
         ),
         // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
         ),
         // "display list called shopping" / "show list called groceries"
         IntentPattern(
@@ -4507,6 +4506,14 @@ class QuickIntentRouter(
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
 
+    private fun listNameWithDescriptor(name: String, descriptor: String): Map<String, String> {
+        val base = name.trim()
+        return mapOf(
+            "list_name" to "$base $descriptor",
+            "list_name_for_creation" to base,
+        )
+    }
+
     private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
         for (pattern in candidates) {
             val match = pattern.regex.find(trimmed) ?: continue
@@ -4585,7 +4592,9 @@ class QuickIntentRouter(
 
         // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
-        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized) { match ->
+            match.groupValues[1].takeIf { it.equals("list", ignoreCase = true) } ?: "list"
+        }
 
 
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like

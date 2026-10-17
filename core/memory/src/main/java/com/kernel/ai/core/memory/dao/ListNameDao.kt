@@ -28,6 +28,8 @@ abstract class ListNameDao {
 
     @Query("SELECT * FROM lists WHERE lifecycle = 'ACTIVE' ORDER BY pinned DESC, createdAt ASC")
     abstract suspend fun getAll(): List<ListNameEntity>
+    @Query("SELECT * FROM lists")
+    abstract suspend fun getAllAnyLifecycle(): List<ListNameEntity>
 
     @Query("SELECT * FROM lists WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: Long): ListNameEntity?
