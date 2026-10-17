@@ -33,6 +33,15 @@ class QuickIntentRouterListRoutingTest {
     }
 
     @Test
+    fun `routes explicit display list called title ending in list before generic read`() {
+        val result = router.route("display list called Meal Plan List")
+
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("get_list_items", match.intent.intentName)
+        assertEquals("Meal Plan List", match.intent.params["list_name"])
+    }
+
+    @Test
     fun `routes add bread to my list as missing list slot`() {
         val result = router.route("add bread to my list")
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)

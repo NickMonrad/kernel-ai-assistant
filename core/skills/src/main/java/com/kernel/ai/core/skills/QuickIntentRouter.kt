@@ -4127,15 +4127,6 @@ class QuickIntentRouter(
                 params
             },
         ),
-        // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
-        IntentPattern(
-            intentName = "get_list_items",
-            regex = Regex(
-                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
-        ),
         // "display list called shopping" / "show list called groceries"
         IntentPattern(
             intentName = "get_list_items",
@@ -4144,6 +4135,15 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
+        // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
         ),
 
         // ── Save Memory ──

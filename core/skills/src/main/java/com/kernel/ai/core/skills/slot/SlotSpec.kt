@@ -178,7 +178,7 @@ private fun normalizeListSlotReply(trimmed: String): String {
     }
 }
 
-private val LIST_SLOT_PROMPT_PREFIX = Regex("^(?:to|on|onto|in|into)\\s+", RegexOption.IGNORE_CASE)
+private val LIST_SLOT_PROMPT_PREFIX = Regex("^(?:to|on|onto|in|into)\\s+(?=(?:my|the)\\b)", RegexOption.IGNORE_CASE)
 private val LIST_SLOT_POSSESSIVE_PREFIX = Regex("^(?:my|the)\\s+", RegexOption.IGNORE_CASE)
 private val GENERIC_LIST_SLOT_ALIAS = Regex(
     "^(shopping|grocery|groceries|todo|todos|to do|to-do)(?:\\s+list)?$",

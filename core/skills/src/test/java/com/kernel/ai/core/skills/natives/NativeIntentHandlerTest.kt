@@ -898,6 +898,63 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `slot-filled In Progress and To Buy names resolve existing lists without duplicates`() {
+        val cases = listOf(
+            "In Progress" to 51L,
+            "To Buy" to 52L,
+        )
+        val activeLists = cases.map { (title, id) ->
+            com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = id,
+                name = title,
+                canonicalTitle = title,
+                collectionId = "synthetic-$id",
+                lifecycle = "ACTIVE",
+            )
+        }
+        coEvery { listNameDao.getAll() } returns activeLists
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        cases.forEach { (title, id) ->
+            val activeList = activeLists.single { it.id == id }
+            coEvery { listNameDao.getByName(title) } returns activeList
+            coEvery { listItemDao.getByList(id) } returns emptyList()
+            coEvery { mutations.addItem(id, "Milk", any(), any()) } returns id + 100
+        }
+        val nativeHandler = handlerWithListMutations(mutations)
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            com.kernel.ai.core.skills.QuickIntentRouter().route("add Milk to my list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+
+        cases.forEachIndexed { index, (title, id) ->
+            val conversationId = "list-title-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, title),
+            )
+            assertEquals(title, completed.params["list_name"])
+
+            val result = handleIntent(nativeHandler, completed.intentName, completed.params)
+
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            coVerify(exactly = 1) { mutations.addItem(id, "Milk", any(), any()) }
+        }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
     fun `get_list_items reports an unresolved list as not-found instead of an empty list`() {
         coEvery { listNameDao.getByName("nonexistent list") } returns null
         coEvery { listNameDao.getByNameIgnoreCase("nonexistent list") } returns null

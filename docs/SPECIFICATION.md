@@ -414,6 +414,11 @@ Current deterministic slot-fill coverage in this sprint is:
 | `create_list` | `list_name` |
 
 `add_to_list` has no implicit default shopping-list fallback in this slot contract.
+List-name slot replies preserve standalone titles verbatim, including leading `In`, `To`,
+or `On`. A preposition is stripped only when it introduces a possessive/article phrase
+(for example, `on my shopping list`); `display list called <title>` is matched before
+generic list reads so titles ending in `List` retain their full name.
+
 This sprint explicitly excludes weather/forecast, `create_calendar_event`,
 `remove_from_list`, and zero-slot toggles/media controls from multi-turn slot
 continuation. Weather/forecast stays single-turn because the existing weather path already
