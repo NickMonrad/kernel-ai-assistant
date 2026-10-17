@@ -1892,15 +1892,35 @@ class NativeIntentHandler @Inject constructor(
         val isAmbiguous: Boolean get() = ambiguous.isNotEmpty()
     }
 
+    // Derive fallback names/candidates only; resolveActiveList checks the raw title first.
     private fun normalizeListName(raw: String): String {
         val trimmed = raw.lowercase().trim()
-        val alias = trimmed.removePrefix("my ").removePrefix("the ")
+        val withoutPrompt = if (LIST_NAME_GENERIC_ALIAS.matches(trimmed)) {
+            trimmed
+        } else {
+            LIST_NAME_PROMPT_PREFIX.replace(trimmed, "").trim()
+        }
+        val withoutPossessive = LIST_NAME_POSSESSIVE_PREFIX.replace(withoutPrompt, "").trim()
+        val normalized = if (withoutPrompt != trimmed || LIST_NAME_GENERIC_ALIAS.matches(withoutPossessive)) {
+            withoutPossessive
+        } else {
+            trimmed
+        }
+        val alias = normalized.removePrefix("my ").removePrefix("the ")
         return when (alias) {
             "shopping", "shopping list", "grocery list", "groceries", "grocery" -> "shopping list"
             "todo", "todo list", "to do", "todos", "to-do", "to-do list", "to do list" -> "to-do list"
-            else -> trimmed
+            else -> normalized
         }
     }
+
+    private val LIST_NAME_PROMPT_PREFIX =
+        Regex("^(?:to|on|onto|in|into)\\s+(?=(?:my|the)\\b)", RegexOption.IGNORE_CASE)
+    private val LIST_NAME_POSSESSIVE_PREFIX = Regex("^(?:my|the)\\s+", RegexOption.IGNORE_CASE)
+    private val LIST_NAME_GENERIC_ALIAS = Regex(
+        "^(shopping|grocery|groceries|todo|todos|to do|to-do)(?:\\s+list)?$",
+        RegexOption.IGNORE_CASE,
+    )
 
     private fun listLookupCandidates(raw: String): Set<String> = buildSet {
         val name = raw.trim()
@@ -1975,10 +1995,10 @@ class NativeIntentHandler @Inject constructor(
 
         val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No list name specified")
-        val requestedName = normalizeListName(params["list_name_for_creation"] ?: raw)
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val existing = resolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val now = System.currentTimeMillis()
         val (listName, items) = runBlocking {
             val resolvedName = existing?.name ?: requestedName
@@ -2000,7 +2020,6 @@ class NativeIntentHandler @Inject constructor(
 
     private fun bulkAddToList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: "shopping list"
-        val requestedName = normalizeListName(params["list_name_for_creation"] ?: raw)
         val itemsParam = params["items"]
             ?: return SkillResult.Failure("bulk_add_to_list", "No items specified")
         val items: List<String> = try {
@@ -2013,6 +2032,7 @@ class NativeIntentHandler @Inject constructor(
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val existing = resolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val now = System.currentTimeMillis()
         val (listName, currentItems) = runBlocking {
             val resolvedName = existing?.name ?: requestedName
@@ -2035,7 +2055,6 @@ class NativeIntentHandler @Inject constructor(
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
-        val requestedName = normalizeListName(params["list_name_for_creation"] ?: raw)
         val activeResolution = runBlocking { resolveActiveList(raw) }
         if (activeResolution.isAmbiguous) return ambiguousListReply()
         val anyLifecycleResolution = if (activeResolution.match == null) {
@@ -2045,6 +2064,7 @@ class NativeIntentHandler @Inject constructor(
         }
         if (anyLifecycleResolution.isAmbiguous) return ambiguousListReply()
         val existing = anyLifecycleResolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val (name, changed) = runBlocking {
             val resolvedName = existing?.name ?: requestedName
             val isActive = existing?.lifecycle == "ACTIVE"
@@ -2071,10 +2091,10 @@ class NativeIntentHandler @Inject constructor(
 
     private fun getListItems(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: "shopping list"
-        val requestedName = normalizeListName(params["list_name_for_creation"] ?: raw)
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val activeList = resolution.match
+        val requestedName = activeList?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val items = activeList?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
         // A name that resolves to no ACTIVE list is a lookup failure, not an empty list.
         // Collapsing both into an empty item list made typos, deleted lists and lists whose
@@ -2102,10 +2122,10 @@ class NativeIntentHandler @Inject constructor(
     private fun removeFromList(params: Map<String, String>): SkillResult {
         val item = params["item"] ?: return SkillResult.Failure("remove_from_list", "No item specified")
         val raw = params["list_name"] ?: "shopping list"
-        val requestedName = normalizeListName(params["list_name_for_creation"] ?: raw)
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val list = resolution.match
+        val requestedName = list?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val listName = list?.name ?: requestedName
         val listId = list?.id
         val all = list?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()

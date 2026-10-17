@@ -196,7 +196,7 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `add to list flow normalizes natural list-name replies before executing`() = runTest(dispatcher) {
+    fun `add to list flow preserves list-name reply for exact-first native resolution`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
@@ -224,7 +224,7 @@ class ActionsViewModelTest {
             mapOf(
                 "intent_name" to "add_to_list",
                 "item" to "milk",
-                "list_name" to "shopping list",
+                "list_name" to "on my shopping list",
             ),
             runIntentSkill.calls.single().arguments,
         )
@@ -284,7 +284,7 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `generic shopping list replies normalize without mangling named lists`() = runTest(dispatcher) {
+    fun `shopping list replies preserve original names for exact-first resolution`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
@@ -295,14 +295,14 @@ class ActionsViewModelTest {
 
         viewModel.executeAction("add milk to my list")
         advanceUntilIdle()
-        viewModel.onSlotReply("my shopping list")
+        viewModel.onSlotReply("on my shopping list")
         advanceUntilIdle()
 
         assertEquals(
             mapOf(
                 "intent_name" to "add_to_list",
                 "item" to "milk",
-                "list_name" to "shopping list",
+                "list_name" to "on my shopping list",
             ),
             runIntentSkill.calls.single().arguments,
         )

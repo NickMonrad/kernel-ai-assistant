@@ -139,7 +139,7 @@ class SlotFillerManagerTest {
         )
         assertFalse(manager.hasPending)
         assertEquals("Milk", completed.params["item"])
-        assertEquals("shopping list", completed.params["list_name"])
+        assertEquals("on my shopping list", completed.params["list_name"])
     }
 
     @Test
@@ -185,7 +185,7 @@ class SlotFillerManagerTest {
         assertEquals("to do list", todo.params["list_name"])
         assertFalse(manager.hasPending)
 
-        // Remove the syntactic possessive but retain the list descriptor for exact lookup.
+        // Preserve the original phrasing so list resolution can try an exact title first.
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -201,10 +201,10 @@ class SlotFillerManagerTest {
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "my shopping list"),
         )
-        assertEquals("shopping list", possessive.params["list_name"])
+        assertEquals("my shopping list", possessive.params["list_name"])
         assertFalse(manager.hasPending)
 
-        // Remove the article but retain the list descriptor for exact lookup.
+        // Preserve articles for the same exact-title-first resolution path.
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -220,7 +220,7 @@ class SlotFillerManagerTest {
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "the shopping list"),
         )
-        assertEquals("shopping list", article.params["list_name"])
+        assertEquals("the shopping list", article.params["list_name"])
         assertFalse(manager.hasPending)
 
         // "My Tasks" (capitalized named list) → keep as-is

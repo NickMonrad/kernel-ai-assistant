@@ -898,12 +898,15 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `slot-filled In Progress and To Buy names resolve existing lists without duplicates`() {
+    fun `slot-filled exact titles win and conversational Shopping still resolves`() {
         val cases = listOf(
-            "In Progress" to 51L,
-            "To Buy" to 52L,
+            Triple("On My Radar", 51L, "On My Radar"),
+            Triple("In The Loop", 52L, "In The Loop"),
+            Triple("In Progress", 53L, "In Progress"),
+            Triple("To Buy", 54L, "To Buy"),
+            Triple("Shopping", 55L, "on my shopping list"),
         )
-        val activeLists = cases.map { (title, id) ->
+        val activeLists = cases.map { (title, id, _) ->
             com.kernel.ai.core.memory.entity.ListNameEntity(
                 id = id,
                 name = title,
@@ -914,22 +917,23 @@ class NativeIntentHandlerTest {
         }
         coEvery { listNameDao.getAll() } returns activeLists
         val mutations = mockk<ListMutationRepository>(relaxed = true)
-        cases.forEach { (title, id) ->
+        cases.forEach { (title, id, _) ->
             val activeList = activeLists.single { it.id == id }
             coEvery { listNameDao.getByName(title) } returns activeList
             coEvery { listItemDao.getByList(id) } returns emptyList()
             coEvery { mutations.addItem(id, "Milk", any(), any()) } returns id + 100
         }
         val nativeHandler = handlerWithListMutations(mutations)
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
         val route = assertInstanceOf(
             com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
-            com.kernel.ai.core.skills.QuickIntentRouter().route("add Milk to my list"),
+            router.route("add Milk to my list"),
         )
         val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
             com.kernel.ai.core.skills.intent.IntentContractRegistry(),
         )
 
-        cases.forEachIndexed { index, (title, id) ->
+        cases.forEachIndexed { index, (title, id, reply) ->
             val conversationId = "list-title-$index"
             slotFiller.startSlotFill(
                 conversationId,
@@ -941,9 +945,9 @@ class NativeIntentHandlerTest {
             )
             val completed = assertInstanceOf(
                 com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
-                slotFiller.onUserReply(conversationId, title),
+                slotFiller.onUserReply(conversationId, reply),
             )
-            assertEquals(title, completed.params["list_name"])
+            assertEquals(reply, completed.params["list_name"])
 
             val result = handleIntent(nativeHandler, completed.intentName, completed.params)
 
@@ -951,6 +955,56 @@ class NativeIntentHandlerTest {
             coVerify(exactly = 1) { mutations.addItem(id, "Milk", any(), any()) }
         }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `slot-filled conversational list creation keeps its prior canonical name`() {
+        coEvery { listNameDao.getAll() } returns emptyList()
+        coEvery { listNameDao.getAllAnyLifecycle() } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.createCollection("shopping list") } returns 70L
+        coEvery { mutations.createCollection("test hierarchy list") } returns 71L
+        coEvery { mutations.createCollection("to buy") } returns 72L
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            router.route("create a list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+        val nativeHandler = handlerWithListMutations(mutations)
+        val cases = listOf(
+            "on my shopping list" to "shopping list",
+            "on my Test hierarchy list" to "test hierarchy list",
+            "To Buy" to "to buy",
+        )
+
+        cases.forEachIndexed { index, (reply, expectedName) ->
+            val conversationId = "create-list-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, reply),
+            )
+            assertEquals(reply, completed.params["list_name"])
+
+            val result = handleIntent(nativeHandler, completed.intentName, completed.params)
+
+            assertEquals(
+                "Created list \"$expectedName\".",
+                (result as SkillResult.DirectReply).content,
+            )
+            coVerify(exactly = 1) { mutations.createCollection(expectedName) }
+        }
         coVerify(exactly = 0) { listNameDao.insert(any()) }
     }
 
