@@ -844,6 +844,60 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `show my todo list resolves active To do through QIR and native DAO seam`() {
+        val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 43L,
+            name = "To do",
+            canonicalTitle = "To do",
+            collectionId = "synthetic-todo",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(activeList)
+        coEvery { listItemDao.getByList(43L) } returns emptyList()
+
+        val route = com.kernel.ai.core.skills.QuickIntentRouter().route("show my todo list")
+            as com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch
+        assertEquals("get_list_items", route.intent.intentName)
+        assertEquals("todo list", route.intent.params["list_name"])
+        assertEquals("todo", route.intent.params["list_name_for_creation"])
+
+        val result = handleIntent(route.intent.intentName, route.intent.params)
+
+        assertEquals("Your To do is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listNameDao.getByName("todo list") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
+        coVerify(exactly = 1) { listItemDao.getByList(43L) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `show my grocery list resolves active Shopping through QIR and native DAO seam`() {
+        val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 44L,
+            name = "Shopping",
+            canonicalTitle = "Shopping",
+            collectionId = "synthetic-shopping",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(activeList)
+        coEvery { listItemDao.getByList(44L) } returns emptyList()
+
+        val route = com.kernel.ai.core.skills.QuickIntentRouter().route("show my grocery list")
+            as com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch
+        assertEquals("get_list_items", route.intent.intentName)
+        assertEquals("grocery list", route.intent.params["list_name"])
+        assertEquals("grocery", route.intent.params["list_name_for_creation"])
+
+        val result = handleIntent(route.intent.intentName, route.intent.params)
+
+        assertEquals("Your Shopping is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listNameDao.getByName("grocery list") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
+        coVerify(exactly = 1) { listItemDao.getByList(44L) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
     fun `get_list_items reports an unresolved list as not-found instead of an empty list`() {
         coEvery { listNameDao.getByName("nonexistent list") } returns null
         coEvery { listNameDao.getByNameIgnoreCase("nonexistent list") } returns null

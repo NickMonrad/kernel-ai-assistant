@@ -612,7 +612,7 @@ content through `message.toString()` in the SDK's internal form:
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
 Native list actions resolve an existing exact title before case-insensitive, bounded optional
-`list`-suffix, and shopping/grocery or todo/to-do alias matches. Ambiguous derived matches ask
+`list`-suffix, and shopping/grocery or todo/to-do aliases, including `todo list`. Ambiguous derived matches ask
 which list was intended; canonical names are used only for the established create-on-miss behavior.
 Matching never renames or rebinds a collection.
 

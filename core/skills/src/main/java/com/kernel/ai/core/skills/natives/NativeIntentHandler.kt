@@ -1897,7 +1897,7 @@ class NativeIntentHandler @Inject constructor(
         val alias = trimmed.removePrefix("my ").removePrefix("the ")
         return when (alias) {
             "shopping", "shopping list", "grocery list", "groceries", "grocery" -> "shopping list"
-            "todo", "to do", "todos", "to-do", "to-do list", "to do list" -> "to-do list"
+            "todo", "todo list", "to do", "todos", "to-do", "to-do list", "to do list" -> "to-do list"
             else -> trimmed
         }
     }
