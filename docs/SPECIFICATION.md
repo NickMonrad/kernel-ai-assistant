@@ -611,6 +611,12 @@ content through `message.toString()` in the SDK's internal form:
 | `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser. | ✅ — PR #989 |
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
+Native list actions resolve an existing exact title before case-insensitive, bounded optional
+`list`-suffix, and shopping/grocery or todo/to-do aliases, including `todo list`. Ambiguous derived matches ask
+which list was intended; canonical names are used only for the established create-on-miss behavior.
+Matching never renames or rebinds a collection.
+
+
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
 
