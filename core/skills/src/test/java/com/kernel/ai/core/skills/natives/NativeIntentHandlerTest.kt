@@ -959,6 +959,56 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `slot-filled conversational prefixes resolve existing Meal Plan without creating a collection`() {
+        val mealPlan = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 56L,
+            name = "Meal Plan",
+            canonicalTitle = "Meal Plan",
+            collectionId = "synthetic-56",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(mealPlan)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(56L, "Milk", any(), any()) } returns 57L
+        coEvery { listItemDao.getByList(56L) } returns emptyList()
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            router.route("add Milk to my list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+        val nativeHandler = handlerWithListMutations(mutations)
+
+        listOf("my Meal Plan list", "on my Meal Plan list").forEachIndexed { index, reply ->
+            val conversationId = "meal-plan-prefix-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, reply),
+            )
+            assertEquals(reply, completed.params["list_name"])
+            assertInstanceOf(
+                SkillResult.DirectReply::class.java,
+                handleIntent(nativeHandler, completed.intentName, completed.params),
+            )
+        }
+
+        coVerify(exactly = 2) { mutations.addItem(56L, "Milk", any(), any()) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+
+    @Test
     fun `slot-filled conversational list creation keeps its prior canonical name`() {
         coEvery { listNameDao.getAll() } returns emptyList()
         coEvery { listNameDao.getAllAnyLifecycle() } returns emptyList()
@@ -3354,6 +3404,48 @@ class NativeIntentHandlerTest {
                     eq(1L),
                     eq("to-do list"),
                     eq(notificationTime!!),
+                )
+            }
+        }
+
+        @Test
+        fun `add_reminder preserves existing On My Radar collection before fallback normalization`() {
+            val onMyRadar = com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 81L,
+                name = "On My Radar",
+                createdAt = 0L,
+                updatedAt = 0L,
+            )
+            val insertedItem = slot<ListItemEntity>()
+            coEvery { listNameDao.getByName("On My Radar") } returns onMyRadar
+            coEvery { listNameDao.getByName("radar") } returns null
+            coEvery { listItemDao.insert(capture(insertedItem)) } just Runs
+            coEvery { listItemDao.getByList(81L) } answers {
+                if (insertedItem.isCaptured) listOf(insertedItem.captured.copy(id = 82L)) else emptyList()
+            }
+
+            val result = handleIntent(
+                "add_reminder",
+                mapOf(
+                    "item" to "call the dentist",
+                    "list_name" to "On My Radar",
+                    "day" to "tomorrow",
+                    "time" to "9:00",
+                ),
+            )
+
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            assertEquals(81L, insertedItem.captured.listId)
+            assertEquals("call the dentist", insertedItem.captured.text)
+            coVerify(exactly = 1) { listNameDao.getByName("On My Radar") }
+            coVerify(exactly = 0) { listNameDao.insert(any()) }
+            verify {
+                listNotificationScheduler.schedule(
+                    82L,
+                    "call the dentist",
+                    81L,
+                    "On My Radar",
+                    insertedItem.captured.notificationTime!!,
                 )
             }
         }

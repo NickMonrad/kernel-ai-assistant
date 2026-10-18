@@ -1923,7 +1923,11 @@ class NativeIntentHandler @Inject constructor(
     )
 
     private fun listLookupCandidates(raw: String): Set<String> = buildSet {
-        val name = raw.trim()
+        val rawName = raw.trim()
+        // Called only after raw exact and case-insensitive title checks. Strip bounded prompt
+        // prefixes before deriving the optional "list" descriptor candidates.
+        val withoutPrompt = LIST_NAME_PROMPT_PREFIX.replace(rawName, "").trim()
+        val name = LIST_NAME_POSSESSIVE_PREFIX.replace(withoutPrompt, "").trim()
         val lastSpace = name.lastIndexOf(' ')
         if (lastSpace >= 0 && name.substring(lastSpace + 1).equals("list", ignoreCase = true)) {
             name.substring(0, lastSpace).trim().takeIf { it.isNotBlank() }?.let(::add)
@@ -2176,7 +2180,7 @@ class NativeIntentHandler @Inject constructor(
     private fun addReminder(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
-        val requestedName = normalizeListName(params["list_name"] ?: "to-do list")
+        val rawListName = (params["list_name"] ?: "to-do list").trim()
         val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
         val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
@@ -2195,8 +2199,15 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val result = runBlocking {
-            val existingList = listNameDao.getByName(requestedName)
-                ?: listNameDao.getByNameIgnoreCase(requestedName)
+            val rawExistingList = listNameDao.getByName(rawListName)
+                ?: listNameDao.getByNameIgnoreCase(rawListName)
+            val requestedName = rawExistingList?.name ?: normalizeListName(rawListName)
+            val existingList = rawExistingList ?: if (requestedName.equals(rawListName, ignoreCase = true)) {
+                null
+            } else {
+                listNameDao.getByName(requestedName)
+                    ?: listNameDao.getByNameIgnoreCase(requestedName)
+            }
             val listName = existingList?.name ?: requestedName
             val createdList = existingList == null
             val listId = if (listMutations != null && createdList) {
