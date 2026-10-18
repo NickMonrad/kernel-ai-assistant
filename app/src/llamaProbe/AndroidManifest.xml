@@ -2,5 +2,11 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application
         android:name="com.kernel.ai.debug.llamaprobe.ProbeApplication"
-        tools:replace="android:name" />
+        tools:replace="android:name">
+        <!-- The isolated Application deliberately skips Hilt startup; this unrelated boot
+             receiver is Hilt-injected and can crash the probe process on BOOT_COMPLETED. -->
+        <receiver
+            android:name="com.kernel.ai.alarm.BootCompletedReceiver"
+            tools:node="remove" />
+    </application>
 </manifest>
