@@ -88,7 +88,7 @@ adb shell am instrument -w \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
-`LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. Reaching the 16-token cap is an expected partial result, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
+`LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. In progress mode it also records effective context/batch/thread settings and process-wide CPU-time deltas every five seconds while prefill is blocked. Rising CPU deltas indicate active work; near-zero deltas suggest a wait or starvation but do not prove deadlock. Reaching the 16-token cap is an expected partial result, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
 
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
 

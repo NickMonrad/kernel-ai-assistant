@@ -9,12 +9,14 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <time.h>
 #include <vector>
 
 namespace {
@@ -71,6 +73,12 @@ int32_t token_piece(const llama_vocab * vocab, llama_token token, char * buffer,
     return bytes;
 }
 
+std::int64_t process_cpu_time_ns() {
+    timespec cpu_time{};
+    if (::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_time) != 0) return -1;
+    return static_cast<std::int64_t>(cpu_time.tv_sec) * 1000000000LL + cpu_time.tv_nsec;
+}
+
 } // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -93,6 +101,11 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         context_params.n_batch = static_cast<uint32_t>(context_size);
         context_params.n_threads = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
         context_params.n_threads_batch = context_params.n_threads;
+        __android_log_print(
+            ANDROID_LOG_INFO, "LlamaProbeNative",
+            "event=context_config n_ctx=%u n_batch=%u n_ubatch=%u n_threads=%d n_threads_batch=%d",
+            context_params.n_ctx, context_params.n_batch, context_params.n_ubatch,
+            context_params.n_threads, context_params.n_threads_batch);
         context_params.no_perf = true;
         session->context = llama_init_from_model(session->model, context_params);
         if (session->context == nullptr) throw std::runtime_error("llama.cpp could not create the CPU context");
@@ -179,7 +192,47 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             __android_log_print(
                 ANDROID_LOG_INFO, "LlamaProbeNative", "event=prefill_start prompt_tokens=%d", prompt_token_count);
         }
-        if (llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+        std::atomic<bool> stop_prefill_cpu_samples{false};
+        std::mutex prefill_cpu_sample_mutex;
+        std::condition_variable prefill_cpu_sample_condition;
+        std::thread prefill_cpu_sampler;
+        if (report_progress) {
+            prefill_cpu_sampler = std::thread(
+                [&stop_prefill_cpu_samples, &prefill_cpu_sample_mutex, &prefill_cpu_sample_condition, prefill_start] {
+                    std::int64_t previous_cpu_ns = process_cpu_time_ns();
+                    int sample_index = 0;
+                    std::unique_lock<std::mutex> wait_lock(prefill_cpu_sample_mutex);
+                    while (!stop_prefill_cpu_samples.load()) {
+                        const bool stopping = prefill_cpu_sample_condition.wait_for(
+                            wait_lock,
+                            std::chrono::seconds(5),
+                            [&stop_prefill_cpu_samples] { return stop_prefill_cpu_samples.load(); });
+                        if (stopping) break;
+                        wait_lock.unlock();
+                        const std::int64_t current_cpu_ns = process_cpu_time_ns();
+                        const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - prefill_start).count();
+                        const std::int64_t cpu_delta_ms =
+                            previous_cpu_ns >= 0 && current_cpu_ns >= previous_cpu_ns
+                            ? (current_cpu_ns - previous_cpu_ns) / 1000000LL
+                            : -1;
+                        const std::int64_t process_cpu_ms =
+                            current_cpu_ns >= 0 ? current_cpu_ns / 1000000LL : -1;
+                        __android_log_print(
+                            ANDROID_LOG_INFO, "LlamaProbeNative",
+                            "event=prefill_cpu_sample sample=%d wall_ms=%lld process_cpu_delta_ms=%lld process_cpu_total_ms=%lld",
+                            ++sample_index, static_cast<long long>(wall_ms),
+                            static_cast<long long>(cpu_delta_ms), static_cast<long long>(process_cpu_ms));
+                        previous_cpu_ns = current_cpu_ns;
+                        wait_lock.lock();
+                    }
+                });
+        }
+        const int prefill_status = llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+        stop_prefill_cpu_samples.store(true);
+        prefill_cpu_sample_condition.notify_all();
+        if (prefill_cpu_sampler.joinable()) prefill_cpu_sampler.join();
+        if (prefill_status != 0) {
             throw std::runtime_error("llama.cpp prompt evaluation failed");
         }
         if (report_progress) {
