@@ -17,6 +17,8 @@
 #include <string>
 #include <thread>
 #include <time.h>
+#include <limits>
+
 #include <vector>
 
 namespace {
@@ -27,7 +29,6 @@ struct ProbeSession {
     const llama_vocab * vocab = nullptr;
     std::mutex generation_mutex;
     std::atomic<int64_t> cancelled_request{0};
-    std::atomic<bool> generating{false};
 
     ~ProbeSession() {
         if (context != nullptr) llama_free(context);
@@ -72,6 +73,79 @@ int32_t token_piece(const llama_vocab * vocab, llama_token token, char * buffer,
     if (bytes < 0) throw std::runtime_error("llama.cpp token-to-piece buffer was too small");
     return bytes;
 }
+std::string format_model_prompt(
+        const llama_model * model, const std::string & system, const std::string & user) {
+    const char * template_source = llama_model_chat_template(model, nullptr);
+    if (template_source == nullptr) {
+        throw std::runtime_error("The LFM2.5 GGUF does not provide a chat template");
+    }
+    const std::string source(template_source);
+    const std::string escaped_prefix = "<|im_start|>assistant\\n";
+    const std::string newline_prefix = "<|im_start|>assistant\n";
+    const bool has_escaped_generation_prefix =
+        source.find(escaped_prefix + "<think>") != std::string::npos;
+    const bool has_newline_generation_prefix =
+        source.find(newline_prefix + "<think>") != std::string::npos;
+    const std::string & generation_prefix = has_escaped_generation_prefix ? escaped_prefix : newline_prefix;
+    const std::string generation_suffix_marker = generation_prefix + "<think>";
+    const size_t suffix_marker_position = source.find(generation_suffix_marker);
+    if (source.find("{{- bos_token -}}") == std::string::npos ||
+        source.find("<|im_start|>system") == std::string::npos ||
+        source.find("message.role") == std::string::npos ||
+        source.find("<|im_end|>") == std::string::npos ||
+        suffix_marker_position == std::string::npos) {
+        throw std::runtime_error(
+            "The pinned llama.cpp v0.7.0 chat API does not support this LFM2.5 GGUF template");
+    }
+
+    const llama_chat_message messages[] = {
+        {"system", system.c_str()},
+        {"user", user.c_str()},
+    };
+    const int32_t required = llama_chat_apply_template(
+        template_source, messages, 2, true, nullptr, 0);
+    if (required <= 0 || required > 128 * 1024) {
+        throw std::runtime_error("llama.cpp could not format the LFM2.5 GGUF chat template");
+    }
+    std::vector<char> buffer(static_cast<size_t>(required) + 1);
+    const int32_t written = llama_chat_apply_template(
+        template_source, messages, 2, true, buffer.data(), required + 1);
+    if (written != required) {
+        throw std::runtime_error("llama.cpp returned an incomplete LFM2.5 chat prompt");
+    }
+
+    std::string formatted(buffer.data(), static_cast<size_t>(written));
+    const std::string expected =
+        "<|im_start|>system\n" + system + "<|im_end|>\n" +
+        "<|im_start|>user\n" + user + "<|im_end|>\n" +
+        "<|im_start|>assistant\n";
+    if (formatted != expected) {
+        throw std::runtime_error(
+            "The pinned llama.cpp v0.7.0 formatter cannot faithfully apply this LFM2.5 template");
+    }
+
+    // v0.7.0's C API formats the model's ChatML body but omits LFM2.5's
+    // metadata-provided generation suffix. Only append it for the exact
+    // supported suffix above; tokenization adds the GGUF's BOS token.
+    formatted.append(
+        source,
+        suffix_marker_position + generation_prefix.size(),
+        generation_suffix_marker.size() - generation_prefix.size());
+    return formatted;
+}
+
+jbyteArray to_java_bytes(JNIEnv * env, const std::string & value) {
+    if (value.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+        throw std::runtime_error("Native result exceeds the Java byte-array limit");
+    }
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(value.size()));
+    if (result == nullptr) return nullptr;
+    env->SetByteArrayRegion(
+        result, 0, static_cast<jsize>(value.size()),
+        reinterpret_cast<const jbyte *>(value.data()));
+    return result;
+}
+
 
 std::int64_t process_cpu_time_ns() {
     timespec cpu_time{};
@@ -116,19 +190,14 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
     }
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         JNIEnv * env, jobject, jlong handle, jlong request_id, jstring prompt, jstring system_prompt,
-        jstring schema_json, jint max_tokens, jboolean progress_logging) {
+        jstring schema_json, jobject token_observer, jint max_tokens, jboolean progress_logging) {
     try {
         ProbeSession * session = session_from(handle);
         std::lock_guard<std::mutex> guard(session->generation_mutex);
         if (max_tokens <= 0 || max_tokens > 2048) throw std::invalid_argument("maxTokens must be between 1 and 2048");
-        session->generating.store(true);
-        struct GeneratingReset {
-            ProbeSession * value;
-            ~GeneratingReset() { value->generating.store(false); }
-        } generating_reset{session};
 
         const std::string user_prompt = from_java(env, prompt, "prompt");
         const std::string system = from_java(env, system_prompt, "systemPrompt");
@@ -157,10 +226,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         llama_sampler_chain_add(sampler.get(), grammar_sampler);
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
 
-        const std::string formatted_prompt =
-            "<|im_start|>system\n" + system + "<|im_end|>\n" +
-            "<|im_start|>user\n" + user_prompt + "<|im_end|>\n" +
-            "<|im_start|>assistant\n";
+        const std::string formatted_prompt = format_model_prompt(session->model, system, user_prompt);
         if (report_progress) {
             __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=tokenize_start");
         }
@@ -173,7 +239,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         if (llama_tokenize(
                 session->vocab, formatted_prompt.c_str(), static_cast<int32_t>(formatted_prompt.size()),
                 prompt_tokens.data(), prompt_token_count, true, true) < 0) {
-            throw std::runtime_error("llama.cpp failed to tokenize the ChatML prompt");
+            throw std::runtime_error("llama.cpp failed to tokenize the LFM2.5 model chat template");
         }
         if (report_progress) {
             __android_log_print(
@@ -250,6 +316,16 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         bool completed = false;
         int32_t position = prompt_token_count;
         std::array<char, 4096> token_buffer{};
+        jmethodID on_token_bytes = nullptr;
+        jbyteArray token_bytes = nullptr;
+        if (token_observer != nullptr) {
+            jclass observer_class = env->GetObjectClass(token_observer);
+            if (observer_class == nullptr) return nullptr;
+            on_token_bytes = env->GetMethodID(observer_class, "onTokenBytes", "([BI)V");
+            if (on_token_bytes == nullptr) return nullptr;
+            token_bytes = env->NewByteArray(static_cast<jsize>(token_buffer.size()));
+            if (token_bytes == nullptr) return nullptr;
+        }
         while (generated_tokens < max_tokens) {
             if (session->cancelled_request.load() == request_id) throw std::runtime_error("Generation cancelled");
             const int32_t token_index = generated_tokens + 1;
@@ -281,6 +357,17 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             const int32_t piece_bytes = token_piece(
                 session->vocab, next_token, token_buffer.data(), static_cast<int32_t>(token_buffer.size()));
             output.append(token_buffer.data(), static_cast<size_t>(piece_bytes));
+            if (token_observer != nullptr && piece_bytes > 0) {
+                if (session->cancelled_request.load() == request_id) {
+                    throw std::runtime_error("Generation cancelled");
+                }
+                env->SetByteArrayRegion(
+                    token_bytes, 0, piece_bytes,
+                    reinterpret_cast<const jbyte *>(token_buffer.data()));
+                if (env->ExceptionCheck()) return nullptr;
+                env->CallVoidMethod(token_observer, on_token_bytes, token_bytes, piece_bytes);
+                if (env->ExceptionCheck()) return nullptr;
+            }
             if (generated_tokens == 0) {
                 first_token_at = std::chrono::steady_clock::now();
                 ttft_ms = std::chrono::duration_cast<std::chrono::milliseconds>(first_token_at - request_start).count();
@@ -290,6 +377,12 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
                 __android_log_print(
                     ANDROID_LOG_INFO, "LlamaProbeNative", "event=token_piece_complete generated_tokens=%d",
                     generated_tokens);
+            }
+            if (session->cancelled_request.load() == request_id) {
+                throw std::runtime_error("Generation cancelled");
+            }
+            if (generated_tokens == max_tokens) break;
+            if (report_progress) {
                 __android_log_print(
                     ANDROID_LOG_INFO, "LlamaProbeNative", "event=token_decode_start generated_tokens=%d",
                     generated_tokens);
@@ -316,15 +409,16 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
 
         const auto done = std::chrono::steady_clock::now();
         const int64_t total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(done - request_start).count();
-        if (report_progress) {
-            __android_log_print(
-                ANDROID_LOG_INFO, "LlamaProbeNative",
-                "event=request_complete generated_tokens=%d complete=%d total_ms=%lld",
-                generated_tokens, completed ? 1 : 0, static_cast<long long>(total_ms));
-        }
         const int64_t decode_ms = generated_tokens == 0
             ? 0
             : std::chrono::duration_cast<std::chrono::milliseconds>(done - first_token_at).count();
+        if (report_progress) {
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative",
+                "event=request_complete generated_tokens=%d complete=%d ttft_ms=%lld decode_ms=%lld total_ms=%lld",
+                generated_tokens, completed ? 1 : 0, static_cast<long long>(ttft_ms),
+                static_cast<long long>(decode_ms), static_cast<long long>(total_ms));
+        }
         common_json result = {
             {"text", output},
             {"complete", completed},
@@ -335,8 +429,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             {"total_ms", total_ms},
         };
         const std::string json_result = result.dump();
-        return env->NewStringUTF(json_result.c_str());
+        return to_java_bytes(env, json_result);
     } catch (const std::exception & error) {
+        if (env->ExceptionCheck()) return nullptr;
         throw_java(env, "java/lang/IllegalStateException", error.what());
         return nullptr;
     }
@@ -352,16 +447,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeCancel(
     }
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeIsGenerating(
-        JNIEnv * env, jobject, jlong handle) {
-    try {
-        return session_from(handle)->generating.load() ? JNI_TRUE : JNI_FALSE;
-    } catch (const std::exception & error) {
-        throw_java(env, "java/lang/IllegalStateException", error.what());
-        return JNI_FALSE;
-    }
-}
+
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeClose(

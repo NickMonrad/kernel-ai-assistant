@@ -1,12 +1,36 @@
 import java.io.File
 import java.time.Instant
 import java.util.zip.ZipFile
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+abstract class GenerateLlamaProbeAndroidTestVersionManifest : DefaultTask() {
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    @get:OutputFile
+    abstract val manifestFile: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        manifestFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                """<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:versionCode="${versionCode.get()}" />""",
+            )
+        }
+    }
 }
 
 val gitSha: String by lazy {
@@ -17,6 +41,8 @@ val gitSha: String by lazy {
     result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
 }
 
+val candidateVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -25,7 +51,7 @@ android {
         applicationId = "com.kernel.ai"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionCode = candidateVersionCode
         versionName = "0.1.0"
 
         testInstrumentationRunner = "com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner"
@@ -109,6 +135,29 @@ androidComponents {
     beforeVariants { variantBuilder ->
         if (variantBuilder.buildType == "llamaProbe") {
             variantBuilder.enableAndroidTest = true
+        }
+    }
+}
+androidComponents {
+    onVariants { variant ->
+        if (variant.buildType == "llamaProbe") {
+            variant.androidTest?.let { androidTest ->
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                val manifestTask =
+                    tasks.register<GenerateLlamaProbeAndroidTestVersionManifest>(
+                        "generate${variantName}AndroidTestVersionManifest",
+                    ) {
+                        versionCode.set(candidateVersionCode)
+                        manifestFile.set(
+                            layout.buildDirectory.file(
+                                "generated/androidTestManifest/${variant.name}/AndroidManifest.xml",
+                            ),
+                        )
+                    }
+                androidTest.sources.manifests.addGeneratedManifestFile(manifestTask) {
+                    it.manifestFile
+                }
+            }
         }
     }
 }

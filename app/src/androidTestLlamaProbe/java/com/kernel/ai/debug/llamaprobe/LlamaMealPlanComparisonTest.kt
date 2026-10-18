@@ -19,8 +19,10 @@ import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.skills.mealplan.MealPlanJsonParser
 import com.kernel.ai.core.skills.mealplan.MealPlanQuantityValidator
 import java.io.File
-import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -43,35 +45,41 @@ class LlamaMealPlanComparisonTest {
     }
 
     @Test
-    fun boundedLlamaGenerationProgressDiagnostic() = runBlocking {
+    fun boundedLfmFirstTokenStream() = runBlocking {
         assumeTrue(
-            "invoke only with -e llamaProgressOnly true",
-            InstrumentationRegistry.getArguments().getString("llamaProgressOnly") == "true",
+            "invoke only with -e llamaFirstTokenOnly true",
+            InstrumentationRegistry.getArguments().getString("llamaFirstTokenOnly") == "true",
         )
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         stage("probe_isolation") { assertProbeIsolation(context) }
         val arguments = InstrumentationRegistry.getArguments()
         val llamaFile = llamaModelFile(context, arguments.getString("llamaModelPath"))
-        require(llamaFile.isFile) { "Qwen GGUF file is missing" }
+        require(llamaFile.isFile) { "LFM2.5 GGUF file is missing" }
         val preflight = memorySnapshot(context)
-        Log.i(TAG, "progress_diagnostic_preflight=$preflight")
+        Log.i(TAG, "first_token_preflight=$preflight")
         check(!preflight.getBoolean("low_memory")) {
-            "Android reports lowMemory before the bounded progress diagnostic"
+            "Android reports lowMemory before the bounded first-token test"
         }
-        val session = stage("llama_progress_load") {
+        val session = stage("llama_first_token_load") {
             LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
         var nativeCallTimedOut = false
         try {
             val started = System.nanoTime()
+            var streamChunks = 0
+            var streamTimeToFirstChunkMs: Long? = null
             val generation = try {
-                withTimeout(PROGRESS_DIAGNOSTIC_TIMEOUT_MS) {
+                withTimeout(FIRST_TOKEN_TIMEOUT_MS) {
                     session.generate(
                         prompt = MealPlanProbePrompts.PLAN_USER,
                         systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
                         schemaJson = MealPlanProbeSchemas.plan(),
-                        maxTokens = PROGRESS_DIAGNOSTIC_TOKENS,
+                        maxTokens = 1,
                         reportProgress = true,
+                        onText = {
+                            if (streamChunks == 0) streamTimeToFirstChunkMs = elapsedMs(started)
+                            streamChunks++
+                        },
                     )
                 }
             } catch (incomplete: IllegalStateException) {
@@ -81,28 +89,21 @@ class LlamaMealPlanComparisonTest {
                 null
             } catch (timeout: TimeoutCancellationException) {
                 nativeCallTimedOut = true
-                Log.e(TAG, "progress_diagnostic event=timeout elapsed_ms=${elapsedMs(started)}")
+                Log.e(TAG, "first_token_stream event=timeout elapsed_ms=${elapsedMs(started)}")
                 throw AssertionError(
-                    "Bounded progress diagnostic exceeded ${PROGRESS_DIAGNOSTIC_TIMEOUT_MS}ms; inspect LlamaProbeNative markers",
+                    "Bounded first-token test exceeded ${FIRST_TOKEN_TIMEOUT_MS}ms; inspect LlamaProbeNative markers",
                     timeout,
                 )
             }
             val elapsed = elapsedMs(started)
-            if (generation == null) {
-                Log.i(
-                    TAG,
-                    "progress_diagnostic event=token_cap elapsed_ms=$elapsed token_cap=$PROGRESS_DIAGNOSTIC_TOKENS",
-                )
-            } else {
-                Log.i(
-                    TAG,
-                    "progress_diagnostic event=complete elapsed_ms=$elapsed prompt_tokens=${generation.promptTokens} " +
-                        "generated_tokens=${generation.generatedTokens} ttft_ms=${generation.timeToFirstTokenMs} " +
-                        "decode_ms=${generation.decodeMs}",
-                )
-            }
+            check(streamChunks > 0) { "The first constrained token produced no complete UTF-8 output chunk" }
+            Log.i(
+                TAG,
+                "first_token_stream event=${if (generation == null) "token_cap" else "complete"} " +
+                    "elapsed_ms=$elapsed stream_chunks=$streamChunks stream_ttft_ms=$streamTimeToFirstChunkMs",
+            )
         } finally {
-            if (!nativeCallTimedOut) stage("llama_progress_shutdown") { session.close() }
+            if (!nativeCallTimedOut) stage("llama_first_token_shutdown") { session.close() }
         }
         Unit
     }
@@ -119,7 +120,7 @@ class LlamaMealPlanComparisonTest {
         }
         val llamaFile = llamaModelFile(context, arguments.getString("llamaModelPath"))
         gemmaFileCandidate?.let { require(it.isFile) { "Gemma model file is missing" } }
-        require(llamaFile.isFile) { "Qwen GGUF file is missing" }
+        require(llamaFile.isFile) { "LFM2.5 GGUF file is missing" }
         val preflight = stage("memory_preflight") { memorySnapshot(context) }
         val results = JSONObject()
             .put("probe_pid", Process.myPid())
@@ -209,7 +210,7 @@ class LlamaMealPlanComparisonTest {
                 stageName = "llama_plan",
                 prompt = MealPlanProbePrompts.PLAN_USER,
                 generate = { prompt ->
-                    llama.generate(prompt, MealPlanProbePrompts.PLAN_SYSTEM, MealPlanProbeSchemas.plan())
+                    generateStreamed(llama, prompt, MealPlanProbePrompts.PLAN_SYSTEM, MealPlanProbeSchemas.plan())
                 },
                 textOf = LlamaGeneration::text,
                 validate = { text -> runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess to 0 },
@@ -225,7 +226,10 @@ class LlamaMealPlanComparisonTest {
                 stageName = "llama_recipe",
                 prompt = MealPlanProbePrompts.RECIPE_USER,
                 generate = { prompt ->
-                    llama.generate(prompt, MealPlanProbePrompts.RECIPE_SYSTEM, MealPlanProbeSchemas.recipe(expectedServings = 4))
+                    generateStreamed(
+                        llama, prompt, MealPlanProbePrompts.RECIPE_SYSTEM,
+                        MealPlanProbeSchemas.recipe(expectedServings = 4),
+                    )
                 },
                 textOf = LlamaGeneration::text,
                 validate = ::validateRecipe,
@@ -265,9 +269,8 @@ class LlamaMealPlanComparisonTest {
 
             val warmStart = System.nanoTime()
             val warmPlan = stage("llama_warm_plan") {
-                llama.generate(
-                    MealPlanProbePrompts.PLAN_USER,
-                    MealPlanProbePrompts.PLAN_SYSTEM,
+                generateStreamed(
+                    llama, MealPlanProbePrompts.PLAN_USER, MealPlanProbePrompts.PLAN_SYSTEM,
                     MealPlanProbeSchemas.plan(),
                 )
             }
@@ -277,32 +280,41 @@ class LlamaMealPlanComparisonTest {
                 warmPlan.toJson(warmPlanValid, warmStart, ensureMemoryHealthy(context, "llama warm plan")),
             ).put("warm_generation_wall_ms", elapsedMs(warmStart))
 
+            val acceptCallbacks = AtomicBoolean(true)
+            val callbacksAfterCancellation = AtomicInteger(0)
+            val callbacksBeforeCancellation = AtomicInteger(0)
             val cancellation = async(Dispatchers.Default) {
                 llama.generate(
                     prompt = "Prepare a detailed multi-course meal plan with every step described in detail.",
                     systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
                     schemaJson = MealPlanProbeSchemas.plan(),
                     maxTokens = 1024,
+                    onText = {
+                        if (acceptCallbacks.get()) callbacksBeforeCancellation.incrementAndGet()
+                        else callbacksAfterCancellation.incrementAndGet()
+                    },
                 )
             }
             stage("llama_cancellation_wait") {
                 withTimeout(30_000) {
-                    while (!llama.isGenerating) delay(25)
+                    while (!llama.isGenerating || callbacksBeforeCancellation.get() == 0) delay(25)
                 }
             }
             stage("llama_cancellation_drain") {
                 cancellation.cancel()
+                acceptCallbacks.set(false)
                 cancellation.join()
                 llama.awaitNativeIdle()
             }
             ensureMemoryHealthy(context, "llama cancellation")
             assertTrue("generation job was not cancelled", cancellation.isCancelled)
             assertTrue("native generation remains active after cancellation", !llama.isGenerating)
+            assertTrue("streaming did not produce text before cancellation", callbacksBeforeCancellation.get() > 0)
+            assertEquals("token callbacks occurred after cancellation", 0, callbacksAfterCancellation.get())
             val reuseStart = System.nanoTime()
             val reused = stage("llama_reuse_after_cancellation") {
-                llama.generate(
-                    MealPlanProbePrompts.PLAN_USER,
-                    MealPlanProbePrompts.PLAN_SYSTEM,
+                generateStreamed(
+                    llama, MealPlanProbePrompts.PLAN_USER, MealPlanProbePrompts.PLAN_SYSTEM,
                     MealPlanProbeSchemas.plan(),
                 )
             }
@@ -320,9 +332,8 @@ class LlamaMealPlanComparisonTest {
         val reloaded = stage("llama_reload") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         try {
             val reloadedPlan = stage("llama_plan_after_reload") {
-                reloaded.generate(
-                    MealPlanProbePrompts.PLAN_USER,
-                    MealPlanProbePrompts.PLAN_SYSTEM,
+                generateStreamed(
+                    reloaded, MealPlanProbePrompts.PLAN_USER, MealPlanProbePrompts.PLAN_SYSTEM,
                     MealPlanProbeSchemas.plan(),
                 )
             }
@@ -404,6 +415,24 @@ class LlamaMealPlanComparisonTest {
             retries++
         }
     }
+    private suspend fun generateStreamed(
+        session: LlamaCppSession,
+        prompt: String,
+        systemPrompt: String,
+        schemaJson: String,
+    ): LlamaGeneration {
+        val streamed = StringBuilder()
+        val generation = session.generate(
+            prompt = prompt,
+            systemPrompt = systemPrompt,
+            schemaJson = schemaJson,
+            onText = { chunk -> streamed.append(chunk) },
+        )
+        assertEquals("streamed text differs from the final native result", generation.text, streamed.toString())
+        assertTrue("nonempty generation produced no stream chunks", generation.text.isEmpty() || generation.streamedChunks > 0)
+        return generation
+    }
+
 
 
     private suspend fun generateLiteRt(context: Context, engine: LiteRtInferenceEngine, prompt: String): Sample {
@@ -482,7 +511,7 @@ class LlamaMealPlanComparisonTest {
         return directories.asSequence()
             .map { directory -> File(directory, MODEL_FILE_NAME) }
             .firstOrNull(File::isFile)
-            ?: error("No Qwen GGUF file exists under the app models directory")
+            ?: error("No LFM2.5 GGUF file exists under the app models directory")
     }
 
     private fun ensureMemoryHealthy(context: Context, stage: String): JSONObject {
@@ -542,6 +571,8 @@ class LlamaMealPlanComparisonTest {
     ): JSONObject = JSONObject()
         .put("app_valid", appValid)
         .put("ttft_ms", timeToFirstTokenMs)
+        .put("stream_ttft_ms", streamTimeToFirstChunkMs ?: JSONObject.NULL)
+        .put("stream_chunks", streamedChunks)
         .put("decode_ms", decodeMs)
         .put("decode_tokens_per_second", decodeTokensPerSecond)
         .put("total_ms", totalMs)
@@ -580,11 +611,10 @@ class LlamaMealPlanComparisonTest {
     companion object {
         private const val TAG = "MealPlanProbe"
         private const val STAGE_TIMEOUT_MS = 5 * 60 * 1_000L
-        private const val PROGRESS_DIAGNOSTIC_TIMEOUT_MS = 60_000L
-        private const val PROGRESS_DIAGNOSTIC_TOKENS = 16
+        private const val FIRST_TOKEN_TIMEOUT_MS = 60_000L
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
-        private const val MODEL_FILE_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+        private const val MODEL_FILE_NAME = "LFM2.5-2.6B-Q4_K_M.gguf"
         private const val PROBE_APPLICATION_ID = "com.kernel.ai.debug.llamaprobe"
     }
 }

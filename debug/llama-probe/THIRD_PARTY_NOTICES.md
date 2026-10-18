@@ -12,6 +12,6 @@ The debug-only prototype builds `ggml-org/llama.cpp` at commit `620d2225cc436ab0
 
 Full license: https://github.com/ggml-org/llama.cpp/blob/620d2225cc436ab0b001e3200e590e3b286ef9ab/LICENSE
 
-## Qwen2.5-1.5B-Instruct GGUF
+## LiquidAI LFM2.5-2.6B GGUF
 
-The model is downloaded separately and is not bundled in the APK or repository. The pinned model repository declares Apache-2.0 and provides its license at https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/91cad51170dc346986eccefdc2dd33a9da36ead9/LICENSE . See [MODEL_PROVENANCE.md](MODEL_PROVENANCE.md) for the exact file revision and SHA-256.
+The model is downloaded separately and is not bundled in the APK or repository. The pinned model repository declares LFM Open License v1.0; commercial use is not granted to entities with annual revenue of at least USD 10 million. The license is at https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/e7caca5d835a3901a8e0d63e94009429bafafdfc/LICENSE . See [MODEL_PROVENANCE.md](MODEL_PROVENANCE.md) for the exact file revision and SHA-256.

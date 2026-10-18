@@ -12,13 +12,14 @@ The `llamaProbe` debug build type packages this arm64-v8a library in a separate 
 
 ## Model
 
-- Repository: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF)
-- Repository revision: [`91cad51170dc346986eccefdc2dd33a9da36ead9`](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/91cad51170dc346986eccefdc2dd33a9da36ead9)
-- File: `qwen2.5-1.5b-instruct-q4_k_m.gguf`
-- Size: `1,117,320,736` bytes
-- Hugging Face LFS SHA-256: `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`
-- License: Apache-2.0; the pinned model card and license are in the repository above. The 1.54B Qwen2.5 Instruct checkpoint is chosen as a small CPU-first GGUF, not as a claim of parity with Gemma E-2B/E-4B.
-- Tokenizer/chat template source: [Qwen/Qwen2.5-1.5B-Instruct revision `989aa7980e4cf806f80c7fef2b1adb7bc71aa306`](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/tree/989aa7980e4cf806f80c7fef2b1adb7bc71aa306), `model_type=qwen2`; its tokenizer configuration specifies the ChatML `<|im_start|>role\n...<|im_end|>` template. The probe formats the two-message system/user prompt with that template.
+- Repository: [LiquidAI/LFM2.5-2.6B-GGUF](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF)
+- Repository revision: [`e7caca5d835a3901a8e0d63e94009429bafafdfc`](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/tree/e7caca5d835a3901a8e0d63e94009429bafafdfc)
+- File: `LFM2.5-2.6B-Q4_K_M.gguf`
+- Size: `1,674,455,040` bytes
+- Hugging Face LFS SHA-256: `02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed`
+- License: LFM Open License v1.0; commercial use is not granted to entities with annual revenue of at least USD 10 million. See the pinned model card and [license](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/e7caca5d835a3901a8e0d63e94009429bafafdfc/LICENSE).
+- Runtime/template compatibility: the pinned llama.cpp v0.7.0 revision includes `LLM_ARCH_LFM2` and the `lfm2` tokenizer pre-tokenizer. Its public chat-template API detects this GGUF's ChatML body but omits the model's `<think>` generation suffix. The probe calls `llama_model_chat_template` and `llama_chat_apply_template`, accepts only the pinned LFM2.5 BOS/ChatML/`<think>` template signature and exact formatted two-message body, then adds the metadata-verified `<think>` suffix; other template shapes fail clearly. Tokenization enables the model BOS and special-token parsing. This is source-level compatibility only; no model file was downloaded or executed in this host check.
+- The pinned GGUF is a 2.69B-parameter LFM2.5 checkpoint with 128K trained context; the probe deliberately caps runtime context at 4096 tokens for this bounded comparison.
 
 ## Schema constraints
 
@@ -36,16 +37,15 @@ The model file is supplied separately to the debug probe and is not included in 
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleLlamaProbe :app:assembleLlamaProbeAndroidTest :debug:llama-probe:testDebugUnitTest
 ```
 
-After confirming APK package IDs, signer and install safety, install only the dedicated `llamaProbe` app/test APKs. Copy (do not move or remove) the existing model files from the normal debug package to the isolated package's external model directory, then copy them into the isolated app's private files directory. The private copies let LiteRT and llama.cpp open models without changing permissions on the original files.
+After confirming APK package IDs, signer and install safety, install only the dedicated `llamaProbe` app/test APKs. Do not read or modify the normal debug app's data. Stage the separately checksum-verified model from the host into the isolated package's external model directory, then copy it into the isolated app's private files directory. The probe only reads the isolated copy.
 
 ```sh
+# Set LFM2_5_GGUF to the host path of the pinned file verified against MODEL_PROVENANCE.md.
+echo "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed  $LFM2_5_GGUF" | sha256sum --check
 adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models
-adb shell cp -n /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it-gpu.litertlm /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm
-adb shell cp -n /sdcard/Android/data/com.kernel.ai.debug/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
-adb shell chmod 644 /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+adb push "$LFM2_5_GGUF" /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-Q4_K_M.gguf
 adb shell run-as com.kernel.ai.debug.llamaprobe mkdir -p files/models
-adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm files/models/gemma-4-E4B-it-gpu.litertlm
-adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-Q4_K_M.gguf files/models/LFM2.5-2.6B-Q4_K_M.gguf
 ```
 
 Run the short startup/job-isolation check before any model initialization:
@@ -66,7 +66,7 @@ adb shell am instrument -w \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
-If the LiteRT/Gemma stage is blocked or intentionally not being repeated, run the same bounded GGUF stages independently with `llamaOnly=true`; this skips Gemma model discovery, initialization, and Gemma-only assertions while retaining the Qwen plan/recipe, validation, schema, cancellation/reuse, and unload/reload checks:
+If the LiteRT/Gemma stage is blocked or intentionally not being repeated, run the same bounded GGUF stages independently with `llamaOnly=true`; this skips Gemma model discovery, initialization, and Gemma-only assertions while retaining the LFM2.5 plan/recipe, validation, schema, cancellation/reuse, and unload/reload checks:
 
 ```sh
 adb shell am instrument -w \
@@ -78,18 +78,20 @@ adb shell am instrument -w \
 
 Keep prior Gemma measurements/results separate; this mode does not validate or replace the Gemma comparator.
 
-For a timed-out Qwen plan with no token-level evidence, use this single partial-generation diagnostic instead of rerunning the full comparison. It loads only Qwen and caps the same constrained plan request at 16 generated tokens with a 60-second deadline:
+For a bounded first-token check without repeating the stalled full comparison, run this isolated LFM2.5 diagnostic. It loads only the official GGUF, applies its model-provided template and JSON grammar, and caps generation at one token with a 60-second deadline. The test records the first complete UTF-8 stream chunk and sanitized native TTFT/decode markers; it never logs prompt or generated text.
 
 ```sh
 adb shell am instrument -w \
-  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#boundedLlamaGenerationProgressDiagnostic' \
+  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#boundedLfmFirstTokenStream' \
   -e probeOnly true \
-  -e llamaProgressOnly true \
+  -e llamaFirstTokenOnly true \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
-`LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. In progress mode it also records effective context/batch/thread settings and process-wide CPU-time deltas every five seconds while prefill is blocked. Rising CPU deltas indicate active work; near-zero deltas suggest a wait or starvation but do not prove deadlock. Reaching the 16-token cap is an expected partial result, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
+`LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. In progress mode it also records effective context/batch/thread settings and process-wide CPU-time deltas every five seconds while prefill is blocked. Rising CPU deltas indicate active work; near-zero deltas suggest a wait or starvation but do not prove deadlock. A one-token cap is only runtime/streaming evidence, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
 
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
+
+The JNI bridge sends raw token-piece bytes to Kotlin through a reusable byte array. Kotlin's strict incremental UTF-8 decoder buffers split code points and rejects malformed or truncated output; `onText` runs synchronously on the single native worker. A complete generation returns `LlamaGeneration`; schema/native/cancellation failures remain terminal exceptions. Cancellation is serialized against callbacks, and callers drain the worker with `awaitNativeIdle()` before reuse. The probe records native token TTFT separately from visible UTF-8 stream TTFT and chunk count. Streaming begins only after synchronous prompt prefill returns; it does not interrupt or resolve a prefill stall.
 
 Each stage logs a sanitized `MealPlanProbe` start/completion/failure marker with elapsed time; no prompt or generated text is included. Each suspending stage has a five-minute coroutine deadline. After a host-side timeout, inspect `adb logcat -d -s MealPlanProbe`. If instrumentation remains active, stop only the isolated package with `adb shell am force-stop com.kernel.ai.debug.llamaprobe`; never stop the normal debug package. A native call may not observe coroutine cancellation until it returns, so do not rerun until the isolated process has exited.

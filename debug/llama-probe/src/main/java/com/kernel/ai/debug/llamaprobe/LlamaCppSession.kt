@@ -1,10 +1,15 @@
 package com.kernel.ai.debug.llamaprobe
 
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -20,6 +25,8 @@ data class LlamaGeneration(
     val decodeMs: Long,
     val totalMs: Long,
     val complete: Boolean,
+    val streamedChunks: Int = 0,
+    val streamTimeToFirstChunkMs: Long? = null,
 ) {
     val decodeTokensPerSecond: Double
         get() = if (decodeMs <= 0) 0.0 else generatedTokens * 1000.0 / decodeMs
@@ -36,16 +43,57 @@ class LlamaCppSession private constructor(
     private val closed = AtomicBoolean(false)
     private val nextRequestId = AtomicLong(1)
     private val activeRequestId = AtomicLong(0)
+    private val callbackLock = Any()
+
+    private inner class TokenObserver(
+        private val requestId: Long,
+        private val continuation: CancellableContinuation<LlamaGeneration>,
+        private val startedAtNs: Long,
+        private val emit: (String) -> Unit,
+    ) {
+        private val decoder = Utf8TokenDecoder()
+        var chunkCount = 0
+            private set
+        var firstChunkMs: Long? = null
+            private set
+
+        fun onTokenBytes(bytes: ByteArray, length: Int) {
+            synchronized(callbackLock) {
+                if (!continuation.isActive || activeRequestId.get() != requestId || closed.get()) {
+                    return@synchronized
+                }
+                val chunk = decoder.append(bytes, length)
+                if (chunk.isNotEmpty()) {
+                    if (firstChunkMs == null) {
+                        firstChunkMs = (System.nanoTime() - startedAtNs) / 1_000_000
+                    }
+                    chunkCount++
+                    emit(chunk)
+                }
+            }
+        }
+
+        fun finish() {
+            check(decoder.finish().isEmpty()) { "UTF-8 decoder emitted text after the final token chunk" }
+        }
+    }
+
 
     val isGenerating: Boolean
-        get() = !closed.get() && nativeIsGenerating(nativeHandle)
+        get() = activeRequestId.get() != 0L
 
+    /**
+     * Streams complete UTF-8 chunks synchronously on the native worker.
+     * Success returns [LlamaGeneration]; validation, native and cancellation failures throw.
+     * Keep [onText] non-blocking; cancellation serializes against the callback before returning.
+     */
     suspend fun generate(
         prompt: String,
         systemPrompt: String,
         schemaJson: String,
         maxTokens: Int = 1024,
         reportProgress: Boolean = false,
+        onText: ((String) -> Unit)? = null,
     ): LlamaGeneration {
         JsonSchemaSubset.validate(schemaJson)
         return suspendCancellableCoroutine { continuation ->
@@ -59,14 +107,31 @@ class LlamaCppSession private constructor(
                     continuation.resumeWithException(IllegalStateException("A generation is already active"))
                     return@synchronized
                 }
-                continuation.invokeOnCancellation { nativeCancel(nativeHandle, requestId) }
+                continuation.invokeOnCancellation {
+                    synchronized(callbackLock) {
+                        if (!closed.get() && activeRequestId.get() == requestId) {
+                            nativeCancel(nativeHandle, requestId)
+                        }
+                    }
+                }
                 try {
                     executor.execute {
+                        val workerStartedAtNs = System.nanoTime()
+                        val tokenObserver = onText?.let {
+                            TokenObserver(requestId, continuation, workerStartedAtNs, it)
+                        }
                         try {
+                            val nativeResult = nativeGenerate(
+                                nativeHandle, requestId, prompt, systemPrompt, schemaJson,
+                                tokenObserver, maxTokens, reportProgress,
+                            )
+                            tokenObserver?.finish()
                             val result = JSONObject(
-                                nativeGenerate(
-                                    nativeHandle, requestId, prompt, systemPrompt, schemaJson, maxTokens, reportProgress,
-                                ),
+                                StandardCharsets.UTF_8.newDecoder()
+                                    .onMalformedInput(CodingErrorAction.REPORT)
+                                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                                    .decode(ByteBuffer.wrap(nativeResult))
+                                    .toString(),
                             )
                             val generation = LlamaGeneration(
                                 text = result.getString("text"),
@@ -76,6 +141,8 @@ class LlamaCppSession private constructor(
                                 decodeMs = result.getLong("decode_ms"),
                                 totalMs = result.getLong("total_ms"),
                                 complete = result.getBoolean("complete"),
+                                streamedChunks = tokenObserver?.chunkCount ?: 0,
+                                streamTimeToFirstChunkMs = tokenObserver?.firstChunkMs,
                             )
                             activeRequestId.compareAndSet(requestId, 0)
                             check(generation.complete) {
@@ -103,16 +170,16 @@ class LlamaCppSession private constructor(
     }
 
     suspend fun close() {
-        val shouldClose = synchronized(lifecycleLock) {
-            if (closed.get()) {
-                false
-            } else {
-                closed.set(true)
-                activeRequestId.get().takeIf { it != 0L }?.let { nativeCancel(nativeHandle, it) }
-                true
+        val requestId = synchronized(lifecycleLock) {
+            if (closed.get()) return
+            closed.set(true)
+            activeRequestId.get()
+        }
+        if (requestId != 0L) {
+            synchronized(callbackLock) {
+                if (activeRequestId.get() == requestId) nativeCancel(nativeHandle, requestId)
             }
         }
-        if (!shouldClose) return
         withContext(Dispatchers.IO) {
             executor.submit { nativeClose(nativeHandle) }.get()
             executor.shutdown()
@@ -126,12 +193,12 @@ class LlamaCppSession private constructor(
         prompt: String,
         systemPrompt: String,
         schemaJson: String,
+        tokenObserver: Any?,
         maxTokens: Int,
         reportProgress: Boolean,
-    ): String
+    ): ByteArray
 
     private external fun nativeCancel(handle: Long, requestId: Long)
-    private external fun nativeIsGenerating(handle: Long): Boolean
     private external fun nativeClose(handle: Long)
 
     companion object {
@@ -150,5 +217,53 @@ class LlamaCppSession private constructor(
             check(nativeHandle != 0L) { "llama.cpp failed to open the GGUF model" }
             LlamaCppSession(nativeHandle, loadMs)
         }
+    }
+}
+
+internal class Utf8TokenDecoder {
+    private val encoded = ByteBuffer.allocate(MAX_TOKEN_BYTES + MAX_INCOMPLETE_UTF8_BYTES)
+    private val decoded = CharBuffer.allocate(MAX_TOKEN_BYTES + MAX_INCOMPLETE_UTF8_BYTES)
+    private val decoder = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+    private var finished = false
+
+    fun append(bytes: ByteArray, length: Int): String {
+        check(!finished) { "UTF-8 decoder is already finished" }
+        require(length in 0..bytes.size && length <= MAX_TOKEN_BYTES) {
+            "Native token chunk length is out of bounds"
+        }
+        check(encoded.remaining() >= length) { "Incomplete UTF-8 token chunk exceeded decoder capacity" }
+        encoded.put(bytes, 0, length)
+        encoded.flip()
+        decoded.clear()
+        val result = decoder.decode(encoded, decoded, false)
+        if (result.isError) result.throwException()
+        check(!result.isOverflow) { "UTF-8 decoder output buffer overflowed" }
+        encoded.compact()
+        decoded.flip()
+        return decoded.toString()
+    }
+
+    fun finish(): String {
+        check(!finished) { "UTF-8 decoder is already finished" }
+        finished = true
+        encoded.flip()
+        decoded.clear()
+        val result = decoder.decode(encoded, decoded, true)
+        if (result.isError) result.throwException()
+        check(!result.isOverflow && !encoded.hasRemaining()) {
+            "Native generation ended with an incomplete UTF-8 sequence"
+        }
+        val flush = decoder.flush(decoded)
+        if (flush.isError) flush.throwException()
+        check(!flush.isOverflow) { "UTF-8 decoder output buffer overflowed while flushing" }
+        decoded.flip()
+        return decoded.toString()
+    }
+
+    private companion object {
+        const val MAX_TOKEN_BYTES = 4096
+        const val MAX_INCOMPLETE_UTF8_BYTES = 4
     }
 }
