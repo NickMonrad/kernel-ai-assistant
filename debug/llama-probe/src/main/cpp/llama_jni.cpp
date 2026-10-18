@@ -1,3 +1,4 @@
+#include <android/log.h>
 #include <jni.h>
 
 #include "llama.h"
@@ -105,7 +106,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         JNIEnv * env, jobject, jlong handle, jlong request_id, jstring prompt, jstring system_prompt,
-        jstring schema_json, jint max_tokens) {
+        jstring schema_json, jint max_tokens, jboolean progress_logging) {
     try {
         ProbeSession * session = session_from(handle);
         std::lock_guard<std::mutex> guard(session->generation_mutex);
@@ -125,8 +126,16 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         if (session->cancelled_request.load() == request_id) throw std::runtime_error("Generation cancelled");
 
         const auto request_start = std::chrono::steady_clock::now();
+        const bool report_progress = progress_logging == JNI_TRUE;
+        if (report_progress) {
+            __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=request_start max_tokens=%d", max_tokens);
+            __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=grammar_start");
+        }
         const common_json schema = common_json::parse(schema_text);
         const std::string grammar = json_schema_to_grammar(schema);
+        if (report_progress) {
+            __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=grammar_complete");
+        }
         using SamplerPtr = std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)>;
         SamplerPtr sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), &llama_sampler_free);
         if (!sampler) throw std::runtime_error("Could not create sampler chain");
@@ -139,6 +148,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             "<|im_start|>system\n" + system + "<|im_end|>\n" +
             "<|im_start|>user\n" + user_prompt + "<|im_end|>\n" +
             "<|im_start|>assistant\n";
+        if (report_progress) {
+            __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=tokenize_start");
+        }
         const int32_t prompt_token_count = -llama_tokenize(
             session->vocab, formatted_prompt.c_str(), static_cast<int32_t>(formatted_prompt.size()), nullptr, 0, true, true);
         if (prompt_token_count <= 0 || prompt_token_count + max_tokens > static_cast<int32_t>(llama_n_ctx(session->context))) {
@@ -150,14 +162,32 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
                 prompt_tokens.data(), prompt_token_count, true, true) < 0) {
             throw std::runtime_error("llama.cpp failed to tokenize the ChatML prompt");
         }
+        if (report_progress) {
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative", "event=tokenize_complete prompt_tokens=%d", prompt_token_count);
+        }
 
         using BatchPtr = std::unique_ptr<llama_batch_ext, decltype(&llama_batch_ext_free)>;
         BatchPtr batch(llama_batch_ext_init(session->context), &llama_batch_ext_free);
         if (!batch) throw std::runtime_error("Could not allocate llama.cpp batch");
 
         batch_set_tokens(batch.get(), prompt_tokens.data(), prompt_token_count, 0);
+        const auto prefill_start = report_progress
+            ? std::chrono::steady_clock::now()
+            : std::chrono::steady_clock::time_point{};
+        if (report_progress) {
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative", "event=prefill_start prompt_tokens=%d", prompt_token_count);
+        }
         if (llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
             throw std::runtime_error("llama.cpp prompt evaluation failed");
+        }
+        if (report_progress) {
+            const auto prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - prefill_start).count();
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative", "event=prefill_complete prompt_tokens=%d elapsed_ms=%lld",
+                prompt_token_count, static_cast<long long>(prefill_ms));
         }
 
         std::string output;
@@ -169,10 +199,31 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         std::array<char, 4096> token_buffer{};
         while (generated_tokens < max_tokens) {
             if (session->cancelled_request.load() == request_id) throw std::runtime_error("Generation cancelled");
+            const int32_t token_index = generated_tokens + 1;
+            const auto sample_start = report_progress
+                ? std::chrono::steady_clock::now()
+                : std::chrono::steady_clock::time_point{};
+            if (report_progress) {
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative", "event=sample_start token_index=%d", token_index);
+            }
             const llama_token next_token = llama_sampler_sample(sampler.get(), session->context, -1);
+            if (report_progress) {
+                const auto sampled_at = std::chrono::steady_clock::now();
+                const auto sample_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sampled_at - sample_start).count();
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative",
+                    "event=sample_complete token_index=%d sample_ms=%lld",
+                    token_index, static_cast<long long>(sample_ms));
+            }
             if (llama_vocab_is_eog(session->vocab, next_token)) {
                 completed = true;
                 break;
+            }
+            if (report_progress) {
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative", "event=token_piece_start token_index=%d", token_index);
             }
             const int32_t piece_bytes = token_piece(
                 session->vocab, next_token, token_buffer.data(), static_cast<int32_t>(token_buffer.size()));
@@ -182,14 +233,42 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
                 ttft_ms = std::chrono::duration_cast<std::chrono::milliseconds>(first_token_at - request_start).count();
             }
             ++generated_tokens;
+            if (report_progress) {
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative", "event=token_piece_complete generated_tokens=%d",
+                    generated_tokens);
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative", "event=token_decode_start generated_tokens=%d",
+                    generated_tokens);
+            }
             batch_set_tokens(batch.get(), &next_token, 1, position++);
+            const auto decode_start = report_progress
+                ? std::chrono::steady_clock::now()
+                : std::chrono::steady_clock::time_point{};
             if (llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
                 throw std::runtime_error("llama.cpp token evaluation failed");
+            }
+            if (report_progress) {
+                const auto decode_done = std::chrono::steady_clock::now();
+                const auto decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    decode_done - decode_start).count();
+                const auto request_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    decode_done - request_start).count();
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative",
+                    "event=token_decode_complete generated_tokens=%d decode_ms=%lld request_elapsed_ms=%lld",
+                    generated_tokens, static_cast<long long>(decode_ms), static_cast<long long>(request_elapsed_ms));
             }
         }
 
         const auto done = std::chrono::steady_clock::now();
         const int64_t total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(done - request_start).count();
+        if (report_progress) {
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative",
+                "event=request_complete generated_tokens=%d complete=%d total_ms=%lld",
+                generated_tokens, completed ? 1 : 0, static_cast<long long>(total_ms));
+        }
         const int64_t decode_ms = generated_tokens == 0
             ? 0
             : std::chrono::duration_cast<std::chrono::milliseconds>(done - first_token_at).count();

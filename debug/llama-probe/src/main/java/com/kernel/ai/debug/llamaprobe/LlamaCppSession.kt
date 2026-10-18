@@ -45,6 +45,7 @@ class LlamaCppSession private constructor(
         systemPrompt: String,
         schemaJson: String,
         maxTokens: Int = 1024,
+        reportProgress: Boolean = false,
     ): LlamaGeneration {
         JsonSchemaSubset.validate(schemaJson)
         return suspendCancellableCoroutine { continuation ->
@@ -63,7 +64,9 @@ class LlamaCppSession private constructor(
                     executor.execute {
                         try {
                             val result = JSONObject(
-                                nativeGenerate(nativeHandle, requestId, prompt, systemPrompt, schemaJson, maxTokens),
+                                nativeGenerate(
+                                    nativeHandle, requestId, prompt, systemPrompt, schemaJson, maxTokens, reportProgress,
+                                ),
                             )
                             val generation = LlamaGeneration(
                                 text = result.getString("text"),
@@ -124,6 +127,7 @@ class LlamaCppSession private constructor(
         systemPrompt: String,
         schemaJson: String,
         maxTokens: Int,
+        reportProgress: Boolean,
     ): String
 
     private external fun nativeCancel(handle: Long, requestId: Long)

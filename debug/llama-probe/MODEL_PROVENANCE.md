@@ -78,6 +78,18 @@ adb shell am instrument -w \
 
 Keep prior Gemma measurements/results separate; this mode does not validate or replace the Gemma comparator.
 
+For a timed-out Qwen plan with no token-level evidence, use this single partial-generation diagnostic instead of rerunning the full comparison. It loads only Qwen and caps the same constrained plan request at 16 generated tokens with a 60-second deadline:
+
+```sh
+adb shell am instrument -w \
+  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#boundedLlamaGenerationProgressDiagnostic' \
+  -e probeOnly true \
+  -e llamaProgressOnly true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
+
+`LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. Reaching the 16-token cap is an expected partial result, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
+
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
 
 Each stage logs a sanitized `MealPlanProbe` start/completion/failure marker with elapsed time; no prompt or generated text is included. Each suspending stage has a five-minute coroutine deadline. After a host-side timeout, inspect `adb logcat -d -s MealPlanProbe`. If instrumentation remains active, stop only the isolated package with `adb shell am force-stop com.kernel.ai.debug.llamaprobe`; never stop the normal debug package. A native call may not observe coroutine cancellation until it returns, so do not rerun until the isolated process has exited.

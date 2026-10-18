@@ -28,6 +28,7 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -39,6 +40,70 @@ class LlamaMealPlanComparisonTest {
     @Test
     fun probePackageIsIsolatedFromPersistedAppJobs() {
         assertProbeIsolation(InstrumentationRegistry.getInstrumentation().targetContext)
+    }
+
+    @Test
+    fun boundedLlamaGenerationProgressDiagnostic() = runBlocking {
+        assumeTrue(
+            "invoke only with -e llamaProgressOnly true",
+            InstrumentationRegistry.getArguments().getString("llamaProgressOnly") == "true",
+        )
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        stage("probe_isolation") { assertProbeIsolation(context) }
+        val arguments = InstrumentationRegistry.getArguments()
+        val llamaFile = llamaModelFile(context, arguments.getString("llamaModelPath"))
+        require(llamaFile.isFile) { "Qwen GGUF file is missing" }
+        val preflight = memorySnapshot(context)
+        Log.i(TAG, "progress_diagnostic_preflight=$preflight")
+        check(!preflight.getBoolean("low_memory")) {
+            "Android reports lowMemory before the bounded progress diagnostic"
+        }
+        val session = stage("llama_progress_load") {
+            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+        }
+        var nativeCallTimedOut = false
+        try {
+            val started = System.nanoTime()
+            val generation = try {
+                withTimeout(PROGRESS_DIAGNOSTIC_TIMEOUT_MS) {
+                    session.generate(
+                        prompt = MealPlanProbePrompts.PLAN_USER,
+                        systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
+                        schemaJson = MealPlanProbeSchemas.plan(),
+                        maxTokens = PROGRESS_DIAGNOSTIC_TOKENS,
+                        reportProgress = true,
+                    )
+                }
+            } catch (incomplete: IllegalStateException) {
+                if (incomplete.message != "llama.cpp generation reached maxTokens before end-of-generation") {
+                    throw incomplete
+                }
+                null
+            } catch (timeout: TimeoutCancellationException) {
+                nativeCallTimedOut = true
+                Log.e(TAG, "progress_diagnostic event=timeout elapsed_ms=${elapsedMs(started)}")
+                throw AssertionError(
+                    "Bounded progress diagnostic exceeded ${PROGRESS_DIAGNOSTIC_TIMEOUT_MS}ms; inspect LlamaProbeNative markers",
+                    timeout,
+                )
+            }
+            val elapsed = elapsedMs(started)
+            if (generation == null) {
+                Log.i(
+                    TAG,
+                    "progress_diagnostic event=token_cap elapsed_ms=$elapsed token_cap=$PROGRESS_DIAGNOSTIC_TOKENS",
+                )
+            } else {
+                Log.i(
+                    TAG,
+                    "progress_diagnostic event=complete elapsed_ms=$elapsed prompt_tokens=${generation.promptTokens} " +
+                        "generated_tokens=${generation.generatedTokens} ttft_ms=${generation.timeToFirstTokenMs} " +
+                        "decode_ms=${generation.decodeMs}",
+                )
+            }
+        } finally {
+            if (!nativeCallTimedOut) stage("llama_progress_shutdown") { session.close() }
+        }
     }
 
     @Test
@@ -514,6 +579,8 @@ class LlamaMealPlanComparisonTest {
     companion object {
         private const val TAG = "MealPlanProbe"
         private const val STAGE_TIMEOUT_MS = 5 * 60 * 1_000L
+        private const val PROGRESS_DIAGNOSTIC_TIMEOUT_MS = 60_000L
+        private const val PROGRESS_DIAGNOSTIC_TOKENS = 16
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val MODEL_FILE_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
