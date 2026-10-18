@@ -354,11 +354,15 @@ class LlamaMealPlanComparisonTest {
     }
 
     private fun llamaModelFile(context: Context, override: String?): File {
-        if (override != null) return File(override)
-        val externalModels = requireNotNull(context.getExternalFilesDir("models")) {
-            "App-specific external model storage is unavailable"
-        }
-        return File(externalModels, MODEL_FILE_NAME)
+        override?.let(::File)?.let { return it }
+        val directories = listOfNotNull(
+            File(context.filesDir, "models"),
+            context.getExternalFilesDir("models"),
+        )
+        return directories.asSequence()
+            .map { directory -> File(directory, MODEL_FILE_NAME) }
+            .firstOrNull(File::isFile)
+            ?: error("No Qwen GGUF file exists under the app models directory")
     }
 
     private fun ensureMemoryHealthy(context: Context, stage: String): JSONObject {

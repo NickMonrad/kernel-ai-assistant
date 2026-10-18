@@ -36,9 +36,17 @@ The model file is supplied separately to the debug probe and is not included in 
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleLlamaProbe :app:assembleLlamaProbeAndroidTest :debug:llama-probe:testDebugUnitTest
 ```
 
-After confirming APK package IDs, signer and install safety, install only the dedicated `llamaProbe` app/test APKs. Copy (do not move or remove) the existing model files into:
+After confirming APK package IDs, signer and install safety, install only the dedicated `llamaProbe` app/test APKs. Copy (do not move or remove) the existing model files from the normal debug package to the isolated package's external model directory, then copy them into the isolated app's private files directory. The private copies let LiteRT and llama.cpp open models without changing permissions on the original files.
 
-`/sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/`
+```sh
+adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models
+adb shell cp -n /sdcard/Android/data/com.kernel.ai.debug/files/models/gemma-4-E4B-it-gpu.litertlm /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm
+adb shell cp -n /sdcard/Android/data/com.kernel.ai.debug/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+adb shell chmod 644 /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+adb shell run-as com.kernel.ai.debug.llamaprobe mkdir -p files/models
+adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/gemma-4-E4B-it-gpu.litertlm files/models/gemma-4-E4B-it-gpu.litertlm
+adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+```
 
 Run the short startup/job-isolation check before any model initialization:
 
@@ -49,14 +57,12 @@ adb shell am instrument -w \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
-Only after that check passes, run the full bounded comparison with explicit paths to the copied files:
+Only after that check passes, run the full bounded comparison. It discovers models in the isolated app's private `files/models` directory:
 
 ```sh
 adb shell am instrument -w \
   -e class com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest \
   -e probeOnly true \
-  -e gemmaModelPath /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/<Gemma-file> \
-  -e llamaModelPath /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
