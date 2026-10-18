@@ -3,6 +3,15 @@ package com.kernel.ai.core.inference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.sync.Mutex
+
+/**
+ * Process-wide serialization for initialization of the singleton conversation engine.
+ * Chat startup and note-title generation can both be the first caller on a cold launch.
+ */
+object Gemma4InitLock {
+    val mutex = Mutex()
+}
 
 /**
  * Core interface for on-device LLM inference backed by LiteRT-LM.

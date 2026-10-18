@@ -52,6 +52,8 @@ room {
 
 dependencies {
     implementation(project(":core:inference"))
+    // Note title startup builds the same LiteRT-LM ModelConfig used by chat.
+    implementation(libs.litertlm.android)
     implementation(libs.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

@@ -176,6 +176,44 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `create_note schedules title generation for untitled native notes`() {
+        coEvery { noteDao.getMaxActiveDisplayOrder() } returns 0.0
+        coEvery { noteDao.insertNote(any()) } returns NOTE_ID
+
+        val result = handleIntent("create_note", mapOf("content" to NOTE_CONTENT))
+
+        assertEquals(SkillResult.DirectReply("Note saved."), result)
+        coVerify(exactly = 1) {
+            noteDao.insertNote(match { it.title == null && it.content == NOTE_CONTENT })
+        }
+        verify(exactly = 1) { noteSmartTitleUseCase.schedule(NOTE_ID) }
+    }
+
+    @Test
+    fun `create_note preserves explicit native title without scheduling generation`() {
+        coEvery { noteDao.getMaxActiveDisplayOrder() } returns 0.0
+        coEvery { noteDao.insertNote(any()) } returns EXPLICIT_TITLE_NOTE_ID
+
+        val result = handleIntent(
+            "create_note",
+            mapOf("content" to NOTE_CONTENT, "title" to EXPLICIT_TITLE),
+        )
+
+        assertEquals(SkillResult.DirectReply("Note saved."), result)
+        coVerify(exactly = 1) {
+            noteDao.insertNote(match { it.title == EXPLICIT_TITLE && it.content == NOTE_CONTENT })
+        }
+        verify(exactly = 0) { noteSmartTitleUseCase.schedule(any()) }
+    }
+
+    private companion object {
+        const val NOTE_ID = 1638L
+        const val EXPLICIT_TITLE_NOTE_ID = 1639L
+        const val NOTE_CONTENT = "Remember the garden renovation measurements"
+        const val EXPLICIT_TITLE = "Garden Renovation"
+    }
+
+    @Test
     fun `get_list alias normalizes to get_list_items`() {
         val method = NativeIntentHandler::class.java.getDeclaredMethod(
             "normalizeIntentName",
