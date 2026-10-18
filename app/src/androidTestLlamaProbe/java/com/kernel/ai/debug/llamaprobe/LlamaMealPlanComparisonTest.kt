@@ -45,12 +45,15 @@ class LlamaMealPlanComparisonTest {
     fun compareLiteRtThenLlamaSequentiallyAndVerifyCancelReuse() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        val arguments = InstrumentationRegistry.getArguments()
+        val llamaOnly = arguments.getString("llamaOnly") == "true"
         stage("probe_isolation") { assertProbeIsolation(context) }
-        val gemmaFile = gemmaModelFile(context, InstrumentationRegistry.getArguments().getString("gemmaModelPath"))
-        val llamaFile = llamaModelFile(context, InstrumentationRegistry.getArguments().getString("llamaModelPath"))
-        require(gemmaFile.isFile) { "Gemma model file is missing" }
+        val gemmaFileCandidate = if (llamaOnly) null else {
+            gemmaModelFile(context, arguments.getString("gemmaModelPath"))
+        }
+        val llamaFile = llamaModelFile(context, arguments.getString("llamaModelPath"))
+        gemmaFileCandidate?.let { require(it.isFile) { "Gemma model file is missing" } }
         require(llamaFile.isFile) { "Qwen GGUF file is missing" }
-
         val preflight = stage("memory_preflight") { memorySnapshot(context) }
         val results = JSONObject()
             .put("probe_pid", Process.myPid())
@@ -61,68 +64,71 @@ class LlamaMealPlanComparisonTest {
 
         check(!preflight.getBoolean("low_memory")) { "Android reports lowMemory before inference; stopping preflight" }
 
-        val gemmaConfig = ModelConfig(
-            modelPath = gemmaFile.absolutePath,
-            backendType = BackendType.GPU,
-            maxTokens = CONTEXT_TOKENS,
-            systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
-            thinkingEnabled = false,
-            speculativeDecodingEnabled = false,
-        )
-        val gemmaSamples = JSONObject().put("model_file", gemmaFile.name)
-        val gemmaEngine = newLiteRtEngine(context)
-        try {
-            val coldStart = System.nanoTime()
-            stage("gemma_initialize") { gemmaEngine.initialize(gemmaConfig) }
-            val gemmaColdLoadMs = elapsedMs(coldStart)
-            gemmaSamples.put("cold_load_ms", gemmaColdLoadMs)
-                .put("backend", gemmaEngine.activeBackend.value?.name ?: "unknown")
-                .put("resolved_context_tokens", gemmaEngine.resolvedMaxTokens.value)
-            results.put("after_gemma_cold_load", ensureMemoryHealthy(context, "Gemma cold load"))
-
-            val plan = generateWithOneRepair(
-                stageName = "gemma_plan",
-                prompt = MealPlanProbePrompts.PLAN_USER,
-                generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
-                textOf = Sample::text,
-                validate = { text -> runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess to 0 },
+        if (!llamaOnly) {
+            val gemmaFile = requireNotNull(gemmaFileCandidate)
+            val gemmaConfig = ModelConfig(
+                modelPath = gemmaFile.absolutePath,
+                backendType = BackendType.GPU,
+                maxTokens = CONTEXT_TOKENS,
+                systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
+                thinkingEnabled = false,
+                speculativeDecodingEnabled = false,
             )
-            retryCount += plan.retries
-            repairCount += plan.retries
-            gemmaSamples.put("plan", plan.value.toJson(plan.valid, coldStart, gemmaColdLoadMs, plan.retries))
-            gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.RECIPE_SYSTEM)
-            val recipeStart = System.nanoTime()
-            val recipe = generateWithOneRepair(
-                stageName = "gemma_recipe",
-                prompt = MealPlanProbePrompts.RECIPE_USER,
-                generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
-                textOf = Sample::text,
-                validate = ::validateRecipe,
-            )
-            retryCount += recipe.retries
-            repairCount += recipe.retries
-            gemmaSamples.put(
-                "recipe",
-                recipe.value.toJson(recipe.valid, recipeStart, coldLoadMs = 0, retries = recipe.retries)
-                    .put("normalized_ingredients", recipe.normalizedIngredients),
-            )
+            val gemmaSamples = JSONObject().put("model_file", gemmaFile.name)
+            val gemmaEngine = newLiteRtEngine(context)
+            try {
+                val coldStart = System.nanoTime()
+                stage("gemma_initialize") { gemmaEngine.initialize(gemmaConfig) }
+                val gemmaColdLoadMs = elapsedMs(coldStart)
+                gemmaSamples.put("cold_load_ms", gemmaColdLoadMs)
+                    .put("backend", gemmaEngine.activeBackend.value?.name ?: "unknown")
+                    .put("resolved_context_tokens", gemmaEngine.resolvedMaxTokens.value)
+                results.put("after_gemma_cold_load", ensureMemoryHealthy(context, "Gemma cold load"))
 
-            gemmaSamples.put("plan_and_recipe_wall_ms", elapsedMs(coldStart))
+                val plan = generateWithOneRepair(
+                    stageName = "gemma_plan",
+                    prompt = MealPlanProbePrompts.PLAN_USER,
+                    generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
+                    textOf = Sample::text,
+                    validate = { text -> runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess to 0 },
+                )
+                retryCount += plan.retries
+                repairCount += plan.retries
+                gemmaSamples.put("plan", plan.value.toJson(plan.valid, coldStart, gemmaColdLoadMs, plan.retries))
+                gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.RECIPE_SYSTEM)
+                val recipeStart = System.nanoTime()
+                val recipe = generateWithOneRepair(
+                    stageName = "gemma_recipe",
+                    prompt = MealPlanProbePrompts.RECIPE_USER,
+                    generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
+                    textOf = Sample::text,
+                    validate = ::validateRecipe,
+                )
+                retryCount += recipe.retries
+                repairCount += recipe.retries
+                gemmaSamples.put(
+                    "recipe",
+                    recipe.value.toJson(recipe.valid, recipeStart, coldLoadMs = 0, retries = recipe.retries)
+                        .put("normalized_ingredients", recipe.normalizedIngredients),
+                )
 
-            gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.PLAN_SYSTEM)
-            val warmStart = System.nanoTime()
-            val warmPlan = stage("gemma_warm_plan") {
-                generateLiteRt(context, gemmaEngine, MealPlanProbePrompts.PLAN_USER)
+                gemmaSamples.put("plan_and_recipe_wall_ms", elapsedMs(coldStart))
+
+                gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.PLAN_SYSTEM)
+                val warmStart = System.nanoTime()
+                val warmPlan = stage("gemma_warm_plan") {
+                    generateLiteRt(context, gemmaEngine, MealPlanProbePrompts.PLAN_USER)
+                }
+                val warmPlanValid = runCatching { parser.parsePlanDraft(warmPlan.text, expectedDays = 3) }.isSuccess
+                gemmaSamples.put("warm_plan", warmPlan.toJson(warmPlanValid, warmStart, coldLoadMs = 0))
+                    .put("warm_generation_wall_ms", elapsedMs(warmStart))
+                results.put("after_gemma_generations", ensureMemoryHealthy(context, "Gemma plan and recipe"))
+            } finally {
+                stage("gemma_shutdown") { gemmaEngine.shutdown() }
             }
-            val warmPlanValid = runCatching { parser.parsePlanDraft(warmPlan.text, expectedDays = 3) }.isSuccess
-            gemmaSamples.put("warm_plan", warmPlan.toJson(warmPlanValid, warmStart, coldLoadMs = 0))
-                .put("warm_generation_wall_ms", elapsedMs(warmStart))
-            results.put("after_gemma_generations", ensureMemoryHealthy(context, "Gemma plan and recipe"))
-        } finally {
-            stage("gemma_shutdown") { gemmaEngine.shutdown() }
+            results.put("gemma", gemmaSamples)
+            Log.i(TAG, results.toString())
         }
-        results.put("gemma", gemmaSamples)
-        Log.i(TAG, results.toString())
 
         val llamaColdStart = System.nanoTime()
         val llama = stage("llama_load") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
@@ -266,9 +272,12 @@ class LlamaMealPlanComparisonTest {
         Log.i(TAG, results.toString())
 
 
-        assertTrue("LiteRT plan failed application parsing", gemmaSamples.getJSONObject("plan").getBoolean("app_valid"))
-        assertTrue("LiteRT recipe failed application parsing", gemmaSamples.getJSONObject("recipe").getBoolean("app_valid"))
-        assertTrue("LiteRT warm plan failed application parsing", gemmaSamples.getJSONObject("warm_plan").getBoolean("app_valid"))
+        if (!llamaOnly) {
+            val gemmaSamples = results.getJSONObject("gemma")
+            assertTrue("LiteRT plan failed application parsing", gemmaSamples.getJSONObject("plan").getBoolean("app_valid"))
+            assertTrue("LiteRT recipe failed application parsing", gemmaSamples.getJSONObject("recipe").getBoolean("app_valid"))
+            assertTrue("LiteRT warm plan failed application parsing", gemmaSamples.getJSONObject("warm_plan").getBoolean("app_valid"))
+        }
 
         assertTrue("llama.cpp plan failed application parsing", llamaSamples.getJSONObject("plan").getBoolean("app_valid"))
         assertTrue("llama.cpp recipe failed application parsing", llamaSamples.getJSONObject("recipe").getBoolean("app_valid"))

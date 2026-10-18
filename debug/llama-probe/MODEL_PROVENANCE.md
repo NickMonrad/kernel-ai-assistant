@@ -66,6 +66,18 @@ adb shell am instrument -w \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
+If the LiteRT/Gemma stage is blocked or intentionally not being repeated, run the same bounded GGUF stages independently with `llamaOnly=true`; this skips Gemma model discovery, initialization, and Gemma-only assertions while retaining the Qwen plan/recipe, validation, schema, cancellation/reuse, and unload/reload checks:
+
+```sh
+adb shell am instrument -w \
+  -e class com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest \
+  -e probeOnly true \
+  -e llamaOnly true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
+
+Keep prior Gemma measurements/results separate; this mode does not validate or replace the Gemma comparator.
+
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
 
 Each stage logs a sanitized `MealPlanProbe` start/completion/failure marker with elapsed time; no prompt or generated text is included. Each suspending stage has a five-minute coroutine deadline. After a host-side timeout, inspect `adb logcat -d -s MealPlanProbe`. If instrumentation remains active, stop only the isolated package with `adb shell am force-stop com.kernel.ai.debug.llamaprobe`; never stop the normal debug package. A native call may not observe coroutine cancellation until it returns, so do not rerun until the isolated process has exited.
