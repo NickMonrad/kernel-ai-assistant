@@ -104,6 +104,7 @@ class LlamaMealPlanComparisonTest {
         } finally {
             if (!nativeCallTimedOut) stage("llama_progress_shutdown") { session.close() }
         }
+        Unit
     }
 
     @Test
