@@ -338,13 +338,17 @@ class LlamaMealPlanComparisonTest {
 
     private fun gemmaModelFile(context: Context, override: String?): File {
         override?.let(::File)?.let { return it }
-        val models = listOf(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
+        val modelFiles = listOf(
+            KernelModel.GEMMA_4_E4B.fileName,
+            "gemma-4-E4B-it-gpu.litertlm",
+            KernelModel.GEMMA_4_E2B.fileName,
+        )
         val directories = listOfNotNull(
             File(context.filesDir, "models"),
             context.getExternalFilesDir("models"),
         )
         return directories.asSequence()
-            .flatMap { directory -> models.asSequence().map { model -> File(directory, model.fileName) } }
+            .flatMap { directory -> modelFiles.asSequence().map { fileName -> File(directory, fileName) } }
             .firstOrNull(File::isFile)
             ?: error("No installed Gemma E4B/E2B model exists under the app models directory")
     }
