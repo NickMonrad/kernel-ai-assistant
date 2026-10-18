@@ -139,7 +139,7 @@ class SlotFillerManagerTest {
         )
         assertFalse(manager.hasPending)
         assertEquals("Milk", completed.params["item"])
-        assertEquals("shopping list", completed.params["list_name"])
+        assertEquals("on my shopping list", completed.params["list_name"])
     }
 
     @Test
@@ -166,8 +166,7 @@ class SlotFillerManagerTest {
     }
 
     @Test
-    fun `generic shopping list replies normalize without mangling named lists`() {
-        // "shopping list" → normalize to "shopping"
+    fun `generic list replies preserve the requested name for shared resolution`() {
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -183,10 +182,10 @@ class SlotFillerManagerTest {
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "to do list"),
         )
-        assertEquals("to-do list", todo.params["list_name"])
+        assertEquals("to do list", todo.params["list_name"])
         assertFalse(manager.hasPending)
 
-        // "my shopping list" → normalize to "shopping list"
+        // Preserve the original phrasing so list resolution can try an exact title first.
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -202,10 +201,10 @@ class SlotFillerManagerTest {
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "my shopping list"),
         )
-        assertEquals("shopping list", possessive.params["list_name"])
+        assertEquals("my shopping list", possessive.params["list_name"])
         assertFalse(manager.hasPending)
 
-        // "the shopping list" → normalize to "shopping list"
+        // Preserve articles for the same exact-title-first resolution path.
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
@@ -221,7 +220,7 @@ class SlotFillerManagerTest {
             SlotFillResult.Completed::class.java,
             manager.onUserReply(conversationOne, "the shopping list"),
         )
-        assertEquals("shopping list", article.params["list_name"])
+        assertEquals("the shopping list", article.params["list_name"])
         assertFalse(manager.hasPending)
 
         // "My Tasks" (capitalized named list) → keep as-is
@@ -241,6 +240,21 @@ class SlotFillerManagerTest {
             manager.onUserReply(conversationOne, "My Tasks"),
         )
         assertEquals("My Tasks", named.params["list_name"])
+        assertFalse(manager.hasPending)
+
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "create_list",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("list_name", "What would you like to call the list?"),
+            ),
+        )
+        val listTitle = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "Meal Plan List"),
+        )
+        assertEquals("Meal Plan List", listTitle.params["list_name"])
         assertFalse(manager.hasPending)
     }
 

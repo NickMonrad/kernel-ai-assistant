@@ -150,6 +150,7 @@ class NativeIntentHandlerTest {
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
         every { context.contentResolver } returns contentResolver
+        coEvery { listNameDao.getByName(any()) } returns null
         coEvery { listNameDao.getByNameIgnoreCase(any()) } returns null
         coEvery { listNameDao.getByNameAnyLifecycleIgnoreCase(any()) } returns null
         coEvery { listNameDao.getByNameAnyLifecycle(any()) } returns null
@@ -769,9 +770,7 @@ class NativeIntentHandlerTest {
 
     private fun stubMixedCaseMealPlan() {
         coEvery { listNameDao.getByName("meal plan") } returns null
-        coEvery { listNameDao.getByNameIgnoreCase("meal plan") } returns syncedMealPlan()
-        coEvery { listNameDao.getByNameAnyLifecycle("meal plan") } returns null
-        coEvery { listNameDao.getByNameAnyLifecycleIgnoreCase("meal plan") } returns syncedMealPlan()
+        coEvery { listNameDao.getAll() } returns listOf(syncedMealPlan())
     }
 
     @Test
@@ -840,7 +839,222 @@ class NativeIntentHandlerTest {
             "Meal Plan (1 item):\n• Dinner",
             (result as SkillResult.DirectReply).content,
         )
-        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `show my todo list resolves active To do through QIR and native DAO seam`() {
+        val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 43L,
+            name = "To do",
+            canonicalTitle = "To do",
+            collectionId = "synthetic-todo",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(activeList)
+        coEvery { listItemDao.getByList(43L) } returns emptyList()
+
+        val route = com.kernel.ai.core.skills.QuickIntentRouter().route("show my todo list")
+            as com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch
+        assertEquals("get_list_items", route.intent.intentName)
+        assertEquals("todo list", route.intent.params["list_name"])
+        assertEquals("todo", route.intent.params["list_name_for_creation"])
+
+        val result = handleIntent(route.intent.intentName, route.intent.params)
+
+        assertEquals("Your To do is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listNameDao.getByName("todo list") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
+        coVerify(exactly = 1) { listItemDao.getByList(43L) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `show my grocery list resolves active Shopping through QIR and native DAO seam`() {
+        val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 44L,
+            name = "Shopping",
+            canonicalTitle = "Shopping",
+            collectionId = "synthetic-shopping",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(activeList)
+        coEvery { listItemDao.getByList(44L) } returns emptyList()
+
+        val route = com.kernel.ai.core.skills.QuickIntentRouter().route("show my grocery list")
+            as com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch
+        assertEquals("get_list_items", route.intent.intentName)
+        assertEquals("grocery list", route.intent.params["list_name"])
+        assertEquals("grocery", route.intent.params["list_name_for_creation"])
+
+        val result = handleIntent(route.intent.intentName, route.intent.params)
+
+        assertEquals("Your Shopping is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listNameDao.getByName("grocery list") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
+        coVerify(exactly = 1) { listItemDao.getByList(44L) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `slot-filled exact titles win and conversational Shopping still resolves`() {
+        val cases = listOf(
+            Triple("On My Radar", 51L, "On My Radar"),
+            Triple("In The Loop", 52L, "In The Loop"),
+            Triple("In Progress", 53L, "In Progress"),
+            Triple("To Buy", 54L, "To Buy"),
+            Triple("Shopping", 55L, "on my shopping list"),
+        )
+        val activeLists = cases.map { (title, id, _) ->
+            com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = id,
+                name = title,
+                canonicalTitle = title,
+                collectionId = "synthetic-$id",
+                lifecycle = "ACTIVE",
+            )
+        }
+        coEvery { listNameDao.getAll() } returns activeLists
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        cases.forEach { (title, id, _) ->
+            val activeList = activeLists.single { it.id == id }
+            coEvery { listNameDao.getByName(title) } returns activeList
+            coEvery { listItemDao.getByList(id) } returns emptyList()
+            coEvery { mutations.addItem(id, "Milk", any(), any()) } returns id + 100
+        }
+        val nativeHandler = handlerWithListMutations(mutations)
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            router.route("add Milk to my list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+
+        cases.forEachIndexed { index, (title, id, reply) ->
+            val conversationId = "list-title-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, reply),
+            )
+            assertEquals(reply, completed.params["list_name"])
+
+            val result = handleIntent(nativeHandler, completed.intentName, completed.params)
+
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            coVerify(exactly = 1) { mutations.addItem(id, "Milk", any(), any()) }
+        }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `slot-filled conversational prefixes resolve existing Meal Plan without creating a collection`() {
+        val mealPlan = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 56L,
+            name = "Meal Plan",
+            canonicalTitle = "Meal Plan",
+            collectionId = "synthetic-56",
+            lifecycle = "ACTIVE",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(mealPlan)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(56L, "Milk", any(), any()) } returns 57L
+        coEvery { listItemDao.getByList(56L) } returns emptyList()
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            router.route("add Milk to my list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+        val nativeHandler = handlerWithListMutations(mutations)
+
+        listOf("my Meal Plan list", "on my Meal Plan list").forEachIndexed { index, reply ->
+            val conversationId = "meal-plan-prefix-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, reply),
+            )
+            assertEquals(reply, completed.params["list_name"])
+            assertInstanceOf(
+                SkillResult.DirectReply::class.java,
+                handleIntent(nativeHandler, completed.intentName, completed.params),
+            )
+        }
+
+        coVerify(exactly = 2) { mutations.addItem(56L, "Milk", any(), any()) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+
+    @Test
+    fun `slot-filled conversational list creation keeps its prior canonical name`() {
+        coEvery { listNameDao.getAll() } returns emptyList()
+        coEvery { listNameDao.getAllAnyLifecycle() } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.createCollection("shopping list") } returns 70L
+        coEvery { mutations.createCollection("test hierarchy list") } returns 71L
+        coEvery { mutations.createCollection("to buy") } returns 72L
+        val router = com.kernel.ai.core.skills.QuickIntentRouter()
+        val route = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+            router.route("create a list"),
+        )
+        val slotFiller = com.kernel.ai.core.skills.slot.SlotFillerManager(
+            com.kernel.ai.core.skills.intent.IntentContractRegistry(),
+        )
+        val nativeHandler = handlerWithListMutations(mutations)
+        val cases = listOf(
+            "on my shopping list" to "shopping list",
+            "on my Test hierarchy list" to "test hierarchy list",
+            "To Buy" to "to buy",
+        )
+
+        cases.forEachIndexed { index, (reply, expectedName) ->
+            val conversationId = "create-list-$index"
+            slotFiller.startSlotFill(
+                conversationId,
+                com.kernel.ai.core.skills.slot.PendingSlotRequest(
+                    intentName = route.intent.intentName,
+                    existingParams = route.intent.params,
+                    missingSlot = route.missingSlot,
+                ),
+            )
+            val completed = assertInstanceOf(
+                com.kernel.ai.core.skills.slot.SlotFillResult.Completed::class.java,
+                slotFiller.onUserReply(conversationId, reply),
+            )
+            assertEquals(reply, completed.params["list_name"])
+
+            val result = handleIntent(nativeHandler, completed.intentName, completed.params)
+
+            assertEquals(
+                "Created list \"$expectedName\".",
+                (result as SkillResult.DirectReply).content,
+            )
+            coVerify(exactly = 1) { mutations.createCollection(expectedName) }
+        }
         coVerify(exactly = 0) { listNameDao.insert(any()) }
     }
 
@@ -883,10 +1097,11 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `get_list_items keeps the empty-list reply for an existing active list with no items`() {
-        coEvery { listNameDao.getByName("shopping list") } returns
-            com.kernel.ai.core.memory.entity.ListNameEntity(
-                id = 11L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
-            )
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 11L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listNameDao.getAll() } returns listOf(shoppingList)
         coEvery { listItemDao.getByList(11L) } returns emptyList()
 
         val result = handleIntent("get_list_items", mapOf("list_name" to "shopping"))
@@ -935,7 +1150,7 @@ class NativeIntentHandlerTest {
             "a list that resolves case-insensitively must not be reported as missing",
         )
         assertEquals("Meal Plan (1 item):\n• Dinner", (result as SkillResult.DirectReply).content)
-        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
     }
 
     @Test
@@ -947,7 +1162,7 @@ class NativeIntentHandlerTest {
 
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
         assertEquals("Your Meal Plan is empty.", reply.content)
-        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
     }
 
     @Test
@@ -1067,7 +1282,7 @@ class NativeIntentHandlerTest {
             lifecycle = "DELETED",
         )
         coEvery { listNameDao.getByName("meal plan") } returns null
-        coEvery { listNameDao.getByNameIgnoreCase("meal plan") } returns activeList
+        coEvery { listNameDao.getAll() } returns listOf(activeList)
         coEvery { listNameDao.getByNameAnyLifecycle("meal plan") } returns deletedTombstone
 
         val mutations = mockk<ListMutationRepository>(relaxed = true)
@@ -1081,7 +1296,7 @@ class NativeIntentHandlerTest {
             "Created list \"Meal Plan\".",
             (result as SkillResult.DirectReply).content,
         )
-        coVerify(exactly = 1) { listNameDao.getByNameIgnoreCase("meal plan") }
+        coVerify(exactly = 1) { listNameDao.getAll() }
         coVerify(exactly = 0) { listNameDao.getByNameAnyLifecycle("meal plan") }
         coVerify(exactly = 0) { listNameDao.getByNameAnyLifecycleIgnoreCase("meal plan") }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1090,10 +1305,11 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `shopping and todo aliases keep their canonical list names`() {
-        coEvery { listNameDao.getByName("shopping list") } returns
-            com.kernel.ai.core.memory.entity.ListNameEntity(id = 1L, name = "shopping list")
-        coEvery { listNameDao.getByName("to-do list") } returns
-            com.kernel.ai.core.memory.entity.ListNameEntity(id = 2L, name = "to-do list")
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(id = 1L, name = "shopping list")
+        val todoList = com.kernel.ai.core.memory.entity.ListNameEntity(id = 2L, name = "to-do list")
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listNameDao.getByName("to-do list") } returns todoList
+        coEvery { listNameDao.getAll() } returns listOf(shoppingList, todoList)
         coEvery { listItemDao.getByList(1L) } returns emptyList()
         coEvery { listItemDao.getByList(2L) } returns emptyList()
 
@@ -1110,6 +1326,7 @@ class NativeIntentHandlerTest {
             id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
         )
         coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listNameDao.getAll() } returns listOf(shoppingList)
         coEvery { listItemDao.getByList(1L) } returnsMany
             listOf(
                 emptyList(),
@@ -1137,6 +1354,189 @@ class NativeIntentHandlerTest {
             readResult,
         )
         coVerify(exactly = 2) { listItemDao.getByList(1L) }
+    }
+
+    @Test
+    fun `shopping list descriptor resolves the existing Shopping collection`() {
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 7L, name = "Shopping")
+        coEvery { listNameDao.getAll() } returns listOf(shopping)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(7L, "lactose-free yoghurt", any(), any()) } returns 31L
+        coEvery { listItemDao.getByList(7L) } returns emptyList()
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "lactose-free yoghurt", "list_name" to "shopping list"),
+        )
+        val groceryAlias = handleIntent("get_list_items", mapOf("list_name" to "grocery list"))
+
+        assertEquals("Added \"lactose-free yoghurt\" to your Shopping.", (result as SkillResult.DirectReply).content)
+        assertEquals("Your Shopping is empty.", (groceryAlias as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { mutations.addItem(7L, "lactose-free yoghurt", any(), any()) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `Meal Plan list descriptor targets the bound collection for add read and remove`() {
+        val mealPlan = syncedMealPlan()
+        val item = ListItemEntity(id = 8L, listId = 42L, text = "Dessert", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getAll() } returns listOf(mealPlan)
+        coEvery { listItemDao.getByList(42L) } returnsMany listOf(
+            listOf(item),
+            listOf(item),
+            listOf(item),
+            emptyList(),
+        )
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(42L, "Dessert", any(), any()) } returns 8L
+        coEvery { mutations.deleteItem(8L) } returns com.kernel.ai.core.memory.lists.CheckedStateMutation()
+
+        val add = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Dessert", "list_name" to "Meal Plan list"),
+        )
+        val read = handleIntent("get_list_items", mapOf("list_name" to "meal plan list"))
+        val remove = handleIntent(
+            handlerWithListMutations(mutations),
+            "remove_from_list",
+            mapOf("item" to "dessert", "list_name" to "Meal Plan list"),
+        )
+
+        assertEquals("Added \"Dessert\" to your Meal Plan.", (add as SkillResult.DirectReply).content)
+        assertEquals("Meal Plan (1 item):\n• Dessert", (read as SkillResult.DirectReply).content)
+        assertEquals("Removed \"Dessert\" from Meal Plan.", (remove as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
+        coVerify(exactly = 1) { mutations.deleteItem(8L) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `bulk add resolves arbitrary list descriptor to the existing collection`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItems(73L, listOf("Pens", "Paper")) } returns listOf(18L, 19L)
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "bulk_add_to_list",
+            mapOf("items" to """["Pens","Paper"]""", "list_name" to "Test hierarchy list"),
+        )
+
+        assertEquals(
+            "Added 2 items to your Test hierarchy:\nPens, Paper",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { mutations.addItems(73L, listOf("Pens", "Paper")) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `inverse descriptor lookup and create_list preserve existing collection identity`() {
+        val mealPlanList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 84L,
+            name = "Meal Plan List",
+            collectionId = "nextcloud-meal-plan-list",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(mealPlanList)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        val read = handleIntent("get_list_items", mapOf("list_name" to "Meal Plan"))
+        val create = handleIntent(
+            handlerWithListMutations(mutations),
+            "create_list",
+            mapOf("list_name" to "Meal Plan"),
+        )
+
+        assertEquals("Your Meal Plan List is empty.", (read as SkillResult.DirectReply).content)
+        assertEquals("Created list \"Meal Plan List\".", (create as SkillResult.DirectReply).content)
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `exact collection names stay distinct when both descriptor variants exist`() {
+        val mealPlan = com.kernel.ai.core.memory.entity.ListNameEntity(id = 41L, name = "Meal Plan")
+        val mealPlanList = com.kernel.ai.core.memory.entity.ListNameEntity(id = 42L, name = "Meal Plan List")
+        coEvery { listNameDao.getByName("Meal Plan") } returns mealPlan
+        coEvery { listNameDao.getByName("Meal Plan List") } returns mealPlanList
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(41L, "Dinner", any(), any()) } returns 1L
+        coEvery { mutations.addItem(42L, "Lunch", any(), any()) } returns 2L
+        coEvery { listItemDao.getByList(any()) } returns emptyList()
+
+        handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Dinner", "list_name" to "Meal Plan"),
+        )
+        handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Lunch", "list_name" to "Meal Plan List"),
+        )
+
+        coVerify(exactly = 1) { listNameDao.getByName("Meal Plan") }
+        coVerify(exactly = 1) { listNameDao.getByName("Meal Plan List") }
+        coVerify(exactly = 1) { mutations.addItem(41L, "Dinner", any(), any()) }
+        coVerify(exactly = 1) { mutations.addItem(42L, "Lunch", any(), any()) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `ambiguous shopping aliases ask for clarification without mutation`() {
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 10L, name = "Shopping")
+        val grocery = com.kernel.ai.core.memory.entity.ListNameEntity(id = 11L, name = "Grocery List")
+        coEvery { listNameDao.getAll() } returns listOf(shopping, grocery)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Milk", "list_name" to "groceries"),
+        )
+
+        val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("I found more than one matching list. Which list did you mean?", clarification.content)
+        coVerify(exactly = 0) { mutations.addItem(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+        verify(exactly = 0) { context.sendBroadcast(any()) }
+    }
+
+    @Test
+    fun `QIR descriptor lookup still uses the existing base name for unmatched creation`() {
+        val routed = com.kernel.ai.core.skills.QuickIntentRouter()
+            .route("add lactose-free yoghurt to my Test hierarchy list")
+        val match = assertInstanceOf(
+            com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch::class.java,
+            routed,
+        )
+        coEvery { listNameDao.getAll() } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.createCollection("test hierarchy") } returns 91L
+        coEvery { mutations.addItem(91L, "lactose-free yoghurt", any(), any()) } returns 92L
+        coEvery { listItemDao.getByList(91L) } returns emptyList()
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            match.intent.intentName,
+            match.intent.params,
+        )
+
+        assertEquals("Test hierarchy list", match.intent.params["list_name"])
+        assertEquals("Test hierarchy", match.intent.params["list_name_for_creation"])
+        assertEquals("Added \"lactose-free yoghurt\" to your test hierarchy.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { mutations.createCollection("test hierarchy") }
+        coVerify(exactly = 1) { mutations.addItem(91L, "lactose-free yoghurt", any(), any()) }
     }
     @Test
     fun `add_to_list broadcasts lists data changed after a successful insertion`() {
@@ -1168,6 +1568,7 @@ class NativeIntentHandlerTest {
             id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
         )
         coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listNameDao.getAll() } returns listOf(shoppingList)
         coEvery { listItemDao.getByList(1L) } returnsMany
             listOf(
                 emptyList(),
@@ -3003,6 +3404,48 @@ class NativeIntentHandlerTest {
                     eq(1L),
                     eq("to-do list"),
                     eq(notificationTime!!),
+                )
+            }
+        }
+
+        @Test
+        fun `add_reminder preserves existing On My Radar collection before fallback normalization`() {
+            val onMyRadar = com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 81L,
+                name = "On My Radar",
+                createdAt = 0L,
+                updatedAt = 0L,
+            )
+            val insertedItem = slot<ListItemEntity>()
+            coEvery { listNameDao.getByName("On My Radar") } returns onMyRadar
+            coEvery { listNameDao.getByName("radar") } returns null
+            coEvery { listItemDao.insert(capture(insertedItem)) } just Runs
+            coEvery { listItemDao.getByList(81L) } answers {
+                if (insertedItem.isCaptured) listOf(insertedItem.captured.copy(id = 82L)) else emptyList()
+            }
+
+            val result = handleIntent(
+                "add_reminder",
+                mapOf(
+                    "item" to "call the dentist",
+                    "list_name" to "On My Radar",
+                    "day" to "tomorrow",
+                    "time" to "9:00",
+                ),
+            )
+
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            assertEquals(81L, insertedItem.captured.listId)
+            assertEquals("call the dentist", insertedItem.captured.text)
+            coVerify(exactly = 1) { listNameDao.getByName("On My Radar") }
+            coVerify(exactly = 0) { listNameDao.insert(any()) }
+            verify {
+                listNotificationScheduler.schedule(
+                    82L,
+                    "call the dentist",
+                    81L,
+                    "On My Radar",
+                    insertedItem.captured.notificationTime!!,
                 )
             }
         }

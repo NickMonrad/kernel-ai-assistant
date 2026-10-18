@@ -414,6 +414,13 @@ Current deterministic slot-fill coverage in this sprint is:
 | `create_list` | `list_name` |
 
 `add_to_list` has no implicit default shopping-list fallback in this slot contract.
+List-name slot replies preserve the raw standalone title, including leading `In`, `To`,
+or `On`, so exact existing-name resolution runs before fallback normalization. On an exact
+miss, native fallback removes a leading preposition only when followed by `my` or `the`,
+then removes that word for alias lookup or create-on-miss naming (for example,
+`on my shopping list`). `display list called <title>` is matched before generic list reads
+so titles ending in `List` retain their full name.
+
 This sprint explicitly excludes weather/forecast, `create_calendar_event`,
 `remove_from_list`, and zero-slot toggles/media controls from multi-turn slot
 continuation. Weather/forecast stays single-turn because the existing weather path already
@@ -610,6 +617,12 @@ content through `message.toString()` in the SDK's internal form:
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
 | `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser. | ✅ — PR #989 |
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
+
+Native list actions resolve an existing exact title before case-insensitive, bounded optional
+`list`-suffix, and shopping/grocery or todo/to-do aliases, including `todo list`. Ambiguous derived matches ask
+which list was intended; canonical names are used only for the established create-on-miss behavior.
+Matching never renames or rebinds a collection.
+
 
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
