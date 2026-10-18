@@ -1,6 +1,6 @@
 # Debug probe model and runtime provenance
 
-This arm64-v8a **debug-only** library is included in the Jandal app debug variant only; the release variant has no dependency on it and no model is bundled. The app AndroidJUnitRunner skips `KernelAIApplication.onCreate` only for the explicit `probeOnly=true` instrumentation argument, leaving ordinary instrumentation tests unchanged.
+The `llamaProbe` debug build type packages this arm64-v8a library in a separate app ID (`com.kernel.ai.debug.llamaprobe`) and uses a test-only `ProbeApplication`; normal debug and release identities/startup remain unchanged. `ProbeIsolatedRunner` suppresses `Application.onCreate` only when the explicit `probeOnly=true` argument is set. The probe instrumentation asserts its package/Application identity, verifies the marker proves `onCreate` was skipped, and refuses to proceed if its package-local `JobScheduler` has pending work. Because Android scopes scheduled jobs to their scheduling application/UID, pre-existing jobs for `com.kernel.ai.debug` cannot be dispatched into this distinct package. No job is disabled, canceled, or rescheduled. No model is bundled.
 
 ## Runtime
 
@@ -33,13 +33,31 @@ The model file is supplied separately to the debug probe and is not included in 
 ## Host build and bounded device invocation
 
 ```sh
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :debug:llama-probe:testDebugUnitTest
-adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug/files/models
-adb push qwen2.5-1.5b-instruct-q4_k_m.gguf /sdcard/Android/data/com.kernel.ai.debug/files/models/
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleLlamaProbe :app:assembleLlamaProbeAndroidTest :debug:llama-probe:testDebugUnitTest
+```
+
+After confirming APK package IDs, signer and install safety, install only the dedicated `llamaProbe` app/test APKs. Copy (do not move or remove) the existing model files into:
+
+`/sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/`
+
+Run the short startup/job-isolation check before any model initialization:
+
+```sh
+adb shell am instrument -w \
+  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#probePackageIsIsolatedFromPersistedAppJobs' \
+  -e probeOnly true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
+
+Only after that check passes, run the full bounded comparison with explicit paths to the copied files:
+
+```sh
 adb shell am instrument -w \
   -e class com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest \
   -e probeOnly true \
-  com.kernel.ai.debug.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+  -e gemmaModelPath /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/<Gemma-file> \
+  -e llamaModelPath /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
-The test finds an existing E-4B or E-2B file under the target app's private `files/models` directory, and the GGUF under app-specific external `files/models`. It records only sanitized timing, validation and memory metrics; it does not print generated text. The test loads/unloads one model at a time and stops if Android reports `ActivityManager.MemoryInfo.lowMemory`.
+The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.

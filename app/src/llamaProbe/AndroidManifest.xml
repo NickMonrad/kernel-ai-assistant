@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:name="com.kernel.ai.debug.llamaprobe.ProbeApplication"
+        tools:replace="android:name" />
+</manifest>

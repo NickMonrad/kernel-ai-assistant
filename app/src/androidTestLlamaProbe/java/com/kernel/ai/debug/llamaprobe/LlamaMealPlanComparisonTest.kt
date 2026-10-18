@@ -1,12 +1,14 @@
 package com.kernel.ai.debug.llamaprobe
 
 import android.app.ActivityManager
+import android.app.job.JobScheduler
 import android.content.Context
 import android.os.Debug
 import android.os.Process
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kernel.ai.KernelAIApplication
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
@@ -34,12 +36,15 @@ class LlamaMealPlanComparisonTest {
     private val quantityValidator = MealPlanQuantityValidator()
 
     @Test
+    fun probePackageIsIsolatedFromPersistedAppJobs() {
+        assertProbeIsolation(InstrumentationRegistry.getInstrumentation().targetContext)
+    }
+
+    @Test
     fun compareLiteRtThenLlamaSequentiallyAndVerifyCancelReuse() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        require(InstrumentationRegistry.getArguments().getString(ProbeIsolatedRunner.ARG_PROBE_ONLY) == "true") {
-            "Run only with probeOnly=true to suppress Jandal application startup"
-        }
+        assertProbeIsolation(context)
         val gemmaFile = gemmaModelFile(context, InstrumentationRegistry.getArguments().getString("gemmaModelPath"))
         val llamaFile = llamaModelFile(context, InstrumentationRegistry.getArguments().getString("llamaModelPath"))
         require(gemmaFile.isFile) { "Gemma model file is missing" }
@@ -413,6 +418,28 @@ class LlamaMealPlanComparisonTest {
         .put("generated_tokens", generatedTokens)
         .put("memory", memory)
 
+    private fun assertProbeIsolation(context: Context) {
+        require(InstrumentationRegistry.getArguments().getString(ProbeIsolatedRunner.ARG_PROBE_ONLY) == "true") {
+            "Run only with probeOnly=true"
+        }
+        require(context.packageName == PROBE_APPLICATION_ID) {
+            "Run the dedicated llamaProbe package; existing app WorkManager jobs are not isolated in the normal debug package"
+        }
+        require(context.applicationContext is ProbeApplication) {
+            "The isolated probe package must use ProbeApplication"
+        }
+        require(context.applicationContext !is KernelAIApplication) {
+            "The isolated probe must not create KernelAIApplication"
+        }
+        require(!ProbeApplication.onCreateObserved) {
+            "ProbeIsolatedRunner unexpectedly called ProbeApplication.onCreate"
+        }
+        val pendingJobs = requireNotNull(context.getSystemService(JobScheduler::class.java)).allPendingJobs
+        require(pendingJobs.isEmpty()) {
+            "The isolated probe package already has ${pendingJobs.size} scheduled jobs; stop before model initialization"
+        }
+    }
+
     private fun elapsedMs(start: Long): Long = (System.nanoTime() - start) / 1_000_000
 
     companion object {
@@ -420,5 +447,6 @@ class LlamaMealPlanComparisonTest {
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val MODEL_FILE_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+        private const val PROBE_APPLICATION_ID = "com.kernel.ai.debug.llamaprobe"
     }
 }

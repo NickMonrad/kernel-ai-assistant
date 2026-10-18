@@ -60,6 +60,12 @@ android {
             signingConfig = signingConfigs.getByName("debugSigning")
             buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai.debug://oauth/callback\"")
         }
+        create("llamaProbe") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".debug.llamaprobe"
+            signingConfig = signingConfigs.getByName("debugSigning")
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     buildFeatures {
@@ -95,6 +101,14 @@ android {
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
             )
+        }
+    }
+}
+
+androidComponents {
+    beforeVariants { variantBuilder ->
+        if (variantBuilder.buildType == "llamaProbe") {
+            variantBuilder.enableAndroidTest = true
         }
     }
 }
@@ -337,6 +351,8 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
     debugImplementation(project(":debug:llama-probe"))
+    add("llamaProbeImplementation", files(inflectSherpaAar.absolutePath))
+    add("llamaProbeImplementation", project(":debug:llama-probe"))
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)
