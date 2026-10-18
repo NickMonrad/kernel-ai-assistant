@@ -12,7 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Singleton
 class NoteSmartTitleUseCase @Inject constructor(
@@ -28,6 +30,13 @@ class NoteSmartTitleUseCase @Inject constructor(
         job = scope.launch {
             try {
                 delay(DEBOUNCE_MS)
+                val engineReady = withTimeoutOrNull(ENGINE_READY_TIMEOUT_MS) {
+                    inferenceEngine.isReady.first { it }
+                } == true
+                if (!engineReady) {
+                    Log.w(TAG, "Smart title generation skipped; inference engine did not become ready for note $noteId")
+                    return@launch
+                }
                 val note = noteDao.getNoteById(noteId) ?: return@launch
                 // Bail if another operation already generated a title or the user typed one.
                 if (note.smartTitleGenerated) return@launch
@@ -108,6 +117,7 @@ class NoteSmartTitleUseCase @Inject constructor(
     companion object {
         private const val TAG = "KernelAI"
         private const val DEBOUNCE_MS = 500L
+        private const val ENGINE_READY_TIMEOUT_MS = 30_000L
         private const val EXCERPT_LIMIT = 400
         private const val MAX_WORDS = 5
         private const val MAX_CHARS = 60
