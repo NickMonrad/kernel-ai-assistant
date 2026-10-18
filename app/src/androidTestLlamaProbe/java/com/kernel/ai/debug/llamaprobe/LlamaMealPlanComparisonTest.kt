@@ -20,6 +20,7 @@ import com.kernel.ai.core.skills.mealplan.MealPlanJsonParser
 import com.kernel.ai.core.skills.mealplan.MealPlanQuantityValidator
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -44,13 +45,13 @@ class LlamaMealPlanComparisonTest {
     fun compareLiteRtThenLlamaSequentiallyAndVerifyCancelReuse() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        assertProbeIsolation(context)
+        stage("probe_isolation") { assertProbeIsolation(context) }
         val gemmaFile = gemmaModelFile(context, InstrumentationRegistry.getArguments().getString("gemmaModelPath"))
         val llamaFile = llamaModelFile(context, InstrumentationRegistry.getArguments().getString("llamaModelPath"))
         require(gemmaFile.isFile) { "Gemma model file is missing" }
         require(llamaFile.isFile) { "Qwen GGUF file is missing" }
 
-        val preflight = memorySnapshot(context)
+        val preflight = stage("memory_preflight") { memorySnapshot(context) }
         val results = JSONObject()
             .put("probe_pid", Process.myPid())
             .put("preflight", preflight)
@@ -72,7 +73,7 @@ class LlamaMealPlanComparisonTest {
         val gemmaEngine = newLiteRtEngine(context)
         try {
             val coldStart = System.nanoTime()
-            gemmaEngine.initialize(gemmaConfig)
+            stage("gemma_initialize") { gemmaEngine.initialize(gemmaConfig) }
             val gemmaColdLoadMs = elapsedMs(coldStart)
             gemmaSamples.put("cold_load_ms", gemmaColdLoadMs)
                 .put("backend", gemmaEngine.activeBackend.value?.name ?: "unknown")
@@ -80,6 +81,7 @@ class LlamaMealPlanComparisonTest {
             results.put("after_gemma_cold_load", ensureMemoryHealthy(context, "Gemma cold load"))
 
             val plan = generateWithOneRepair(
+                stageName = "gemma_plan",
                 prompt = MealPlanProbePrompts.PLAN_USER,
                 generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
                 textOf = Sample::text,
@@ -91,6 +93,7 @@ class LlamaMealPlanComparisonTest {
             gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.RECIPE_SYSTEM)
             val recipeStart = System.nanoTime()
             val recipe = generateWithOneRepair(
+                stageName = "gemma_recipe",
                 prompt = MealPlanProbePrompts.RECIPE_USER,
                 generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
                 textOf = Sample::text,
@@ -108,19 +111,21 @@ class LlamaMealPlanComparisonTest {
 
             gemmaEngine.updateSystemPrompt(MealPlanProbePrompts.PLAN_SYSTEM)
             val warmStart = System.nanoTime()
-            val warmPlan = generateLiteRt(context, gemmaEngine, MealPlanProbePrompts.PLAN_USER)
+            val warmPlan = stage("gemma_warm_plan") {
+                generateLiteRt(context, gemmaEngine, MealPlanProbePrompts.PLAN_USER)
+            }
             val warmPlanValid = runCatching { parser.parsePlanDraft(warmPlan.text, expectedDays = 3) }.isSuccess
             gemmaSamples.put("warm_plan", warmPlan.toJson(warmPlanValid, warmStart, coldLoadMs = 0))
                 .put("warm_generation_wall_ms", elapsedMs(warmStart))
             results.put("after_gemma_generations", ensureMemoryHealthy(context, "Gemma plan and recipe"))
         } finally {
-            gemmaEngine.shutdown()
+            stage("gemma_shutdown") { gemmaEngine.shutdown() }
         }
         results.put("gemma", gemmaSamples)
         Log.i(TAG, results.toString())
 
         val llamaColdStart = System.nanoTime()
-        val llama = LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+        val llama = stage("llama_load") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         val llamaColdLoadMs = llama.loadMs
         val llamaSamples = JSONObject()
             .put("cold_load_ms", llamaColdLoadMs)
@@ -129,6 +134,7 @@ class LlamaMealPlanComparisonTest {
         try {
             results.put("after_llama_cold_load", ensureMemoryHealthy(context, "llama.cpp cold load"))
             val plan = generateWithOneRepair(
+                stageName = "llama_plan",
                 prompt = MealPlanProbePrompts.PLAN_USER,
                 generate = { prompt ->
                     llama.generate(prompt, MealPlanProbePrompts.PLAN_SYSTEM, MealPlanProbeSchemas.plan())
@@ -144,6 +150,7 @@ class LlamaMealPlanComparisonTest {
             )
             val recipeStart = System.nanoTime()
             val recipe = generateWithOneRepair(
+                stageName = "llama_recipe",
                 prompt = MealPlanProbePrompts.RECIPE_USER,
                 generate = { prompt ->
                     llama.generate(prompt, MealPlanProbePrompts.RECIPE_SYSTEM, MealPlanProbeSchemas.recipe(expectedServings = 4))
@@ -161,31 +168,37 @@ class LlamaMealPlanComparisonTest {
 
             llamaSamples.put("plan_and_recipe_wall_ms", elapsedMs(llamaColdStart))
 
-            val invalidSchemaFailure = runCatching {
-                llama.generate("probe", "probe", """{"type":"array","items":{"type":"string"},"uniqueItems":true}""")
-            }.exceptionOrNull()
+            val invalidSchemaFailure = stage("llama_unsupported_schema") {
+                runCatching {
+                    llama.generate("probe", "probe", """{"type":"array","items":{"type":"string"},"uniqueItems":true}""")
+                }.exceptionOrNull()
+            }
             llamaSamples.put("invalid_schema_rejected", invalidSchemaFailure is UnsupportedSchemaException)
             assertTrue("unsupported schema was not rejected", invalidSchemaFailure is UnsupportedSchemaException)
             assertTrue("invalid schema left generation active", !llama.isGenerating)
-            val nativeFailure = runCatching {
+            val nativeFailure = stage("llama_native_error_recovery") {
+                runCatching {
+                    llama.generate(
+                        MealPlanProbePrompts.PLAN_USER,
+                        MealPlanProbePrompts.PLAN_SYSTEM,
+                        MealPlanProbeSchemas.plan(),
+                        maxTokens = 1,
+                    )
+                }.exceptionOrNull()
+            }
+            llamaSamples.put("native_error_recovered", nativeFailure is IllegalStateException && !llama.isGenerating)
+            assertTrue("native incomplete-generation error was not surfaced", nativeFailure is IllegalStateException)
+            stage("llama_native_idle") { llama.awaitNativeIdle() }
+            assertTrue("native failure left generation active", !llama.isGenerating)
+
+            val warmStart = System.nanoTime()
+            val warmPlan = stage("llama_warm_plan") {
                 llama.generate(
                     MealPlanProbePrompts.PLAN_USER,
                     MealPlanProbePrompts.PLAN_SYSTEM,
                     MealPlanProbeSchemas.plan(),
-                    maxTokens = 1,
                 )
-            }.exceptionOrNull()
-            llamaSamples.put("native_error_recovered", nativeFailure is IllegalStateException && !llama.isGenerating)
-            assertTrue("native incomplete-generation error was not surfaced", nativeFailure is IllegalStateException)
-            llama.awaitNativeIdle()
-            assertTrue("native failure left generation active", !llama.isGenerating)
-
-            val warmStart = System.nanoTime()
-            val warmPlan = llama.generate(
-                MealPlanProbePrompts.PLAN_USER,
-                MealPlanProbePrompts.PLAN_SYSTEM,
-                MealPlanProbeSchemas.plan(),
-            )
+            }
             val warmPlanValid = runCatching { parser.parsePlanDraft(warmPlan.text, expectedDays = 3) }.isSuccess
             llamaSamples.put(
                 "warm_plan",
@@ -200,21 +213,27 @@ class LlamaMealPlanComparisonTest {
                     maxTokens = 1024,
                 )
             }
-            withTimeout(30_000) {
-                while (!llama.isGenerating) delay(25)
+            stage("llama_cancellation_wait") {
+                withTimeout(30_000) {
+                    while (!llama.isGenerating) delay(25)
+                }
             }
-            cancellation.cancel()
-            cancellation.join()
-            llama.awaitNativeIdle()
+            stage("llama_cancellation_drain") {
+                cancellation.cancel()
+                cancellation.join()
+                llama.awaitNativeIdle()
+            }
             ensureMemoryHealthy(context, "llama cancellation")
             assertTrue("generation job was not cancelled", cancellation.isCancelled)
             assertTrue("native generation remains active after cancellation", !llama.isGenerating)
             val reuseStart = System.nanoTime()
-            val reused = llama.generate(
-                MealPlanProbePrompts.PLAN_USER,
-                MealPlanProbePrompts.PLAN_SYSTEM,
-                MealPlanProbeSchemas.plan(),
-            )
+            val reused = stage("llama_reuse_after_cancellation") {
+                llama.generate(
+                    MealPlanProbePrompts.PLAN_USER,
+                    MealPlanProbePrompts.PLAN_SYSTEM,
+                    MealPlanProbeSchemas.plan(),
+                )
+            }
             val reuseValid = runCatching { parser.parsePlanDraft(reused.text, expectedDays = 3) }.isSuccess
             llamaSamples.put(
                 "cancelled_then_reused",
@@ -222,23 +241,25 @@ class LlamaMealPlanComparisonTest {
             )
             results.put("after_llama_generations", ensureMemoryHealthy(context, "llama cancellation and reuse"))
         } finally {
-            llama.close()
+            stage("llama_shutdown") { llama.close() }
         }
 
         val reloadStart = System.nanoTime()
-        val reloaded = LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+        val reloaded = stage("llama_reload") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         try {
-            val reloadedPlan = reloaded.generate(
-                MealPlanProbePrompts.PLAN_USER,
-                MealPlanProbePrompts.PLAN_SYSTEM,
-                MealPlanProbeSchemas.plan(),
-            )
+            val reloadedPlan = stage("llama_plan_after_reload") {
+                reloaded.generate(
+                    MealPlanProbePrompts.PLAN_USER,
+                    MealPlanProbePrompts.PLAN_SYSTEM,
+                    MealPlanProbeSchemas.plan(),
+                )
+            }
             val reloadedValid = runCatching { parser.parsePlanDraft(reloadedPlan.text, expectedDays = 3) }.isSuccess
             llamaSamples.put("reload_load_ms", reloaded.loadMs)
                 .put("reload_to_usable_ms", elapsedMs(reloadStart))
                 .put("after_unload_reload", reloadedPlan.toJson(reloadedValid, reloadStart, ensureMemoryHealthy(context, "llama unload/reload")))
         } finally {
-            reloaded.close()
+            stage("llama_reload_shutdown") { reloaded.close() }
         }
         results.put("llama", llamaSamples)
         results.put("retry_count", retryCount).put("repair_count", repairCount)
@@ -267,7 +288,31 @@ class LlamaMealPlanComparisonTest {
         val retries: Int,
     )
 
+    private suspend fun <T> stage(name: String, block: suspend () -> T): T {
+        val started = System.nanoTime()
+        Log.i(TAG, "stage=$name event=start")
+        return try {
+            withTimeout(STAGE_TIMEOUT_MS) { block() }.also {
+                Log.i(TAG, "stage=$name event=complete elapsed_ms=${elapsedMs(started)}")
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            Log.e(
+                TAG,
+                "stage=$name event=timeout elapsed_ms=${elapsedMs(started)} limit_ms=$STAGE_TIMEOUT_MS",
+            )
+            throw timeout
+        } catch (failure: Throwable) {
+            Log.e(
+                TAG,
+                "stage=$name event=failed elapsed_ms=${elapsedMs(started)} " +
+                    "exception=${failure.javaClass.simpleName}",
+            )
+            throw failure
+        }
+    }
+
     private suspend fun <T> generateWithOneRepair(
+        stageName: String,
         prompt: String,
         generate: suspend (String) -> T,
         textOf: (T) -> String,
@@ -278,7 +323,7 @@ class LlamaMealPlanComparisonTest {
             val attemptPrompt = if (retries == 0) prompt else {
                 "$prompt\n\nThe previous response failed Jandal application validation. Correct the JSON and return only the corrected output."
             }
-            val result = generate(attemptPrompt)
+            val result = stage("${stageName}_attempt_${retries + 1}") { generate(attemptPrompt) }
             val (valid, normalizedIngredients) = validate(textOf(result))
             if (valid || retries == 1) return ValidatedOutput(result, valid, normalizedIngredients, retries)
             retries++
@@ -459,6 +504,7 @@ class LlamaMealPlanComparisonTest {
 
     companion object {
         private const val TAG = "MealPlanProbe"
+        private const val STAGE_TIMEOUT_MS = 5 * 60 * 1_000L
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val MODEL_FILE_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"

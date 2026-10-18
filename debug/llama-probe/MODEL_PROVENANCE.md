@@ -67,3 +67,5 @@ adb shell am instrument -w \
 ```
 
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
+
+Each stage logs a sanitized `MealPlanProbe` start/completion/failure marker with elapsed time; no prompt or generated text is included. Each suspending stage has a five-minute coroutine deadline. After a host-side timeout, inspect `adb logcat -d -s MealPlanProbe`. If instrumentation remains active, stop only the isolated package with `adb shell am force-stop com.kernel.ai.debug.llamaprobe`; never stop the normal debug package. A native call may not observe coroutine cancellation until it returns, so do not rerun until the isolated process has exited.
