@@ -4,18 +4,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object MealPlanProbeSchemas {
-    fun plan(expectedDays: Int): String {
-        require(expectedDays > 0) { "expectedDays must be positive" }
+    fun plan(): String {
         val day = objectSchema(
             properties = JSONObject()
-                .put("day_index", integer(0, expectedDays - 1))
+                .put("day_index", integer(0, 6))
                 .put("title", string(1))
                 .put("summary", string(1))
                 .put("protein_tags", array(string(), min = 0)),
-            required = listOf("day_index", "title", "summary", "protein_tags"),
+            required = listOf("day_index", "title", "summary"),
         )
         return objectSchema(
-            properties = JSONObject().put("days", array(day, min = expectedDays, max = expectedDays)),
+            properties = JSONObject().put("days", array(day, min = 3, max = 7)),
             required = listOf("days"),
         ).toString()
     }
@@ -31,21 +30,16 @@ object MealPlanProbeSchemas {
                 .put("note", string()),
             required = listOf("original_text", "amount", "unit", "item"),
         )
-        val step = objectSchema(
-            properties = JSONObject()
-                .put("step_number", integer(1, 5))
-                .put("text", string(1)),
-            required = listOf("step_number", "text"),
-        )
         return objectSchema(
             properties = JSONObject()
                 .put("title", string(1))
                 .put("servings", integer(expectedServings, expectedServings))
                 .put("ingredients", array(ingredient, min = 6, max = 8))
-                .put("method_steps", array(step, min = 3, max = 5)),
+                .put("method_steps", array(string(1), min = 3, max = 5)),
             required = listOf("title", "servings", "ingredients", "method_steps"),
         ).toString()
     }
+
 
     private fun objectSchema(properties: JSONObject, required: List<String>): JSONObject = JSONObject()
         .put("type", "object")

@@ -22,7 +22,11 @@ This arm64-v8a **debug-only** library is included in the Jandal app debug varian
 
 ## Schema constraints
 
-The probe derives its two-day plan and recipe schemas from the existing `MealPlanJsonParser`, `MealPlanQuantityValidator`, and `MealPlannerCoordinator` prompt contracts. It uses only object/array/string/integer nodes, `properties`, `required`, `items`, `additionalProperties:false`, item/length bounds, and integer minimum/maximum. Each schema is checked against that allowlist before calling the upstream converter. Unsupported keywords (including `uniqueItems`, `pattern`, refs, unions, and conditionals) are rejected; the converter is never allowed to silently relax one of these schemas. Generated strings are then passed through the existing application parser and quantity validator.
+The plan schema follows the parser's dynamic day-index contract and Issue #975's canonical 3–7 day range; `protein_tags` is optional. The comparison request asks for three days so both model paths use the same fixed input.
+
+The recipe schema follows the current `MealPlanJsonParser` and `MealPlanQuantityValidator`: ingredient objects use `original_text`, `amount`, `unit`, and `item`, and `method_steps` are strings. Issue #975 lists `name`, but the current parser does not consume it and instead requires `original_text`; the current source is authoritative. The parser also accepts numeric amounts by converting them to strings, but the pinned llama.cpp schema subset cannot express the canonical string-or-number union. The constrained schema therefore emits numeric amounts as strings. Unsupported schema keywords and type unions are rejected before JNI; the upstream converter never receives a schema this probe cannot validate.
+
+The instrumentation validates generated output through the same application plan parser or recipe parser plus quantity validator. On semantic validation failure it makes one bounded corrective generation; `wall_to_usable_ms` includes the cold load (for the first plan), every generation/retry, and application validation. `plan_and_recipe_wall_ms` starts before model initialization/load and ends after both outputs pass application validation. Failed output has `wall_to_usable_ms:null` and its elapsed `attempt_wall_ms`; per-sample and aggregate retry/repair counters are recorded.
 
 The model file is supplied separately to the debug probe and is not included in the APK or repository.
 
