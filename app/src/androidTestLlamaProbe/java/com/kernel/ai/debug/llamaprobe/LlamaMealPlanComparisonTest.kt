@@ -336,11 +336,18 @@ class LlamaMealPlanComparisonTest {
         (items.size == expected.size && normalized == expected.size && exactItems) to normalized
     }.getOrElse { false to 0 }
 
-    private fun gemmaModelFile(context: Context, override: String?): File = override?.let(::File)
-        ?: listOf(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
-            .map { File(File(context.filesDir, "models"), it.fileName) }
+    private fun gemmaModelFile(context: Context, override: String?): File {
+        override?.let(::File)?.let { return it }
+        val models = listOf(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
+        val directories = listOfNotNull(
+            File(context.filesDir, "models"),
+            context.getExternalFilesDir("models"),
+        )
+        return directories.asSequence()
+            .flatMap { directory -> models.asSequence().map { model -> File(directory, model.fileName) } }
             .firstOrNull(File::isFile)
-        ?: error("No installed Gemma E4B/E2B model exists under the app models directory")
+            ?: error("No installed Gemma E4B/E2B model exists under the app models directory")
+    }
 
     private fun llamaModelFile(context: Context, override: String?): File {
         if (override != null) return File(override)
