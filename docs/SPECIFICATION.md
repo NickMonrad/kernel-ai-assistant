@@ -615,7 +615,7 @@ content through `message.toString()` in the SDK's internal form:
 | `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
-| `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser. | ✅ — PR #989 |
+| `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser; an untitled note starts the preferred local conversation model on demand under the shared initialization lock, then waits up to 30 seconds for readiness before generating a title. If inference remains unavailable, the saved note content is retained. | ✅ — PR #989 |
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
 Native list actions resolve an existing exact title before case-insensitive, bounded optional

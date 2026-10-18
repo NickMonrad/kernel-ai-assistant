@@ -1,8 +1,13 @@
 package com.kernel.ai.core.memory.usecase
 
 import android.util.Log
+import com.google.ai.edge.litertlm.ToolProvider
+import com.kernel.ai.core.inference.Gemma4InitLock
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.ModelConfig
+import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.memory.dao.NoteDao
+import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,12 +17,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Singleton
 class NoteSmartTitleUseCase @Inject constructor(
     private val noteDao: NoteDao,
     private val inferenceEngine: InferenceEngine,
+    private val modelDownloadManager: ModelDownloadManager,
+    private val modelSettingsRepository: ModelSettingsRepository,
+    private val toolProvider: ToolProvider,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<Long, Job>()
@@ -29,10 +41,40 @@ class NoteSmartTitleUseCase @Inject constructor(
             try {
                 delay(DEBOUNCE_MS)
                 val note = noteDao.getNoteById(noteId) ?: return@launch
-                // Bail if another operation already generated a title or the user typed one.
-                if (note.smartTitleGenerated) return@launch
-                if (!note.title.isNullOrBlank()) return@launch
-                val content = note.content.trim()
+                if (note.smartTitleGenerated || !note.title.isNullOrBlank()) return@launch
+                if (note.content.isBlank()) return@launch
+
+                val engineReady = awaitInferenceEngineReady(
+                    isReady = inferenceEngine.isReady,
+                    timeoutMs = ENGINE_READY_TIMEOUT_MS,
+                ) {
+                    Gemma4InitLock.mutex.withLock {
+                        if (inferenceEngine.isReady.value) return@withLock
+
+                        val model = modelDownloadManager.preferredConversationModel()
+                        val modelPath = modelDownloadManager.getModelPath(model) ?: return@withLock
+                        val settings = modelSettingsRepository.getSettings(model.modelId)
+                        inferenceEngine.initialize(
+                            ModelConfig(
+                                modelPath = modelPath,
+                                maxTokens = settings.contextWindowSize,
+                                temperature = settings.temperature,
+                                topP = settings.topP,
+                                topK = settings.topK,
+                                thinkingEnabled = settings.showThinkingProcess,
+                                speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
+                                toolProvider = toolProvider,
+                            ),
+                        )
+                    }
+                }
+                if (!engineReady) {
+                    Log.w(TAG, "Smart title generation skipped; inference engine did not become ready for note $noteId")
+                    return@launch
+                }
+                val currentNote = noteDao.getNoteById(noteId) ?: return@launch
+                if (currentNote.smartTitleGenerated || !currentNote.title.isNullOrBlank()) return@launch
+                val content = currentNote.content.trim()
                 if (content.isBlank()) return@launch
                 val generated = generateTitle(content) ?: return@launch
                 val updated = noteDao.updateNoteTitleConditionally(noteId, generated)
@@ -108,6 +150,7 @@ class NoteSmartTitleUseCase @Inject constructor(
     companion object {
         private const val TAG = "KernelAI"
         private const val DEBOUNCE_MS = 500L
+        private const val ENGINE_READY_TIMEOUT_MS = 30_000L
         private const val EXCERPT_LIMIT = 400
         private const val MAX_WORDS = 5
         private const val MAX_CHARS = 60
@@ -129,3 +172,13 @@ class NoteSmartTitleUseCase @Inject constructor(
         private val WHITESPACE_RE = Regex("\\s+")
     }
 }
+
+internal suspend fun awaitInferenceEngineReady(
+    isReady: StateFlow<Boolean>,
+    timeoutMs: Long,
+    initializeIfNeeded: suspend () -> Unit,
+): Boolean = withTimeoutOrNull(timeoutMs) {
+    initializeIfNeeded()
+    isReady.first { it }
+    true
+} == true

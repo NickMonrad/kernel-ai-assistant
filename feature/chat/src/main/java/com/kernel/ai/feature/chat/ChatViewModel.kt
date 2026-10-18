@@ -17,6 +17,7 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.HALF_JANDAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.IdentityTier
+import com.kernel.ai.core.inference.Gemma4InitLock
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.LlmDispatcher
@@ -95,7 +96,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -475,8 +475,6 @@ class ChatViewModel @Inject constructor(
             else -> null to null // system = use dynamic colour
         }
 
-    /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
-    private val gemma4InitMutex = Mutex()
 
     private data class EngineState(
         val isReady: Boolean,
@@ -1091,8 +1089,8 @@ class ChatViewModel @Inject constructor(
      * Waits for all required models to be on disk, then loads the preferred
      * conversation model with a visible loading screen ([ChatUiState.Loading]).
      *
-     * Protected by [gemma4InitMutex] — the same lock used by [initGemma4] — so a concurrent
-     * [sendMessage] call during the ~20s GPU init cannot race here, double-close the
+     * Protected by [Gemma4InitLock.mutex], shared with [initGemma4] and note-title startup, so a
+     * concurrent [sendMessage] call during the ~20s GPU init cannot race here, double-close the
      * embedding engine, or orphan the GPU engine allocation.
      */
     private suspend fun initEngineWhenReady() {
@@ -1100,7 +1098,7 @@ class ChatViewModel @Inject constructor(
             .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
-        gemma4InitMutex.withLock {
+        Gemma4InitLock.mutex.withLock {
             _modelInitializationError.value = null
             try {
                 if (inferenceEngine.isReady.value) {
@@ -1113,6 +1111,7 @@ class ChatViewModel @Inject constructor(
                     inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                         activeContextWindowSize = it
                     }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
                     return
                 }
                 Log.i(TAG, "Eager inference initialization waiting for app foreground")
@@ -1130,6 +1129,7 @@ class ChatViewModel @Inject constructor(
                     inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                         activeContextWindowSize = it
                     }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
                     return
                 }
 
@@ -1171,10 +1171,10 @@ class ChatViewModel @Inject constructor(
      * Lazily initialises the Gemma-4 [InferenceEngine] on the first [sendMessage] that
      * routes to the streaming path.
      *
-     * Uses [gemma4InitMutex] to guarantee idempotency: if called concurrently the second
-     * caller waits for the first to finish, then finds [InferenceEngine.isReady] already
-     * true, hydrates the ViewModel-local model/settings state and returns without
-     * re-initialising the engine (#1459).
+     * Uses the process-wide [Gemma4InitLock.mutex], shared with note-title startup, to guarantee
+     * idempotency: if called concurrently, the second caller waits for the first to finish,
+     * then finds [InferenceEngine.isReady] already true, hydrates the ViewModel-local
+     * model/settings state and returns without re-initialising the engine (#1459).
      *
      * Only waits for the preferred conversation model to be on disk via
      * [ModelDownloadManager.getModelPath] (file-existence check) — does NOT block on the
@@ -1182,7 +1182,7 @@ class ChatViewModel @Inject constructor(
      * recognised immediately.
      */
     private suspend fun initGemma4(safeModelTest: Boolean = false) {
-        gemma4InitMutex.withLock {
+        Gemma4InitLock.mutex.withLock {
             _modelInitializationError.value = null
             try {
                 if (inferenceEngine.isReady.value) {
@@ -1193,6 +1193,7 @@ class ChatViewModel @Inject constructor(
                     inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                         activeContextWindowSize = it
                     }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
                     return
                 }
 
