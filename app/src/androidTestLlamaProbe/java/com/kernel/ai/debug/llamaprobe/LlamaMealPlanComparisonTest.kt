@@ -178,6 +178,7 @@ class LlamaMealPlanComparisonTest {
         } finally {
             stage("llama_prefill_cancel_shutdown") { session.close() }
         }
+        Unit
     }
 
     @Test
