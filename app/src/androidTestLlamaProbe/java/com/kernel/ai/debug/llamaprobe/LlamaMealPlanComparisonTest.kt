@@ -154,9 +154,9 @@ class LlamaMealPlanComparisonTest {
                 stage("llama_session_reuse_after_prefill_abort") {
                     withTimeout(SESSION_REUSE_TIMEOUT_MS) {
                         session.generate(
-                            prompt = "Return a JSON object with ok set to true.",
+                            prompt = "Return the one-letter JSON string a.",
                             systemPrompt = "Return only JSON.",
-                            schemaJson = """{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}""",
+                            schemaJson = """{"type":"string"}""",
                             maxTokens = 1,
                             reportProgress = true,
                             onText = { reusedRequestChunks.incrementAndGet() },
