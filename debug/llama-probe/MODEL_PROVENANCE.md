@@ -8,6 +8,8 @@ The `llamaProbe` debug build type packages this arm64-v8a library in a separate 
 - Pin: [`620d2225cc436ab0b001e3200e590e3b286ef9ab`](https://github.com/ggml-org/llama.cpp/tree/620d2225cc436ab0b001e3200e590e3b286ef9ab), release `v0.7.0`.
 - Native constrained decoding: `llama_sampler_init_grammar`; JSON Schema conversion: upstream `common/json-schema-to-grammar.cpp`.
 - The native runtime is CPU-only (`n_gpu_layers=0`). No llama.cpp Android GPU capability is claimed.
+
+The Debug native build adds `-O3` to every C/C++ target in this CMake tree, including fetched llama.cpp/ggml, while retaining the Android Debug configuration and its debug information. This follows the verified Box SmolLM build at [`f27b78d`](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/build.gradle.kts), which selects CMake Release; [its CMake targets](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/src/main/cpp/CMakeLists.txt) also use `-O3` for native wrappers. This is a compiler-configuration comparison, not measured performance evidence; the probe remains CPU-only and the existing cancellation/teardown instrumentation is unchanged.
 - Upstream license: MIT (`https://github.com/ggml-org/llama.cpp/blob/620d2225cc436ab0b001e3200e590e3b286ef9ab/LICENSE`).
 
 ## Model

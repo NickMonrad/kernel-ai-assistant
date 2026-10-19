@@ -15,6 +15,11 @@ set(LLAMA_LLGUIDANCE OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 
+# Android's Debug toolchain defaults to -O0. Keep the Debug configuration and its -g
+# information, but optimize every native target (including fetched llama.cpp/ggml) like
+# the Box reference build so the probe's CPU prefill is not measured at -O0.
+add_compile_options("$<$<CONFIG:Debug>:-O3>")
+
 FetchContent_Declare(
     llama_cpp
     GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
