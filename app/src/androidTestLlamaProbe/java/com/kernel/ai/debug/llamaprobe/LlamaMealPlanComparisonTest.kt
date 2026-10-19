@@ -109,6 +109,78 @@ class LlamaMealPlanComparisonTest {
     }
 
     @Test
+    fun boundedLfmPrefillCancellationDrainsAndReusesSession() = runBlocking {
+        assumeTrue(
+            "invoke only with -e llamaPrefillCancelOnly true",
+            InstrumentationRegistry.getArguments().getString("llamaPrefillCancelOnly") == "true",
+        )
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        stage("probe_isolation") { assertProbeIsolation(context) }
+        val llamaFile = llamaModelFile(context, InstrumentationRegistry.getArguments().getString("llamaModelPath"))
+        require(llamaFile.isFile) { "LFM2.5 GGUF file is missing" }
+        val preflight = stage("prefill_cancel_memory_preflight") { memorySnapshot(context) }
+        Log.i(TAG, "prefill_cancel_preflight=$preflight")
+        check(!preflight.getBoolean("low_memory")) {
+            "Android reports lowMemory before the bounded prefill cancellation test"
+        }
+        val session = stage("llama_prefill_cancel_load") {
+            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+        }
+        val cancelledRequestChunks = AtomicInteger()
+        try {
+            val pendingRequest = async(Dispatchers.Default) {
+                session.generate(
+                    prompt = MealPlanProbePrompts.PLAN_USER,
+                    systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
+                    schemaJson = MealPlanProbeSchemas.plan(),
+                    maxTokens = 1,
+                    reportProgress = true,
+                    onText = { cancelledRequestChunks.incrementAndGet() },
+                )
+            }
+            delay(PREFILL_CANCEL_DELAY_MS)
+            check(pendingRequest.isActive) {
+                "The bounded prefill request completed before cancellation could be exercised"
+            }
+            Log.i(TAG, "prefill_cancel event=request_cancel delay_ms=$PREFILL_CANCEL_DELAY_MS")
+            pendingRequest.cancel()
+            pendingRequest.join()
+            stage("llama_prefill_cancel_drain") { session.awaitNativeIdle() }
+            assertEquals("Cancelled request emitted token chunks", 0, cancelledRequestChunks.get())
+            assertEquals("Native request remained active after its worker drained", false, session.isGenerating)
+
+            val reusedRequestChunks = AtomicInteger()
+            try {
+                stage("llama_session_reuse_after_prefill_abort") {
+                    withTimeout(SESSION_REUSE_TIMEOUT_MS) {
+                        session.generate(
+                            prompt = "Return a JSON object with ok set to true.",
+                            systemPrompt = "Return only JSON.",
+                            schemaJson = """{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}""",
+                            maxTokens = 1,
+                            reportProgress = true,
+                            onText = { reusedRequestChunks.incrementAndGet() },
+                        )
+                    }
+                }
+            } catch (incomplete: IllegalStateException) {
+                if (incomplete.message != "llama.cpp generation reached maxTokens before end-of-generation") {
+                    throw incomplete
+                }
+            }
+            stage("llama_session_reuse_drain") { session.awaitNativeIdle() }
+            assertEquals("Reused native request remained active after draining", false, session.isGenerating)
+            Log.i(
+                TAG,
+                "prefill_cancel event=verified cancelled_chunks=${cancelledRequestChunks.get()} " +
+                    "reuse_chunks=${reusedRequestChunks.get()}",
+            )
+        } finally {
+            stage("llama_prefill_cancel_shutdown") { session.close() }
+        }
+    }
+
+    @Test
     fun compareLiteRtThenLlamaSequentiallyAndVerifyCancelReuse() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -612,6 +684,8 @@ class LlamaMealPlanComparisonTest {
         private const val TAG = "MealPlanProbe"
         private const val STAGE_TIMEOUT_MS = 5 * 60 * 1_000L
         private const val FIRST_TOKEN_TIMEOUT_MS = 60_000L
+        private const val PREFILL_CANCEL_DELAY_MS = 2_000L
+        private const val SESSION_REUSE_TIMEOUT_MS = 60_000L
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val MODEL_FILE_NAME = "LFM2.5-2.6B-Q4_K_M.gguf"

@@ -28,11 +28,35 @@ struct ProbeSession {
     llama_context * context = nullptr;
     const llama_vocab * vocab = nullptr;
     std::mutex generation_mutex;
+    std::atomic<int64_t> active_request_id{0};
     std::atomic<int64_t> cancelled_request{0};
+    std::atomic<bool> abort_logged{false};
 
     ~ProbeSession() {
         if (context != nullptr) llama_free(context);
         if (model != nullptr) llama_model_free(model);
+    }
+};
+
+bool abort_if_cancelled(void * user_data) {
+    auto * session = static_cast<ProbeSession *>(user_data);
+    const int64_t active_request_id = session->active_request_id.load(std::memory_order_acquire);
+    if (active_request_id == 0 ||
+        session->cancelled_request.load(std::memory_order_acquire) != active_request_id) {
+        return false;
+    }
+    if (!session->abort_logged.exchange(true, std::memory_order_relaxed)) {
+        __android_log_print(ANDROID_LOG_INFO, "JandalLlamaProbe",
+                            "event=prefill_abort_callback request_id=%lld",
+                            static_cast<long long>(active_request_id));
+    }
+    return true;
+}
+
+struct ActiveRequestGuard {
+    ProbeSession & session;
+    ~ActiveRequestGuard() {
+        session.active_request_id.store(0, std::memory_order_release);
     }
 };
 
@@ -175,6 +199,8 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         context_params.n_batch = static_cast<uint32_t>(context_size);
         context_params.n_threads = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
         context_params.n_threads_batch = context_params.n_threads;
+        context_params.abort_callback = abort_if_cancelled;
+        context_params.abort_callback_data = session.get();
         __android_log_print(
             ANDROID_LOG_INFO, "LlamaProbeNative",
             "event=context_config n_ctx=%u n_batch=%u n_ubatch=%u n_threads=%d n_threads_batch=%d",
@@ -205,7 +231,12 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         if (user_prompt.size() > 64 * 1024 || system.size() > 16 * 1024 || schema_text.size() > 64 * 1024) {
             throw std::invalid_argument("Probe prompt or schema exceeds the bounded input size");
         }
-        if (session->cancelled_request.load() == request_id) throw std::runtime_error("Generation cancelled");
+        if (session->cancelled_request.load(std::memory_order_acquire) == request_id) {
+            throw std::runtime_error("Generation cancelled");
+        }
+        session->active_request_id.store(request_id, std::memory_order_release);
+        session->abort_logged.store(false, std::memory_order_relaxed);
+        ActiveRequestGuard active_request_guard{*session};
 
         const auto request_start = std::chrono::steady_clock::now();
         const bool report_progress = progress_logging == JNI_TRUE;
@@ -299,6 +330,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         prefill_cpu_sample_condition.notify_all();
         if (prefill_cpu_sampler.joinable()) prefill_cpu_sampler.join();
         if (prefill_status != 0) {
+            if (session->cancelled_request.load(std::memory_order_acquire) == request_id) {
+                throw std::runtime_error("Generation cancelled");
+            }
             throw std::runtime_error("llama.cpp prompt evaluation failed");
         }
         if (report_progress) {
@@ -391,7 +425,11 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             const auto decode_start = report_progress
                 ? std::chrono::steady_clock::now()
                 : std::chrono::steady_clock::time_point{};
-            if (llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+            const int decode_status = llama_process(session->context, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+            if (decode_status != 0) {
+                if (session->cancelled_request.load(std::memory_order_acquire) == request_id) {
+                    throw std::runtime_error("Generation cancelled");
+                }
                 throw std::runtime_error("llama.cpp token evaluation failed");
             }
             if (report_progress) {
@@ -441,7 +479,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeCancel(
         JNIEnv * env, jobject, jlong handle, jlong request_id) {
     try {
-        session_from(handle)->cancelled_request.store(request_id);
+        session_from(handle)->cancelled_request.store(request_id, std::memory_order_release);
     } catch (const std::exception & error) {
         throw_java(env, "java/lang/IllegalStateException", error.what());
     }

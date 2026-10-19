@@ -7,6 +7,7 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellableContinuation
@@ -165,7 +166,14 @@ class LlamaCppSession private constructor(
 
     suspend fun awaitNativeIdle() {
         withContext(Dispatchers.IO) {
-            executor.submit { Unit }.get()
+            try {
+                executor.submit { Unit }.get(NATIVE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (timeout: TimeoutException) {
+                throw IllegalStateException(
+                    "llama.cpp worker did not become idle within ${NATIVE_DRAIN_TIMEOUT_SECONDS}s",
+                    timeout,
+                )
+            }
         }
     }
 
@@ -180,10 +188,21 @@ class LlamaCppSession private constructor(
                 if (activeRequestId.get() == requestId) nativeCancel(nativeHandle, requestId)
             }
         }
+        val closeTask = executor.submit { nativeClose(nativeHandle) }
+        executor.shutdown()
         withContext(Dispatchers.IO) {
-            executor.submit { nativeClose(nativeHandle) }.get()
-            executor.shutdown()
-            check(executor.awaitTermination(30, TimeUnit.SECONDS)) { "llama.cpp worker did not terminate" }
+            try {
+                closeTask.get(NATIVE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (timeout: TimeoutException) {
+                throw IllegalStateException(
+                    "llama.cpp native close did not drain within ${NATIVE_DRAIN_TIMEOUT_SECONDS}s; " +
+                        "native close remains queued behind the active request",
+                    timeout,
+                )
+            }
+            check(executor.awaitTermination(EXECUTOR_EXIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                "llama.cpp worker did not terminate after native close"
+            }
         }
     }
 
@@ -202,6 +221,8 @@ class LlamaCppSession private constructor(
     private external fun nativeClose(handle: Long)
 
     companion object {
+        private const val NATIVE_DRAIN_TIMEOUT_SECONDS = 30L
+        private const val EXECUTOR_EXIT_TIMEOUT_SECONDS = 5L
         init {
             System.loadLibrary("jandal_llama_probe")
         }
