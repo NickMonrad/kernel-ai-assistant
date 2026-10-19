@@ -88,10 +88,20 @@ adb shell am instrument -w \
   com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
 ```
 
+To verify cooperative cancellation during the known long CPU prefill and same-session reuse, run this single bounded isolated test after the normal package/signer/version and memory preflight:
+
+```sh
+adb shell am instrument -w \
+  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#boundedLfmPrefillCancellationDrainsAndReusesSession' \
+  -e probeOnly true \
+  -e llamaPrefillCancelOnly true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
+
 `LlamaProbeNative` emits only sanitized phase markers and token counts/timings (grammar, tokenization, prefill, sampling, token decode); it never logs prompt or generated text. In progress mode it also records effective context/batch/thread settings and process-wide CPU-time deltas every five seconds while prefill is blocked. Rising CPU deltas indicate active work; near-zero deltas suggest a wait or starvation but do not prove deadlock. A one-token cap is only runtime/streaming evidence, not a usable meal plan or acceptance pass. On timeout, inspect the last native phase marker and stop only the isolated probe package if it remains active; do not repeat without new evidence.
 
 The comparison records only sanitized timing, validation and memory metrics; it does not print generated text. It loads/unloads one model at a time and retains the existing low-memory stop behavior.
 
-The JNI bridge sends raw token-piece bytes to Kotlin through a reusable byte array. Kotlin's strict incremental UTF-8 decoder buffers split code points and rejects malformed or truncated output; `onText` runs synchronously on the single native worker. A complete generation returns `LlamaGeneration`; schema/native/cancellation failures remain terminal exceptions. Cancellation is serialized against callbacks, and callers drain the worker with `awaitNativeIdle()` before reuse. The probe records native token TTFT separately from visible UTF-8 stream TTFT and chunk count. Streaming begins only after synchronous prompt prefill returns; it does not interrupt or resolve a prefill stall.
+The JNI bridge sends raw token-piece bytes to Kotlin through a reusable byte array. Kotlin's strict incremental UTF-8 decoder buffers split code points and rejects malformed or truncated output; `onText` runs synchronously on the single native worker. A complete generation returns `LlamaGeneration`; schema/native/cancellation failures remain terminal exceptions. Cancellation is serialized against callbacks. The pinned CPU backend's abort callback can stop a request at graph-node boundaries, but cannot interrupt an operation already in progress. `awaitNativeIdle()` and `close()` bound worker draining to 30 seconds; on close timeout, native destruction remains queued behind the worker rather than freeing callback state concurrently. Streaming begins only after prompt prefill returns.
 
 Each stage logs a sanitized `MealPlanProbe` start/completion/failure marker with elapsed time; no prompt or generated text is included. Each suspending stage has a five-minute coroutine deadline. After a host-side timeout, inspect `adb logcat -d -s MealPlanProbe`. If instrumentation remains active, stop only the isolated package with `adb shell am force-stop com.kernel.ai.debug.llamaprobe`; never stop the normal debug package. A native call may not observe coroutine cancellation until it returns, so do not rerun until the isolated process has exited.
