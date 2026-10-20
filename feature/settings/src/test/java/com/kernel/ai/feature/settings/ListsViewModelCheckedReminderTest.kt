@@ -19,6 +19,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -30,7 +31,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListsViewModelCheckedReminderTest {
@@ -69,6 +73,60 @@ class ListsViewModelCheckedReminderTest {
         preferences,
         nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
+
+    @Test
+    fun `checked-state reminder reconciliation stays on IO dispatcher`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val checked = item(1L, checked = false)
+        val restored = item(2L, checked = false, notificationTime = triggerAtMs)
+        val alarmThreads = mutableListOf<String>()
+        val alarmsCompleted = CountDownLatch(2)
+        coEvery { listMutations.setItemChecked(checked.id, true) } returns CheckedStateMutation(
+            checkedIds = setOf(checked.id),
+            uncheckedIds = setOf(restored.id),
+        )
+        coEvery { dao.getById(restored.id) } returns restored
+        coEvery { listNameDao.getById(restored.listId) } returns ListNameEntity(
+            id = restored.listId,
+            name = "groceries",
+        )
+        every { scheduler.cancel(checked.id) } answers {
+            synchronized(alarmThreads) { alarmThreads += Thread.currentThread().name }
+            alarmsCompleted.countDown()
+            Unit
+        }
+        every { scheduler.schedule(any(), any(), any(), any(), any()) } answers {
+            synchronized(alarmThreads) { alarmThreads += Thread.currentThread().name }
+            alarmsCompleted.countDown()
+            Unit
+        }
+        val reminderDispatcher = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "list-reminder-io").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+
+        try {
+            val viewModel = testViewModel(preferences).apply {
+                ioDispatcher = reminderDispatcher
+            }
+
+            viewModel.toggleChecked(checked)
+
+            assertTrue(alarmsCompleted.await(2, TimeUnit.SECONDS))
+            assertTrue(alarmThreads.all { it.startsWith("list-reminder-io") })
+            verify(exactly = 1) { scheduler.cancel(checked.id) }
+            verify(exactly = 1) {
+                scheduler.schedule(
+                    restored.id,
+                    restored.text,
+                    restored.listId,
+                    "groceries",
+                    triggerAtMs,
+                )
+            }
+        } finally {
+            reminderDispatcher.close()
+        }
+    }
 
     @Test
     fun `reorder and group entry point switches to manual order`() {

@@ -620,32 +620,34 @@ class ListsViewModel @Inject constructor(
         lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
         removedItemIds: Set<Long> = emptySet(),
     ) {
-        val cancellationIds = (
-            mutation.checkedIds +
-                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
-                removedItemIds
-            ).toSet()
-        cancellationIds.forEach(scheduler::cancel)
+        withContext(ioDispatcher) {
+            val cancellationIds = (
+                mutation.checkedIds +
+                    lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
+                    removedItemIds
+                ).toSet()
+            cancellationIds.forEach(scheduler::cancel)
 
-        val restoredIds = lifecycleTransitions
-            .filter { !it.wasActive && it.isActive }
-            .map { it.itemId }
-            .toSet()
-        val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
-        val now = System.currentTimeMillis()
-        scheduleIds.forEach { id ->
-            val item = dao.getById(id) ?: return@forEach
-            if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
-            val list = listNameDao.getById(item.listId) ?: return@forEach
-            if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
-            val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
-            scheduler.schedule(
-                itemId = item.id,
-                itemText = item.text,
-                listId = item.listId,
-                listName = list.name,
-                triggerAtMs = triggerAtMs,
-            )
+            val restoredIds = lifecycleTransitions
+                .filter { !it.wasActive && it.isActive }
+                .map { it.itemId }
+                .toSet()
+            val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
+            val now = System.currentTimeMillis()
+            scheduleIds.forEach { id ->
+                val item = dao.getById(id) ?: return@forEach
+                if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val list = listNameDao.getById(item.listId) ?: return@forEach
+                if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
+                scheduler.schedule(
+                    itemId = item.id,
+                    itemText = item.text,
+                    listId = item.listId,
+                    listName = list.name,
+                    triggerAtMs = triggerAtMs,
+                )
+            }
         }
     }
 
@@ -1045,7 +1047,9 @@ class ListsViewModel @Inject constructor(
                 contentMutationOrMessage {
                     listMutations.deleteCollection(listId)
                 } ?: return@launch
-                reminders.forEach { scheduler.cancel(it.id) }
+                withContext(ioDispatcher) {
+                    reminders.forEach { scheduler.cancel(it.id) }
+                }
             } finally {
                 listDeletionsInFlight.remove(listId)
             }

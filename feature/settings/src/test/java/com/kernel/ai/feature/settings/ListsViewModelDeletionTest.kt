@@ -14,6 +14,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -24,6 +25,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListsViewModelDeletionTest {
@@ -71,9 +76,11 @@ class ListsViewModelDeletionTest {
     }
 
     @Test
-    fun `successful local deletion commits before cancelling reminders`() {
+    fun `successful local deletion commits before cancelling reminders on IO`() {
         val item = reminderItem(id = 7L, listId = 9L)
         val events = mutableListOf<String>()
+        val cancellationThread = AtomicReference<String>()
+        val cancellationCompleted = CountDownLatch(1)
         val dao = mockk<ListItemDao>(relaxed = true).apply {
             every { observeAll() } returns flowOf(emptyList())
             coEvery { getAllWithNotification(9L) } returns listOf(item)
@@ -82,7 +89,12 @@ class ListsViewModelDeletionTest {
             every { observeActiveLists() } returns flowOf(emptyList())
         }
         val scheduler = mockk<ListNotificationScheduler>(relaxed = true).apply {
-            every { cancel(item.id) } answers { events += "cancel" }
+            every { cancel(item.id) } answers {
+                events += "cancel"
+                cancellationThread.set(Thread.currentThread().name)
+                cancellationCompleted.countDown()
+                Unit
+            }
         }
         val mutations = mockk<ListMutationRepository>(relaxed = true).apply {
             coEvery { deleteCollection(9L) } coAnswers {
@@ -90,12 +102,23 @@ class ListsViewModelDeletionTest {
                 Unit
             }
         }
-        val viewModel = viewModel(dao, listNameDao, scheduler, mutations)
+        val reminderDispatcher = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "list-reminder-io").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
 
-        viewModel.deleteList(9L)
+        try {
+            val viewModel = viewModel(dao, listNameDao, scheduler, mutations).apply {
+                ioDispatcher = reminderDispatcher
+            }
+            viewModel.deleteList(9L)
 
-        assertEquals(listOf("delete", "cancel"), events)
-        assertEquals(null, viewModel.nextcloudMessage)
+            assertTrue(cancellationCompleted.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf("delete", "cancel"), events)
+            assertTrue(cancellationThread.get().startsWith("list-reminder-io"))
+            assertEquals(null, viewModel.nextcloudMessage)
+        } finally {
+            reminderDispatcher.close()
+        }
     }
 
     @Test
