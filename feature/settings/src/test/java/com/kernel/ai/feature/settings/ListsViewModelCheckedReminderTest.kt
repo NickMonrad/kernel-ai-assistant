@@ -17,9 +17,9 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -31,10 +31,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
+import kotlin.coroutines.CoroutineContext
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListsViewModelCheckedReminderTest {
@@ -79,8 +77,20 @@ class ListsViewModelCheckedReminderTest {
         val triggerAtMs = System.currentTimeMillis() + 60_000L
         val checked = item(1L, checked = false)
         val restored = item(2L, checked = false, notificationTime = triggerAtMs)
-        val alarmThreads = mutableListOf<String>()
-        val alarmsCompleted = CountDownLatch(2)
+        val alarmDispatchStates = mutableListOf<Boolean>()
+        val reminderDispatcher = object : CoroutineDispatcher() {
+            var dispatchDepth = 0
+                private set
+
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                dispatchDepth++
+                try {
+                    block.run()
+                } finally {
+                    dispatchDepth--
+                }
+            }
+        }
         coEvery { listMutations.setItemChecked(checked.id, true) } returns CheckedStateMutation(
             checkedIds = setOf(checked.id),
             uncheckedIds = setOf(restored.id),
@@ -91,40 +101,29 @@ class ListsViewModelCheckedReminderTest {
             name = "groceries",
         )
         every { scheduler.cancel(checked.id) } answers {
-            synchronized(alarmThreads) { alarmThreads += Thread.currentThread().name }
-            alarmsCompleted.countDown()
+            alarmDispatchStates += reminderDispatcher.dispatchDepth > 0
             Unit
         }
         every { scheduler.schedule(any(), any(), any(), any(), any()) } answers {
-            synchronized(alarmThreads) { alarmThreads += Thread.currentThread().name }
-            alarmsCompleted.countDown()
+            alarmDispatchStates += reminderDispatcher.dispatchDepth > 0
             Unit
         }
-        val reminderDispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "list-reminder-io").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
 
-        try {
-            val viewModel = testViewModel(preferences).apply {
-                ioDispatcher = reminderDispatcher
-            }
+        val viewModel = testViewModel(preferences).apply {
+            ioDispatcher = reminderDispatcher
+        }
+        viewModel.toggleChecked(checked)
 
-            viewModel.toggleChecked(checked)
-
-            assertTrue(alarmsCompleted.await(2, TimeUnit.SECONDS))
-            assertTrue(alarmThreads.all { it.startsWith("list-reminder-io") })
-            verify(exactly = 1) { scheduler.cancel(checked.id) }
-            verify(exactly = 1) {
-                scheduler.schedule(
-                    restored.id,
-                    restored.text,
-                    restored.listId,
-                    "groceries",
-                    triggerAtMs,
-                )
-            }
-        } finally {
-            reminderDispatcher.close()
+        assertEquals(listOf(true, true), alarmDispatchStates)
+        verify(exactly = 1) { scheduler.cancel(checked.id) }
+        verify(exactly = 1) {
+            scheduler.schedule(
+                restored.id,
+                restored.text,
+                restored.listId,
+                "groceries",
+                triggerAtMs,
+            )
         }
     }
 
