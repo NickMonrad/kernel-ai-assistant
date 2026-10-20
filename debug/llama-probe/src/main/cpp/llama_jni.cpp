@@ -330,6 +330,11 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         prefill_cpu_sample_condition.notify_all();
         if (prefill_cpu_sampler.joinable()) prefill_cpu_sampler.join();
         if (prefill_status != 0) {
+            __android_log_print(
+                ANDROID_LOG_WARN, "LlamaProbeNative",
+                "event=prefill_failed request_id=%lld status=%d prompt_tokens=%d input_position_start=0 input_position_end_exclusive=%d n_ctx=%u",
+                static_cast<long long>(request_id), prefill_status, prompt_token_count,
+                prompt_token_count, llama_n_ctx(session->context));
             if (session->cancelled_request.load(std::memory_order_acquire) == request_id) {
                 throw std::runtime_error("Generation cancelled");
             }
