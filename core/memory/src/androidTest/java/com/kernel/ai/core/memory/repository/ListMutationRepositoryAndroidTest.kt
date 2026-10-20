@@ -384,7 +384,7 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
-    fun `adding a sub-item appends, reopens its parent, and preserves created details`() = runBlocking {
+    fun addingSubItemAppendsReopensParentAndPreservesCreatedDetails() = runBlocking {
         val listId = repository.createCollection("Add child")
         val parentId = repository.addItem(listId, "Parent")
         val parent = requireNotNull(database.listItemDao().getById(parentId))
