@@ -281,6 +281,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         BatchPtr batch(llama_batch_ext_init(session->context), &llama_batch_ext_free);
         if (!batch) throw std::runtime_error("Could not allocate llama.cpp batch");
 
+        // Every request starts a new prompt at position zero; discard the prior sequence state.
+        llama_memory_clear(llama_get_memory(session->context), false);
+
         batch_set_tokens(batch.get(), prompt_tokens.data(), prompt_token_count, 0);
         const auto prefill_start = report_progress
             ? std::chrono::steady_clock::now()
