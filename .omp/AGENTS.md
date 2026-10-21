@@ -58,6 +58,8 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 
 ## Agent working model
 
+Start from the issue or request, its acceptance criteria, and the existing implementation. Prefer the smallest change that satisfies them; do not redesign neighbouring systems or repeat a planning phase after a design is accepted. Proceed with settled decisions and safe, reversible steps without asking again. Escalate only a genuine unresolved decision, inaccessible prerequisite, or consequential/destructive action not already authorised.
+
 Work inline by default when the request is one coherent feature, defect, review, or remediation task. Multi-file scope, expected duration, and generic complexity are not reasons to delegate.
 
 The active agent owns issue interpretation, scope, architecture and design decisions, cross-component contracts, implementation sequencing, the integrated change, final validation, complete-diff review, and PR handoff.
@@ -117,11 +119,11 @@ connectedDebugAndroidTest   # requires device
 
 ## rtk — output control
 
-Use `rtk` for output-heavy builds, tests, lint, logs, diffs, searches, and JSON when supported so raw output does not consume the context. Common forms: `rtk test <cmd>`, `rtk lint <cmd>`, `rtk log <cmd>`, `rtk git status`, `rtk git diff`, `rtk grep <pattern>`, `rtk err <cmd>`, `rtk summary <cmd>`, and `rtk json <cmd>`. Do not wrap short or interactive commands where filtering provides no benefit.
+Prefer `rtk` for output-heavy builds, tests, lint, logs, diffs, searches, and JSON when it is available and preserves the diagnostic information needed. Use raw output when filtering hides a failure. Common forms: `rtk test <cmd>`, `rtk lint <cmd>`, `rtk log <cmd>`, `rtk git status`, `rtk git diff`, `rtk grep <pattern>`, `rtk err <cmd>`, `rtk summary <cmd>`, and `rtk json <cmd>`. Do not wrap short or interactive commands where filtering provides no benefit.
 
 ## context-mode — routing
 
-context-mode is installed globally (MCP tools + native OMP hooks). Follow `~/.omp/agent/SYSTEM.md` when available. Otherwise use `ctx_execute(language, code)` for count/filter/parse/transform analysis so only concise stdout enters context; do not read large raw data when code can summarise it.
+When context-mode is available, follow `~/.omp/agent/SYSTEM.md` if present. Use `ctx_execute(language, code)` for large count/filter/parse/transform tasks when summarised output is sufficient; retain raw evidence when diagnosing errors. Do not block on the tool being unavailable.
 
 ## Branching & PR standards
 
@@ -153,16 +155,16 @@ See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallba
 > Publishing under the wrong number misroutes dashboard evidence to the wrong PR.
 
 **For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
-If on-device testing is needed, ask which device tier is required (S21 tracked signal or S23U reference signal)
-and whether the results should be published to `test-results`.
+For on-device testing, use the device and publication instructions already agreed in the issue or conversation. Otherwise follow `.docs/agents/risk-based-evidence-policy.md`: S21 is the default evidence device; use S23U when the policy or issue calls for it. Do not pause merely to reconfirm a known device. You may create and clean up disposable local test data needed for the approved test, but do not alter unrelated personal data or remote accounts without authorisation. Publish to `test-results` only when explicitly requested, and distinguish tests actually executed on-device from APK packaging or CI checks.
 
 Details: `.docs/agents/test-evidence-workflow.md`.
 
 ## Working style
 
-- Search before reading; read surgically and minimally
-- Use `lsp` for all code intelligence — not grep
-- Reuse existing context; prefer targeted validation
+- Start from the issue, changed files, and known paths; search and read only what is needed
+- Prefer `lsp` for symbols, definitions, references, and call sites; use targeted text search for text, configuration, resources, or when LSP is unavailable
+- Reuse existing context and select validation from `.docs/agents/validation.md` and `.docs/agents/risk-based-evidence-policy.md`; do not run broad checks solely out of habit
+- When changing shared routing, normalisation, persistence, execution, or lifecycle paths, check materially affected existing consumers for regressions
 - Prefer small, reviewable diffs; match surrounding style
 
 ## Performance targets
