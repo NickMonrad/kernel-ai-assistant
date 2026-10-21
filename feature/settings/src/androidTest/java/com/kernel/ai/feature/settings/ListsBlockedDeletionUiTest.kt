@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -155,6 +157,58 @@ class ListsBlockedDeletionUiTest {
             }
         }
         verify(exactly = 0) { scheduler.cancel(any()) }
+    }
+
+    @Test
+    fun blockedSingleUnavailableDeleteShowsGuidanceAndPreservesListItemsBindingAndReminders() {
+        val fixture = fixtures.single { !it.binding.remoteAvailable }
+        openOverflowMenuFor(fixture.list.name)
+
+        composeTestRule.onNodeWithText("Delete", useUnmergedTree = true).performClick()
+        composeTestRule.onNodeWithText("""Delete "${fixture.list.name}"?""").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Delete", useUnmergedTree = true).performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 10_000L) {
+            viewModel.nextcloudMessage == ListMutationBlockedException.UNAVAILABLE_MESSAGE
+        }
+        composeTestRule.onNodeWithText(
+            ListMutationBlockedException.UNAVAILABLE_MESSAGE,
+            substring = true,
+        ).assertIsDisplayed()
+
+        assertEquals(emptySet<Long>(), viewModel.selectedListIds)
+        composeTestRule.onNodeWithText(fixture.list.name).assertIsDisplayed()
+        runBlocking {
+            assertEquals(fixture.list, database.listNameDao().getById(fixture.list.id))
+            assertEquals(
+                fixture.items,
+                database.listItemDao().getAllByListAnyLifecycle(fixture.list.id),
+            )
+            assertEquals(
+                fixture.reminders,
+                database.listItemDao().getAllWithNotification(fixture.list.id),
+            )
+            assertEquals(
+                fixture.binding,
+                database.nextcloudCollectionBindingDao().get(fixture.list.collectionId),
+            )
+        }
+        verify(exactly = 0) { scheduler.cancel(any()) }
+    }
+
+    private fun openOverflowMenuFor(listName: String) {
+        val rowCenterY = composeTestRule.onNodeWithText(listName)
+            .fetchSemanticsNode()
+            .boundsInRoot.center.y
+        val overflowMenus = composeTestRule.onAllNodesWithContentDescription(
+            "More options",
+            useUnmergedTree = true,
+        )
+        val menuIndex = overflowMenus.fetchSemanticsNodes().indexOfFirst { menu ->
+            rowCenterY in menu.boundsInRoot.top..menu.boundsInRoot.bottom
+        }
+        assertTrue("Expected an overflow menu in $listName's row", menuIndex >= 0)
+        overflowMenus[menuIndex].performClick()
     }
 
     private suspend fun seedBlockedLists(): List<BlockedListFixture> {
