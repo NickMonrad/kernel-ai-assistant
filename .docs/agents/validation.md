@@ -54,13 +54,12 @@ device's wake/unlock state before classifying this error as a product or
 Compose test-harness defect. This failure mode was observed during #1482
 validation.
 
-## Pre-PR checklist
+## Before opening a PR
 
-1. `./gradlew test` passes
-2. `./gradlew lint` passes (no new warnings)
-3. `./gradlew assembleDebug` succeeds
-4. If UI changes with navigation or permission interaction: `./gradlew connectedDebugAndroidTest` passes
-5. Device test evidence on S21 for medium/high risk changes (see `.docs/agents/risk-based-evidence-policy.md`)
+1. Classify the change using `.docs/agents/risk-based-evidence-policy.md` and any applicable subsystem review gate.
+2. Run the **smallest relevant local checks** described above and in that policy. In particular, docs-only changes need `git diff --check` (and configured Markdown lint), not unconditional Android builds, lint, or unit tests.
+3. For changed shared paths, cover relevant existing consumers, not only the new acceptance example.
+4. For UI, permissions, inference, and other device-sensitive work, collect the device evidence required by the risk policy and issue. S21 is the default where the policy permits it; a specified device should not trigger a redundant confirmation request. Report anything not run rather than treating an instrumentation APK build as an executed test.
+5. After opening the PR, inspect the individual CI **Build (debug)**, **Lint**, and **Unit tests** step outcomes, not just the overall workflow result. These steps currently use `continue-on-error: true`, so a green workflow can conceal failed checks. Report each failure as a failure; do not claim validation passed based only on the workflow conclusion. CI does not replace required physical-device evidence; evidence publication remains separately controlled by the requester/reviewer.
 
-> **Note:** Not all changes require device testing. See the risk-based evidence policy for
-> when CI-only, screenshot, or device evidence applies.
+A broader local `./gradlew test`, `lint`, or `assembleDebug` run is appropriate when the scope warrants it, but it is not a universal pre-PR prerequisite.

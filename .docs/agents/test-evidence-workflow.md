@@ -206,25 +206,22 @@ cannot resolve the CI run), use the lower-level
 - On-device evidence (must be published locally — the workflow prints the command to run).
 
 ### On-device evidence (local/manual)
-For **on-device evidence**, the agent (when explicitly instructed):
+For **on-device evidence**, the agent (when required by the issue, risk policy, or an explicit request):
 
 1. Checks `adb devices` and confirms `ANDROID_SERIAL`.
 2. Builds and installs the app if required (`./gradlew installDebug`).
 3. Runs `scripts/adb_skill_test.py` with the relevant phase(s).
 4. Finds the generated report in `scripts/test-reports/`.
 5. Normalises the report to match the evidence schema.
-6. Publishes locally with `scripts/publish_test_evidence.py` using appropriate flags.
+6. **Only when publication is explicitly authorised**, publishes locally with `scripts/publish_test_evidence.py` using appropriate flags.
 7. Optionally triggers dashboard refresh — if `gh` auth is available and the user has explicitly instructed publication, the agent may manually trigger the "Publish test dashboard" workflow after local publish.
-8. Reports the commands used, report path, published path, and dashboard outcome.
+8. Reports the commands used and report path, plus any published path and dashboard outcome if publication was authorised.
 
 **Agent guidance for on-device evidence:**
 
-- Before starting on-device work, **ask whether on-device testing is required** if it is not already explicit
-  in the issue or user request. On-device testing requires a physical device, USB/wireless ADB connection,
-  and the app to be installed — it is not a CI step.
-- **Ask which device tier** is relevant: S21 (tracked/exynos signal device) or S23U (reference/flagship device).
-- If on-device testing is required, **ask whether the resulting evidence should also be published** to
-  `test-results` for dashboard visibility.
+- Determine whether on-device testing is required from the issue, `.docs/agents/risk-based-evidence-policy.md`, and applicable subsystem gates; do not ask again when those sources settle it. On-device testing requires a physical device, USB/wireless ADB connection, and the app to be installed — it is not a CI step.
+- Use a device already specified by the issue or user. Otherwise, S21 is the default evidence device; use S23U when the risk policy calls for a focused comparison. If the required device is unavailable, report the concrete blocker rather than repeatedly asking which device to use.
+- Keep testing and publication separate. Run authorised device tests without asking for publication permission, but **do not publish** to `test-results` unless the user explicitly requests it. Ask only if publication is requested but its scope is genuinely unresolved.
 - **Do not imply** on-device evidence is covered by CI or the PR-number-first workflow.
 - **Do not publish** on-device evidence without a real physical-device run and explicit scope, commit,
   and release metadata.
