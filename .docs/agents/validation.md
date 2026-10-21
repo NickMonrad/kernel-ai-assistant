@@ -60,6 +60,6 @@ validation.
 2. Run the **smallest relevant local checks** described above and in that policy. In particular, docs-only changes need `git diff --check` (and configured Markdown lint), not unconditional Android builds, lint, or unit tests.
 3. For changed shared paths, cover relevant existing consumers, not only the new acceptance example.
 4. For UI, permissions, inference, and other device-sensitive work, collect the device evidence required by the risk policy and issue. S21 is the default where the policy permits it; a specified device should not trigger a redundant confirmation request. Report anything not run rather than treating an instrumentation APK build as an executed test.
-5. After opening the PR, check the repository's normal CI gates (lint, unit tests, debug build). CI does not replace required physical-device evidence; evidence publication remains separately controlled by the requester/reviewer.
+5. After opening the PR, inspect the individual CI **Build (debug)**, **Lint**, and **Unit tests** step outcomes, not just the overall workflow result. These steps currently use `continue-on-error: true`, so a green workflow can conceal failed checks. Report each failure as a failure; do not claim validation passed based only on the workflow conclusion. CI does not replace required physical-device evidence; evidence publication remains separately controlled by the requester/reviewer.
 
 A broader local `./gradlew test`, `lint`, or `assembleDebug` run is appropriate when the scope warrants it, but it is not a universal pre-PR prerequisite.
