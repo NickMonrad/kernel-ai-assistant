@@ -15,7 +15,6 @@ import com.kernel.ai.core.inference.LiteRtInferenceEngine
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
-import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.skills.mealplan.MealPlanJsonParser
 import com.kernel.ai.core.skills.mealplan.MealPlanQuantityValidator
 import java.io.File
@@ -27,6 +26,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,6 +38,7 @@ import org.junit.runner.RunWith
 class LlamaMealPlanComparisonTest {
     private val parser = MealPlanJsonParser()
     private val quantityValidator = MealPlanQuantityValidator()
+    private val recipeValidator = RecipeProbeValidator(parser, quantityValidator)
 
     @Test
     fun probePackageIsIsolatedFromPersistedAppJobs() {
@@ -230,7 +231,12 @@ class LlamaMealPlanComparisonTest {
                     prompt = MealPlanProbePrompts.PLAN_USER,
                     generate = { prompt -> generateLiteRt(context, gemmaEngine, prompt) },
                     textOf = Sample::text,
-                    validate = { text -> runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess to 0 },
+                    validate = { text ->
+                        ValidationAttempt(
+                            valid = runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess,
+                            normalizedIngredients = 0,
+                        )
+                    },
                 )
                 retryCount += plan.retries
                 repairCount += plan.retries
@@ -249,7 +255,8 @@ class LlamaMealPlanComparisonTest {
                 gemmaSamples.put(
                     "recipe",
                     recipe.value.toJson(recipe.valid, recipeStart, coldLoadMs = 0, retries = recipe.retries)
-                        .put("normalized_ingredients", recipe.normalizedIngredients),
+                        .put("normalized_ingredients", recipe.normalizedIngredients)
+                        .put("validation_diagnostics", recipeValidationDiagnostics(recipe.attempts)),
                 )
 
                 gemmaSamples.put("plan_and_recipe_wall_ms", elapsedMs(coldStart))
@@ -286,7 +293,12 @@ class LlamaMealPlanComparisonTest {
                     generateStreamed(llama, prompt, MealPlanProbePrompts.PLAN_SYSTEM, MealPlanProbeSchemas.plan())
                 },
                 textOf = LlamaGeneration::text,
-                validate = { text -> runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess to 0 },
+                validate = { text ->
+                    ValidationAttempt(
+                        valid = runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess,
+                        normalizedIngredients = 0,
+                    )
+                },
             )
             retryCount += plan.retries
             repairCount += plan.retries
@@ -312,7 +324,8 @@ class LlamaMealPlanComparisonTest {
             llamaSamples.put(
                 "recipe",
                 recipe.value.toJson(recipe.valid, recipeStart, ensureMemoryHealthy(context, "llama recipe"), recipe.retries)
-                    .put("normalized_ingredients", recipe.normalizedIngredients),
+                    .put("normalized_ingredients", recipe.normalizedIngredients)
+                    .put("validation_diagnostics", recipeValidationDiagnostics(recipe.attempts)),
             )
 
             llamaSamples.put("plan_and_recipe_wall_ms", elapsedMs(llamaColdStart))
@@ -440,11 +453,17 @@ class LlamaMealPlanComparisonTest {
     }
 
     private fun newLiteRtEngine(context: Context) = LiteRtInferenceEngine(context, HardwareProfileDetector(context))
+    private data class ValidationAttempt(
+        val valid: Boolean,
+        val normalizedIngredients: Int,
+        val recipeDiagnostic: RecipeProbeValidation? = null,
+    )
     private data class ValidatedOutput<T>(
         val value: T,
         val valid: Boolean,
         val normalizedIngredients: Int,
         val retries: Int,
+        val attempts: List<ValidationAttempt>,
     )
 
     private suspend fun <T> stage(name: String, block: suspend () -> T): T {
@@ -475,16 +494,26 @@ class LlamaMealPlanComparisonTest {
         prompt: String,
         generate: suspend (String) -> T,
         textOf: (T) -> String,
-        validate: (String) -> Pair<Boolean, Int>,
+        validate: (String) -> ValidationAttempt,
     ): ValidatedOutput<T> {
         var retries = 0
+        val attempts = mutableListOf<ValidationAttempt>()
         while (true) {
             val attemptPrompt = if (retries == 0) prompt else {
                 "$prompt\n\nThe previous response failed Jandal application validation. Correct the JSON and return only the corrected output."
             }
             val result = stage("${stageName}_attempt_${retries + 1}") { generate(attemptPrompt) }
-            val (valid, normalizedIngredients) = validate(textOf(result))
-            if (valid || retries == 1) return ValidatedOutput(result, valid, normalizedIngredients, retries)
+            val validation = validate(textOf(result))
+            attempts += validation
+            if (validation.valid || retries == 1) {
+                return ValidatedOutput(
+                    value = result,
+                    valid = validation.valid,
+                    normalizedIngredients = validation.normalizedIngredients,
+                    retries = retries,
+                    attempts = attempts.toList(),
+                )
+            }
             retries++
         }
     }
@@ -539,24 +568,40 @@ class LlamaMealPlanComparisonTest {
         )
     }
 
-    private fun validateRecipe(text: String): Pair<Boolean, Int> = runCatching {
-        val recipe = parser.parseRecipeDraft(text, expectedServings = 4)
-        val items = quantityValidator.validateAndNormalize(recipe)
-        val normalized = items.count { it.normalizationStatus == GroceryNormalizationStatus.NORMALIZED }
-        val expected = listOf(
-            Triple("chicken breast", "500", "g"),
-            Triple("kumara", "400", "g"),
-            Triple("carrot", "2", "whole"),
-            Triple("red onion", "1", "whole"),
-            Triple("olive oil", "15", "ml"),
-            Triple("lemon", "1", "whole"),
+    private fun validateRecipe(text: String): ValidationAttempt {
+        val diagnostic = recipeValidator.validate(text)
+        return ValidationAttempt(
+            valid = diagnostic.valid,
+            normalizedIngredients = diagnostic.normalizedIngredientCount,
+            recipeDiagnostic = diagnostic,
         )
-        val exactItems = expected.all { (name, amount, unit) ->
-            val item = items.firstOrNull { it.ingredientName?.lowercase()?.contains(name) == true }
-            item?.quantity == amount && item.unit == unit
+    }
+
+    private fun recipeValidationDiagnostics(attempts: List<ValidationAttempt>): JSONObject {
+        val reports = attempts.mapNotNull { it.recipeDiagnostic }
+        val categoryCounts = JSONObject()
+        reports.groupingBy { it.category.wireName }.eachCount().forEach { (category, count) ->
+            categoryCounts.put(category, count)
         }
-        (items.size == expected.size && normalized == expected.size && exactItems) to normalized
-    }.getOrElse { false to 0 }
+        val attemptReports = JSONArray()
+        reports.forEachIndexed { index, report ->
+            val item = JSONObject()
+                .put("attempt", index + 1)
+                .put("category", report.category.wireName)
+                .put("valid", report.valid)
+                .put("parsed_ingredient_count", report.parsedIngredientCount ?: JSONObject.NULL)
+                .put("normalized_ingredient_count", report.normalizedIngredientCount)
+                .put("name_mismatch_count", report.nameMismatchCount)
+                .put("unit_mismatch_count", report.unitMismatchCount)
+                .put("quantity_mismatch_count", report.quantityMismatchCount)
+                .put("validation_ms", report.validationMs)
+            report.exceptionClass?.let { item.put("exception_class", it) }
+            attemptReports.put(item)
+        }
+        return JSONObject()
+            .put("attempts", attemptReports)
+            .put("category_counts", categoryCounts)
+    }
 
     private fun gemmaModelFile(context: Context, override: String?): File {
         override?.let(::File)?.let { return it }
