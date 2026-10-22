@@ -27,8 +27,11 @@ Choose the narrowest slice that exercises the changed path:
 
 - **Always** for: audio focus acquire/release, wake-word/VAD interaction,
   alert-time listening, STT no-match retry behaviour
-- **Not required** for: isolated engine backend swaps validated by ADB harness,
-  config-only changes (thresholds, model paths)
+- **Required** for: STT/TTS engine swaps and audible-behaviour changes under the
+  risk-based evidence policy. A targeted ADB harness can supply functional evidence,
+  but does not by itself waive required listening/recognition checks.
+- **Not required** for: config-only changes that do not affect observed audio
+  behaviour and are covered by applicable automated checks.
 
 ## Device Requirements
 
@@ -50,8 +53,12 @@ Choose the narrowest slice that exercises the changed path:
 ## Suggested Commands
 
 ```bash
-# Run voice-specific ADB test phase
-scripts/adb_skill_test.py --phase voice
+# Run focused voice unit tests
+./gradlew :core:voice:testDebugUnitTest
+
+# For on-device STT/wake-word validation, use the documented procedures in
+# docs/automated-testing.md; for TTS/audio focus, exercise the changed path on
+# the required physical device. No generic `voice` ADB harness phase exists.
 
 # Check audio focus state
 adb shell dumpsys media_session

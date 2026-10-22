@@ -13,14 +13,14 @@ Load this when multiple valid approaches exist.
 ## Android-specific heuristics
 
 - Prefer `android` CLI when available; fall back to Gradle + `adb`
-- Prefer explicit Intents over implicit for SMS, email, and other external actions
+- For SMS/email composers, preserve the app's user-mediated `ACTION_SENDTO` + `smsto:`/`mailto:` handling; avoid unsafe broad broadcasts or silent sending
 - Prefer dedicated LLM dispatcher — never `Dispatchers.Main` for inference
 - Prefer Material 3 components over custom Compose implementations
 - Prefer Room entities over raw SQL where possible
 
 ## Inference-specific heuristics
 
-- Always mock `InferenceEngine` in tests — never load real models
+- Mock `InferenceEngine` for unit/CI tests; device acceptance tests may exercise the real model when required
 - Prefer `safeTokenCount()` guard for all token count operations
 - Verify quantization before assuming OOM is a memory issue
 
@@ -34,4 +34,4 @@ Load this when multiple valid approaches exist.
 ## Documentation heuristics
 
 - Update `.omp/AGENTS.md` first when architecture or conventions change — other files follow
-- Update `specification.md` when API contracts change
+- Update the relevant authoritative spec under `docs/`, starting from `docs/SPEC_INDEX.md`, when API contracts change

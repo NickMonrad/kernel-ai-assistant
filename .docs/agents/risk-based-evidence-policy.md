@@ -7,15 +7,19 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 1. **Low-risk changes stay lightweight.** Docs, copy changes, and refactors with no
    behaviour change do not require device testing, screenshots, or broad regression runs.
-2. **Device evidence defaults to S21.** The S21 (Exynos) device is always available and
-   is the default for broad/regular evidence. Avoid running broad suites on the S23U
-   (user's daily driver) unless explicitly needed.
+2. **PR evidence defaults to S21.** The S21 (Exynos) is the baseline for broad/regular
+   acceptance evidence when it is connected and available; if a required device is
+   unavailable, report the blocker. This is distinct from the S23U default for an
+   unspecified ad hoc physical-device test in `docs/automated-testing.md`. Explicit
+   issue/device requirements win. Avoid broad S23U suites unless needed.
 3. **Manual on-device testing is reserved for high-risk or hard-to-automate changes.**
    Do not require manual testing for every low-risk or CI-safe change.
 4. **Targeted validation is better than broad.** A focused unit test for the changed
    function provides more signal than a full `connectedDebugAndroidTest` run.
-5. **CI evidence artifacts confirm the automated gate passed.** Durable evidence
-   publishing to `test-results` is reviewer/user-controlled unless explicitly requested.
+5. **CI evidence artifacts record results, not proof of passing.** The build, lint and
+   unit-test steps currently use `continue-on-error: true`; inspect their individual
+   outcomes before claiming validation passed. Durable publishing to `test-results`
+   is reviewer/user-controlled unless explicitly requested.
 
 ---
 

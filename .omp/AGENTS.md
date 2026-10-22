@@ -46,17 +46,19 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 
 ## Key conventions
 
-- No cloud inference — all inference through LiteRT, no network endpoints
+- No cloud LLM inference endpoints; explicit user-enabled integrations may use the network as defined by their existing contracts
 - `gemma4InitMutex` guards all E4B init paths
 - `tryExecuteToolCall()`: unknown skill or malformed JSON → plain text fallback, never crash
 - Inference on dedicated LLM dispatcher — never `Dispatchers.Main`
-- Explicit Intents only for SMS/email — never implicit
+- SMS/email composers use user-mediated `ACTION_SENDTO` with `mailto:`/`smsto:` URIs; do not send silently or substitute a generic share/broadcast Intent
 - Wasm sandboxing is non-negotiable — capabilities via Kotlin host bridge functions only
 - Context window managed, not truncated — recursive summarisation at 80% KV capacity
 - E4B loads eagerly first on GPU (~20s first boot, ~2s with kernel cache)
 - Minimum touch target: 48×48dp. Color contrast: 4.5:1 for body text, 3:1 for large text (18sp+). 8dp spacing grid.
 
 ## Agent working model
+
+Start from the issue or request, its acceptance criteria, and the existing implementation. Prefer the smallest change that satisfies them; do not redesign neighbouring systems or repeat a planning phase after a design is accepted. Proceed with settled decisions and safe, reversible steps without asking again. Escalate only a genuine unresolved decision, inaccessible prerequisite, or consequential/destructive action not already authorised.
 
 Work inline by default when the request is one coherent feature, defect, review, or remediation task. Multi-file scope, expected duration, and generic complexity are not reasons to delegate.
 
@@ -97,15 +99,13 @@ OMP isolated tasks normally integrate changes through automatic patch applicatio
 
 ## Branch isolation
 
-**Do not modify the main checkout directly.** Every session that touches code must use a dedicated worktree:
+**Do not modify a shared `main` checkout directly.** For shared local repositories, use an existing task worktree or create a dedicated one:
 
 ```bash
 git worktree add ~/.omp/wt/<task-name> <branch>
 ```
 
-Before starting: `git branch --show-current` to verify you're on the expected branch. Check `git worktree list` before creating a new one — avoid duplicating an existing branch checkout.
-
-Rationale: 50+ worktrees across sessions/agents exist in this repo. Direct checkout modifications cause conflicts with concurrent agent work.
+An already-isolated agent checkout/worktree does not need another worktree. Verify the current branch with `git branch --show-current`; check `git worktree list` before creating a new one. This prevents conflicts between concurrent local sessions.
 
 ## Build commands
 
@@ -117,11 +117,11 @@ connectedDebugAndroidTest   # requires device
 
 ## rtk — output control
 
-Use `rtk` for output-heavy builds, tests, lint, logs, diffs, searches, and JSON when supported so raw output does not consume the context. Common forms: `rtk test <cmd>`, `rtk lint <cmd>`, `rtk log <cmd>`, `rtk git status`, `rtk git diff`, `rtk grep <pattern>`, `rtk err <cmd>`, `rtk summary <cmd>`, and `rtk json <cmd>`. Do not wrap short or interactive commands where filtering provides no benefit.
+Prefer `rtk` for output-heavy builds, tests, lint, logs, diffs, searches, and JSON when it is available and preserves the diagnostic information needed. Use raw output when filtering hides a failure. Common forms: `rtk test <cmd>`, `rtk lint <cmd>`, `rtk log <cmd>`, `rtk git status`, `rtk git diff`, `rtk grep <pattern>`, `rtk err <cmd>`, `rtk summary <cmd>`, and `rtk json <cmd>`. Do not wrap short or interactive commands where filtering provides no benefit.
 
 ## context-mode — routing
 
-context-mode is installed globally (MCP tools + native OMP hooks). Follow `~/.omp/agent/SYSTEM.md` when available. Otherwise use `ctx_execute(language, code)` for count/filter/parse/transform analysis so only concise stdout enters context; do not read large raw data when code can summarise it.
+When context-mode is available, follow `~/.omp/agent/SYSTEM.md` if present. Use `ctx_execute(language, code)` for large count/filter/parse/transform tasks when summarised output is sufficient; retain raw evidence when diagnosing errors. Do not block on the tool being unavailable.
 
 ## Branching & PR standards
 
@@ -136,7 +136,7 @@ End every implementation handoff with: **Do not merge — wait for review.**
 ## Testing strategy
 
 - Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
-- Never load real models in tests — mock at `InferenceEngine` interface
+- Mock `InferenceEngine` in unit/CI tests; when issue acceptance or the risk policy requires real-model physical-device validation, execute it on the specified device and report the model/backend tested
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
 - Coroutine tests: use `MainDispatcherRule` (replaces `Dispatchers.Main` with `TestDispatcher`) to avoid `IllegalStateException`. Use Turbine library for StateFlow/Flow assertion in tests.
 
@@ -153,16 +153,16 @@ See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallba
 > Publishing under the wrong number misroutes dashboard evidence to the wrong PR.
 
 **For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
-If on-device testing is needed, ask which device tier is required (S21 tracked signal or S23U reference signal)
-and whether the results should be published to `test-results`.
+For on-device testing, use the device and publication instructions already agreed in the issue or conversation. Otherwise follow `.docs/agents/risk-based-evidence-policy.md`: S21 is the default evidence device; use S23U when the policy or issue calls for it. Do not pause merely to reconfirm a known device. You may create and clean up disposable local test data needed for the approved test, but do not alter unrelated personal data or remote accounts without authorisation. Publish to `test-results` only when explicitly requested, and distinguish tests actually executed on-device from APK packaging or CI checks.
 
 Details: `.docs/agents/test-evidence-workflow.md`.
 
 ## Working style
 
-- Search before reading; read surgically and minimally
-- Use `lsp` for all code intelligence — not grep
-- Reuse existing context; prefer targeted validation
+- Start from the issue, changed files, and known paths; search and read only what is needed
+- Prefer `lsp` for symbols, definitions, references, and call sites; use targeted text search for text, configuration, resources, or when LSP is unavailable
+- Reuse existing context and select validation from `.docs/agents/validation.md` and `.docs/agents/risk-based-evidence-policy.md`; do not run broad checks solely out of habit
+- When changing shared routing, normalisation, persistence, execution, or lifecycle paths, check materially affected existing consumers for regressions
 - Prefer small, reviewable diffs; match surrounding style
 
 ## Performance targets
@@ -177,7 +177,7 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 
 ## Hard constraints
 
-No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
+No external LLM APIs | SMS/email via user-mediated `ACTION_SENDTO` composers | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
 No GitHub Copilot Review | Human/ChatGPT review plus repo evidence is the expected review path
 
 ## Agent memory

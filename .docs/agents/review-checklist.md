@@ -12,9 +12,8 @@ For subsystem-specific guidance, see the individual review gates (`.docs/agents/
 - [ ] No GitHub Copilot Review requested or used as merge signal
 
 ## Build & Code Quality
-- [ ] `./gradlew assembleDebug` passes
-- [ ] `./gradlew lint` passes (or baseline updated)
-- [ ] `./gradlew testDebugUnitTest` passes
+- [ ] Applicable checks from `.docs/agents/validation.md` and the risk policy pass (docs-only changes do not require Android builds)
+- [ ] Build, lint and unit-test CI step outcomes inspected individually when CI runs (`continue-on-error` may hide failures)
 - [ ] No new lint warnings or deprecations introduced
 - [ ] No broad formatting-only diffs
 - [ ] No secrets, credentials, or hardcoded tokens
@@ -27,7 +26,7 @@ For subsystem-specific guidance, see the individual review gates (`.docs/agents/
 
 ## Security & Memory Safety
 - [ ] No generic `fetch()` in Wasm skills
-- [ ] No implicit Intents for SMS/email
+- [ ] SMS/email composers preserve safe, user-mediated `ACTION_SENDTO` behaviour
 - [ ] No `Dispatchers.Main` for inference
 - [ ] No concurrent E4B init (holds `gemma4InitMutex`)
 - [ ] LiteRT session isolation verified (if applicable)
@@ -41,5 +40,5 @@ For subsystem-specific guidance, see the individual review gates (`.docs/agents/
 
 ## Limitations
 - [ ] Known limitations declared in PR body
-- [ ] Follow-up issues created for deferred work
-- [ ] Backward-compatibility impact assessed
+- [ ] Required follow-up issues tracked when remaining work blocks acceptance
+- [ ] Compatibility assessed where released/external consumers actually depend on changed contracts
